@@ -35,6 +35,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 
 // Deliver delivers a task
 func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+	if task == nil {
+		return fmt.Errorf("task is nil")
+	}
+
 	logger.Info("delivering task",
 		"provider", p.name,
 		"task_id", task.ID,
