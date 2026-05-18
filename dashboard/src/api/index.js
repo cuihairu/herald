@@ -20,6 +20,12 @@ export const heraldApi = {
   // 获取 Providers
   getProviders: () => api.get('/providers'),
 
+  // 获取 Workers
+  getWorkers: () => api.get('/workers'),
+
+  // 获取队列状态
+  getQueue: () => api.get('/queue'),
+
   // 发送通知
   sendNotify: (data) => api.post('/notify', data),
 

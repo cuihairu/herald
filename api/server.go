@@ -9,6 +9,7 @@ import (
 	"github.com/cuihaitao/herald/core/dedup"
 	"github.com/cuihaitao/herald/core/route"
 	"github.com/cuihaitao/herald/core/runtime"
+	"github.com/cuihaitao/herald/core/websocket"
 	"github.com/cuihaitao/herald/internal/logger"
 )
 
@@ -57,6 +58,8 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/providers", s.handleProviders)
+	mux.HandleFunc("/api/v1/workers", s.handleWorkers)
+	mux.HandleFunc("/api/v1/queue", s.handleQueue)
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -118,6 +121,27 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleProviders(w, r)
+}
+
+func (s *Server) handleWorkers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleWorkers(w, r)
+}
+
+func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleQueue(w, r)
+}
+
+// SetWebSocketServer sets the WebSocket server
+func (s *Server) SetWebSocketServer(wsServer *websocket.Server) {
+	s.handler.SetWebSocketServer(wsServer)
 }
 
 // dispatch processes events and tasks from the queue

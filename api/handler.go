@@ -9,16 +9,18 @@ import (
 	"github.com/cuihaitao/herald/core/dedup"
 	"github.com/cuihaitao/herald/core/route"
 	"github.com/cuihaitao/herald/core/runtime"
+	"github.com/cuihaitao/herald/core/websocket"
 	"github.com/cuihaitao/herald/internal/logger"
 	"github.com/google/uuid"
 )
 
 // Handler handles HTTP requests
 type Handler struct {
-	router  *route.Router
-	queue   core.Queue
-	runtime *runtime.Manager
-	dedup   *dedup.Dedup
+	router   *route.Router
+	queue    core.Queue
+	runtime  *runtime.Manager
+	dedup    *dedup.Dedup
+_wsServer *websocket.Server
 }
 
 // NewHandler creates a new handler
@@ -29,6 +31,11 @@ func NewHandler(router *route.Router, queue core.Queue, runtime *runtime.Manager
 		runtime: runtime,
 		dedup:   dedup,
 	}
+}
+
+// SetWebSocketServer sets the WebSocket server
+func (h *Handler) SetWebSocketServer(wsServer *websocket.Server) {
+	h._wsServer = wsServer
 }
 
 // NotifyRequest is a notify request
@@ -177,6 +184,56 @@ func (h *Handler) HandleProviders(w http.ResponseWriter, r *http.Request) {
 		Message: "ok",
 		Data: map[string]interface{}{
 			"providers": statuses,
+		},
+	})
+}
+
+// HandleWorkers handles workers status requests
+func (h *Handler) HandleWorkers(w http.ResponseWriter, r *http.Request) {
+	if h._wsServer == nil {
+		h.respondJSON(w, &Response{
+			Code:    0,
+			Message: "ok",
+			Data: map[string]interface{}{
+				"workers": []interface{}{},
+			},
+		})
+		return
+	}
+
+	workers := h._wsServer.GetWorkers()
+	workerList := make([]map[string]interface{}, 0, len(workers))
+
+	for _, state := range workers {
+		workerInfo := map[string]interface{}{
+			"worker_id":    state.WorkerID,
+			"platform":     state.Platform,
+			"version":      state.Version,
+			"capabilities": state.Capabilities,
+			"connected_at": state.ConnectedAt,
+			"last_heartbeat": state.LastHeartbeat,
+			"status":       state.Status,
+		}
+		workerList = append(workerList, workerInfo)
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: map[string]interface{}{
+			"count":   len(workerList),
+			"workers": workerList,
+		},
+	})
+}
+
+// HandleQueue handles queue status requests
+func (h *Handler) HandleQueue(w http.ResponseWriter, r *http.Request) {
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: map[string]interface{}{
+			"size": h.queue.Size(),
 		},
 	})
 }

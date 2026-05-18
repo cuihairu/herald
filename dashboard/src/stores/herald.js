@@ -5,6 +5,8 @@ import { heraldApi } from '../api'
 export const useHeraldStore = defineStore('herald', () => {
   const status = ref(null)
   const providers = ref([])
+  const workers = ref([])
+  const queue = ref({ size: 0 })
   const loading = ref(false)
   const error = ref(null)
 
@@ -27,6 +29,32 @@ export const useHeraldStore = defineStore('herald', () => {
     try {
       const response = await heraldApi.getProviders()
       providers.value = response.data.providers
+    } catch (err) {
+      error.value = err.message
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchWorkers() {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await heraldApi.getWorkers()
+      workers.value = response.data.workers || []
+    } catch (err) {
+      error.value = err.message
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchQueue() {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await heraldApi.getQueue()
+      queue.value = response.data
     } catch (err) {
       error.value = err.message
     } finally {
@@ -65,10 +93,14 @@ export const useHeraldStore = defineStore('herald', () => {
   return {
     status,
     providers,
+    workers,
+    queue,
     loading,
     error,
     fetchStatus,
     fetchProviders,
+    fetchWorkers,
+    fetchQueue,
     sendNotify,
     sendEvent
   }

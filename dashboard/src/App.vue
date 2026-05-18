@@ -5,6 +5,7 @@
       <div class="nav-links">
         <router-link to="/" class="nav-link">仪表盘</router-link>
         <router-link to="/providers" class="nav-link">Providers</router-link>
+        <router-link to="/workers" class="nav-link">Workers</router-link>
         <router-link to="/send" class="nav-link">发送消息</router-link>
       </div>
     </nav>
