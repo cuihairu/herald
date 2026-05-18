@@ -238,6 +238,70 @@ func (h *Handler) HandleQueue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleEnableProvider enables a provider
+func (h *Handler) HandleEnableProvider(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		h.respondError(w, http.StatusBadRequest, "provider name is required")
+		return
+	}
+
+	if err := h.runtime.Enable(name); err != nil {
+		h.respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "provider enabled",
+	})
+}
+
+// HandleDisableProvider disables a provider
+func (h *Handler) HandleDisableProvider(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		h.respondError(w, http.StatusBadRequest, "provider name is required")
+		return
+	}
+
+	if err := h.runtime.Disable(name); err != nil {
+		h.respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "provider disabled",
+	})
+}
+
+// HandleEnableProviderWithName enables a provider by name
+func (h *Handler) HandleEnableProviderWithName(w http.ResponseWriter, r *http.Request, name string) {
+	if err := h.runtime.Enable(name); err != nil {
+		h.respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "provider enabled",
+	})
+}
+
+// HandleDisableProviderWithName disables a provider by name
+func (h *Handler) HandleDisableProviderWithName(w http.ResponseWriter, r *http.Request, name string) {
+	if err := h.runtime.Disable(name); err != nil {
+		h.respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "provider disabled",
+	})
+}
+
 func (h *Handler) respondJSON(w http.ResponseWriter, data *Response) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)

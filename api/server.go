@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cuihaitao/herald/core"
@@ -60,6 +61,7 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/providers", s.handleProviders)
 	mux.HandleFunc("/api/v1/workers", s.handleWorkers)
 	mux.HandleFunc("/api/v1/queue", s.handleQueue)
+	mux.HandleFunc("/api/v1/providers/", s.handleProviderAction)
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -137,6 +139,44 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleQueue(w, r)
+}
+
+func (s *Server) handleProviderAction(w http.ResponseWriter, r *http.Request) {
+	// Extract provider name from path like /api/v1/providers/{name}/enable or /api/v1/providers/{name}/disable
+	path := r.URL.Path
+	prefix := "/api/v1/providers/"
+
+	if len(path) <= len(prefix) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	rest := path[len(prefix):]
+	parts := strings.Split(rest, "/")
+	if len(parts) < 2 {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	name := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "enable":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handler.HandleEnableProviderWithName(w, r, name)
+	case "disable":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handler.HandleDisableProviderWithName(w, r, name)
+	default:
+		http.Error(w, "invalid action", http.StatusBadRequest)
+	}
 }
 
 // SetWebSocketServer sets the WebSocket server

@@ -13,6 +13,7 @@ type Manager struct {
 	mu        sync.RWMutex
 	providers map[string]core.Provider
 	factories map[string]core.ProviderFactory
+	enabled   map[string]bool // Track enabled providers
 }
 
 // NewManager creates a new runtime manager
@@ -20,6 +21,7 @@ func NewManager() *Manager {
 	return &Manager{
 		providers: make(map[string]core.Provider),
 		factories: make(map[string]core.ProviderFactory),
+		enabled:   make(map[string]bool),
 	}
 }
 
@@ -32,7 +34,7 @@ func (m *Manager) RegisterFactory(factory core.ProviderFactory) {
 }
 
 // RegisterProvider registers a provider
-func (m *Manager) RegisterProvider(provider core.Provider) error {
+func (m *Manager) RegisterProvider(provider core.Provider, enabled ...bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -42,6 +44,12 @@ func (m *Manager) RegisterProvider(provider core.Provider) error {
 	}
 
 	m.providers[name] = provider
+	// Default to enabled if not specified
+	isEnabled := true
+	if len(enabled) > 0 {
+		isEnabled = enabled[0]
+	}
+	m.enabled[name] = isEnabled
 	return nil
 }
 
@@ -103,12 +111,50 @@ func (m *Manager) Deliver(ctx context.Context, task *core.Task) error {
 		return fmt.Errorf("task is nil")
 	}
 
+	// Check if provider is enabled
+	if !m.IsEnabled(task.Provider) {
+		return fmt.Errorf("provider is disabled: %s", task.Provider)
+	}
+
 	provider, err := m.GetProvider(task.Provider)
 	if err != nil {
 		return err
 	}
 
 	return provider.Deliver(ctx, task)
+}
+
+// Enable enables a provider
+func (m *Manager) Enable(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.providers[name]; !exists {
+		return fmt.Errorf("provider not found: %s", name)
+	}
+
+	m.enabled[name] = true
+	return nil
+}
+
+// Disable disables a provider
+func (m *Manager) Disable(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.providers[name]; !exists {
+		return fmt.Errorf("provider not found: %s", name)
+	}
+
+	m.enabled[name] = false
+	return nil
+}
+
+// IsEnabled checks if a provider is enabled
+func (m *Manager) IsEnabled(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.enabled[name]
 }
 
 // Close closes all providers

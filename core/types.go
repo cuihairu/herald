@@ -68,6 +68,7 @@ type ProviderStatus struct {
 	Name     string    `json:"name"`
 	Type     string    `json:"type"`
 	Status   string    `json:"status"`
+	Enabled  bool      `json:"enabled"`
 	WorkerID string    `json:"worker_id,omitempty"`
 	Since    time.Time `json:"since"`
 }
