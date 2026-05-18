@@ -99,6 +99,10 @@ func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 
 // Deliver delivers a task to a provider
 func (m *Manager) Deliver(ctx context.Context, task *core.Task) error {
+	if task == nil {
+		return fmt.Errorf("task is nil")
+	}
+
 	provider, err := m.GetProvider(task.Provider)
 	if err != nil {
 		return err
