@@ -1,0 +1,17 @@
+bin/
+*.exe
+*.test
+*.out
+coverage.txt
+coverage.html
+.git/
+.gitignore
+.DS_Store
+.spec-workflow/
+docs/node_modules/
+docs/.vitepress/dist/
+*.md
+!README.md
+Makefile
+config.yaml
+.env

@@ -1,0 +1,126 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/cuihaitao/herald/api"
+	"github.com/cuihaitao/herald/core"
+	"github.com/cuihaitao/herald/core/dedup"
+	"github.com/cuihaitao/herald/core/queue"
+	"github.com/cuihaitao/herald/core/route"
+	"github.com/cuihaitao/herald/core/runtime"
+	"github.com/cuihaitao/herald/internal/config"
+	"github.com/cuihaitao/herald/internal/logger"
+	builtinregistry "github.com/cuihaitao/herald/providers/builtin/registry"
+)
+
+var (
+	configPath = flag.String("config", "config.yaml", "config file path")
+)
+
+func main() {
+	flag.Parse()
+
+	// Load config
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		logger.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	cfg.ExpandEnv()
+	if err := cfg.Validate(); err != nil {
+		logger.Error("invalid config", "error", err)
+		os.Exit(1)
+	}
+
+	// Create queue
+	q, err := queue.NewQueue(&core.QueueConfig{
+		Type:    cfg.Queue.Type,
+		Size:    cfg.Queue.Size,
+		Timeout: cfg.Queue.Timeout,
+	})
+	if err != nil {
+		logger.Error("failed to create queue", "error", err)
+		os.Exit(1)
+	}
+	defer q.Close()
+
+	// Create router
+	router := route.NewRouter(&route.Config{
+		Routes: cfg.Routes,
+	})
+
+	// Create runtime manager
+	manager := runtime.NewManager()
+
+	// Register builtin provider factories
+	builtinregistry.RegisterBuiltinProviders(manager)
+
+	// Initialize providers from config
+	for name, providerCfg := range cfg.Providers {
+		provider, err := manager.CreateProvider(name, providerCfg.Config)
+		if err != nil {
+			logger.Error("failed to create provider", "name", name, "error", err)
+			os.Exit(1)
+		}
+		if err := manager.RegisterProvider(provider); err != nil {
+			logger.Error("failed to register provider", "name", name, "error", err)
+			os.Exit(1)
+		}
+		logger.Info("provider registered", "name", name, "type", provider.Type())
+	}
+
+	// Create dedup
+	var d *dedup.Dedup
+	if cfg.Dedup.Enabled {
+		d = dedup.NewDedup(&dedup.Config{
+			Window: cfg.Dedup.Window,
+		})
+	}
+
+	// Create server
+	srv := api.NewServer(&api.Config{
+		Addr:    cfg.Server.Addr,
+		Timeout: cfg.Server.Timeout,
+		Router:  router,
+		Queue:   q,
+		Runtime: manager,
+		Dedup:   d,
+	})
+
+	// Start server
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		if err := srv.Start(ctx); err != nil {
+			logger.Error("server error", "error", err)
+			cancel()
+		}
+	}()
+
+	// Wait for signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	// Shutdown
+	logger.Info("shutting down...")
+	ctx, cancel = context.WithTimeout(context.Background(), cfg.Server.Timeout)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("shutdown error", "error", err)
+	}
+
+	if err := manager.Close(ctx); err != nil {
+		logger.Error("runtime close error", "error", err)
+	}
+
+	logger.Info("shutdown complete")
+}

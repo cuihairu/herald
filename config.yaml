@@ -1,0 +1,71 @@
+# Herald 配置文件
+
+server:
+  addr: ":8080"
+  timeout: 30s
+
+# Provider 配置
+providers:
+  log:
+    type: builtin
+    config:
+      name: "log"
+
+  telegram:
+    type: builtin
+    config:
+      token: "${TELEGRAM_BOT_TOKEN}"
+      chat_id: "${TELEGRAM_CHAT_ID}"
+
+  feishu:
+    type: builtin
+    config:
+      webhook_url: "${FEISHU_WEBHOOK_URL}"
+
+  wecom:
+    type: builtin
+    config:
+      webhook_url: "${WECOM_WEBHOOK_URL}"
+
+  email:
+    type: builtin
+    config:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "${EMAIL_USERNAME}"
+      password: "${EMAIL_PASSWORD}"
+      from: "${EMAIL_FROM}"
+      from_name: "Herald"
+
+  webhook:
+    type: builtin
+    config:
+      url: "${WEBHOOK_URL}"
+      method: "POST"
+
+# 路由配置
+routes:
+  error:
+    - log
+  warning:
+    - log
+  info:
+    - log
+
+# 队列配置
+queue:
+  type: memory
+  size: 10000
+  timeout: 5s
+
+# 重试配置
+retry:
+  max: 3
+  backoff: exponential
+  initial_delay: 1s
+  max_delay: 1m
+
+# 去重配置
+dedup:
+  enabled: true
+  window: 5m

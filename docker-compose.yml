@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  herald:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: herald:latest
+    container_name: herald
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL}
+      - WECOM_WEBHOOK_URL=${WECOM_WEBHOOK_URL}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  default:
+    name: herald-network
