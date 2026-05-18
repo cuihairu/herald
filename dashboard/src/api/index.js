@@ -26,6 +26,12 @@ export const heraldApi = {
   // 获取队列状态
   getQueue: () => api.get('/queue'),
 
+  // 启用 Provider
+  enableProvider: (name) => api.post(`/providers/${name}/enable`),
+
+  // 禁用 Provider
+  disableProvider: (name) => api.post(`/providers/${name}/disable`),
+
   // 发送通知
   sendNotify: (data) => api.post('/notify', data),
 

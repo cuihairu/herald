@@ -6,29 +6,61 @@ server:
 
 # Provider 配置
 providers:
+  # 日志 Provider (默认启用)
   log:
     type: builtin
+    enabled: true
     config:
       name: "log"
 
+  # Telegram 机器人
   telegram:
     type: builtin
+    enabled: true
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
       chat_id: "${TELEGRAM_CHAT_ID}"
 
+  # 飞书
   feishu:
     type: builtin
+    enabled: false
     config:
       webhook_url: "${FEISHU_WEBHOOK_URL}"
 
+  # 企业微信
   wecom:
     type: builtin
+    enabled: false
     config:
       webhook_url: "${WECOM_WEBHOOK_URL}"
 
+  # 钉钉
+  dingtalk:
+    type: builtin
+    enabled: false
+    config:
+      access_token: "${DINGTALK_ACCESS_TOKEN}"
+      secret: "${DINGTALK_SECRET}"
+
+  # Slack
+  slack:
+    type: builtin
+    enabled: false
+    config:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+
+  # Discord
+  discord:
+    type: builtin
+    enabled: false
+    config:
+      webhook_url: "${DISCORD_WEBHOOK_URL}"
+
+  # 邮件
   email:
     type: builtin
+    enabled: false
     config:
       host: "smtp.gmail.com"
       port: 587
@@ -37,11 +69,41 @@ providers:
       from: "${EMAIL_FROM}"
       from_name: "Herald"
 
+  # Webhook
   webhook:
     type: builtin
+    enabled: false
     config:
       url: "${WEBHOOK_URL}"
       method: "POST"
+
+  # 阿里云短信
+  aliyunsms:
+    type: builtin
+    enabled: false
+    config:
+      access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
+      access_key_secret: "${ALIYUN_ACCESS_KEY_SECRET}"
+      sign_name: "${ALIYUN_SMS_SIGN_NAME}"
+      region: "cn-hangzhou"
+
+  # 腾讯云短信
+  tencentsms:
+    type: builtin
+    enabled: false
+    config:
+      secret_id: "${TENCENT_SECRET_ID}"
+      secret_key: "${TENCENT_SECRET_KEY}"
+      app_id: "${TENCENT_SMS_APP_ID}"
+      region: "ap-guangzhou"
+
+  # 网易云信短信
+  neteasesms:
+    type: builtin
+    enabled: false
+    config:
+      app_key: "${NETEASE_APP_KEY}"
+      app_secret: "${NETEASE_APP_SECRET}"
 
 # 路由配置
 routes:
@@ -69,3 +131,10 @@ retry:
 dedup:
   enabled: true
   window: 5m
+
+# WebSocket 配置 (用于 Worker 连接)
+websocket:
+  addr: ":8081"
+  read_timeout: 60s
+  write_timeout: 60s
+  ping_interval: 20s

@@ -12,6 +12,7 @@ export default defineConfig({
       { text: '架构', link: '/architecture/overview' },
       { text: 'Runtime', link: '/runtime/overview' },
       { text: 'API', link: '/api/overview' },
+      { text: 'Providers', link: '/providers/overview' },
     ],
 
     sidebar: {
@@ -56,6 +57,15 @@ export default defineConfig({
             { text: '概述', link: '/api/overview' },
             { text: 'REST API', link: '/api/rest' },
             { text: '事件 API', link: '/api/events' },
+          ]
+        }
+      ],
+      '/': [
+        {
+          text: 'Providers',
+          items: [
+            { text: '概述', link: '/providers/overview' },
+            { text: 'SMS Providers', link: '/providers/sms' },
           ]
         }
       ],

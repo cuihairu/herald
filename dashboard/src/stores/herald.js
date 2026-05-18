@@ -90,6 +90,34 @@ export const useHeraldStore = defineStore('herald', () => {
     }
   }
 
+  async function enableProvider(name) {
+    loading.value = true
+    error.value = null
+    try {
+      await heraldApi.enableProvider(name)
+      await fetchProviders()
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function disableProvider(name) {
+    loading.value = true
+    error.value = null
+    try {
+      await heraldApi.disableProvider(name)
+      await fetchProviders()
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     status,
     providers,
@@ -102,6 +130,8 @@ export const useHeraldStore = defineStore('herald', () => {
     fetchWorkers,
     fetchQueue,
     sendNotify,
-    sendEvent
+    sendEvent,
+    enableProvider,
+    disableProvider
   }
 })
