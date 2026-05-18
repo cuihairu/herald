@@ -4,7 +4,7 @@ export default defineConfig({
   title: 'Herald',
   description: 'Event-driven Delivery Infrastructure',
   lang: 'zh-CN',
-  base: '/',
+  base: '/herald/',
 
   themeConfig: {
     nav: [
