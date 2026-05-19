@@ -65,6 +65,7 @@ export default defineConfig({
           text: 'Providers',
           items: [
             { text: '概述', link: '/providers/overview' },
+            { text: '微信个人推送', link: '/providers/wechat' },
             { text: 'SMS Providers', link: '/providers/sms' },
           ]
         }

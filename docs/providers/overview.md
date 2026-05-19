@@ -11,6 +11,7 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhoo
 | `telegram` | Telegram Bot | ✅ |
 | `feishu` | 飞书机器人 | ✅ |
 | `wecom` | 企业微信机器人 | ✅ |
+| `wechat` | 微信个人推送 (ServerChan/PushPlus/WxPusher) | ✅ |
 | `dingtalk` | 钉钉机器人 | ✅ |
 | `slack` | Slack | ✅ |
 | `discord` | Discord | ✅ |
@@ -114,4 +115,5 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 ## 下一步
 
+- [微信个人推送](./wechat.md) - 微信个人推送详细配置
 - [SMS Providers](./sms.md) - 短信 Provider 详细配置
