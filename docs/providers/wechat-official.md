@@ -2,6 +2,36 @@
 
 本指南介绍如何使用自己的微信公众号实现消息推送。
 
+## 快速开始
+
+### 1. 配置 Herald
+
+```yaml
+providers:
+  wechatmp:
+    type: builtin
+    enabled: true
+    config:
+      app_id: "${WECHATMP_APP_ID}"
+      app_secret: "${WECHATMP_APP_SECRET}"
+      template_id: "${WECHATMP_TEMPLATE_ID}"
+      default_url: "https://your-domain.com"
+```
+
+### 2. 发送消息
+
+```bash
+curl -X POST http://localhost:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "订单通知",
+    "body": "您的订单已发货",
+    "level": "info",
+    "channels": ["wechatmp"],
+    "target": "用户OpenID"
+  }'
+```
+
 ## 前置要求
 
 ### 企业资质
