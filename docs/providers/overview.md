@@ -115,5 +115,6 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 ## 下一步
 
-- [微信个人推送](./wechat.md) - 微信个人推送详细配置
+- [微信个人推送](./wechat.md) - 使用第三方服务推送
+- [微信公众号](./wechat-official.md) - 自建公众号推送指南
 - [SMS Providers](./sms.md) - 短信 Provider 详细配置
