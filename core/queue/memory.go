@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // memoryQueue is an in-memory queue implementation

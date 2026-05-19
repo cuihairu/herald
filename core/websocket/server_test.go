@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cuihaitao/herald/protocol"
+	"github.com/cuihairu/herald/protocol"
 )
 
 // mockHandler is a mock connection handler for testing

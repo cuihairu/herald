@@ -4,12 +4,12 @@
 
 ```bash
 # 从源码构建
-git clone https://github.com/cuihaitao/herald
+git clone https://github.com/cuihairu/herald
 cd herald
 make build
 
 # 或下载预编译版本
-wget https://github.com/cuihaitao/herald/releases/latest/download/heraldd-linux-amd64
+wget https://github.com/cuihairu/herald/releases/latest/download/heraldd-linux-amd64
 ```
 
 ## 配置

@@ -74,7 +74,7 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/cuihaitao/herald' }
+      { icon: 'github', link: 'https://github.com/cuihairu/herald' }
     ],
 
     search: {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 func TestNewProvider(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // RetryableError is an error that can be retried

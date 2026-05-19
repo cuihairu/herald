@@ -3,7 +3,7 @@ package route
 import (
 	"testing"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 func TestNewRouter(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // Provider is an email provider

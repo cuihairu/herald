@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cuihaitao/herald/protocol"
+	"github.com/cuihairu/herald/protocol"
 )
 
 // TaskHandler is called when a task is received

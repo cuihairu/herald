@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
-	"github.com/cuihaitao/herald/core/httpclient"
+	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/httpclient"
 )
 
 const (

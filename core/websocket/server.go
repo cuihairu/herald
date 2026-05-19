@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/cuihaitao/herald/internal/logger"
-	"github.com/cuihaitao/herald/protocol"
+	"github.com/cuihairu/herald/internal/logger"
+	"github.com/cuihairu/herald/protocol"
 )
 
 // Default upgrader

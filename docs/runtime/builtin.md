@@ -192,7 +192,7 @@ package myprovider
 
 import (
     "context"
-    "github.com/cuihaitao/herald/core"
+    "github.com/cuihairu/herald/core"
 )
 
 type Provider struct {
@@ -238,7 +238,7 @@ func (f *Factory) Type() string {
 在 `providers/builtin/registry/registry.go` 中注册：
 
 ```go
-import "github.com/cuihaitao/herald/providers/builtin/myprovider"
+import "github.com/cuihairu/herald/providers/builtin/myprovider"
 
 func RegisterBuiltinProviders(manager *runtime.Manager) {
     // ...

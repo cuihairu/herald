@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 func TestNewMemoryQueue(t *testing.T) {

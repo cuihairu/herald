@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cuihaitao/herald/internal/logger"
+	"github.com/cuihairu/herald/internal/logger"
 )
 
 // Client is a HTTP client for providers

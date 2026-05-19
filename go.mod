@@ -1,4 +1,4 @@
-module github.com/cuihaitao/herald
+module github.com/cuihairu/herald
 
 go 1.26.2
 

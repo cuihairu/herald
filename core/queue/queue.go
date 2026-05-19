@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // Queue is the interface for event queuing

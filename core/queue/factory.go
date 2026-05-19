@@ -3,7 +3,7 @@ package queue
 import (
 	"fmt"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // NewQueue creates a new queue

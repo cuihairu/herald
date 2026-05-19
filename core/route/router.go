@@ -3,7 +3,7 @@ package route
 import (
 	"fmt"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // Router routes events to providers

@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
-	"github.com/cuihaitao/herald/core/dedup"
-	"github.com/cuihaitao/herald/core/route"
-	"github.com/cuihaitao/herald/core/runtime"
-	"github.com/cuihaitao/herald/core/websocket"
-	"github.com/cuihaitao/herald/internal/logger"
+	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/core/websocket"
+	"github.com/cuihairu/herald/internal/logger"
 	"github.com/google/uuid"
 )
 

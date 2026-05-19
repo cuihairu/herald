@@ -7,15 +7,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/cuihaitao/herald/api"
-	"github.com/cuihaitao/herald/core"
-	"github.com/cuihaitao/herald/core/dedup"
-	"github.com/cuihaitao/herald/core/queue"
-	"github.com/cuihaitao/herald/core/route"
-	"github.com/cuihaitao/herald/core/runtime"
-	"github.com/cuihaitao/herald/internal/config"
-	"github.com/cuihaitao/herald/internal/logger"
-	builtinregistry "github.com/cuihaitao/herald/providers/builtin/registry"
+	"github.com/cuihairu/herald/api"
+	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/internal/config"
+	"github.com/cuihairu/herald/internal/logger"
+	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
 )
 
 var (

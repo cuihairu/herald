@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
-	"github.com/cuihaitao/herald/internal/logger"
+	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/internal/logger"
 )
 
 // Provider is a log provider for testing

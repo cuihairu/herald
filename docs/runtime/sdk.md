@@ -26,8 +26,8 @@
 ```go
 import (
     "context"
-    workersdk "github.com/cuihaitao/herald/worker-sdk/go"
-    "github.com/cuihaitao/herald/protocol"
+    workersdk "github.com/cuihairu/herald/worker-sdk/go"
+    "github.com/cuihairu/herald/protocol"
 )
 
 func main() {

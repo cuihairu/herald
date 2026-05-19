@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // Dedup deduplicates events

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cuihaitao/herald/core"
+	"github.com/cuihairu/herald/core"
 )
 
 // mockProvider is a mock provider for testing
