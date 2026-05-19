@@ -14,6 +14,7 @@ import (
 	"github.com/cuihaitao/herald/providers/builtin/tencentsms"
 	"github.com/cuihaitao/herald/providers/builtin/webhook"
 	"github.com/cuihaitao/herald/providers/builtin/wecom"
+	"github.com/cuihaitao/herald/providers/builtin/wechat"
 )
 
 // RegisterBuiltinProviders registers all builtin provider factories
@@ -30,4 +31,5 @@ func RegisterBuiltinProviders(manager *runtime.Manager) {
 	manager.RegisterFactory(&aliyunsms.Factory{})
 	manager.RegisterFactory(&tencentsms.Factory{})
 	manager.RegisterFactory(&neteasesms.Factory{})
+	manager.RegisterFactory(&wechat.Factory{})
 }
