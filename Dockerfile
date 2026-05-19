@@ -26,12 +26,11 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /build/heraldd .
 
-# Copy config
-COPY config.yaml .
+# Copy example env file for reference
+COPY .env.example .env.example
 
 # Expose port
 EXPOSE 8080
 
 # Run
 ENTRYPOINT ["./heraldd"]
-CMD ["--config", "config.yaml"]
