@@ -112,7 +112,7 @@ func TestClientPostJSON(t *testing.T) {
 func TestClientPostJSONError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"bad request"}`))
+		_, _ = w.Write([]byte(`{"error":"bad request"}`))
 	}))
 	defer server.Close()
 
@@ -230,7 +230,7 @@ func TestWithRetryNil(t *testing.T) {
 func TestDefaultClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"result":"ok"}`))
+		_, _ = w.Write([]byte(`{"result":"ok"}`))
 	}))
 	defer server.Close()
 

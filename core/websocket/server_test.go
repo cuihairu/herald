@@ -182,7 +182,7 @@ func TestServerHandleInvalidMessage(t *testing.T) {
 	server := NewServer(config, handler)
 
 	_ = server.Start()
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 	time.Sleep(10 * time.Millisecond)
 
 	// Create test server that wraps our WebSocket server

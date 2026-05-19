@@ -194,7 +194,7 @@ func TestGetProviderStatus(t *testing.T) {
 		},
 	}
 
-	m.RegisterProvider(p1)
+	_ = m.RegisterProvider(p1)
 
 	statuses := m.GetProviderStatus()
 	if len(statuses) != 1 {
@@ -216,7 +216,7 @@ func TestDeliver(t *testing.T) {
 		},
 	}
 
-	m.RegisterProvider(provider)
+	_ = m.RegisterProvider(provider)
 
 	task := &core.Task{
 		ID:       "task-1",
@@ -257,7 +257,7 @@ func TestDeliverNilTask(t *testing.T) {
 		},
 	}
 
-	m.RegisterProvider(provider)
+	_ = m.RegisterProvider(provider)
 
 	ctx := context.Background()
 	err := m.Deliver(ctx, nil)
