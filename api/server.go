@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
@@ -19,6 +20,7 @@ type Server struct {
 	addr    string
 	handler *Handler
 	server  *http.Server
+	auth    *auth.Auth
 
 	router  *route.Router
 	queue   core.Queue
@@ -35,6 +37,7 @@ type Config struct {
 	Queue   core.Queue
 	Runtime *runtime.Manager
 	Dedup   *dedup.Dedup
+	Auth    *auth.Auth
 }
 
 // NewServer creates a new server
@@ -48,6 +51,7 @@ func NewServer(config *Config) *Server {
 	s := &Server{
 		addr:    config.Addr,
 		handler: handler,
+		auth:    config.Auth,
 		router:  config.Router,
 		queue:   config.Queue,
 		runtime: config.Runtime,
@@ -55,13 +59,21 @@ func NewServer(config *Config) *Server {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/notify", s.handleNotify)
-	mux.HandleFunc("/api/v1/events", s.handleEvents)
+
+	// Public endpoints (no auth required)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
-	mux.HandleFunc("/api/v1/providers", s.handleProviders)
-	mux.HandleFunc("/api/v1/workers", s.handleWorkers)
-	mux.HandleFunc("/api/v1/queue", s.handleQueue)
-	mux.HandleFunc("/api/v1/providers/", s.handleProviderAction)
+
+	// Protected endpoints (auth required if enabled)
+	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
+	mux.HandleFunc("/api/v1/events", s.withAuth(s.handleEvents))
+	mux.HandleFunc("/api/v1/providers", s.withAuth(s.handleProviders))
+	mux.HandleFunc("/api/v1/workers", s.withAuth(s.handleWorkers))
+	mux.HandleFunc("/api/v1/queue", s.withAuth(s.handleQueue))
+	mux.HandleFunc("/api/v1/providers/", s.withAuth(s.handleProviderAction))
+	mux.HandleFunc("/api/v1/logs", s.withAuth(s.handleLogs))
+	mux.HandleFunc("/api/v1/logs/stats", s.withAuth(s.handleLogsStats))
+	mux.HandleFunc("/api/v1/logs/", s.withAuth(s.handleLogByID))
+	mux.HandleFunc("/api/v1/config/", s.withAuth(s.handleProviderConfig))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -141,6 +153,58 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleQueue(w, r)
 }
 
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleLogs(w, r)
+}
+
+func (s *Server) handleLogsStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleLogsStats(w, r)
+}
+
+func (s *Server) handleLogByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleLogByID(w, r)
+}
+
+func (s *Server) handleProviderConfig(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	prefix := "/api/v1/config/"
+
+	if len(path) <= len(prefix) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	rest := path[len(prefix):]
+	parts := strings.Split(rest, "/")
+	if len(parts) < 1 {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	name := parts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		s.handler.HandleProviderConfig(w, r, name)
+	case http.MethodPut, http.MethodPost:
+		s.handler.HandleUpdateProviderConfig(w, r, name)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleProviderAction(w http.ResponseWriter, r *http.Request) {
 	// Extract provider name from path like /api/v1/providers/{name}/enable or /api/v1/providers/{name}/disable
 	path := r.URL.Path
@@ -182,6 +246,14 @@ func (s *Server) handleProviderAction(w http.ResponseWriter, r *http.Request) {
 // SetWebSocketServer sets the WebSocket server
 func (s *Server) SetWebSocketServer(wsServer *websocket.Server) {
 	s.handler.SetWebSocketServer(wsServer)
+}
+
+// withAuth wraps a handler with authentication middleware
+func (s *Server) withAuth(fn http.HandlerFunc) http.HandlerFunc {
+	if s.auth == nil || !s.auth.IsEnabled() {
+		return fn
+	}
+	return s.auth.Middleware(fn).ServeHTTP
 }
 
 // dispatch processes events and tasks from the queue

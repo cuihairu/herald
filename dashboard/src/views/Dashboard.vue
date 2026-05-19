@@ -60,9 +60,9 @@ onMounted(async () => {
 
 <style scoped>
 .title {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 600;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .loading, .error {
@@ -77,26 +77,26 @@ onMounted(async () => {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
 }
 
 .stat-card {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 1.5rem;
+  padding: 1rem;
 }
 
 .stat-label {
   color: #94a3b8;
-  font-size: 0.875rem;
-  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
 }
 
 .stat-value {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 600;
   color: #e2e8f0;
 }
@@ -106,9 +106,9 @@ onMounted(async () => {
 }
 
 .section-title {
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .providers-list {
@@ -119,8 +119,8 @@ onMounted(async () => {
 .provider-item {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
+  gap: 0.75rem;
+  padding: 0.75rem;
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
@@ -129,22 +129,71 @@ onMounted(async () => {
 .provider-name {
   flex: 1;
   font-weight: 500;
+  font-size: 0.875rem;
 }
 
 .provider-type {
   color: #94a3b8;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 
 .provider-status {
-  padding: 0.25rem 0.75rem;
+  padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.625rem;
   background: #ef4444;
   color: white;
 }
 
 .provider-status.available {
   background: #22c55e;
+}
+
+@media (min-width: 768px) {
+  .title {
+    font-size: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stats {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    padding: 1.5rem;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .section-title {
+    font-size: 1.125rem;
+    margin-bottom: 1rem;
+  }
+
+  .provider-item {
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .provider-name {
+    font-size: 1rem;
+  }
+
+  .provider-type {
+    font-size: 0.875rem;
+  }
+
+  .provider-status {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.75rem;
+  }
 }
 </style>

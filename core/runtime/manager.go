@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/logstore"
 )
 
 // Manager manages provider runtimes
@@ -14,14 +15,16 @@ type Manager struct {
 	providers map[string]core.Provider
 	factories map[string]core.ProviderFactory
 	enabled   map[string]bool // Track enabled providers
+	logStore  *logstore.LogStore
 }
 
 // NewManager creates a new runtime manager
-func NewManager() *Manager {
+func NewManager(logLimit int) *Manager {
 	return &Manager{
 		providers: make(map[string]core.Provider),
 		factories: make(map[string]core.ProviderFactory),
 		enabled:   make(map[string]bool),
+		logStore:  logstore.New(logLimit),
 	}
 }
 
@@ -121,7 +124,19 @@ func (m *Manager) Deliver(ctx context.Context, task *core.Task) error {
 		return err
 	}
 
-	return provider.Deliver(ctx, task)
+	// Create log entry
+	logEntry := logstore.NewTaskLog(task)
+	m.logStore.Add(logEntry)
+
+	// Deliver and update log status
+	err = provider.Deliver(ctx, task)
+	if err != nil {
+		m.logStore.UpdateStatus(task.ID, "failed", err.Error())
+		return err
+	}
+
+	m.logStore.UpdateStatus(task.ID, "success", "")
+	return nil
 }
 
 // Enable enables a provider
@@ -170,4 +185,63 @@ func (m *Manager) Close(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// GetLogs returns logs with optional filtering
+func (m *Manager) GetLogs(offset, limit int, filter *logstore.Filter) []*logstore.TaskLog {
+	return m.logStore.Get(offset, limit, filter)
+}
+
+// GetLogsCount returns the total count of logs
+func (m *Manager) GetLogsCount(filter *logstore.Filter) int {
+	return m.logStore.Count(filter)
+}
+
+// GetLogByID returns a log entry by ID
+func (m *Manager) GetLogByID(id string) *logstore.TaskLog {
+	return m.logStore.GetByID(id)
+}
+
+// GetLogsStats returns log statistics
+func (m *Manager) GetLogsStats() *logstore.Stats {
+	return m.logStore.Stats()
+}
+
+// ClearLogs clears all logs
+func (m *Manager) ClearLogs() {
+	m.logStore.Clear()
+}
+
+// ReplaceProvider replaces an existing provider
+func (m *Manager) ReplaceProvider(name string, provider core.Provider) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.providers[name]; !exists {
+		return fmt.Errorf("provider not found: %s", name)
+	}
+
+	// Close old provider if possible
+	if old, ok := m.providers[name]; ok {
+		if closer, ok := old.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
+
+	m.providers[name] = provider
+	return nil
+}
+
+// GetProviderConfig returns the current config for a provider
+func (m *Manager) GetProviderConfig(name string) (map[string]interface{}, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if _, ok := m.providers[name]; !ok {
+		return nil, fmt.Errorf("provider not found: %s", name)
+	}
+
+	// Return empty config for now - actual config would need to be stored
+	// when provider is created
+	return make(map[string]interface{}), nil
 }

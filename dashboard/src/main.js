@@ -15,6 +15,11 @@ const routes = [
     component: () => import('./views/Providers.vue')
   },
   {
+    path: '/providers/:name/config',
+    name: 'ProviderConfig',
+    component: () => import('./views/ProviderConfig.vue')
+  },
+  {
     path: '/workers',
     name: 'Workers',
     component: () => import('./views/Workers.vue')
@@ -23,6 +28,11 @@ const routes = [
     path: '/send',
     name: 'Send',
     component: () => import('./views/Send.vue')
+  },
+  {
+    path: '/logs',
+    name: 'Logs',
+    component: () => import('./views/Logs.vue')
   }
 ]
 

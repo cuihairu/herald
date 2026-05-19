@@ -5,6 +5,15 @@ const api = axios.create({
   timeout: 10000
 })
 
+// Add API Key from localStorage if available
+api.interceptors.request.use(config => {
+  const apiKey = localStorage.getItem('herald_api_key')
+  if (apiKey) {
+    config.headers['X-API-Key'] = apiKey
+  }
+  return config
+})
+
 api.interceptors.response.use(
   response => response.data,
   error => {
@@ -36,5 +45,17 @@ export const heraldApi = {
   sendNotify: (data) => api.post('/notify', data),
 
   // 发送事件
-  sendEvent: (data) => api.post('/events', data)
+  sendEvent: (data) => api.post('/events', data),
+
+  // 获取日志
+  getLogs: (params) => api.get('/logs', { params }),
+
+  // 获取日志统计
+  getLogsStats: () => api.get('/logs/stats'),
+
+  // 获取 Provider 配置
+  getProviderConfig: (name) => api.get(`/config/${name}`),
+
+  // 更新 Provider 配置
+  updateProviderConfig: (name, data) => api.put(`/config/${name}`, data)
 }

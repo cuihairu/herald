@@ -10,18 +10,25 @@ import (
 
 // Config is the herald configuration
 type Config struct {
-	Server   ServerConfig            `yaml:"server"`
-	Providers map[string]ProviderConfig `yaml:"providers"`
-	Routes   map[string][]string    `yaml:"routes"`
-	Queue    QueueConfig             `yaml:"queue"`
-	Retry    RetryConfig             `yaml:"retry"`
-	Dedup    DedupConfig              `yaml:"dedup"`
+	Server    ServerConfig               `yaml:"server"`
+	Auth      AuthConfig                 `yaml:"auth"`
+	Providers map[string]ProviderConfig  `yaml:"providers"`
+	Routes    map[string][]string        `yaml:"routes"`
+	Queue     QueueConfig                `yaml:"queue"`
+	Retry     RetryConfig                `yaml:"retry"`
+	Dedup     DedupConfig                 `yaml:"dedup"`
 }
 
 // ServerConfig is the server configuration
 type ServerConfig struct {
 	Addr    string        `yaml:"addr"`
 	Timeout time.Duration `yaml:"timeout"`
+}
+
+// AuthConfig is the authentication configuration
+type AuthConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	APIKeys map[string]string `yaml:"api_keys"` // key -> description
 }
 
 // ProviderConfig is a provider configuration
@@ -109,6 +116,10 @@ func Default() *Config {
 			Addr:    ":8080",
 			Timeout: 30 * time.Second,
 		},
+		Auth: AuthConfig{
+			Enabled: false,
+			APIKeys: make(map[string]string),
+		},
 		Providers: make(map[string]ProviderConfig),
 		Routes: map[string][]string{
 			"error": {},
@@ -160,6 +171,9 @@ func expandEnv(s string) string {
 func (c *Config) Validate() error {
 	if c.Server.Addr == "" {
 		return fmt.Errorf("server addr is required")
+	}
+	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
+		return fmt.Errorf("auth enabled but no api_keys configured")
 	}
 	return nil
 }

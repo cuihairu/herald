@@ -3,10 +3,12 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/websocket"
@@ -314,4 +316,244 @@ func (h *Handler) respondError(w http.ResponseWriter, status int, message string
 		Code:    status,
 		Message: message,
 	})
+}
+
+// HandleLogs handles logs requests
+func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	// Parse pagination
+	offset, _ := strconv.Atoi(query.Get("offset"))
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	// Parse filters
+	filter := &logstore.Filter{
+		Status:   query.Get("status"),
+		Provider: query.Get("provider"),
+		Level:    query.Get("level"),
+	}
+
+	// Parse time range
+	if since := query.Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = t
+		}
+	}
+	if until := query.Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = t
+		}
+	}
+
+	logs := h.runtime.GetLogs(offset, limit, filter)
+	total := h.runtime.GetLogsCount(filter)
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: map[string]interface{}{
+			"total": total,
+			"offset": offset,
+			"limit": limit,
+			"logs": logs,
+		},
+	})
+}
+
+// HandleLogsStats handles logs statistics requests
+func (h *Handler) HandleLogsStats(w http.ResponseWriter, r *http.Request) {
+	stats := h.runtime.GetLogsStats()
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: stats,
+	})
+}
+
+// HandleLogByID handles a single log request by ID
+func (h *Handler) HandleLogByID(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		h.respondError(w, http.StatusBadRequest, "log id is required")
+		return
+	}
+
+	log := h.runtime.GetLogByID(id)
+	if log == nil {
+		h.respondError(w, http.StatusNotFound, "log not found")
+		return
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: log,
+	})
+}
+
+// GetProviderConfigRequest is a request to get provider config
+type GetProviderConfigRequest struct {
+	Name string `json:"name"`
+}
+
+// ProviderConfigResponse is a provider config response
+type ProviderConfigResponse struct {
+	Name     string                 `json:"name"`
+	Type     string                 `json:"type"`
+	Enabled  bool                   `json:"enabled"`
+	Config   map[string]interface{} `json:"config"`
+	Schema   map[string]string      `json:"schema,omitempty"`
+}
+
+// HandleProviderConfig handles provider config requests
+func (h *Handler) HandleProviderConfig(w http.ResponseWriter, r *http.Request, name string) {
+	if name == "" {
+		h.respondError(w, http.StatusBadRequest, "provider name is required")
+		return
+	}
+
+	provider, err := h.runtime.GetProvider(name)
+	if err != nil {
+		h.respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	status := provider.Status()
+
+	response := &ProviderConfigResponse{
+		Name:    name,
+		Type:    status.Type,
+		Enabled: status.Status != "disabled",
+		Config:  make(map[string]interface{}),
+		Schema:  getProviderSchema(name),
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: response,
+	})
+}
+
+// UpdateProviderConfigRequest is a request to update provider config
+type UpdateProviderConfigRequest struct {
+	Config map[string]interface{} `json:"config"`
+}
+
+// HandleUpdateProviderConfig handles provider config update requests
+func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Request, name string) {
+	if name == "" {
+		h.respondError(w, http.StatusBadRequest, "provider name is required")
+		return
+	}
+
+	var req UpdateProviderConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	// Recreate provider with new config
+	provider, err := h.runtime.CreateProvider(name, req.Config)
+	if err != nil {
+		h.respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Check if provider was previously enabled
+	wasEnabled := h.runtime.IsEnabled(name)
+
+	// Replace provider
+	if err := h.runtime.ReplaceProvider(name, provider); err != nil {
+		h.respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Restore enabled state
+	if wasEnabled {
+		_ = h.runtime.Enable(name)
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "provider config updated",
+	})
+}
+
+// getProviderSchema returns the config schema for a provider
+func getProviderSchema(name string) map[string]string {
+	schemas := map[string]map[string]string{
+		"telegram": {
+			"token":   "string",
+			"chat_id": "string",
+		},
+		"feishu": {
+			"webhook_url": "string",
+		},
+		"wecom": {
+			"webhook_url": "string",
+		},
+		"dingtalk": {
+			"access_token": "string",
+			"secret":       "string",
+		},
+		"slack": {
+			"webhook_url": "string",
+		},
+		"discord": {
+			"webhook_url": "string",
+		},
+		"email": {
+			"host":     "string",
+			"port":     "number",
+			"username": "string",
+			"password": "string",
+			"from":     "string",
+		},
+		"webhook": {
+			"url": "string",
+		},
+		"wechat": {
+			"service":  "string",
+			"send_key": "string",
+			"token":    "string",
+			"app_token": "string",
+			"uid":      "string",
+		},
+		"wechatmp": {
+			"app_id":      "string",
+			"app_secret":  "string",
+			"template_id": "string",
+			"default_url": "string",
+		},
+		"aliyunsms": {
+			"access_key_id":     "string",
+			"access_key_secret": "string",
+			"sign_name":         "string",
+		},
+		"tencentsms": {
+			"secret_id":  "string",
+			"secret_key": "string",
+			"app_id":     "string",
+		},
+		"neteasesms": {
+			"app_key":    "string",
+			"app_secret": "string",
+		},
+	}
+
+	if schema, ok := schemas[name]; ok {
+		return schema
+	}
+
+	return map[string]string{
+		"config": "object",
+	}
 }

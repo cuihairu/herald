@@ -257,4 +257,25 @@ onMounted(async () => {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+@media (max-width: 767px) {
+  .form-container {
+    max-width: 100%;
+  }
+
+  .radio-group,
+  .checkbox-group {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .radio,
+  .checkbox {
+    justify-content: flex-start;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+}
 </style>

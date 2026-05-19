@@ -35,6 +35,9 @@
           </div>
         </div>
         <div class="provider-footer">
+          <router-link :to="`/providers/${provider.name}/config`" class="config-btn">
+            配置
+          </router-link>
           <button
             class="toggle-btn"
             :class="{ enabled: provider.enabled }"
@@ -240,10 +243,30 @@ onMounted(async () => {
 .provider-footer {
   padding: 1rem 1.25rem;
   border-top: 1px solid #334155;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.config-btn {
+  flex: 1;
+  padding: 0.625rem;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  text-align: center;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.config-btn:hover {
+  background: #334155;
+  color: #e2e8f0;
 }
 
 .toggle-btn {
-  width: 100%;
+  flex: 1;
   padding: 0.625rem;
   border: 1px solid #334155;
   border-radius: 6px;
@@ -282,5 +305,32 @@ onMounted(async () => {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
+}
+
+@media (max-width: 767px) {
+  .providers-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .provider-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 1rem;
+  }
+
+  .provider-body {
+    padding: 1rem;
+  }
+
+  .provider-footer {
+    flex-direction: column;
+    padding: 0.75rem 1rem;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
 }
 </style>

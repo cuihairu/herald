@@ -9,6 +9,7 @@ import (
 
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/route"
@@ -56,7 +57,7 @@ func main() {
 	})
 
 	// Create runtime manager
-	manager := runtime.NewManager()
+	manager := runtime.NewManager(10000) // Store up to 10000 logs
 
 	// Register builtin provider factories
 	builtinregistry.RegisterBuiltinProviders(manager)
@@ -83,6 +84,12 @@ func main() {
 		})
 	}
 
+	// Create auth
+	a := auth.New(&auth.Config{
+		Enabled: cfg.Auth.Enabled,
+		APIKeys: cfg.Auth.APIKeys,
+	})
+
 	// Create server
 	srv := api.NewServer(&api.Config{
 		Addr:    cfg.Server.Addr,
@@ -91,6 +98,7 @@ func main() {
 		Queue:   q,
 		Runtime: manager,
 		Dedup:   d,
+		Auth:    a,
 	})
 
 	// Start server

@@ -259,4 +259,40 @@ onUnmounted(() => {
   font-size: 0.75rem;
   color: #94a3b8;
 }
+
+@media (max-width: 767px) {
+  .stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .stat-card {
+    padding: 1rem;
+  }
+
+  .worker-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .label {
+    min-width: 60px;
+    font-size: 0.75rem;
+  }
+
+  .value {
+    font-size: 0.75rem;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
