@@ -31,7 +31,6 @@ type Client struct {
 
 	// Connection state
 	connID     string
-	serverID   string
 
 	// Callbacks
 	onConnect     func()

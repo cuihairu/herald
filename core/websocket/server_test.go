@@ -181,7 +181,7 @@ func TestServerHandleInvalidMessage(t *testing.T) {
 	}
 	server := NewServer(config, handler)
 
-	server.Start()
+	_ = server.Start()
 	defer server.Stop()
 	time.Sleep(10 * time.Millisecond)
 
@@ -433,13 +433,13 @@ func TestMockHandler(t *testing.T) {
 		WorkerID: "test-worker",
 		Platform: "test",
 	}
-	handler.OnRegister("test-worker", msg)
+	_ = handler.OnRegister("test-worker", msg)
 	if len(handler.registerCalls) != 1 {
 		t.Errorf("expected 1 register call, got %d", len(handler.registerCalls))
 	}
 
 	// Test OnTaskAck
-	handler.OnTaskAck("task-1", true, "")
+	_ = handler.OnTaskAck("task-1", true, "")
 	if len(handler.ackCalls) != 1 {
 		t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
 	}
@@ -449,7 +449,7 @@ func TestMockHandler(t *testing.T) {
 		WorkerID:  "test-worker",
 		EventType: "test.event",
 	}
-	handler.OnWorkerEvent("test-worker", event)
+	_ = handler.OnWorkerEvent("test-worker", event)
 	if len(handler.eventCalls) != 1 {
 		t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
 	}

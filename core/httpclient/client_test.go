@@ -39,7 +39,7 @@ func TestClientGet(t *testing.T) {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 
@@ -61,7 +61,7 @@ func TestClientGet(t *testing.T) {
 func TestClientGetError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"internal"}`))
+		_, _ = w.Write([]byte(`{"error":"internal"}`))
 	}))
 	defer server.Close()
 
@@ -92,7 +92,7 @@ func TestClientPostJSON(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"result":"created"}`))
+		_, _ = w.Write([]byte(`{"result":"created"}`))
 	}))
 	defer server.Close()
 

@@ -152,7 +152,7 @@ func (s *Server) Stop() error {
 	// Shutdown server
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s.server.Shutdown(ctx)
+	_ = s.server.Shutdown(ctx)
 
 	// Wait for goroutines
 	s.wg.Wait()

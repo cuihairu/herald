@@ -304,13 +304,13 @@ func (h *Handler) HandleDisableProviderWithName(w http.ResponseWriter, r *http.R
 
 func (h *Handler) respondJSON(w http.ResponseWriter, data *Response) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(&Response{
+	_ = json.NewEncoder(w).Encode(&Response{
 		Code:    status,
 		Message: message,
 	})

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/cuihaitao/herald/core"
@@ -61,20 +60,6 @@ func (f *mockFactory) Create(config map[string]interface{}) (core.Provider, erro
 	}, nil
 }
 
-// errorFactory is a factory that always returns an error
-type errorFactory struct{}
-
-func (f *errorFactory) Name() string {
-	return "error"
-}
-
-func (f *errorFactory) Type() string {
-	return "test"
-}
-
-func (f *errorFactory) Create(config map[string]interface{}) (core.Provider, error) {
-	return nil, errors.New("factory error")
-}
 
 func TestNewManager(t *testing.T) {
 	m := NewManager()
@@ -162,7 +147,7 @@ func TestGetProvider(t *testing.T) {
 		},
 	}
 
-	m.RegisterProvider(provider)
+	_ = m.RegisterProvider(provider)
 
 	retrieved, err := m.GetProvider("test")
 	if err != nil {
@@ -188,8 +173,8 @@ func TestGetProviders(t *testing.T) {
 	p1 := &mockProvider{name: "p1", status: &core.ProviderStatus{Name: "p1"}}
 	p2 := &mockProvider{name: "p2", status: &core.ProviderStatus{Name: "p2"}}
 
-	m.RegisterProvider(p1)
-	m.RegisterProvider(p2)
+	_ = m.RegisterProvider(p1)
+	_ = m.RegisterProvider(p2)
 
 	providers := m.GetProviders()
 	if len(providers) != 2 {
@@ -287,8 +272,8 @@ func TestClose(t *testing.T) {
 	p1 := &mockProvider{name: "p1", status: &core.ProviderStatus{Name: "p1"}}
 	p2 := &mockProvider{name: "p2", status: &core.ProviderStatus{Name: "p2"}}
 
-	m.RegisterProvider(p1)
-	m.RegisterProvider(p2)
+	_ = m.RegisterProvider(p1)
+	_ = m.RegisterProvider(p2)
 
 	ctx := context.Background()
 	err := m.Close(ctx)

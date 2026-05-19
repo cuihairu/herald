@@ -58,6 +58,7 @@ func TestMemoryQueuePushPop(t *testing.T) {
 	}
 	if popped == nil {
 		t.Error("expected non-nil event")
+		return
 	}
 	if popped.ID != event.ID {
 		t.Errorf("expected ID %s, got %s", event.ID, popped.ID)
@@ -90,6 +91,7 @@ func TestMemoryQueuePushTask(t *testing.T) {
 	}
 	if popped == nil {
 		t.Error("expected non-nil task")
+		return
 	}
 	if popped.ID != task.ID {
 		t.Errorf("expected ID %s, got %s", task.ID, popped.ID)
@@ -143,7 +145,7 @@ func TestMemoryQueueSize(t *testing.T) {
 			ID:   fmt.Sprintf("event-%d", i),
 			Type: "test",
 		}
-		q.Push(ctx, event)
+		_ = q.Push(ctx, event)
 	}
 
 	// Check size
@@ -167,7 +169,7 @@ func TestMemoryQueueConcurrent(t *testing.T) {
 				ID:   fmt.Sprintf("event-%d", i),
 				Type: "test",
 			}
-			q.Push(ctx, event)
+			_ = q.Push(ctx, event)
 		}
 		done <- true
 	}()
