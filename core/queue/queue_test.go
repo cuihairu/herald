@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -175,14 +176,14 @@ func TestMemoryQueueConcurrent(t *testing.T) {
 	}()
 
 	// Consumer goroutine
-	consumed := 0
+	var consumed int64
 	go func() {
 		for {
 			_, err := q.Pop(ctx)
 			if err != nil {
 				return
 			}
-			consumed++
+			atomic.AddInt64(&consumed, 1)
 		}
 	}()
 
@@ -192,7 +193,7 @@ func TestMemoryQueueConcurrent(t *testing.T) {
 	// Wait a bit for consumer
 	time.Sleep(100 * time.Millisecond)
 
-	if consumed < 100 {
+	if atomic.LoadInt64(&consumed) < 100 {
 		t.Errorf("expected at least 100 consumed, got %d", consumed)
 	}
 }
