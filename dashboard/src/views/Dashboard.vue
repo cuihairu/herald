@@ -23,6 +23,21 @@
         <div class="stat-label">在线 Provider</div>
         <div class="stat-value">{{ onlineCount }}</div>
       </div>
+
+      <div class="stat-card">
+        <div class="stat-label">通知总数</div>
+        <div class="stat-value">{{ store.logStats?.total || 0 }}</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">成功</div>
+        <div class="stat-value success">{{ store.logStats?.by_status?.success || 0 }}</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">失败</div>
+        <div class="stat-value failed">{{ store.logStats?.by_status?.failed || 0 }}</div>
+      </div>
     </div>
 
     <div class="providers-section">
@@ -53,7 +68,8 @@ const onlineCount = computed(() => {
 onMounted(async () => {
   await Promise.all([
     store.fetchStatus(),
-    store.fetchProviders()
+    store.fetchProviders(),
+    store.fetchLogStats()
   ])
 })
 </script>
@@ -103,6 +119,14 @@ onMounted(async () => {
 
 .stat-value.online {
   color: #22c55e;
+}
+
+.stat-value.success {
+  color: #22c55e;
+}
+
+.stat-value.failed {
+  color: #ef4444;
 }
 
 .section-title {

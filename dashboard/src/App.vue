@@ -13,6 +13,7 @@
         <router-link to="/workers" class="nav-link" @click="menuOpen = false">Workers</router-link>
         <router-link to="/logs" class="nav-link" @click="menuOpen = false">日志</router-link>
         <router-link to="/send" class="nav-link" @click="menuOpen = false">发送消息</router-link>
+        <a v-if="currentUser" href="#" @click.prevent="logout" class="nav-link logout">登出</a>
       </div>
     </nav>
     <main class="main">
@@ -22,9 +23,34 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const menuOpen = ref(false)
+const currentUser = ref(null)
+
+onMounted(() => {
+  checkAuth()
+})
+
+function checkAuth() {
+  const userStr = localStorage.getItem('herald_user')
+  if (userStr) {
+    try {
+      currentUser.value = JSON.parse(userStr)
+    } catch (e) {
+      currentUser.value = null
+    }
+  }
+}
+
+function logout() {
+  localStorage.removeItem('herald_token')
+  localStorage.removeItem('herald_user')
+  currentUser.value = null
+  router.push('/login')
+}
 </script>
 
 <style scoped>
@@ -94,6 +120,15 @@ const menuOpen = ref(false)
 .nav-link.router-link-active {
   color: #3b82f6;
   background: rgba(59, 130, 246, 0.1);
+}
+
+.nav-link.logout {
+  color: #ef4444;
+}
+
+.nav-link.logout:hover {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .main {

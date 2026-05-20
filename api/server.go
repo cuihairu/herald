@@ -26,6 +26,7 @@ type Server struct {
 	queue   core.Queue
 	runtime *runtime.Manager
 	dedup   *dedup.Dedup
+	wsServer *websocket.Server
 }
 
 // Config is the server configuration
@@ -62,6 +63,9 @@ func NewServer(config *Config) *Server {
 
 	// Public endpoints (no auth required)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/auth/login", s.auth.HandleLogin)
+	mux.HandleFunc("/api/v1/auth/refresh", s.auth.HandleRefresh)
+	mux.HandleFunc("/api/v1/auth/me", s.auth.HandleMe)
 
 	// Protected endpoints (auth required if enabled)
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))

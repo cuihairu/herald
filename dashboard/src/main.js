@@ -3,36 +3,58 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 
+// Auth guard function
+function requireAuth(to, from, next) {
+  const token = localStorage.getItem('herald_token')
+  if (token) {
+    next()
+  } else {
+    next('/login')
+  }
+}
+
 const routes = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('./views/Login.vue'),
+    meta: { public: true }
+  },
   {
     path: '/',
     name: 'Dashboard',
-    component: () => import('./views/Dashboard.vue')
+    component: () => import('./views/Dashboard.vue'),
+    beforeEnter: requireAuth
   },
   {
     path: '/providers',
     name: 'Providers',
-    component: () => import('./views/Providers.vue')
+    component: () => import('./views/Providers.vue'),
+    beforeEnter: requireAuth
   },
   {
     path: '/providers/:name/config',
     name: 'ProviderConfig',
-    component: () => import('./views/ProviderConfig.vue')
+    component: () => import('./views/ProviderConfig.vue'),
+    beforeEnter: requireAuth
   },
   {
     path: '/workers',
     name: 'Workers',
-    component: () => import('./views/Workers.vue')
+    component: () => import('./views/Workers.vue'),
+    beforeEnter: requireAuth
   },
   {
     path: '/send',
     name: 'Send',
-    component: () => import('./views/Send.vue')
+    component: () => import('./views/Send.vue'),
+    beforeEnter: requireAuth
   },
   {
     path: '/logs',
     name: 'Logs',
-    component: () => import('./views/Logs.vue')
+    component: () => import('./views/Logs.vue'),
+    beforeEnter: requireAuth
   }
 ]
 

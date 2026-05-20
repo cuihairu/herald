@@ -5,8 +5,12 @@ const api = axios.create({
   timeout: 10000
 })
 
-// Add API Key from localStorage if available
+// Add auth from localStorage if available
 api.interceptors.request.use(config => {
+  const token = localStorage.getItem('herald_token')
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`
+  }
   const apiKey = localStorage.getItem('herald_api_key')
   if (apiKey) {
     config.headers['X-API-Key'] = apiKey

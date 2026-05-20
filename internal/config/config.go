@@ -27,8 +27,10 @@ type ServerConfig struct {
 
 // AuthConfig is the authentication configuration
 type AuthConfig struct {
-	Enabled bool              `yaml:"enabled"`
-	APIKeys map[string]string `yaml:"api_keys"` // key -> description
+	Enabled   bool              `yaml:"enabled"`
+	APIKeys   map[string]string `yaml:"api_keys"`
+	SecretKey string            `yaml:"secret_key"`
+	AdminUser map[string]string `yaml:"admin_user"` // username -> password
 }
 
 // ProviderConfig is a provider configuration
@@ -119,6 +121,10 @@ func Default() *Config {
 		Auth: AuthConfig{
 			Enabled: false,
 			APIKeys: make(map[string]string),
+			SecretKey: "",
+			AdminUser: map[string]string{
+				"admin": "admin",
+			},
 		},
 		Providers: make(map[string]ProviderConfig),
 		Routes: map[string][]string{
