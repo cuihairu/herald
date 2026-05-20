@@ -43,7 +43,7 @@ func New(config *Config) *Auth {
 	if config.AdminUser != nil {
 		for username, password := range config.AdminUser {
 			if username != "" && password != "" {
-				um.CreateDefaultUser(username, password)
+				_ = um.CreateDefaultUser(username, password)
 			}
 		}
 	}
@@ -160,7 +160,7 @@ func (a *Auth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Send response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(&LoginResponse{
+	_ = json.NewEncoder(w).Encode(&LoginResponse{
 		Token: token,
 		User: &User{
 			ID:       u.ID,
@@ -190,7 +190,7 @@ func (a *Auth) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": newToken})
+	_ = json.NewEncoder(w).Encode(map[string]string{"token": newToken})
 }
 
 // HandleMe returns the current user info
@@ -219,7 +219,7 @@ func (a *Auth) HandleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(&User{
+	_ = json.NewEncoder(w).Encode(&User{
 		ID:       u.ID,
 		Username: u.Username,
 		Role:     u.Role,
@@ -270,14 +270,14 @@ func (a *Auth) unauthorized(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Bearer realm="herald"`)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"code": 401, "message": "unauthorized"}`))
+	_, _ = w.Write([]byte(`{"code": 401, "message": "unauthorized"}`))
 }
 
 // respondError sends an error response
 func (a *Auth) respondError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"code":    status,
 		"message": message,
 	})

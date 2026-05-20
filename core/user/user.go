@@ -163,7 +163,7 @@ func (m *Manager) DeleteUser(username string) error {
 // generateID generates a random ID
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
 }
 
@@ -171,7 +171,7 @@ func generateID() string {
 func hashPassword(password string) (string, error) {
 	// Simple hash for now - in production use bcrypt
 	salt := make([]byte, 16)
-	rand.Read(salt)
+	_, _ = rand.Read(salt)
 
 	// Combine password and salt
 combined := append([]byte(password), salt...)
@@ -184,7 +184,7 @@ combined := append([]byte(password), salt...)
 // verifyPassword verifies a password against a hash
 func verifyPassword(hashedPassword, password string) bool {
 	// Extract salt from hash
-	parts := fmt.Sprintf("%s", hashedPassword)
+	parts := hashedPassword
 	if len(parts) < 1 {
 		return false
 	}

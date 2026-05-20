@@ -26,7 +26,6 @@ type Server struct {
 	queue   core.Queue
 	runtime *runtime.Manager
 	dedup   *dedup.Dedup
-	wsServer *websocket.Server
 }
 
 // Config is the server configuration
