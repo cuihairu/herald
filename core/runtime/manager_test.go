@@ -62,7 +62,7 @@ func (f *mockFactory) Create(config map[string]interface{}) (core.Provider, erro
 
 
 func TestNewManager(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 	if m == nil {
 		t.Fatal("expected non-nil manager")
 	}
@@ -75,7 +75,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestRegisterFactory(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 	factory := &mockFactory{name: "test", pType: "builtin"}
 
 	m.RegisterFactory(factory)
@@ -89,7 +89,7 @@ func TestRegisterFactory(t *testing.T) {
 }
 
 func TestRegisterProvider(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 	provider := &mockProvider{
 		name: "test-provider",
 		status: &core.ProviderStatus{
@@ -111,7 +111,7 @@ func TestRegisterProvider(t *testing.T) {
 }
 
 func TestCreateProvider(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 	factory := &mockFactory{name: "mock", pType: "builtin"}
 
 	m.RegisterFactory(factory)
@@ -129,7 +129,7 @@ func TestCreateProvider(t *testing.T) {
 }
 
 func TestCreateProviderNotFound(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	_, err := m.CreateProvider("nonexistent", nil)
 	if err == nil {
@@ -138,7 +138,7 @@ func TestCreateProviderNotFound(t *testing.T) {
 }
 
 func TestGetProvider(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 	provider := &mockProvider{
 		name: "test",
 		status: &core.ProviderStatus{
@@ -159,7 +159,7 @@ func TestGetProvider(t *testing.T) {
 }
 
 func TestGetProviderNotFound(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	_, err := m.GetProvider("nonexistent")
 	if err == nil {
@@ -168,7 +168,7 @@ func TestGetProviderNotFound(t *testing.T) {
 }
 
 func TestGetProviders(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	p1 := &mockProvider{name: "p1", status: &core.ProviderStatus{Name: "p1"}}
 	p2 := &mockProvider{name: "p2", status: &core.ProviderStatus{Name: "p2"}}
@@ -183,7 +183,7 @@ func TestGetProviders(t *testing.T) {
 }
 
 func TestGetProviderStatus(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	p1 := &mockProvider{
 		name: "p1",
@@ -206,7 +206,7 @@ func TestGetProviderStatus(t *testing.T) {
 }
 
 func TestDeliver(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	provider := &mockProvider{
 		name: "test",
@@ -232,7 +232,7 @@ func TestDeliver(t *testing.T) {
 }
 
 func TestDeliverProviderNotFound(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	task := &core.Task{
 		ID:       "task-1",
@@ -247,7 +247,7 @@ func TestDeliverProviderNotFound(t *testing.T) {
 }
 
 func TestDeliverNilTask(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	provider := &mockProvider{
 		name: "test",
@@ -267,7 +267,7 @@ func TestDeliverNilTask(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	p1 := &mockProvider{name: "p1", status: &core.ProviderStatus{Name: "p1"}}
 	p2 := &mockProvider{name: "p2", status: &core.ProviderStatus{Name: "p2"}}
@@ -283,7 +283,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 	factory := &mockFactory{name: "test", pType: "builtin"}
 	m.RegisterFactory(factory)
 
@@ -320,7 +320,7 @@ func TestConcurrentAccess(t *testing.T) {
 }
 
 func TestManagerEmptyState(t *testing.T) {
-	m := NewManager()
+	m := NewManager(100)
 
 	// Get from empty manager
 	_, err := m.GetProvider("test")
