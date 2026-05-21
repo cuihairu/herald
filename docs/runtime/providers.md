@@ -7,8 +7,8 @@
 | Official API        | Telegram / Discord |
 | Webhook API         | 飞书 / 企业微信          |
 | SMTP                | 邮件                 |
-| Client Automation   | 微信 Hook            |
-| GUI Automation      | QQ UI              |
+| Third-party Push    | Server酱 / PushPlus  |
+| Official Account    | 微信公众号模板消息          |
 | Browser Automation  | WhatsApp Web       |
 
 ## Builtin Providers
@@ -26,8 +26,6 @@
 
 | Provider     | 描述            | 平台        |
 | ------------ | ------------- | --------- |
-| WeChat       | 微信 Hook / DLL  | Windows   |
-| QQ           | QQ Hook        | Windows   |
 | WhatsAppWeb  | 浏览器自动化        | Any + Chrome |
 | SlackWeb     | 浏览器自动化        | Any + Chrome |
 
@@ -43,12 +41,11 @@ providers:
       token: "${TELEGRAM_BOT_TOKEN}"
 
   wechat:
-    runtime: worker
-    type: client-hook
-    platform:
-      - windows
+    runtime: builtin
+    type: third-party-push
     config:
-      dll_path: "./wechat-hook.dll"
+      service: "pushplus"
+      token: "${WECHAT_PUSHPLUS_TOKEN}"
 
   whatsapp_web:
     runtime: worker

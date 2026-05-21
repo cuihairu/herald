@@ -38,11 +38,8 @@ type BuiltinProvider interface {
 
 ### 适合
 
-- 微信 Hook
-- QQ Hook
-- GUI 自动化
-- Outlook COM
-- DLL Injection
+- 浏览器自动化 (WhatsApp Web / Slack Web)
+- 移动端桥接 (Android Notification Bridge)
 
 ### 模型
 
@@ -58,4 +55,4 @@ Worker Runtime
 - 独立权限
 - 特殊 OS 环境
 - GUI Session
-- DLL 支持
+- 独立进程隔离

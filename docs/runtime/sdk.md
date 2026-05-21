@@ -117,8 +117,8 @@ client.SendEvent("status", map[string]interface{}{
 
 // 上报错误
 client.SendEvent("error", map[string]interface{}{
-    "message": "DLL injection failed",
-    "code": "DLL_INJECT_ERROR",
+    "message": "connection timeout",
+    "code": "CONNECTION_TIMEOUT",
 })
 ```
 
@@ -127,7 +127,7 @@ client.SendEvent("error", map[string]interface{}{
 | 语言     | 用途           | 状态    |
 | ------ | ------------ | ----- |
 | Go     | 普通 Worker     | ✅ 完成  |
-| C++    | Hook / DLL   | 计划中   |
+| C++    | Native Addon | 计划中   |
 | Python | Automation   | 计划中   |
 | Rust   | Native Worker | 计划中   |
 

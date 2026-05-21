@@ -54,16 +54,13 @@ register → heartbeat → dispatch → ack → reconnect
 
 必须。
 
-## WeChat Runtime Worker 职责
+## Worker Runtime 职责
 
-- 登录状态
-- Session
-- DLL 注入
-- Hook
-- IPC
-- reconnect
-- contact lookup
-- send message
+- 连接状态管理
+- 心跳与重连
+- 任务接收与确认
+- 事件上报
+- 状态管理
 
 ## Herald Core 职责
 

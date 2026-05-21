@@ -8,11 +8,9 @@
 
 - 没有官方 API
 - 不允许自动化
-- 不允许 Hook
 - 不允许逆向
-- 不允许 Bot
 
-这种 Runtime 本质属于 **"非官方客户端自动化"**。
+这类平台应使用合规的第三方推送服务或官方提供的 Webhook/公众号能力。
 
 ### Provider Category
 
@@ -21,8 +19,8 @@
 | Official API        | Telegram / Discord |
 | Webhook API         | 飞书 / 企业微信          |
 | SMTP                | 邮件                 |
-| Client Automation   | 微信 Hook            |
-| GUI Automation      | QQ UI              |
+| Third-party Push    | Server酱 / PushPlus  |
+| Official Account    | 微信公众号模板消息          |
 | Browser Automation  | WhatsApp Web       |
 
 ### 微信 Provider 的定位
@@ -39,8 +37,8 @@ Herald 不应该只定义 **Provider**，还应该定义 **Runtime Capability**�
 capabilities:
   - send_message
   - group_message
-  - gui_session
-  - hook_runtime
+  - browser_session
+  - persistent_connection
 ```
 
 Herald Core 根本不关心"怎么发"，只知道：
@@ -53,8 +51,8 @@ Herald Core 根本不关心"怎么发"，只知道：
 | webhook             | 飞书         |
 | bot-api             | Telegram   |
 | smtp                | 邮件         |
-| client-hook         | 微信         |
-| gui-automation      | QQ         |
+| third-party-push    | 微信 (PushPlus) |
+| official-account    | 微信公众号      |
 | browser-automation  | WhatsApp   |
 
 ## 系统定位升级
@@ -70,10 +68,7 @@ Herald 是：
 ## Runtime 类型支持
 
 ### Windows GUI Runtime
-- 微信
-- QQ
-- Outlook
-- 企业微信客户端
+> 已废弃。不推荐使用非官方客户端自动化方案，存在法律风险。
 
 ### Browser Runtime
 通过 Playwright / CDP 支持：

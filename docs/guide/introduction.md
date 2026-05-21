@@ -9,7 +9,7 @@ Herald 是一个 **事件驱动的通知投递基础设施**（Event-driven Deli
 - **HTTP First** - curl 友好，无 SDK 依赖
 - **Runtime First** - 支持 Builtin 和 Worker 两种 Runtime
 - **Event First** - 处理事件而非简单发送消息
-- **Worker Model** - 支持复杂场景如 Hook/GUI/DLL
+- **Worker Model** - 支持浏览器自动化等复杂 Runtime 场景
 
 ## 核心流程
 
@@ -30,6 +30,6 @@ Event → Route → Dispatch → Delivery Runtime
 | ----- | --------- | -------- | ------- |
 | 事件驱动  | ✅         | ❌        | ❌       |
 | 多平台聚合 | ✅         | 部分       | ❌       |
-| Hook 支持 | ✅         | ❌        | ❌       |
+| 多渠道聚合 | ✅         | 部分       | ❌       |
 | SDK 依赖 | ❌         | 部分       | ✅       |
 | HTTP API | ✅         | ✅        | 部分       |

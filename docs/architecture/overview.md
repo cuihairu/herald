@@ -43,9 +43,8 @@ Herald 的复杂度核心不是 Provider，而是 **Provider Runtime**。
 | 企业微信 Bot      | HTTP            |
 | 飞书             | HTTP            |
 | 邮件             | SMTP            |
-| 微信 Hook        | Windows + DLL   |
-| QQ Hook        | Windows GUI     |
-| Outlook COM    | Windows Session |
+| 微信公众号         | HTTP            |
+| 微信个人推送        | HTTP            |
 
 > Provider 的本质差异来自运行环境。
 
@@ -103,10 +102,10 @@ Herald 不只是"发送消息"，而是"处理事件"。
  +----------------------+       +--------------------------+
  | Builtin Runtime      |       | Worker Runtime           |
  |----------------------|       |--------------------------|
- | Telegram             |       | WeChat Hook              |
- | Feishu               |       | QQ Hook                  |
- | Email                |       | GUI Automation           |
- | Discord              |       | Windows COM              |
+ | Telegram             |       | WeChat MP (公众号)          |
+ | Feishu               |       | WeChat Push (第三方推送)      |
+ | Email                |       | Browser Automation       |
+ | Discord              |       | SMS                      |
  +----------------------+       +--------------------------+
 ```
 
