@@ -142,7 +142,7 @@ func (s *Server) Stop() error {
 	// Close all worker connections
 	s.mu.Lock()
 	for _, state := range s.workers {
-		state.conn.Close()
+		_ = state.conn.Close()
 	}
 	s.mu.Unlock()
 
@@ -179,7 +179,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Set read/write deadlines
 	if err := conn.SetReadDeadline(time.Now().Add(s.readTimeout)); err != nil {
 		logger.Error("failed to set read deadline", "error", err)
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
@@ -396,7 +396,7 @@ func (s *Server) handleDisconnect(workerID string) {
 	}
 
 	// Close connection
-	state.conn.Close()
+	_ = state.conn.Close()
 
 	// Remove from workers
 	delete(s.workers, workerID)
@@ -429,7 +429,7 @@ func (s *Server) checkStaleWorkers() {
 						"worker_id", workerID,
 						"last_heartbeat", state.LastHeartbeat,
 					)
-					state.conn.Close()
+					_ = state.conn.Close()
 					delete(s.workers, workerID)
 
 					if s.handler != nil {

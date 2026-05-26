@@ -185,7 +185,7 @@ func (p *Provider) buildEmbed(task *core.Task) Embed {
 	}
 
 	// Add fields if data exists
-	if task.Data != nil && len(task.Data) > 0 {
+	if len(task.Data) > 0 {
 		embed.Fields = make([]EmbedField, 0, len(task.Data))
 		for k, v := range task.Data {
 			embed.Fields = append(embed.Fields, EmbedField{

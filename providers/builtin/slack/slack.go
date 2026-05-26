@@ -9,10 +9,6 @@ import (
 	"github.com/cuihairu/herald/core/httpclient"
 )
 
-const (
-	webhookURLFormat = "https://hooks.slack.com/services/%s/%s/%s"
-)
-
 // Provider is a Slack provider
 type Provider struct {
 	webhookURL string

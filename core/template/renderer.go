@@ -63,13 +63,13 @@ func (r *HTMLRenderer) RenderString(ctx context.Context, data *RenderedData) (st
 	buf.WriteString(".label{font-weight:bold;color:#666}")
 	buf.WriteString(".value{margin-top:5px}")
 	buf.WriteString("</style></head><body>")
-	buf.WriteString(fmt.Sprintf("<div class='header'>%s</div>", escapeHTML(data.Title)))
+	fmt.Fprintf(&buf, "<div class='header'>%s</div>", escapeHTML(data.Title))
 	buf.WriteString("<div class='content'>")
 
 	for _, field := range data.Fields {
 		buf.WriteString("<div class='field'>")
-		buf.WriteString(fmt.Sprintf("<div class='label'>%s:</div>", escapeHTML(field.Label)))
-		buf.WriteString(fmt.Sprintf("<div class='value'>%s</div>", escapeHTML(field.Value)))
+		fmt.Fprintf(&buf, "<div class='label'>%s:</div>", escapeHTML(field.Label))
+		fmt.Fprintf(&buf, "<div class='value'>%s</div>", escapeHTML(field.Value))
 		buf.WriteString("</div>")
 	}
 

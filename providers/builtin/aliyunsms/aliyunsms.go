@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -221,9 +220,9 @@ func (p *Provider) sign(params map[string]string, method string) string {
 // specialEncode encodes a string for Aliyun signature
 func specialEncode(s string) string {
 	encoded := url.QueryEscape(s)
-	encoded = strings.Replace(encoded, "+", "%20", -1)
-	encoded = strings.Replace(encoded, "*", "%2A", -1)
-	encoded = strings.Replace(encoded, "%7E", "~", -1)
+	encoded = strings.ReplaceAll(encoded, "+", "%20")
+	encoded = strings.ReplaceAll(encoded, "*", "%2A")
+	encoded = strings.ReplaceAll(encoded, "%7E", "~")
 	return encoded
 }
 
@@ -281,9 +280,4 @@ func (f *Factory) Name() string {
 // Type returns the factory type
 func (f *Factory) Type() string {
 	return "builtin"
-}
-
-// httpClient interface for testing
-type httpClient interface {
-	Post(ctx context.Context, url string, body interface{}) (*http.Response, error)
 }

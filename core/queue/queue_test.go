@@ -36,7 +36,7 @@ func TestNewMemoryQueue(t *testing.T) {
 
 func TestMemoryQueuePushPop(t *testing.T) {
 	q, _ := NewMemoryQueue(&QueueConfig{Size: 100})
-	defer q.Close()
+	defer func() { _ = q.Close() }()
 
 	event := &core.Event{
 		ID:      "test-1",
@@ -68,7 +68,7 @@ func TestMemoryQueuePushPop(t *testing.T) {
 
 func TestMemoryQueuePushTask(t *testing.T) {
 	q, _ := NewMemoryQueue(&QueueConfig{Size: 100})
-	defer q.Close()
+	defer func() { _ = q.Close() }()
 
 	task := &core.Task{
 		ID:       "task-1",
@@ -101,7 +101,7 @@ func TestMemoryQueuePushTask(t *testing.T) {
 
 func TestMemoryQueueContextCancel(t *testing.T) {
 	q, _ := NewMemoryQueue(&QueueConfig{Size: 100})
-	defer q.Close()
+	defer func() { _ = q.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 

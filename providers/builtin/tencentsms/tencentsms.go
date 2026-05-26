@@ -230,7 +230,7 @@ func (p *Provider) sendRequest(ctx context.Context, reqBody SendSmsRequest) erro
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
