@@ -27,7 +27,9 @@ func (m *Manager) Register(tmpl *Template) error {
 		return fmt.Errorf("template cannot be nil")
 	}
 
-	m.validate(tmpl)
+	if err := m.validate(tmpl); err != nil {
+		return err
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -120,11 +122,7 @@ func (m *Manager) LoadFromMap(templates map[string]TemplateConfig) error {
 		}
 
 		for i, fc := range config.Fields {
-			tmpl.Fields[i] = Field{
-				Label: fc.Label,
-				Value: fc.Value,
-				Type:  fc.Type,
-			}
+			tmpl.Fields[i] = Field(fc)
 		}
 
 		if err := m.Register(tmpl); err != nil {
