@@ -118,7 +118,7 @@ func TestMemoryQueueClosed(t *testing.T) {
 	q, _ := NewMemoryQueue(&QueueConfig{Size: 100})
 
 	// Close queue
-	q.Close()
+	_ = q.Close()
 
 	event := &core.Event{
 		ID:   "test",
@@ -136,7 +136,7 @@ func TestMemoryQueueClosed(t *testing.T) {
 
 func TestMemoryQueueSize(t *testing.T) {
 	q, _ := NewMemoryQueue(&QueueConfig{Size: 100})
-	defer q.Close()
+	defer func() { _ = q.Close() }()
 
 	ctx := context.Background()
 
@@ -158,7 +158,7 @@ func TestMemoryQueueSize(t *testing.T) {
 
 func TestMemoryQueueConcurrent(t *testing.T) {
 	q, _ := NewMemoryQueue(&QueueConfig{Size: 1000})
-	defer q.Close()
+	defer func() { _ = q.Close() }()
 
 	ctx := context.Background()
 	done := make(chan bool)

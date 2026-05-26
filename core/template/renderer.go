@@ -106,14 +106,14 @@ func (r *MarkdownRenderer) RenderString(ctx context.Context, data *RenderedData)
 	}
 
 	// Title
-	buf.WriteString(fmt.Sprintf("### %s%s\n\n", icon, data.Title))
+	fmt.Fprintf(&buf, "### %s%s\n\n", icon, data.Title)
 
 	// Fields
 	for _, field := range data.Fields {
 		if field.Type == string(FieldTypeLink) {
-			buf.WriteString(fmt.Sprintf("**%s**: [%s](%s)\n", field.Label, field.Value, field.Value))
+			fmt.Fprintf(&buf, "**%s**: [%s](%s)\n", field.Label, field.Value, field.Value)
 		} else {
-			buf.WriteString(fmt.Sprintf("**%s**: `%s`\n", field.Label, field.Value))
+			fmt.Fprintf(&buf, "**%s**: `%s`\n", field.Label, field.Value)
 		}
 	}
 

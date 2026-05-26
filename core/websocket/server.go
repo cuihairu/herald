@@ -520,7 +520,7 @@ func (s *Server) DisconnectWorker(workerID string) error {
 		return fmt.Errorf("worker not found: %s", workerID)
 	}
 
-	state.conn.Close()
+	_ = state.conn.Close()
 	delete(s.workers, workerID)
 
 	logger.Info("worker disconnected", "worker_id", workerID, "reason", "requested")
