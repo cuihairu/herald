@@ -94,7 +94,7 @@ func (e *Engine) Render(tmpl *Template, params map[string]interface{}) *Rendered
 
 **职责**：
 
-- 执行变量替换（`{{.Variable}}`）
+- 执行变量替换（`<code v-pre>{{.Variable}}</code>`）
 - 内置函数：`toUpper`、`toLower`、`trim`
 - 返回 `RenderedData`（语义化数据，与渠道无关）
 
@@ -173,7 +173,7 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
    { templateId: "alert", params: {Level: "ERROR"} }
 
 2. Manager.Render()
-   Template { Title: "【{{.Level}}】告警" }
+   Template { Title: "【<code v-pre>{{.Level}}</code>】告警" }
    → RenderedData { Title: "【ERROR】告警", Fields: [...] }
 
 3. Handler.chooseFormat()
