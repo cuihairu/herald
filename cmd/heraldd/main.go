@@ -50,7 +50,7 @@ func main() {
 		logger.Error("failed to create queue", "error", err)
 		os.Exit(1)
 	}
-	defer q.Close()
+	defer func() { _ = q.Close() }()
 
 	// Create router
 	router := route.NewRouter(&route.Config{

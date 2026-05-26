@@ -241,7 +241,7 @@ func TestNewQueue(t *testing.T) {
 					t.Error("expected non-nil queue")
 				}
 				if q != nil {
-					q.Close()
+					_ = q.Close()
 				}
 			}
 		})

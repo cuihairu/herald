@@ -140,7 +140,7 @@ func (r *PlainRenderer) RenderString(ctx context.Context, data *RenderedData) (s
 	buf.WriteString(data.Title)
 	buf.WriteString("\n")
 	for _, field := range data.Fields {
-		buf.WriteString(fmt.Sprintf("%s: %s\n", field.Label, field.Value))
+		fmt.Fprintf(&buf, "%s: %s\n", field.Label, field.Value)
 	}
 
 	return buf.String(), nil
