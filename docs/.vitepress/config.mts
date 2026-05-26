@@ -23,6 +23,7 @@ export default defineConfig({
             { text: '简介', link: '/guide/introduction' },
             { text: '快速开始', link: '/guide/getting-started' },
             { text: '配置', link: '/guide/configuration' },
+            { text: '模板系统', link: '/guide/templates' },
           ]
         }
       ],
@@ -34,6 +35,7 @@ export default defineConfig({
             { text: '核心设计', link: '/architecture/core-design' },
             { text: '模块设计', link: '/architecture/modules' },
             { text: '协议设计', link: '/architecture/protocols' },
+            { text: '模板系统', link: '/architecture/templates' },
             { text: '目录结构', link: '/architecture/directory' },
           ]
         }

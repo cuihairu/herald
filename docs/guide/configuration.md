@@ -50,8 +50,26 @@ retry:
 dedup:
   enabled: true
   window: 5m
+
+# 模板配置
+templates:
+  server_alert:
+    name: "服务器告警"
+    title: "【{{.Level}}】{{.Service}} 服务异常"
+    level: "error"
+    fields:
+      - label: "服务器"
+        value: "{{.Server}}"
+        type: "text"
+      - label: "错误信息"
+        value: "{{.Error}}"
+        type: "text"
 ```
 
 ## 环境变量
 
 支持使用 `${VAR_NAME}` 引用环境变量。
+
+## 模板配置
+
+详见 [模板系统](/guide/templates)。

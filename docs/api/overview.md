@@ -22,6 +22,11 @@ http://your-host:8080/api/v1
 | POST | /events    | 发送事件  |
 | GET  | /status    | 查询状态  |
 | GET  | /providers | 查询 Providers |
+| GET  | /templates | 获取模板列表 |
+| POST | /templates | 创建模板 |
+| GET  | /templates/{id} | 获取单个模板 |
+| PUT  | /templates/{id} | 更新模板 |
+| DELETE | /templates/{id} | 删除模板 |
 
 ## 响应格式
 

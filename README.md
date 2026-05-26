@@ -9,6 +9,7 @@ Herald 是一个事件驱动的通知投递基础设施。
 - **HTTP First** - curl 友好，无 SDK 依赖
 - **Runtime First** - 支持 Builtin 和 Worker 两种 Runtime
 - **Event First** - 处理事件而非简单发送消息
+- **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
 - **Worker Model** - 支持复杂场景如 Hook/GUI/DLL
 - **WebSocket** - 支持 Worker 实时连接
 - **Dashboard** - Web 管理界面
@@ -102,6 +103,30 @@ curl http://localhost:8080/api/v1/status
 curl http://localhost:8080/api/v1/providers
 ```
 
+### 使用模板发送消息
+
+```bash
+curl -X POST http://localhost:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "server_alert",
+    "params": {
+      "Level": "CRITICAL",
+      "Service": "order-service",
+      "Server": "order-01",
+      "Error": "CPU 使用率 95%"
+    },
+    "renderAs": "html",
+    "channels": ["email", "telegram"]
+  }'
+```
+
+### 查看模板列表
+
+```bash
+curl http://localhost:8080/api/v1/templates
+```
+
 ## 配置
 
 ### Discord
@@ -188,8 +213,11 @@ providers:
 │  │ Event Queue  │  │    Router    │  │   Runtime    │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │    Retry     │  │    Dedup     │  │   WebSocket  │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  │    Retry     │  │    Dedup     │  │   Template   │      │
+│  └──────────────┘  └──────────────┘  │    System    │      │
+│  ┌──────────────┐  ┌──────────────┐  └──────────────┘      │
+│  │   WebSocket  │  │ Rate Limit   │                        │
+│  └──────────────┘  └──────────────┘                        │
 └─────────────────────────────────────────────────────────────┘
                               │
         ┌─────────────────────┼─────────────────────┐
