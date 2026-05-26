@@ -138,3 +138,40 @@ websocket:
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s
+
+# 模板定义 (可选)
+templates:
+  # 服务器告警模板
+  server_alert:
+    name: "服务器告警"
+    title: "【告警】{{.Level}} - {{.Service}}"
+    level: "error"
+    fields:
+      - label: "服务器"
+        value: "{{.Server}}"
+        type: "text"
+      - label: "错误信息"
+        value: "{{.Error}}"
+        type: "text"
+      - label: "时间"
+        value: "{{.Timestamp}}"
+        type: "text"
+
+  # 部署通知模板
+  deploy_notify:
+    name: "部署通知"
+    title: "部署完成: {{.Env}} 环境"
+    level: "info"
+    fields:
+      - label: "环境"
+        value: "{{.Env}}"
+        type: "text"
+      - label: "版本"
+        value: "{{.Version}}"
+        type: "text"
+      - label: "分支"
+        value: "{{.Branch}}"
+        type: "text"
+      - label: "耗时"
+        value: "{{.Duration}}"
+        type: "text"

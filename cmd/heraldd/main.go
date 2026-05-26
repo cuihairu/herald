@@ -14,6 +14,7 @@ import (
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/internal/config"
 	"github.com/cuihairu/herald/internal/logger"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
@@ -90,15 +91,26 @@ func main() {
 		APIKeys: cfg.Auth.APIKeys,
 	})
 
+	// Create template manager and load templates from config
+	templateMgr := template.NewManager()
+	if len(cfg.Templates) > 0 {
+		if err := templateMgr.LoadFromMap(cfg.Templates); err != nil {
+			logger.Error("failed to load templates", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("templates loaded", "count", len(cfg.Templates))
+	}
+
 	// Create server
 	srv := api.NewServer(&api.Config{
-		Addr:    cfg.Server.Addr,
-		Timeout: cfg.Server.Timeout,
-		Router:  router,
-		Queue:   q,
-		Runtime: manager,
-		Dedup:   d,
-		Auth:    a,
+		Addr:            cfg.Server.Addr,
+		Timeout:         cfg.Server.Timeout,
+		Router:          router,
+		Queue:           q,
+		Runtime:         manager,
+		Dedup:           d,
+		Auth:            a,
+		TemplateManager: templateMgr,
 	})
 
 	// Start server

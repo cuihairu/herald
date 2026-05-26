@@ -5,18 +5,20 @@ import (
 	"os"
 	"time"
 
+	"github.com/cuihairu/herald/core/template"
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the herald configuration
 type Config struct {
-	Server    ServerConfig               `yaml:"server"`
-	Auth      AuthConfig                 `yaml:"auth"`
-	Providers map[string]ProviderConfig  `yaml:"providers"`
-	Routes    map[string][]string        `yaml:"routes"`
-	Queue     QueueConfig                `yaml:"queue"`
-	Retry     RetryConfig                `yaml:"retry"`
-	Dedup     DedupConfig                 `yaml:"dedup"`
+	Server    ServerConfig                      `yaml:"server"`
+	Auth      AuthConfig                        `yaml:"auth"`
+	Providers map[string]ProviderConfig         `yaml:"providers"`
+	Routes    map[string][]string               `yaml:"routes"`
+	Queue     QueueConfig                       `yaml:"queue"`
+	Retry     RetryConfig                       `yaml:"retry"`
+	Dedup     DedupConfig                        `yaml:"dedup"`
+	Templates map[string]template.TemplateConfig `yaml:"templates"`
 }
 
 // ServerConfig is the server configuration
@@ -91,6 +93,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Providers == nil {
 		cfg.Providers = make(map[string]ProviderConfig)
+	}
+	if cfg.Templates == nil {
+		cfg.Templates = make(map[string]template.TemplateConfig)
 	}
 	if cfg.Dedup.Window == 0 {
 		cfg.Dedup.Window = 5 * time.Minute

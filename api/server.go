@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/internal/logger"
 )
@@ -33,11 +34,12 @@ type Config struct {
 	Addr    string
 	Timeout time.Duration
 
-	Router  *route.Router
-	Queue   core.Queue
-	Runtime *runtime.Manager
-	Dedup   *dedup.Dedup
-	Auth    *auth.Auth
+	Router          *route.Router
+	Queue           core.Queue
+	Runtime         *runtime.Manager
+	Dedup           *dedup.Dedup
+	Auth            *auth.Auth
+	TemplateManager *template.Manager
 }
 
 // NewServer creates a new server
@@ -46,7 +48,7 @@ func NewServer(config *Config) *Server {
 		config.Timeout = 30 * time.Second
 	}
 
-	handler := NewHandler(config.Router, config.Queue, config.Runtime, config.Dedup)
+	handler := NewHandler(config.Router, config.Queue, config.Runtime, config.Dedup, config.TemplateManager)
 
 	s := &Server{
 		addr:    config.Addr,
@@ -77,6 +79,11 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/logs/stats", s.withAuth(s.handleLogsStats))
 	mux.HandleFunc("/api/v1/logs/", s.withAuth(s.handleLogByID))
 	mux.HandleFunc("/api/v1/config/", s.withAuth(s.handleProviderConfig))
+
+	// Template management endpoints
+	mux.HandleFunc("/api/v1/templates", s.withAuth(s.handleTemplates))
+	mux.HandleFunc("/api/v1/templates/create", s.withAuth(s.handleCreateTemplate))
+	mux.HandleFunc("/api/v1/templates/", s.withAuth(s.handleTemplateByID))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -318,4 +325,28 @@ func (s *Server) processTask(ctx context.Context, task *core.Task) {
 	} else {
 		logger.Info("task delivered", "task_id", task.ID, "provider", task.Provider)
 	}
+}
+
+// Template management handlers
+
+func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleTemplates(w, r)
+}
+
+func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleCreateTemplate(w, r)
+}
+
+func (s *Server) handleTemplateByID(w http.ResponseWriter, r *http.Request) {
+	// Extract template ID from path like /api/v1/templates/{id}
+	path := r.URL.Path
+	prefix := "/api/v1/templates/"
+
+	if len(path) <= len(prefix) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	_ = path[len(prefix):] // ID is extracted by handler from PathValue
+	s.handler.HandleTemplateByID(w, r)
 }
