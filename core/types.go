@@ -51,6 +51,7 @@ type Task struct {
 	Level      string                 `json:"level,omitempty"`
 	Target     string                 `json:"target,omitempty"`
 	Data       map[string]interface{} `json:"data,omitempty"`
+	RenderFormat string               `json:"render_format,omitempty"` // Content format: html, markdown, plain, json
 	RetryCount int                    `json:"retry_count"`
 	CreatedAt  time.Time              `json:"created_at"`
 }

@@ -110,12 +110,15 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 		subject = "[" + strings.ToUpper(task.Level) + "] " + subject
 	}
 
+	// Determine if HTML based on render format
+	isHTML := task.RenderFormat == "html"
+
 	msg := &Message{
-		From:    p.formatFrom(),
-		To:      to,
+		From:   p.formatFrom(),
+		To:     to,
 		Subject: subject,
-		Body:    p.formatBody(task),
-		IsHTML:  false,
+		Body:   task.Body,
+		IsHTML: isHTML,
 	}
 
 	return p.sendMessage(ctx, msg)
@@ -127,32 +130,6 @@ func (p *Provider) formatFrom() string {
 		return fmt.Sprintf("%s <%s>", p.fromName, p.from)
 	}
 	return p.from
-}
-
-// formatBody formats the email body
-func (p *Provider) formatBody(task *core.Task) string {
-	body := ""
-
-	// Add level indicator
-	if task.Level != "" {
-		body += "Level: " + task.Level + "\n\n"
-	}
-
-	// Add title
-	body += task.Title + "\n\n"
-
-	// Add separator
-	body += strings.Repeat("-", 40) + "\n\n"
-
-	// Add body
-	if task.Body != "" {
-		body += task.Body + "\n\n"
-	}
-
-	// Add timestamp
-	body += "Time: " + time.Now().Format("2006-01-02 15:04:05") + "\n"
-
-	return body
 }
 
 // sendMessage sends an email
@@ -206,6 +183,16 @@ func (p *Provider) Status() *core.ProviderStatus {
 // Close closes the provider
 func (p *Provider) Close() error {
 	return nil
+}
+
+// SupportedFormats returns the formats supported by email provider
+func (p *Provider) SupportedFormats() []string {
+	return []string{"html", "plain"}
+}
+
+// DefaultFormat returns the default format
+func (p *Provider) DefaultFormat() string {
+	return "html"
 }
 
 // Factory creates email providers

@@ -19,6 +19,18 @@ type Provider interface {
 	Status() *ProviderStatus
 }
 
+// FormattableProvider is a provider that supports specific content formats
+type FormattableProvider interface {
+	Provider
+
+	// SupportedFormats returns the list of content formats this provider supports
+	// e.g., "html", "markdown", "plain", "json"
+	SupportedFormats() []string
+
+	// DefaultFormat returns the default format for this provider
+	DefaultFormat() string
+}
+
 // BuiltinProvider is a provider that runs directly in the core process
 type BuiltinProvider interface {
 	Provider

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -58,6 +60,7 @@ type NotifyRequest struct {
 	Level      string                 `json:"level,omitempty"`
 	Channels   []string               `json:"channels,omitempty"`
 	TemplateID string                 `json:"templateId,omitempty"` // Use template
+	RenderAs   string                 `json:"renderAs,omitempty"`   // Render format: auto, html, markdown, plain, json
 	Params     map[string]interface{} `json:"params,omitempty"`     // Template parameters
 }
 
@@ -95,19 +98,19 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 
 // handleTemplateNotify handles template-based notifications
 func (h *Handler) handleTemplateNotify(w http.ResponseWriter, r *http.Request, req *NotifyRequest) {
-	// Get template
-	tmpl, err := h.templateManager.Get(req.TemplateID)
+	// Step 1: Render template to get channel-agnostic data
+	renderedData, err := h.templateManager.Render(req.TemplateID, req.Params)
 	if err != nil {
 		h.respondError(w, http.StatusNotFound, "template not found")
 		return
 	}
 
-	// Determine providers
+	// Step 2: Determine providers
 	providers := req.Channels
-	if len(providers) == 0 && tmpl.Level != "" {
-		routed, err := h.router.RouteByLevel(tmpl.Level)
+	if len(providers) == 0 && renderedData.Level != "" {
+		routed, err := h.router.RouteByLevel(renderedData.Level)
 		if err != nil {
-			logger.Warn("no route for level", "level", tmpl.Level)
+			logger.Warn("no route for level", "level", renderedData.Level)
 		} else {
 			providers = routed
 		}
@@ -118,47 +121,49 @@ func (h *Handler) handleTemplateNotify(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 
-	// Create tasks for each provider
+	// Step 3: Determine render format
+	requestedFormat := template.RenderFormat(req.RenderAs)
+	if requestedFormat == "" {
+		requestedFormat = template.RenderFormatAuto
+	}
+
+	// Step 4: Create tasks for each provider
 	for _, providerName := range providers {
-		// Get provider to check if it has renderer
 		provider, err := h.runtime.GetProvider(providerName)
 		if err != nil {
 			logger.Warn("provider not found", "provider", providerName)
 			continue
 		}
 
-		// Check if provider implements Renderer interface
-		renderer, ok := provider.(template.Renderer)
-		if !ok {
-			logger.Warn("provider does not support template rendering", "provider", providerName)
-			continue
-		}
+		// Step 5: Choose format for this provider
+		format := h.chooseFormat(provider, requestedFormat)
 
-		// Render template for this provider
-		content, err := h.templateManager.Render(r.Context(), req.TemplateID, renderer, req.Params)
+		// Step 6: Render content in the chosen format
+		content, err := h.renderContent(r.Context(), renderedData, format)
 		if err != nil {
-			logger.Error("failed to render template", "template", req.TemplateID, "provider", providerName, "error", err)
+			logger.Error("failed to render content", "format", format, "error", err)
 			continue
 		}
 
-		// Create task with rendered content
+		// Step 7: Create task
 		task := &core.Task{
-			ID:        uuid.New().String(),
-			Provider:  providerName,
-			Title:     tmpl.Name,
-			Body:      content,
-			Level:     tmpl.Level,
-			Data:      req.Params,
-			CreatedAt: time.Now(),
+			ID:           uuid.New().String(),
+			Provider:     providerName,
+			Title:        renderedData.Title,
+			Body:         content,
+			Level:        renderedData.Level,
+			RenderFormat: string(format),
+			Data:         req.Params,
+			CreatedAt:    time.Now(),
 		}
 
-		// Check dedup
+		// Step 8: Check dedup
 		if h.dedup != nil && h.dedup.CheckTask(task) {
 			logger.Info("task deduplicated", "task_id", task.ID)
 			continue
 		}
 
-		// Push to queue
+		// Step 9: Push to queue
 		if err := h.queue.PushTask(r.Context(), task); err != nil {
 			logger.Error("failed to push task", "error", err)
 			h.respondError(w, http.StatusInternalServerError, "internal error")
@@ -170,6 +175,59 @@ func (h *Handler) handleTemplateNotify(w http.ResponseWriter, r *http.Request, r
 		Code:    0,
 		Message: "ok",
 	})
+}
+
+// chooseFormat chooses the best format for a provider
+func (h *Handler) chooseFormat(provider core.Provider, requestedFormat template.RenderFormat) template.RenderFormat {
+	// If provider supports format selection
+	if fp, ok := provider.(core.FormattableProvider); ok {
+		supported := fp.SupportedFormats()
+		if requestedFormat == template.RenderFormatAuto {
+			// Use provider's default
+			return template.RenderFormat(fp.DefaultFormat())
+		}
+		// Check if requested format is supported
+		for _, f := range supported {
+			if string(requestedFormat) == f {
+				return requestedFormat
+			}
+		}
+		// Fall back to provider's default
+		return template.RenderFormat(fp.DefaultFormat())
+	}
+
+	// Provider doesn't declare format support, use plain text
+	if requestedFormat == template.RenderFormatAuto {
+		return template.RenderFormatPlain
+	}
+	return requestedFormat
+}
+
+// renderContent renders the data in the specified format
+func (h *Handler) renderContent(ctx context.Context, data *template.RenderedData, format template.RenderFormat) (string, error) {
+	renderer, ok := template.GetRenderer(format)
+	if !ok {
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+
+	result, err := renderer.Render(ctx, data)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert to string
+	switch v := result.(type) {
+	case string:
+		return v, nil
+	case []byte:
+		return string(v), nil
+	default:
+		// For JSON renderer, serialize
+		if jr, ok := renderer.(*template.JSONRenderer); ok {
+			return jr.ToJSON(result)
+		}
+		return "", fmt.Errorf("unsupported render result type")
+	}
 }
 
 // handleDirectNotify handles direct notifications (backward compatible)
@@ -723,11 +781,13 @@ func (h *Handler) HandleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl := template.NewTemplate(req.ID)
-	tmpl.Name = req.Name
-	tmpl.Title = req.Title
-	tmpl.Level = req.Level
-	tmpl.Fields = req.Fields
+	tmpl := &template.Template{
+		ID:     req.ID,
+		Name:   req.Name,
+		Title:  req.Title,
+		Level:  req.Level,
+		Fields: req.Fields,
+	}
 
 	if err := h.templateManager.Register(tmpl); err != nil {
 		h.respondError(w, http.StatusBadRequest, err.Error())
@@ -766,11 +826,13 @@ func (h *Handler) updateTemplate(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	tmpl := template.NewTemplate(id)
-	tmpl.Name = req.Name
-	tmpl.Title = req.Title
-	tmpl.Level = req.Level
-	tmpl.Fields = req.Fields
+	tmpl := &template.Template{
+		ID:     id,
+		Name:   req.Name,
+		Title:  req.Title,
+		Level:  req.Level,
+		Fields: req.Fields,
+	}
 
 	if err := h.templateManager.Register(tmpl); err != nil {
 		h.respondError(w, http.StatusBadRequest, err.Error())

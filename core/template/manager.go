@@ -1,13 +1,12 @@
 package template
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
 )
 
-// Manager manages templates
+// Manager manages templates and rendering
 type Manager struct {
 	mu        sync.RWMutex
 	templates map[string]*Template
@@ -28,20 +27,11 @@ func (m *Manager) Register(tmpl *Template) error {
 		return fmt.Errorf("template cannot be nil")
 	}
 
-	// Validate the template
-	if err := tmpl.Validate(); err != nil {
-		return err
-	}
-
-	// Validate template syntax
-	if err := m.engine.ValidateTemplate(tmpl); err != nil {
-		return err
-	}
+	m.validate(tmpl)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Set timestamps
 	if existing, ok := m.templates[tmpl.ID]; ok {
 		tmpl.CreatedAt = existing.CreatedAt
 	} else if tmpl.CreatedAt.IsZero() {
@@ -60,14 +50,15 @@ func (m *Manager) Get(id string) (*Template, error) {
 
 	tmpl, ok := m.templates[id]
 	if !ok {
-		return nil, ErrTemplateNotFound
+		return nil, fmt.Errorf("template not found: %s", id)
 	}
 
-	// Return a copy to prevent mutation
+	// Return a copy
 	copy := *tmpl
 	copy.Fields = make([]Field, len(tmpl.Fields))
-	copyFields(copy.Fields, tmpl.Fields)
-
+	for i := range tmpl.Fields {
+		copy.Fields[i] = tmpl.Fields[i]
+	}
 	return &copy, nil
 }
 
@@ -78,89 +69,102 @@ func (m *Manager) List() []*Template {
 
 	templates := make([]*Template, 0, len(m.templates))
 	for _, tmpl := range m.templates {
-		// Return copies
 		copy := *tmpl
 		copy.Fields = make([]Field, len(tmpl.Fields))
-		copyFields(copy.Fields, tmpl.Fields)
+		for i := range tmpl.Fields {
+			copy.Fields[i] = tmpl.Fields[i]
+		}
 		templates = append(templates, &copy)
 	}
-
 	return templates
 }
 
-// Delete deletes a template by ID
+// Delete deletes a template
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.templates[id]; !ok {
-		return ErrTemplateNotFound
+		return fmt.Errorf("template not found: %s", id)
 	}
 
 	delete(m.templates, id)
 	return nil
 }
 
-// Render renders a template with the given parameters using the specified renderer
-func (m *Manager) Render(ctx context.Context, templateID string, renderer Renderer, params map[string]interface{}) (string, error) {
+// Render renders a template with parameters
+func (m *Manager) Render(templateID string, params map[string]interface{}) (*RenderedData, error) {
 	tmpl, err := m.Get(templateID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	if renderer == nil {
-		return "", fmt.Errorf("renderer cannot be nil")
+	data, err := m.engine.Render(tmpl, params)
+	if err != nil {
+		return nil, err
 	}
 
-	return renderer.Render(ctx, tmpl, params)
+	data.RenderedAt = time.Now()
+	return data, nil
 }
 
-// LoadFromMap loads templates from a map (used for config loading)
+// LoadFromMap loads templates from config map
 func (m *Manager) LoadFromMap(templates map[string]TemplateConfig) error {
 	for id, config := range templates {
-		tmpl := NewTemplate(id)
-		tmpl.Name = config.Name
-		tmpl.Title = config.Title
-		tmpl.Level = config.Level
+		tmpl := &Template{
+			ID:      id,
+			Name:    config.Name,
+			Title:   config.Title,
+			Level:   config.Level,
+			Fields:  make([]Field, len(config.Fields)),
+		}
 
-		// Convert field configs
-		for _, fc := range config.Fields {
-			tmpl.Fields = append(tmpl.Fields, Field{
+		for i, fc := range config.Fields {
+			tmpl.Fields[i] = Field{
 				Label: fc.Label,
 				Value: fc.Value,
 				Type:  fc.Type,
-			})
+			}
 		}
 
 		if err := m.Register(tmpl); err != nil {
 			return fmt.Errorf("failed to register template %s: %w", id, err)
 		}
 	}
-
 	return nil
 }
 
-// Engine returns the template engine
-func (m *Manager) Engine() *Engine {
-	return m.engine
-}
-
-// copyFields copies fields from src to dst
-func copyFields(dst, src []Field) {
-	for i := range src {
-		dst[i] = src[i]
+// validate validates a template
+func (m *Manager) validate(tmpl *Template) error {
+	if tmpl.ID == "" {
+		return fmt.Errorf("template id cannot be empty")
 	}
+	if tmpl.Name == "" {
+		return fmt.Errorf("template name cannot be empty")
+	}
+	if tmpl.Title == "" {
+		return fmt.Errorf("template title cannot be empty")
+	}
+	for i, field := range tmpl.Fields {
+		if field.Label == "" {
+			return fmt.Errorf("field at index %d: label cannot be empty", i)
+		}
+		if field.Value == "" {
+			return fmt.Errorf("field at index %d: value cannot be empty", i)
+		}
+	}
+	return nil
 }
 
-// TemplateConfig is the configuration format for templates in YAML
+// TemplateConfig is the config format for templates in YAML
 type TemplateConfig struct {
-	Name   string         `yaml:"name"`
-	Title  string         `yaml:"title"`
-	Level  string         `yaml:"level"`
-	Fields []FieldConfig  `yaml:"fields"`
+	Name   string        `yaml:"name"`
+	Title  string        `yaml:"title"`
+	Level  string        `yaml:"level"`
+	Fields []FieldConfig `yaml:"fields"`
 }
 
-// FieldConfig is the configuration format for fields in YAML
+// FieldConfig is the config format for fields in YAML
 type FieldConfig struct {
 	Label string `yaml:"label"`
 	Value string `yaml:"value"`

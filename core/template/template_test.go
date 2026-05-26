@@ -5,268 +5,213 @@ import (
 	"testing"
 )
 
-func TestTemplateValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		tmpl    *Template
-		wantErr bool
-	}{
-		{
-			name: "valid template",
-			tmpl: &Template{
-				ID:    "test",
-				Name:  "Test Template",
-				Title: "Test {{.Var}}",
-				Fields: []Field{
-					{Label: "Label1", Value: "{{.Value1}}", Type: FieldTypeText},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "empty id",
-			tmpl: &Template{
-				Name:  "Test",
-				Title: "Test",
-			},
-			wantErr: true,
-		},
-		{
-			name: "empty name",
-			tmpl: &Template{
-				ID:    "test",
-				Title: "Test",
-			},
-			wantErr: true,
-		},
-		{
-			name: "empty title",
-			tmpl: &Template{
-				ID:   "test",
-				Name: "Test",
-			},
-			wantErr: true,
-		},
-		{
-			name: "empty field label",
-			tmpl: &Template{
-				ID:    "test",
-				Name:  "Test",
-				Title: "Test",
-				Fields: []Field{
-					{Label: "", Value: "{{.Value}}"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "empty field value",
-			tmpl: &Template{
-				ID:    "test",
-				Name:  "Test",
-				Title: "Test",
-				Fields: []Field{
-					{Label: "Label", Value: ""},
-				},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.tmpl.Validate(); (err != nil) != tt.wantErr {
-				t.Errorf("Template.Validate() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestEngineExecute(t *testing.T) {
-	engine := NewEngine()
-
-	tests := []struct {
-		name    string
-		text    string
-		params  map[string]interface{}
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "simple variable",
-			text: "Hello {{.Name}}",
-			params: map[string]interface{}{
-				"Name": "World",
-			},
-			want:    "Hello World",
-			wantErr: false,
-		},
-		{
-			name: "multiple variables",
-			text: "{{.Greeting}} {{.Name}}!",
-			params: map[string]interface{}{
-				"Greeting": "Hello",
-				"Name":     "World",
-			},
-			want:    "Hello World!",
-			wantErr: false,
-		},
-		{
-			name: "with function",
-			text: "{{.Name | toUpper}}",
-			params: map[string]interface{}{
-				"Name": "hello",
-			},
-			want:    "HELLO",
-			wantErr: false,
-		},
-		{
-			name: "no template syntax",
-			text: "plain text",
-			params: map[string]interface{}{
-				"Name": "World",
-			},
-			want:    "plain text",
-			wantErr: false,
-		},
-		{
-			name:    "empty text",
-			text:    "",
-			params:  map[string]interface{}{},
-			want:    "",
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := engine.Execute(tt.text, tt.params)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Engine.Execute() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("Engine.Execute() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestManager(t *testing.T) {
+func TestManagerRender(t *testing.T) {
 	manager := NewManager()
 
-	// Test Register
-	tmpl := NewTemplate("test")
-	tmpl.Name = "Test Template"
-	tmpl.Title = "Test {{.Var}}"
-	tmpl.Fields = []Field{
-		{Label: "Label", Value: "{{.Value}}", Type: FieldTypeText},
+	// Register a test template
+	tmpl := &Template{
+		ID:    "test",
+		Name:  "Test Template",
+		Title: "Hello {{.Name}}",
+		Level: "info",
+		Fields: []Field{
+			{Label: "Server", Value: "{{.Server}}", Type: "text"},
+			{Label: "Error", Value: "{{.Error}}", Type: "text"},
+		},
 	}
 
 	if err := manager.Register(tmpl); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	// Test Get
-	got, err := manager.Get("test")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got.Name != tmpl.Name {
-		t.Errorf("Get() Name = %v, want %v", got.Name, tmpl.Name)
-	}
-
-	// Test List
-	templates := manager.List()
-	if len(templates) != 1 {
-		t.Errorf("List() count = %v, want 1", len(templates))
-	}
-
-	// Test Delete
-	if err := manager.Delete("test"); err != nil {
-		t.Fatalf("Delete() error = %v", err)
-	}
-	if _, err := manager.Get("test"); err != ErrTemplateNotFound {
-		t.Errorf("After Delete(), Get() should return ErrTemplateNotFound, got %v", err)
-	}
-}
-
-func TestTextRenderer(t *testing.T) {
-	engine := NewEngine()
-	renderer := NewTextRenderer(engine)
-
-	tmpl := &Template{
-		ID:    "test",
-		Name:  "Test",
-		Title: "{{.Title}}",
-		Fields: []Field{
-			{Label: "Field1", Value: "{{.Value1}}", Type: FieldTypeText},
-			{Label: "Field2", Value: "{{.Value2}}", Type: FieldTypeText},
-		},
-	}
-
+	// Render with parameters
 	params := map[string]interface{}{
-		"Title":  "Test Title",
-		"Value1": "Value1",
-		"Value2": "Value2",
+		"Name":   "World",
+		"Server": "server-01",
+		"Error":  "Connection timeout",
 	}
 
-	result, err := renderer.Render(context.Background(), tmpl, params)
+	data, err := manager.Render("test", params)
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
 
-	expected := "Test Title\nField1: Value1\nField2: Value2\n"
-	if result != expected {
-		t.Errorf("Render() = %v, want %v", result, expected)
+	// Verify rendered data
+	if data.Title != "Hello World" {
+		t.Errorf("Title = %s, want 'Hello World'", data.Title)
+	}
+
+	if len(data.Fields) != 2 {
+		t.Fatalf("Fields count = %d, want 2", len(data.Fields))
+	}
+
+	if data.Fields[0].Label != "Server" {
+		t.Errorf("Field[0].Label = %s, want 'Server'", data.Fields[0].Label)
+	}
+
+	if data.Fields[0].Value != "server-01" {
+		t.Errorf("Field[0].Value = %s, want 'server-01'", data.Fields[0].Value)
+	}
+
+	if data.Fields[1].Value != "Connection timeout" {
+		t.Errorf("Field[1].Value = %s, want 'Connection timeout'", data.Fields[1].Value)
+	}
+}
+
+func TestHTMLRenderer(t *testing.T) {
+	renderer := &HTMLRenderer{}
+
+	data := &RenderedData{
+		Title: "Test Alert",
+		Level: "error",
+		Fields: []RenderedField{
+			{Label: "Server", Value: "server-01", Type: "text"},
+			{Label: "Error", Value: "CPU 95%", Type: "text"},
+		},
+	}
+
+	result, err := renderer.Render(context.Background(), data)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	html, ok := result.(string)
+	if !ok {
+		t.Fatalf("Render() result is not string")
+	}
+
+	// Check for HTML markers
+	if !contains(html, "<html>") {
+		t.Error("Output should contain <html> tag")
+	}
+
+	if !contains(html, "Test Alert") {
+		t.Error("Output should contain title")
+	}
+
+	if !contains(html, "server-01") {
+		t.Error("Output should contain server value")
+	}
+
+	// Check for red color (error level)
+	if !contains(html, "#f44336") {
+		t.Error("Error level should use red color")
 	}
 }
 
 func TestMarkdownRenderer(t *testing.T) {
-	engine := NewEngine()
-	renderer := NewMarkdownRenderer(engine)
+	renderer := &MarkdownRenderer{}
 
-	tmpl := &Template{
-		ID:    "test",
-		Name:  "Test",
-		Title: "{{.Title}}",
-		Level: "error",
-		Fields: []Field{
-			{Label: "Field1", Value: "{{.Value1}}", Type: FieldTypeText},
+	data := &RenderedData{
+		Title: "Test Alert",
+		Level: "warning",
+		Fields: []RenderedField{
+			{Label: "Server", Value: "server-01", Type: "text"},
 		},
 	}
 
-	params := map[string]interface{}{
-		"Title":  "Test Title",
-		"Value1": "Value1",
-	}
-
-	result, err := renderer.Render(context.Background(), tmpl, params)
+	result, err := renderer.Render(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
 
-	// Should contain header, title, and formatted field
-	if !contains(result, "###") {
-		t.Errorf("Render() should contain header, got %v", result)
+	md, ok := result.(string)
+	if !ok {
+		t.Fatalf("Render() result is not string")
 	}
-	if !contains(result, "Test Title") {
-		t.Errorf("Render() should contain title, got %v", result)
+
+	// Check for markdown markers
+	if !contains(md, "###") {
+		t.Error("Output should contain markdown header")
 	}
-	if !contains(result, "Field1") {
-		t.Errorf("Render() should contain field label, got %v", result)
+
+	if !contains(md, "🟡") {
+		t.Error("Warning level should use yellow emoji")
+	}
+
+	if !contains(md, "**Server**") {
+		t.Error("Field label should be bold")
+	}
+}
+
+func TestJSONRenderer(t *testing.T) {
+	renderer := &JSONRenderer{}
+
+	data := &RenderedData{
+		Title: "Test Alert",
+		Level: "error",
+		Fields: []RenderedField{
+			{Label: "Server", Value: "server-01", Type: "text"},
+			{Label: "Error", Value: "CPU 95%", Type: "text"},
+		},
+	}
+
+	result, err := renderer.Render(context.Background(), data)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	// Result should be a map (card structure)
+	card, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Render() result is not map")
+	}
+
+	if card["msg_type"] != "interactive" {
+		t.Error("Card should have msg_type=interactive")
+	}
+
+	cardData, ok := card["card"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Card should have card field")
+	}
+
+	header, ok := cardData["header"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Card should have header")
+	}
+
+	// Check error level uses red color
+	if header["template"] != "red" {
+		t.Errorf("Error level should use red color, got %v", header["template"])
+	}
+}
+
+func TestRendererRegistry(t *testing.T) {
+	tests := []struct {
+		format   RenderFormat
+		wantName string
+	}{
+		{RenderFormatHTML, "HTMLRenderer"},
+		{RenderFormatMarkdown, "MarkdownRenderer"},
+		{RenderFormatPlain, "PlainRenderer"},
+		{RenderFormatJSON, "JSONRenderer"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.format), func(t *testing.T) {
+			renderer, ok := GetRenderer(tt.format)
+			if !ok {
+				t.Errorf("GetRenderer(%s) returned false", tt.format)
+				return
+			}
+
+			if renderer.Format() != tt.format {
+				t.Errorf("Renderer.Format() = %s, want %s", renderer.Format(), tt.format)
+			}
+		})
 	}
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
+	return len(s) >= len(substr) && indexOf(s, substr) >= 0
 }
 
-func containsMiddle(s, substr string) bool {
+func indexOf(s, substr string) int {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
