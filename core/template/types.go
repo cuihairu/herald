@@ -26,13 +26,23 @@ const (
 
 // Template represents a message template (pure semantic structure)
 type Template struct {
-	ID        string      `json:"id" yaml:"id"`
-	Name      string      `json:"name" yaml:"name"`
-	Title     string      `json:"title" yaml:"title"`           // Title template with variables
-	Level     string      `json:"level" yaml:"level"`           // Default level: error, warning, info
-	Fields    []Field     `json:"fields" yaml:"fields"`         // Field definitions
-	CreatedAt time.Time   `json:"created_at" yaml:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at" yaml:"updated_at"`
+	ID        string              `json:"id" yaml:"id"`
+	Name      string              `json:"name" yaml:"name"`
+	Title     string              `json:"title" yaml:"title"`           // Title template with variables
+	Level     string              `json:"level" yaml:"level"`           // Default level: error, warning, info
+	Fields    []Field             `json:"fields" yaml:"fields"`         // Field definitions
+	Bindings  map[string]Binding  `json:"bindings,omitempty" yaml:"bindings,omitempty"` // Per-channel config
+	CreatedAt time.Time           `json:"created_at" yaml:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at" yaml:"updated_at"`
+}
+
+// Binding is a per-channel configuration that maps a template to a specific provider
+type Binding struct {
+	Format       string            `json:"format,omitempty" yaml:"format,omitempty"`                 // html, markdown, plain, json (content providers)
+	TemplateCode string            `json:"template_code,omitempty" yaml:"template_code,omitempty"`   // SMS template code (aliyun)
+	TemplateID   string            `json:"template_id,omitempty" yaml:"template_id,omitempty"`       // SMS template ID (tencent/netease)
+	Params       map[string]string `json:"params,omitempty" yaml:"params,omitempty"`                 // named params: field label → vendor param key
+	ParamOrder   []string          `json:"param_order,omitempty" yaml:"param_order,omitempty"`       // ordered params: field labels in vendor-required order
 }
 
 // Field represents a single field in the template

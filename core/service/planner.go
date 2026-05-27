@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// DeliveryPlanner generates DeliveryTasks based on provider capability
+// DeliveryPlanner generates DeliveryTasks based on provider capability and template bindings
 type DeliveryPlanner struct {
 	templates *template.Manager
 }
@@ -20,7 +20,7 @@ func NewDeliveryPlanner(templates *template.Manager) *DeliveryPlanner {
 	return &DeliveryPlanner{templates: templates}
 }
 
-// Plan creates a DeliveryTask for a specific provider
+// Plan creates a DeliveryTask for a specific provider/channel
 func (p *DeliveryPlanner) Plan(
 	ctx context.Context,
 	provider core.Provider,
@@ -31,7 +31,13 @@ func (p *DeliveryPlanner) Plan(
 ) (*core.DeliveryTask, error) {
 	capability := p.getCapability(provider)
 
-	payload, err := p.buildPayload(ctx, provider, notification, renderedData, capability, channel)
+	// Resolve binding for this channel
+	var binding *template.Binding
+	if renderedData != nil {
+		binding = p.resolveBinding(renderedData.TemplateID, channel)
+	}
+
+	payload, err := p.buildPayload(ctx, notification, renderedData, capability, channel, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -46,22 +52,47 @@ func (p *DeliveryPlanner) Plan(
 	}, nil
 }
 
-// buildPayload constructs the DeliveryPayload based on provider capability
+// resolveBinding looks up the template binding for a specific channel
+func (p *DeliveryPlanner) resolveBinding(templateID, channel string) *template.Binding {
+	if p.templates == nil || templateID == "" {
+		return nil
+	}
+	tmpl, err := p.templates.Get(templateID)
+	if err != nil {
+		return nil
+	}
+	if tmpl.Bindings == nil {
+		return nil
+	}
+	b, ok := tmpl.Bindings[channel]
+	if !ok {
+		return nil
+	}
+	return &b
+}
+
+// buildPayload constructs the DeliveryPayload based on capability + binding
 func (p *DeliveryPlanner) buildPayload(
 	ctx context.Context,
-	provider core.Provider,
 	notification *core.Notification,
 	renderedData *template.RenderedData,
 	cap core.ProviderCapability,
 	channel string,
+	binding *template.Binding,
 ) (*core.DeliveryPayload, error) {
-	// Determine title/body
-	title, body := resolveContent(notification, renderedData)
+	// 1. If binding specifies a vendor template (SMS), build provider_template payload
+	if binding != nil && (binding.TemplateCode != "" || binding.TemplateID != "") {
+		pt := p.buildProviderTemplate(notification, renderedData, binding)
+		return &core.DeliveryPayload{
+			Kind:             core.PayloadProviderTemplate,
+			ProviderTemplate: pt,
+		}, nil
+	}
 
-	// Check if provider supports vendor template
-	if cap.SupportsTemplate && hasKind(cap.PayloadKinds, core.PayloadProviderTemplate) {
-		pt := p.buildProviderTemplate(notification, renderedData, channel)
-		if pt != nil {
+	// 2. If provider supports template natively and binding provides template info
+	if cap.SupportsTemplate && hasKind(cap.PayloadKinds, core.PayloadProviderTemplate) && binding != nil {
+		if binding.TemplateCode != "" || binding.TemplateID != "" {
+			pt := p.buildProviderTemplate(notification, renderedData, binding)
 			return &core.DeliveryPayload{
 				Kind:             core.PayloadProviderTemplate,
 				ProviderTemplate: pt,
@@ -69,9 +100,18 @@ func (p *DeliveryPlanner) buildPayload(
 		}
 	}
 
-	// Content-based delivery
+	// 3. Content-based delivery (email, IM, etc.)
 	if hasKind(cap.PayloadKinds, core.PayloadContent) {
-		format := p.selectFormat(cap.ContentFormats, notification)
+		title, body := resolveContent(notification, renderedData)
+		format := p.selectFormat(cap.ContentFormats, notification, binding)
+
+		// Use renderer if we have rendered template data
+		if renderedData != nil {
+			if rendered, err := p.renderContent(ctx, renderedData, format); err == nil && rendered != "" {
+				body = rendered
+			}
+		}
+
 		return &core.DeliveryPayload{
 			Kind: core.PayloadContent,
 			Content: &core.RenderedContent{
@@ -82,8 +122,9 @@ func (p *DeliveryPlanner) buildPayload(
 		}, nil
 	}
 
-	// Raw delivery fallback
+	// 4. Raw delivery fallback
 	if hasKind(cap.PayloadKinds, core.PayloadRaw) {
+		title, body := resolveContent(notification, renderedData)
 		return &core.DeliveryPayload{
 			Kind: core.PayloadRaw,
 			Raw: map[string]any{
@@ -95,52 +136,113 @@ func (p *DeliveryPlanner) buildPayload(
 		}, nil
 	}
 
-	return nil, fmt.Errorf("provider %s has no compatible payload kind", provider.Name())
+	return nil, fmt.Errorf("provider %s has no compatible payload kind", channel)
 }
 
-// buildProviderTemplate builds a ProviderTemplatePayload from notification + template binding
+// buildProviderTemplate builds a ProviderTemplatePayload from binding config
 func (p *DeliveryPlanner) buildProviderTemplate(
 	notification *core.Notification,
 	renderedData *template.RenderedData,
-	channel string,
+	binding *template.Binding,
 ) *core.ProviderTemplatePayload {
-	// TODO: P1 - resolve from template bindings config
-	// For now, only build if notification.Params has template info
-	params := notification.Params
-	if params == nil {
-		return nil
+	pt := &core.ProviderTemplatePayload{
+		TemplateCode: binding.TemplateCode,
+		TemplateID:   binding.TemplateID,
 	}
 
-	templateCode, _ := params["_template_code"].(string)
-	templateID, _ := params["_template_id"].(string)
+	// Build field value map from rendered data
+	fieldValues := p.buildFieldValues(renderedData, notification)
 
-	// Extract template params (everything except internal fields)
-	templateParams := make(map[string]string)
-	for k, v := range params {
-		if k[0] != '_' {
+	switch {
+	// Named params (aliyun): map[string]string
+	case len(binding.Params) > 0:
+		params := make(map[string]string, len(binding.Params))
+		for fieldLabel, vendorKey := range binding.Params {
+			if v, ok := fieldValues[fieldLabel]; ok {
+				params[vendorKey] = v
+			}
+		}
+		pt.Params = params
+
+	// Ordered params (tencent/netease): []string
+	case len(binding.ParamOrder) > 0:
+		params := make([]string, 0, len(binding.ParamOrder))
+		for _, fieldLabel := range binding.ParamOrder {
+			if v, ok := fieldValues[fieldLabel]; ok {
+				params = append(params, v)
+			}
+		}
+		pt.Params = params
+
+	default:
+		// Fallback: pass all params as map[string]string
+		params := make(map[string]string, len(fieldValues))
+		for k, v := range fieldValues {
+			params[k] = v
+		}
+		pt.Params = params
+	}
+
+	return pt
+}
+
+// buildFieldValues extracts field label→value map from rendered data or notification params
+func (p *DeliveryPlanner) buildFieldValues(renderedData *template.RenderedData, notification *core.Notification) map[string]string {
+	values := make(map[string]string)
+
+	if renderedData != nil {
+		for _, f := range renderedData.Fields {
+			values[f.Label] = f.Value
+		}
+	}
+
+	// Also include raw params (for fields not in template)
+	if notification.Params != nil {
+		for k, v := range notification.Params {
 			if s, ok := v.(string); ok {
-				templateParams[k] = s
+				if _, exists := values[k]; !exists {
+					values[k] = s
+				}
 			}
 		}
 	}
 
-	if templateCode == "" && templateID == "" {
-		return nil
+	return values
+}
+
+// renderContent renders template data through the appropriate renderer
+func (p *DeliveryPlanner) renderContent(ctx context.Context, data *template.RenderedData, format string) (string, error) {
+	renderer, ok := template.GetRenderer(template.RenderFormat(format))
+	if !ok {
+		// No renderer for this format, fall back to plain text join
+		return renderFieldsBody(data), nil
 	}
 
-	return &core.ProviderTemplatePayload{
-		TemplateCode: templateCode,
-		TemplateID:   templateID,
-		Params:       templateParams,
+	if sr, ok := renderer.(template.StringRenderer); ok {
+		return sr.RenderString(ctx, data)
 	}
+
+	result, err := renderer.Render(ctx, data)
+	if err != nil {
+		return "", err
+	}
+
+	if s, ok := result.(string); ok {
+		return s, nil
+	}
+	return "", nil
 }
 
 // selectFormat picks the best content format for the provider
-func (p *DeliveryPlanner) selectFormat(supported []string, notification *core.Notification) string {
+func (p *DeliveryPlanner) selectFormat(supported []string, notification *core.Notification, binding *template.Binding) string {
+	// Binding takes priority
+	if binding != nil && binding.Format != "" {
+		return binding.Format
+	}
+
 	if len(supported) == 0 {
 		return "plain"
 	}
-	// Default to first supported format
 	return supported[0]
 }
 
@@ -149,7 +251,6 @@ func (p *DeliveryPlanner) getCapability(provider core.Provider) core.ProviderCap
 	if cp, ok := provider.(core.CapableProvider); ok {
 		return cp.Capability()
 	}
-	// Default fallback
 	return core.ProviderCapability{
 		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
 		ContentFormats: []string{"plain"},
@@ -171,7 +272,7 @@ func resolveContent(notification *core.Notification, renderedData *template.Rend
 	return title, body
 }
 
-// renderFieldsBody generates a text body from template fields
+// renderFieldsBody generates a plain text body from template fields (fallback)
 func renderFieldsBody(data *template.RenderedData) string {
 	if len(data.Fields) == 0 {
 		return ""

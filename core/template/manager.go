@@ -61,6 +61,12 @@ func (m *Manager) Get(id string) (*Template, error) {
 	for i := range tmpl.Fields {
 		copy.Fields[i] = tmpl.Fields[i]
 	}
+	if tmpl.Bindings != nil {
+		copy.Bindings = make(map[string]Binding, len(tmpl.Bindings))
+		for k, v := range tmpl.Bindings {
+			copy.Bindings[k] = v
+		}
+	}
 	return &copy, nil
 }
 
@@ -75,6 +81,12 @@ func (m *Manager) List() []*Template {
 		copy.Fields = make([]Field, len(tmpl.Fields))
 		for i := range tmpl.Fields {
 			copy.Fields[i] = tmpl.Fields[i]
+		}
+		if tmpl.Bindings != nil {
+			copy.Bindings = make(map[string]Binding, len(tmpl.Bindings))
+			for k, v := range tmpl.Bindings {
+				copy.Bindings[k] = v
+			}
 		}
 		templates = append(templates, &copy)
 	}
@@ -118,7 +130,8 @@ func (m *Manager) LoadFromMap(templates map[string]TemplateConfig) error {
 			Name:    config.Name,
 			Title:   config.Title,
 			Level:   config.Level,
-			Fields:  make([]Field, len(config.Fields)),
+			Fields:   make([]Field, len(config.Fields)),
+			Bindings: config.Bindings,
 		}
 
 		for i, fc := range config.Fields {
@@ -156,10 +169,11 @@ func (m *Manager) validate(tmpl *Template) error {
 
 // TemplateConfig is the config format for templates in YAML
 type TemplateConfig struct {
-	Name   string        `yaml:"name"`
-	Title  string        `yaml:"title"`
-	Level  string        `yaml:"level"`
-	Fields []FieldConfig `yaml:"fields"`
+	Name     string             `yaml:"name"`
+	Title    string             `yaml:"title"`
+	Level    string             `yaml:"level"`
+	Fields   []FieldConfig      `yaml:"fields"`
+	Bindings map[string]Binding `yaml:"bindings"`
 }
 
 // FieldConfig is the config format for fields in YAML
