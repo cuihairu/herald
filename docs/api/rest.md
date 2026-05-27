@@ -4,7 +4,7 @@
 
 发送通知。
 
-### 请求
+### notify-请求 {#notify-request}
 
 ```http
 POST /api/v1/notify
@@ -38,7 +38,7 @@ Content-Type: application/json
 }
 ```
 
-### 参数
+### notify-参数 {#notify-params}
 
 | 字段       | 类型     | 必填   | 描述    |
 | -------- | ------ | ---- | ----- |
@@ -51,7 +51,7 @@ Content-Type: application/json
 | title    | string | 否    | 直接标题（无模板时使用） |
 | body     | string | 否    | 直接内容（无模板时使用） |
 
-### 响应
+### notify-响应 {#notify-response}
 
 **成功：**
 
@@ -101,11 +101,11 @@ Content-Type: application/json
 }
 ```
 
-## GET /api/v1/status
+## GET /api/v1/status {#get-status}
 
 查询服务状态。
 
-### 响应
+### status-响应 {#status-response}
 
 ```json
 {
@@ -125,11 +125,11 @@ Content-Type: application/json
 }
 ```
 
-## GET /api/v1/providers
+## GET /api/v1/providers {#get-providers}
 
 查询 Provider 列表。
 
-### 响应
+### providers-响应 {#providers-response}
 
 ```json
 {
@@ -156,17 +156,17 @@ Content-Type: application/json
 }
 ```
 
-## POST /api/v1/providers/{name}/enable
+## POST /api/v1/providers/{name}/enable {#provider-enable}
 
 启用指定的 Provider。
 
-### 请求
+### enable-请求 {#enable-request}
 
 ```http
 POST /api/v1/providers/telegram/enable
 ```
 
-### 响应
+### enable-响应 {#enable-response}
 
 ```json
 {
@@ -175,17 +175,17 @@ POST /api/v1/providers/telegram/enable
 }
 ```
 
-## POST /api/v1/providers/{name}/disable
+## POST /api/v1/providers/{name}/disable {#provider-disable}
 
 禁用指定的 Provider。
 
-### 请求
+### disable-请求 {#disable-request}
 
 ```http
 POST /api/v1/providers/telegram/disable
 ```
 
-### 响应
+### disable-响应 {#disable-response}
 
 ```json
 {
@@ -194,11 +194,11 @@ POST /api/v1/providers/telegram/disable
 }
 ```
 
-## GET /api/v1/workers
+## GET /api/v1/workers {#get-workers}
 
 查询已连接的 Workers。
 
-### 响应
+### workers-响应 {#workers-response}
 
 ```json
 {
@@ -224,11 +224,11 @@ POST /api/v1/providers/telegram/disable
 }
 ```
 
-## GET /api/v1/queue
+## GET /api/v1/queue {#get-queue}
 
 查询队列状态。
 
-### 响应
+### queue-响应 {#queue-response}
 
 ```json
 {
@@ -240,11 +240,11 @@ POST /api/v1/providers/telegram/disable
 }
 ```
 
-## GET /api/v1/logs
+## GET /api/v1/logs {#get-logs}
 
 查询投递日志。
 
-### 参数
+### logs-参数 {#logs-params}
 
 | 参数       | 类型     | 描述    |
 | -------- | ------ | ----- |
@@ -256,7 +256,7 @@ POST /api/v1/providers/telegram/disable
 | since    | string | 起始时间（RFC3339） |
 | until    | string | 结束时间（RFC3339） |
 
-### 响应
+### logs-响应 {#logs-response}
 
 ```json
 {
@@ -271,31 +271,31 @@ POST /api/v1/providers/telegram/disable
 }
 ```
 
-## GET /api/v1/logs/stats
+## GET /api/v1/logs/stats {#logs-stats}
 
 查询日志统计。
 
-## GET /api/v1/logs/{id}
+## GET /api/v1/logs/{id} {#log-by-id}
 
 查询单条日志。
 
-## GET /api/v1/config/{name}
+## GET /api/v1/config/{name} {#config-get}
 
 查询 Provider 配置。
 
-## PUT /api/v1/config/{name}
+## PUT /api/v1/config/{name} {#config-update}
 
 更新 Provider 配置。
 
-## GET /api/v1/templates
+## GET /api/v1/templates {#templates-list}
 
 查询模板列表。
 
-## POST /api/v1/templates/create
+## POST /api/v1/templates/create {#template-create}
 
 创建模板。
 
-### 请求
+### create-请求 {#create-request}
 
 ```json
 {
@@ -310,14 +310,14 @@ POST /api/v1/providers/telegram/disable
 }
 ```
 
-## GET /api/v1/templates/{id}
+## GET /api/v1/templates/{id} {#template-get}
 
 查询指定模板。
 
-## PUT /api/v1/templates/{id}
+## PUT /api/v1/templates/{id} {#template-update}
 
 更新模板。
 
-## DELETE /api/v1/templates/{id}
+## DELETE /api/v1/templates/{id} {#template-delete}
 
 删除模板。

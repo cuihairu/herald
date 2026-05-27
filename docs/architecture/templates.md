@@ -94,7 +94,7 @@ func (e *Engine) Render(tmpl *Template, params map[string]interface{}) *Rendered
 
 **职责**：
 
-- 执行变量替换（`<code v-pre>{{.Variable}}</code>`）
+- 执行变量替换（`&#123;&#123;.Variable&#125;&#125;`）
 - 内置函数：`toUpper`、`toLower`、`trim`
 - 返回 `RenderedData`（语义化数据，与渠道无关）
 
