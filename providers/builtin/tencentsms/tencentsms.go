@@ -52,7 +52,7 @@ type SendSmsRequest struct {
 	SmsSdkAppId      string   `json:"SmsSdkAppId"`
 	SignName         string   `json:"SignName"`
 	PhoneNumberSet   []string `json:"PhoneNumberSet"`
-	TemplateID       string   `json:"TemplateID"`
+	TemplateID       string   `json:"TemplateId"`
 	TemplateParamSet []string `json:"TemplateParamSet,omitempty"`
 	SessionContext   string   `json:"SessionContext,omitempty"`
 }

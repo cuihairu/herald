@@ -77,20 +77,6 @@ export const useHeraldStore = defineStore('herald', () => {
     }
   }
 
-  async function sendEvent(data) {
-    loading.value = true
-    error.value = null
-    try {
-      const response = await heraldApi.sendEvent(data)
-      return response
-    } catch (err) {
-      error.value = err.message
-      throw err
-    } finally {
-      loading.value = false
-    }
-  }
-
   async function enableProvider(name) {
     loading.value = true
     error.value = null
@@ -146,7 +132,6 @@ export const useHeraldStore = defineStore('herald', () => {
     fetchQueue,
     fetchLogStats,
     sendNotify,
-    sendEvent,
     enableProvider,
     disableProvider
   }

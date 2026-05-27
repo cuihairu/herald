@@ -19,7 +19,6 @@ http://your-host:8080/api/v1
 | 方法   | 路径         | 描述    |
 | ---- | ---------- | ----- |
 | POST | /notify    | 发送通知  |
-| POST | /events    | 发送事件  |
 | GET  | /status    | 查询状态  |
 | GET  | /providers | 查询 Providers |
 | GET  | /templates | 获取模板列表 |

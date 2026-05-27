@@ -48,9 +48,6 @@ export const heraldApi = {
   // 发送通知
   sendNotify: (data) => api.post('/notify', data),
 
-  // 发送事件
-  sendEvent: (data) => api.post('/events', data),
-
   // 获取日志
   getLogs: (params) => api.get('/logs', { params }),
 

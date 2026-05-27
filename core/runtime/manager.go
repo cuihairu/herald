@@ -101,14 +101,17 @@ func (m *Manager) GetProviders() []core.Provider {
 	return providers
 }
 
-// GetProviderStatus returns the status of all providers
+// GetProviderStatus returns the status of all providers.
+// Enabled field is overridden from runtime's internal state (the single source of truth).
 func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	statuses := make([]*core.ProviderStatus, 0, len(m.providers))
-	for _, p := range m.providers {
-		statuses = append(statuses, p.Status())
+	for name, p := range m.providers {
+		s := p.Status()
+		s.Enabled = m.enabled[name]
+		statuses = append(statuses, s)
 	}
 
 	return statuses

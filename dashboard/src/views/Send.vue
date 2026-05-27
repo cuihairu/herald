@@ -5,30 +5,16 @@
     <div class="form-container">
       <form @submit.prevent="handleSubmit" class="form">
         <div class="form-group">
-          <label class="form-label">类型</label>
-          <div class="radio-group">
-            <label class="radio">
-              <input type="radio" v-model="form.type" value="notify" />
-              <span>通知</span>
-            </label>
-            <label class="radio">
-              <input type="radio" v-model="form.type" value="event" />
-              <span>事件</span>
-            </label>
-          </div>
-        </div>
-
-        <div v-if="form.type === 'notify'" class="form-group">
           <label class="form-label">标题</label>
           <input v-model="form.title" type="text" class="form-input" placeholder="输入标题" required />
         </div>
 
-        <div v-if="form.type === 'notify'" class="form-group">
+        <div class="form-group">
           <label class="form-label">内容</label>
           <textarea v-model="form.body" class="form-textarea" rows="4" placeholder="输入内容"></textarea>
         </div>
 
-        <div v-if="form.type === 'notify'" class="form-group">
+        <div class="form-group">
           <label class="form-label">级别</label>
           <select v-model="form.level" class="form-select">
             <option value="">默认</option>
@@ -38,7 +24,7 @@
           </select>
         </div>
 
-        <div v-if="form.type === 'notify'" class="form-group">
+        <div class="form-group">
           <label class="form-label">Channels</label>
           <div class="checkbox-group">
             <label v-for="provider in providers" :key="provider.name" class="checkbox">
@@ -46,21 +32,6 @@
               <span>{{ provider.name }}</span>
             </label>
           </div>
-        </div>
-
-        <div v-if="form.type === 'event'" class="form-group">
-          <label class="form-label">事件类型</label>
-          <input v-model="form.eventType" type="text" class="form-input" placeholder="node.offline" required />
-        </div>
-
-        <div v-if="form.type === 'event'" class="form-group">
-          <label class="form-label">标签 (JSON)</label>
-          <textarea v-model="form.labels" class="form-textarea" rows="3" placeholder='{"level": "error"}'></textarea>
-        </div>
-
-        <div v-if="form.type === 'event'" class="form-group">
-          <label class="form-label">数据 (JSON)</label>
-          <textarea v-model="form.data" class="form-textarea" rows="3" placeholder='{"message": "node is offline"}'></textarea>
         </div>
 
         <div v-if="result" class="result" :class="{ success: result.success, error: !result.success }">
@@ -84,53 +55,23 @@ const providers = ref([])
 const result = ref(null)
 
 const form = reactive({
-  type: 'notify',
   title: '',
   body: '',
   level: '',
-  channels: [],
-  eventType: '',
-  labels: '{}',
-  data: '{}'
+  channels: []
 })
 
 async function handleSubmit() {
   result.value = null
 
   try {
-    if (form.type === 'notify') {
-      const response = await store.sendNotify({
-        title: form.title,
-        body: form.body,
-        level: form.level,
-        channels: form.channels
-      })
-      result.value = { success: true, message: '发送成功' }
-    } else {
-      let labels = {}
-      let data = {}
-
-      try {
-        if (form.labels) labels = JSON.parse(form.labels)
-      } catch (e) {
-        result.value = { success: false, message: '标签格式错误' }
-        return
-      }
-
-      try {
-        if (form.data) data = JSON.parse(form.data)
-      } catch (e) {
-        result.value = { success: false, message: '数据格式错误' }
-        return
-      }
-
-      const response = await store.sendEvent({
-        type: form.eventType,
-        labels,
-        data
-      })
-      result.value = { success: true, message: '发送成功' }
-    }
+    await store.sendNotify({
+      title: form.title,
+      body: form.body,
+      level: form.level,
+      channels: form.channels
+    })
+    result.value = { success: true, message: '发送成功' }
   } catch (err) {
     result.value = { success: false, message: err.message || '发送失败' }
   }
@@ -199,14 +140,12 @@ onMounted(async () => {
   font-family: monospace;
 }
 
-.radio-group,
 .checkbox-group {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
 }
 
-.radio,
 .checkbox {
   display: flex;
   align-items: center;
@@ -214,7 +153,6 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.radio input,
 .checkbox input {
   accent-color: #3b82f6;
 }
@@ -263,13 +201,11 @@ onMounted(async () => {
     max-width: 100%;
   }
 
-  .radio-group,
   .checkbox-group {
     flex-direction: column;
     gap: 0.5rem;
   }
 
-  .radio,
   .checkbox {
     justify-content: flex-start;
   }

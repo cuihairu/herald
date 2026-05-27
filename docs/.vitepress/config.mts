@@ -58,7 +58,6 @@ export default defineConfig({
           items: [
             { text: '概述', link: '/api/overview' },
             { text: 'REST API', link: '/api/rest' },
-            { text: '事件 API', link: '/api/events' },
           ]
         }
       ],

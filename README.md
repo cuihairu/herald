@@ -71,23 +71,11 @@ http://localhost:3000
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "alert",
     "title": "Node Offline",
     "body": "node-17 is offline",
-    "level": "error"
-  }'
-```
-
-### 发送事件
-
-```bash
-curl -X POST http://localhost:8080/api/v1/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "node.offline",
-    "labels": {
-      "level": "error",
-      "node": "node-17"
-    }
+    "level": "error",
+    "channels": ["telegram", "email"]
   }'
 ```
 
@@ -109,14 +97,14 @@ curl http://localhost:8080/api/v1/providers
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "templateId": "server_alert",
+    "type": "alert",
+    "template": "server_alert",
     "params": {
       "Level": "CRITICAL",
       "Service": "order-service",
       "Server": "order-01",
       "Error": "CPU 使用率 95%"
     },
-    "renderAs": "html",
     "channels": ["email", "telegram"]
   }'
 ```

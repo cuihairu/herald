@@ -346,7 +346,7 @@ func (h *Handler) HandleProviderConfig(w http.ResponseWriter, r *http.Request, n
 		Data: &ProviderConfigResponse{
 			Name:    name,
 			Type:    status.Type,
-			Enabled: status.Status != "disabled",
+			Enabled: h.notificationSvc.GetRuntime().IsEnabled(name),
 			Config:  make(map[string]interface{}),
 			Schema:  getProviderSchema(name),
 		},
@@ -404,7 +404,7 @@ func getProviderSchema(name string) map[string]string {
 		"wechat":      {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
 		"wechatmp":    {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
 		"aliyunsms":   {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
-		"tencentsms":  {"secret_id": "string", "secret_key": "string", "app_id": "string"},
+		"tencentsms":  {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string"},
 		"neteasesms":  {"app_key": "string", "app_secret": "string"},
 	}
 	if schema, ok := schemas[name]; ok {
@@ -415,11 +415,12 @@ func getProviderSchema(name string) map[string]string {
 
 // TemplateRequest is a template create/update request
 type TemplateRequest struct {
-	ID     string           `json:"id"`
-	Name   string           `json:"name"`
-	Title  string           `json:"title"`
-	Level  string           `json:"level"`
-	Fields []template.Field `json:"fields"`
+	ID       string                    `json:"id"`
+	Name     string                    `json:"name"`
+	Title    string                    `json:"title"`
+	Level    string                    `json:"level"`
+	Fields   []template.Field          `json:"fields"`
+	Bindings map[string]template.Binding `json:"bindings,omitempty"`
 }
 
 // HandleTemplates handles template list requests
@@ -465,7 +466,8 @@ func (h *Handler) HandleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		Name:   req.Name,
 		Title:  req.Title,
 		Level:  req.Level,
-		Fields: req.Fields,
+		Fields:   req.Fields,
+			Bindings: req.Bindings,
 	}
 
 	if err := h.templateManager.Register(tmpl); err != nil {
@@ -497,7 +499,8 @@ func (h *Handler) updateTemplate(w http.ResponseWriter, r *http.Request, id stri
 		Name:   req.Name,
 		Title:  req.Title,
 		Level:  req.Level,
-		Fields: req.Fields,
+		Fields:   req.Fields,
+			Bindings: req.Bindings,
 	}
 
 	if err := h.templateManager.Register(tmpl); err != nil {
