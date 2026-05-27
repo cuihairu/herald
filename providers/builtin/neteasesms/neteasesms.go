@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -105,20 +104,19 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 }
 
 // Deliver delivers a task to NetEase SMS
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if !p.enabled {
 		return fmt.Errorf("provider is disabled")
 	}
 
-	// Extract phone numbers from target (comma separated)
-	mobilesStr := task.Target
-	if mobilesStr == "" {
+	// Extract phone numbers from targets
+	if len(task.Targets) == 0 {
 		return fmt.Errorf("phone numbers are required")
 	}
 
 	// Clean and validate phone numbers
-	mobiles := []string{}
-	for _, num := range strings.Split(mobilesStr, ",") {
+	mobiles := make([]string, 0, len(task.Targets))
+	for _, num := range task.Targets {
 		num = strings.TrimSpace(num)
 		if num == "" {
 			continue
@@ -130,33 +128,29 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 		return fmt.Errorf("no valid phone numbers")
 	}
 
-	// Extract template ID from task data
-	templateID, _ := task.Data["template_id"].(string)
-	if templateID == "" {
-		// Try template_code as well
-		templateID, _ = task.Data["template_code"].(string)
+	// Extract template ID from provider template payload
+	templateID := ""
+	var params []string
+	if task.Payload.ProviderTemplate != nil {
+		templateID = task.Payload.ProviderTemplate.TemplateID
+		if templateID == "" {
+			templateID = task.Payload.ProviderTemplate.TemplateCode
+		}
+		// Build template params from Params
+		if task.Payload.ProviderTemplate.Params != nil {
+			if arr, ok := task.Payload.ProviderTemplate.Params.([]string); ok {
+				params = arr
+			} else if arr, ok := task.Payload.ProviderTemplate.Params.([]interface{}); ok {
+				for _, v := range arr {
+					if s, ok := v.(string); ok {
+						params = append(params, s)
+					}
+				}
+			}
+		}
 	}
 	if templateID == "" {
 		return fmt.Errorf("template_id is required")
-	}
-
-	// Build template params from task data
-	params := []string{}
-	if paramArray, ok := task.Data["template_params"].([]interface{}); ok {
-		for _, p := range paramArray {
-			if s, ok := p.(string); ok {
-				params = append(params, s)
-			}
-		}
-	} else if paramStr, ok := task.Data["template_params"].(string); ok {
-		// Try to parse as JSON array
-		var p []string
-		if err := json.Unmarshal([]byte(paramStr), &p); err == nil {
-			params = p
-		} else {
-			// Split by comma
-			params = strings.Split(paramStr, ",")
-		}
 	}
 
 	// Build request
@@ -176,6 +170,14 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 	}
 
 	return nil
+}
+
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:     []core.PayloadKind{core.PayloadProviderTemplate},
+		SupportsTemplate: true,
+	}
 }
 
 // sendRequest sends the actual request to NetEase API

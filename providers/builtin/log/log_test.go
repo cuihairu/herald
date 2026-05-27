@@ -3,6 +3,7 @@ package log
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/core"
 )
@@ -40,12 +41,19 @@ func TestNewProviderWithName(t *testing.T) {
 func TestProviderDeliver(t *testing.T) {
 	provider, _ := NewProvider(nil)
 
-	task := &core.Task{
+	task := &core.DeliveryTask{
 		ID:       "test-1",
 		Provider: "log",
-		Title:    "Test Title",
-		Body:     "Test Body",
 		Level:    "info",
+		Payload: core.DeliveryPayload{
+			Kind: core.PayloadContent,
+			Content: &core.RenderedContent{
+				Title:  "Test Title",
+				Body:   "Test Body",
+				Format: "plain",
+			},
+		},
+		CreatedAt: time.Now(),
 	}
 
 	ctx := context.Background()
@@ -144,12 +152,19 @@ func TestProviderDeliverDifferentLevels(t *testing.T) {
 	levels := []string{"debug", "info", "warning", "error", "critical"}
 
 	for _, level := range levels {
-		task := &core.Task{
+		task := &core.DeliveryTask{
 			ID:       "test-" + level,
 			Provider: "log",
-			Title:    "Test " + level,
-			Body:     "Body for " + level,
 			Level:    level,
+			Payload: core.DeliveryPayload{
+				Kind: core.PayloadContent,
+				Content: &core.RenderedContent{
+					Title:  "Test " + level,
+					Body:   "Body for " + level,
+					Format: "plain",
+				},
+			},
+			CreatedAt: time.Now(),
 		}
 
 		err := provider.Deliver(ctx, task)
@@ -162,12 +177,19 @@ func TestProviderDeliverDifferentLevels(t *testing.T) {
 func TestProviderDeliverWithContext(t *testing.T) {
 	provider, _ := NewProvider(nil)
 
-	task := &core.Task{
+	task := &core.DeliveryTask{
 		ID:       "test-ctx",
 		Provider: "log",
-		Title:    "Context Test",
-		Body:     "Testing with context",
 		Level:    "info",
+		Payload: core.DeliveryPayload{
+			Kind: core.PayloadContent,
+			Content: &core.RenderedContent{
+				Title:  "Context Test",
+				Body:   "Testing with context",
+				Format: "plain",
+			},
+		},
+		CreatedAt: time.Now(),
 	}
 
 	ctx := context.Background()
@@ -194,5 +216,22 @@ func TestMultipleProviders(t *testing.T) {
 		if provider.Name() != expectedName {
 			t.Errorf("expected name %s, got %s", expectedName, provider.Name())
 		}
+	}
+}
+
+func TestProviderCapability(t *testing.T) {
+	provider, _ := NewProvider(nil)
+
+	capable, ok := provider.(core.CapableProvider)
+	if !ok {
+		t.Fatal("expected provider to implement CapableProvider")
+	}
+
+	cap := capable.Capability()
+	if len(cap.PayloadKinds) != 1 || cap.PayloadKinds[0] != core.PayloadContent {
+		t.Errorf("expected PayloadContent capability, got %v", cap.PayloadKinds)
+	}
+	if len(cap.ContentFormats) != 1 || cap.ContentFormats[0] != "plain" {
+		t.Errorf("expected plain format, got %v", cap.ContentFormats)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/internal/logger"
@@ -23,10 +24,10 @@ type Server struct {
 	server  *http.Server
 	auth    *auth.Auth
 
-	router  *route.Router
-	queue   core.Queue
-	runtime *runtime.Manager
-	dedup   *dedup.Dedup
+	router          *route.Router
+	queue           core.Queue
+	runtime         *runtime.Manager
+	notificationSvc *service.NotificationService
 }
 
 // Config is the server configuration
@@ -48,29 +49,36 @@ func NewServer(config *Config) *Server {
 		config.Timeout = 30 * time.Second
 	}
 
-	handler := NewHandler(config.Router, config.Queue, config.Runtime, config.Dedup, config.TemplateManager)
+	notificationSvc := service.NewNotificationService(
+		config.TemplateManager,
+		config.Router,
+		config.Runtime,
+		config.Dedup,
+	)
+
+	handler := NewHandler(notificationSvc, config.TemplateManager)
+	handler.SetQueue(config.Queue)
 
 	s := &Server{
-		addr:    config.Addr,
-		handler: handler,
-		auth:    config.Auth,
-		router:  config.Router,
-		queue:   config.Queue,
-		runtime: config.Runtime,
-		dedup:   config.Dedup,
+		addr:            config.Addr,
+		handler:         handler,
+		auth:            config.Auth,
+		router:          config.Router,
+		queue:           config.Queue,
+		runtime:         config.Runtime,
+		notificationSvc: notificationSvc,
 	}
 
 	mux := http.NewServeMux()
 
-	// Public endpoints (no auth required)
+	// Public endpoints
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/auth/login", s.auth.HandleLogin)
 	mux.HandleFunc("/api/v1/auth/refresh", s.auth.HandleRefresh)
 	mux.HandleFunc("/api/v1/auth/me", s.auth.HandleMe)
 
-	// Protected endpoints (auth required if enabled)
+	// Protected endpoints
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
-	mux.HandleFunc("/api/v1/events", s.withAuth(s.handleEvents))
 	mux.HandleFunc("/api/v1/providers", s.withAuth(s.handleProviders))
 	mux.HandleFunc("/api/v1/workers", s.withAuth(s.handleWorkers))
 	mux.HandleFunc("/api/v1/queue", s.withAuth(s.handleQueue))
@@ -80,7 +88,7 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/logs/", s.withAuth(s.handleLogByID))
 	mux.HandleFunc("/api/v1/config/", s.withAuth(s.handleProviderConfig))
 
-	// Template management endpoints
+	// Template management
 	mux.HandleFunc("/api/v1/templates", s.withAuth(s.handleTemplates))
 	mux.HandleFunc("/api/v1/templates/create", s.withAuth(s.handleCreateTemplate))
 	mux.HandleFunc("/api/v1/templates/", s.withAuth(s.handleTemplateByID))
@@ -99,7 +107,6 @@ func NewServer(config *Config) *Server {
 func (s *Server) Start(ctx context.Context) error {
 	logger.Info("server starting", "addr", s.addr)
 
-	// Start dispatcher
 	go s.dispatch(ctx)
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -121,14 +128,6 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleNotify(w, r)
-}
-
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	s.handler.HandleEvent(w, r)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +215,6 @@ func (s *Server) handleProviderConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProviderAction(w http.ResponseWriter, r *http.Request) {
-	// Extract provider name from path like /api/v1/providers/{name}/enable or /api/v1/providers/{name}/disable
 	path := r.URL.Path
 	prefix := "/api/v1/providers/"
 
@@ -266,61 +264,25 @@ func (s *Server) withAuth(fn http.HandlerFunc) http.HandlerFunc {
 	return s.auth.Middleware(fn).ServeHTTP
 }
 
-// dispatch processes events and tasks from the queue
+// dispatch processes tasks from the queue
 func (s *Server) dispatch(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-
 		default:
-			// Process events first
-			event, err := s.queue.Pop(ctx)
-			if err == nil {
-				s.processEvent(ctx, event)
+			task, err := s.queue.Pop(ctx)
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-
-			// Process tasks
-			task, err := s.queue.PopTask(ctx)
-			if err == nil {
-				s.processTask(ctx, task)
-				continue
-			}
-
-			// Small sleep to avoid busy loop
-			time.Sleep(100 * time.Millisecond)
+			s.processTask(ctx, task)
 		}
 	}
 }
 
-func (s *Server) processEvent(ctx context.Context, event *core.Event) {
-	providers, err := s.router.Route(event)
-	if err != nil {
-		logger.Warn("no route for event", "type", event.Type, "error", err)
-		return
-	}
-
-	for _, provider := range providers {
-		task := &core.Task{
-			ID:        event.ID,
-			Provider:  provider,
-			Title:     event.Type,
-			Body:      "", // Will be filled from event data
-			Level:     event.Labels["level"],
-			Data:      event.Data,
-			CreatedAt: event.Timestamp,
-		}
-
-		if err := s.queue.PushTask(ctx, task); err != nil {
-			logger.Error("failed to push task", "error", err)
-		}
-	}
-}
-
-func (s *Server) processTask(ctx context.Context, task *core.Task) {
-	err := s.runtime.Deliver(ctx, task)
-	if err != nil {
+func (s *Server) processTask(ctx context.Context, task *core.DeliveryTask) {
+	if err := s.runtime.Deliver(ctx, task); err != nil {
 		logger.Error("failed to deliver task", "task_id", task.ID, "provider", task.Provider, "error", err)
 	} else {
 		logger.Info("task delivered", "task_id", task.ID, "provider", task.Provider)
@@ -338,7 +300,6 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTemplateByID(w http.ResponseWriter, r *http.Request) {
-	// Extract template ID from path like /api/v1/templates/{id}
 	path := r.URL.Path
 	prefix := "/api/v1/templates/"
 
@@ -347,6 +308,5 @@ func (s *Server) handleTemplateByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = path[len(prefix):] // ID is extracted by handler from PathValue
 	s.handler.HandleTemplateByID(w, r)
 }

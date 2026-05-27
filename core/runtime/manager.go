@@ -14,7 +14,7 @@ type Manager struct {
 	mu        sync.RWMutex
 	providers map[string]core.Provider
 	factories map[string]core.ProviderFactory
-	enabled   map[string]bool // Track enabled providers
+	enabled   map[string]bool
 	logStore  *logstore.LogStore
 }
 
@@ -47,7 +47,6 @@ func (m *Manager) RegisterProvider(provider core.Provider, enabled ...bool) erro
 	}
 
 	m.providers[name] = provider
-	// Default to enabled if not specified
 	isEnabled := true
 	if len(enabled) > 0 {
 		isEnabled = enabled[0]
@@ -108,13 +107,12 @@ func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 	return statuses
 }
 
-// Deliver delivers a task to a provider
-func (m *Manager) Deliver(ctx context.Context, task *core.Task) error {
+// Deliver delivers a DeliveryTask to its target provider
+func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("task is nil")
 	}
 
-	// Check if provider is enabled
 	if !m.IsEnabled(task.Provider) {
 		return fmt.Errorf("provider is disabled: %s", task.Provider)
 	}
@@ -124,11 +122,9 @@ func (m *Manager) Deliver(ctx context.Context, task *core.Task) error {
 		return err
 	}
 
-	// Create log entry
 	logEntry := logstore.NewTaskLog(task)
 	m.logStore.Add(logEntry)
 
-	// Deliver and update log status
 	err = provider.Deliver(ctx, task)
 	if err != nil {
 		m.logStore.UpdateStatus(task.ID, "failed", err.Error())
@@ -177,7 +173,6 @@ func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Close all providers that implement io.Closer
 	for _, p := range m.providers {
 		if closer, ok := p.(interface{ Close() error }); ok {
 			_ = closer.Close()
@@ -221,7 +216,6 @@ func (m *Manager) ReplaceProvider(name string, provider core.Provider) error {
 		return fmt.Errorf("provider not found: %s", name)
 	}
 
-	// Close old provider if possible
 	if old, ok := m.providers[name]; ok {
 		if closer, ok := old.(interface{ Close() error }); ok {
 			_ = closer.Close()
@@ -230,18 +224,4 @@ func (m *Manager) ReplaceProvider(name string, provider core.Provider) error {
 
 	m.providers[name] = provider
 	return nil
-}
-
-// GetProviderConfig returns the current config for a provider
-func (m *Manager) GetProviderConfig(name string) (map[string]interface{}, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if _, ok := m.providers[name]; !ok {
-		return nil, fmt.Errorf("provider not found: %s", name)
-	}
-
-	// Return empty config for now - actual config would need to be stored
-	// when provider is created
-	return make(map[string]interface{}), nil
 }

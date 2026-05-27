@@ -28,22 +28,17 @@ func NewRetryableError(err error) error {
 
 // Policy is the retry policy
 type Policy interface {
-	// ShouldRetry returns true if the task should be retried
 	ShouldRetry(err error, retryCount int) bool
-
-	// NextDelay returns the delay before next retry
 	NextDelay(retryCount int) time.Duration
-
-	// MaxRetries returns the maximum retry count
 	MaxRetries() int
 }
 
 // Config is the retry configuration
 type Config struct {
-	Max          int           `yaml:"max"`           // max retry count
-	Backoff      string        `yaml:"backoff"`       // backoff type: fixed, exponential
-	InitialDelay time.Duration `yaml:"initial_delay"` // initial delay
-	MaxDelay     time.Duration `yaml:"max_delay"`     // max delay
+	Max          int           `yaml:"max"`
+	Backoff      string        `yaml:"backoff"`
+	InitialDelay time.Duration `yaml:"initial_delay"`
+	MaxDelay     time.Duration `yaml:"max_delay"`
 }
 
 // Retryer handles retry logic
@@ -53,8 +48,6 @@ type Retryer struct {
 
 // NewRetryer creates a new retryer
 func NewRetryer(config *Config) *Retryer {
-	var policy Policy
-
 	if config == nil {
 		config = &Config{
 			Max:          3,
@@ -64,17 +57,13 @@ func NewRetryer(config *Config) *Retryer {
 		}
 	}
 
+	var policy Policy
+
 	switch config.Backoff {
 	case "fixed":
 		policy = &FixedPolicy{
 			Max:   config.Max,
 			Delay: config.InitialDelay,
-		}
-	case "exponential", "":
-		policy = &ExponentialPolicy{
-			Max:          config.Max,
-			InitialDelay: config.InitialDelay,
-			MaxDelay:     config.MaxDelay,
 		}
 	default:
 		policy = &ExponentialPolicy{
@@ -88,7 +77,7 @@ func NewRetryer(config *Config) *Retryer {
 }
 
 // Execute executes a function with retry
-func (r *Retryer) Execute(ctx context.Context, task *core.Task, fn func() error) error {
+func (r *Retryer) Execute(ctx context.Context, task *core.DeliveryTask, fn func() error) error {
 	var lastErr error
 
 	for i := 0; i <= r.policy.MaxRetries(); i++ {
@@ -99,12 +88,10 @@ func (r *Retryer) Execute(ctx context.Context, task *core.Task, fn func() error)
 
 		lastErr = err
 
-		// Check if error is retryable
 		if !r.policy.ShouldRetry(err, i) {
 			return err
 		}
 
-		// Wait before next retry
 		delay := r.policy.NextDelay(i)
 		select {
 		case <-time.After(delay):
@@ -127,8 +114,6 @@ func (p *ExponentialPolicy) ShouldRetry(err error, retryCount int) bool {
 	if retryCount >= p.Max {
 		return false
 	}
-
-	// Check if error is retryable
 	_, isRetryable := err.(*RetryableError)
 	return isRetryable
 }
@@ -155,7 +140,6 @@ func (p *FixedPolicy) ShouldRetry(err error, retryCount int) bool {
 	if retryCount >= p.Max {
 		return false
 	}
-
 	_, isRetryable := err.(*RetryableError)
 	return isRetryable
 }

@@ -92,8 +92,16 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"markdown", "plain"},
+	}
+}
+
 // Deliver delivers a task to Slack
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	payload := p.buildPayload(task)
 
 	resp, err := p.client.PostJSON(ctx, p.webhookURL, payload)
@@ -115,13 +123,14 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // buildPayload builds a webhook payload
-func (p *Provider) buildPayload(task *core.Task) *WebhookPayload {
+func (p *Provider) buildPayload(task *core.DeliveryTask) *WebhookPayload {
+	title, body := extractContent(task)
 	color := p.getColor(task.Level)
 
 	attachment := Attachment{
 		Color:  color,
-		Title:  task.Title,
-		Text:   task.Body,
+		Title:  title,
+		Text:   body,
 		Fields: []Field{},
 		Footer: "Herald",
 		Ts:     task.CreatedAt.Unix(),
@@ -145,23 +154,20 @@ func (p *Provider) buildPayload(task *core.Task) *WebhookPayload {
 		})
 	}
 
-	// Add custom fields from data
-	if task.Data != nil {
-		for k, v := range task.Data {
-			attachment.Fields = append(attachment.Fields, Field{
-				Title: k,
-				Value: fmt.Sprintf("%v", v),
-				Short: true,
-			})
-		}
-	}
-
 	return &WebhookPayload{
-		Username:  "Herald",
-		IconEmoji: ":bell:",
-		Text:      "",
+		Username:    "Herald",
+		IconEmoji:   ":bell:",
+		Text:        "",
 		Attachments: []Attachment{attachment},
 	}
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // getColor returns a color based on level

@@ -7,13 +7,10 @@ import (
 )
 
 // NewQueue creates a new queue
-func NewQueue(config *core.QueueConfig) (core.Queue, error) {
+func NewQueue(config *QueueConfig) (core.Queue, error) {
 	switch config.Type {
 	case "memory", "":
-		return NewMemoryQueue(&QueueConfig{
-			Size:    config.Size,
-			Timeout: config.Timeout,
-		})
+		return NewMemoryQueue(config)
 	default:
 		return nil, fmt.Errorf("unknown queue type: %s", config.Type)
 	}

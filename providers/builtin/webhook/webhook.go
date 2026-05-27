@@ -29,12 +29,12 @@ type Config struct {
 type WebhookPayload struct {
 	ID        string                 `json:"id"`
 	Provider  string                 `json:"provider,omitempty"`
-	Title     string                 `json:"title"`
-	Body      string                 `json:"body"`
 	Level     string                 `json:"level,omitempty"`
-	Target    string                 `json:"target,omitempty"`
+	Targets   []string               `json:"targets,omitempty"`
 	Timestamp string                 `json:"timestamp"`
-	Data      map[string]interface{} `json:"data,omitempty"`
+	Title     string                 `json:"title,omitempty"`
+	Body      string                 `json:"body,omitempty"`
+	Raw       map[string]any         `json:"raw,omitempty"`
 }
 
 // NewProvider creates a new webhook provider
@@ -68,18 +68,27 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent, core.PayloadRaw},
+		ContentFormats: []string{"json"},
+	}
+}
+
 // Deliver delivers a task to a webhook
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Build payload
+	title, body := extractContent(task)
 	payload := &WebhookPayload{
 		ID:        task.ID,
 		Provider:  task.Provider,
-		Title:     task.Title,
-		Body:      task.Body,
 		Level:     task.Level,
-		Target:    task.Target,
+		Targets:   task.Targets,
 		Timestamp: task.CreatedAt.Format(time.RFC3339),
-		Data:      task.Data,
+		Title:     title,
+		Body:      body,
+		Raw:       task.Payload.Raw,
 	}
 
 	// For POST/PUT, send JSON
@@ -100,6 +109,14 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 
 	// For GET, add as query params (simplified)
 	return fmt.Errorf("method %s not yet implemented", p.method)
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // Name returns the provider name

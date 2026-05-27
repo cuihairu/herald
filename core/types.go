@@ -5,63 +5,65 @@ import (
 	"time"
 )
 
-// Queue is the interface for event queuing
-type Queue interface {
-	// Push pushes an event to the queue
-	Push(ctx context.Context, event *Event) error
+// PayloadKind determines how a provider interprets the delivery payload
+type PayloadKind string
 
-	// Pop pops an event from the queue
-	Pop(ctx context.Context) (*Event, error)
+const (
+	PayloadContent          PayloadKind = "content"
+	PayloadProviderTemplate PayloadKind = "provider_template"
+	PayloadRaw              PayloadKind = "raw"
+)
 
-	// PushTask pushes a task to the queue
-	PushTask(ctx context.Context, task *Task) error
-
-	// PopTask pops a task from the queue
-	PopTask(ctx context.Context) (*Task, error)
-
-	// Size returns the current queue size
-	Size() int
-
-	// Close closes the queue
-	Close() error
+// Notification is the top-level notification intent from the API
+type Notification struct {
+	ID          string                 `json:"id"`
+	Type        string                 `json:"type"`
+	Level       string                 `json:"level,omitempty"`
+	Channels    []string               `json:"channels"`
+	Recipients  map[string][]string    `json:"recipients,omitempty"`
+	TemplateRef string                 `json:"template,omitempty"`
+	Params      map[string]any         `json:"params,omitempty"`
+	Content     *DirectContent         `json:"content,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
 }
 
-// QueueConfig is the configuration for a queue
-type QueueConfig struct {
-	Type     string        `yaml:"type"`     // memory, redis
-	Size     int           `yaml:"size"`     // max queue size
-	Timeout  time.Duration `yaml:"timeout"`  // pop timeout
+// DirectContent holds inline content when no template is used
+type DirectContent struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
-// Event represents an event to be delivered
-type Event struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Labels    map[string]string      `json:"labels"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
+// DeliveryTask is a single provider-bound delivery task
+type DeliveryTask struct {
+	ID         string         `json:"id"`
+	Provider   string         `json:"provider"`
+	Targets    []string       `json:"targets"`
+	Payload    DeliveryPayload `json:"payload"`
+	Level      string         `json:"level,omitempty"`
+	RetryCount int            `json:"retry_count"`
+	CreatedAt  time.Time      `json:"created_at"`
 }
 
-// Task represents a delivery task
-type Task struct {
-	ID         string                 `json:"id"`
-	Provider   string                 `json:"provider"`
-	Title      string                 `json:"title"`
-	Body       string                 `json:"body"`
-	Level      string                 `json:"level,omitempty"`
-	Target     string                 `json:"target,omitempty"`
-	Data       map[string]interface{} `json:"data,omitempty"`
-	RenderFormat string               `json:"render_format,omitempty"` // Content format: html, markdown, plain, json
-	RetryCount int                    `json:"retry_count"`
-	CreatedAt  time.Time              `json:"created_at"`
+// DeliveryPayload wraps the actual content sent to a provider
+type DeliveryPayload struct {
+	Kind             PayloadKind             `json:"kind"`
+	Content          *RenderedContent        `json:"content,omitempty"`
+	ProviderTemplate *ProviderTemplatePayload `json:"provider_template,omitempty"`
+	Raw              map[string]any          `json:"raw,omitempty"`
 }
 
-// TaskResult represents the result of a task execution
-type TaskResult struct {
-	TaskID  string    `json:"task_id"`
-	Success bool      `json:"success"`
-	Error   string    `json:"error,omitempty"`
-	At      time.Time `json:"at"`
+// RenderedContent is the rendered text in a specific format
+type RenderedContent struct {
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	Format string `json:"format"` // html, markdown, plain, json
+}
+
+// ProviderTemplatePayload is the normalized vendor template payload
+type ProviderTemplatePayload struct {
+	TemplateCode string `json:"template_code,omitempty"` // aliyun
+	TemplateID   string `json:"template_id,omitempty"`   // tencent, netease
+	Params       any    `json:"params,omitempty"`        // map[string]string or []string
 }
 
 // ProviderStatus represents the status of a provider
@@ -72,4 +74,12 @@ type ProviderStatus struct {
 	Enabled  bool      `json:"enabled"`
 	WorkerID string    `json:"worker_id,omitempty"`
 	Since    time.Time `json:"since"`
+}
+
+// Queue is the interface for task queuing
+type Queue interface {
+	Push(ctx context.Context, task *DeliveryTask) error
+	Pop(ctx context.Context) (*DeliveryTask, error)
+	Size() int
+	Close() error
 }

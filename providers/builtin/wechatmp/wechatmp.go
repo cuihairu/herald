@@ -131,16 +131,16 @@ func parseConfig(config map[string]interface{}) (*Config, error) {
 }
 
 // Deliver delivers a task to WeChat Official Account
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("wechatmp: task is nil")
 	}
 
-	// Get target OpenID (required for WeChat)
-	toUser := task.Target
-	if toUser == "" {
+	// Get target OpenID (required for WeChat, single target)
+	if len(task.Targets) == 0 || task.Targets[0] == "" {
 		return fmt.Errorf("wechatmp: target (OpenID) is required")
 	}
+	toUser := task.Targets[0]
 
 	// Get access token
 	token, err := p.tokenCache.GetToken(p.appID, p.appSecret, p.client)
@@ -156,14 +156,14 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // buildTemplateMessage builds a template message from a task
-func (p *Provider) buildTemplateMessage(task *core.Task) *templateMessageRequest {
+func (p *Provider) buildTemplateMessage(task *core.DeliveryTask) *templateMessageRequest {
 	// Format content for template
-	content := p.formatContent(task)
+	title, content := extractPayloadContent(task)
 
 	// Build template data with common fields
 	data := map[string]TemplateData{
-		"thing1": {Value: truncate(task.Title, 20)},  // 事项/标题
-		"thing2": {Value: truncate(content, 30)},     // 内容
+		"thing1": {Value: truncate(title, 20)},  // 事项/标题
+		"thing2": {Value: truncate(content, 30)}, // 内容
 	}
 
 	// Add level if present
@@ -174,32 +174,33 @@ func (p *Provider) buildTemplateMessage(task *core.Task) *templateMessageRequest
 	// Add timestamp
 	data["time3"] = TemplateData{Value: time.Now().Format("2006-01-02 15:04:05")}
 
-	// Determine URL
-	url := p.defaultURL
-	if task.Data != nil {
-		if u, ok := task.Data["url"].(string); ok && u != "" {
-			url = u
-		}
+	// Use provider template TemplateID if available, otherwise use configured default
+	tmplID := p.templateID
+	if task.Payload.ProviderTemplate != nil && task.Payload.ProviderTemplate.TemplateID != "" {
+		tmplID = task.Payload.ProviderTemplate.TemplateID
 	}
 
 	return &templateMessageRequest{
-		TemplateID: p.templateID,
-		URL:        url,
+		TemplateID: tmplID,
+		URL:        p.defaultURL,
 		Data:       data,
 	}
 }
 
-// formatContent formats the task content
-func (p *Provider) formatContent(task *core.Task) string {
-	content := ""
-
-	if task.Body != "" {
-		content = task.Body
-	} else if task.Title != "" {
-		content = task.Title
+// extractPayloadContent extracts title and body from a DeliveryTask
+func extractPayloadContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
 	}
+	return "", ""
+}
 
-	return content
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:     []core.PayloadKind{core.PayloadProviderTemplate, core.PayloadContent},
+		SupportsTemplate: true,
+	}
 }
 
 // sendTemplateMessage sends a template message

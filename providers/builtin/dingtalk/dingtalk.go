@@ -97,8 +97,16 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"markdown", "plain"},
+	}
+}
+
 // Deliver delivers a task to DingTalk
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	message := p.buildMessage(task)
 
 	resp, err := p.client.PostJSON(ctx, p.webhookURL, message)
@@ -124,38 +132,42 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // buildMessage builds a DingTalk message from a task
-func (p *Provider) buildMessage(task *core.Task) *Message {
+func (p *Provider) buildMessage(task *core.DeliveryTask) *Message {
+	title, _ := extractContent(task)
+
 	// Build markdown content
 	content := p.formatMarkdown(task)
 
 	return &Message{
 		MsgType: "markdown",
 		Markdown: &Markdown{
-			Title: task.Title,
+			Title: title,
 			Text:  content,
 		},
 	}
 }
 
 // formatMarkdown formats the task as markdown
-func (p *Provider) formatMarkdown(task *core.Task) string {
+func (p *Provider) formatMarkdown(task *core.DeliveryTask) string {
+	title, body := extractContent(task)
+
 	content := ""
 
 	// Add level indicator
 	switch task.Level {
 	case "error":
-		content += "### <font color='#ff0000'>" + task.Title + "</font>\n\n"
+		content += "### <font color='#ff0000'>" + title + "</font>\n\n"
 	case "warning":
-		content += "### <font color='#ff9900'>" + task.Title + "</font>\n\n"
+		content += "### <font color='#ff9900'>" + title + "</font>\n\n"
 	case "info":
-		content += "### " + task.Title + "\n\n"
+		content += "### " + title + "\n\n"
 	default:
-		content += "### " + task.Title + "\n\n"
+		content += "### " + title + "\n\n"
 	}
 
 	// Add body
-	if task.Body != "" {
-		content += task.Body + "\n\n"
+	if body != "" {
+		content += body + "\n\n"
 	}
 
 	// Add separator
@@ -165,6 +177,14 @@ func (p *Provider) formatMarkdown(task *core.Task) string {
 	content += "> " + time.Now().Format("2006-01-02 15:04:05")
 
 	return content
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // Name returns the provider name

@@ -111,31 +111,33 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 }
 
 // Deliver delivers a task to Aliyun SMS
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if !p.enabled {
 		return fmt.Errorf("provider is disabled")
 	}
 
-	// Extract phone numbers from target
-	phoneNumbers := task.Target
-	if phoneNumbers == "" {
+	// Extract phone numbers from targets
+	if len(task.Targets) == 0 {
 		return fmt.Errorf("phone numbers are required")
 	}
+	phoneNumbers := strings.Join(task.Targets, ",")
 
-	// Extract template code and params from task data
-	templateCode, _ := task.Data["template_code"].(string)
+	// Extract template code and params from provider template payload
+	templateCode := ""
+	var templateParam string
+	if task.Payload.ProviderTemplate != nil {
+		templateCode = task.Payload.ProviderTemplate.TemplateCode
+		// Build template param from Params
+		if params := task.Payload.ProviderTemplate.Params; params != nil {
+			if m, ok := params.(map[string]interface{}); ok {
+				if b, err := json.Marshal(m); err == nil {
+					templateParam = string(b)
+				}
+			}
+		}
+	}
 	if templateCode == "" {
 		templateCode = "SMS_DEFAULT" // Default template
-	}
-
-	// Build template param from task data
-	templateParam := ""
-	if param, ok := task.Data["template_param"].(string); ok {
-		templateParam = param
-	} else if params, ok := task.Data["template_params"].(map[string]interface{}); ok {
-		if b, err := json.Marshal(params); err == nil {
-			templateParam = string(b)
-		}
 	}
 
 	// Build request params
@@ -182,6 +184,14 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 	}
 
 	return nil
+}
+
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:     []core.PayloadKind{core.PayloadProviderTemplate},
+		SupportsTemplate: true,
+	}
 }
 
 // sign signs the request parameters

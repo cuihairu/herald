@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/cuihairu/herald/api"
-	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/queue"
@@ -41,7 +40,7 @@ func main() {
 	}
 
 	// Create queue
-	q, err := queue.NewQueue(&core.QueueConfig{
+	q, err := queue.NewQueue(&queue.QueueConfig{
 		Type:    cfg.Queue.Type,
 		Size:    cfg.Queue.Size,
 		Timeout: cfg.Queue.Timeout,
@@ -58,7 +57,7 @@ func main() {
 	})
 
 	// Create runtime manager
-	manager := runtime.NewManager(10000) // Store up to 10000 logs
+	manager := runtime.NewManager(10000)
 
 	// Register builtin provider factories
 	builtinregistry.RegisterBuiltinProviders(manager)

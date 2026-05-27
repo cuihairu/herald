@@ -6,45 +6,36 @@ import (
 
 // Provider is the interface for all delivery providers
 type Provider interface {
-	// Deliver delivers a task
-	Deliver(ctx context.Context, task *Task) error
-
-	// Name returns the provider name
+	Deliver(ctx context.Context, task *DeliveryTask) error
 	Name() string
-
-	// Type returns the provider type (builtin or worker)
 	Type() string
-
-	// Status returns the current status
 	Status() *ProviderStatus
 }
 
-// FormattableProvider is a provider that supports specific content formats
-type FormattableProvider interface {
+// ProviderCapability describes what a provider can handle
+type ProviderCapability struct {
+	PayloadKinds     []PayloadKind
+	ContentFormats   []string // html, markdown, plain, json
+	SupportsBatch    bool
+	SupportsTemplate bool // supports vendor-side template (e.g. SMS)
+}
+
+// CapableProvider is a provider that declares its capabilities
+type CapableProvider interface {
 	Provider
-
-	// SupportedFormats returns the list of content formats this provider supports
-	// e.g., "html", "markdown", "plain", "json"
-	SupportedFormats() []string
-
-	// DefaultFormat returns the default format for this provider
-	DefaultFormat() string
+	Capability() ProviderCapability
 }
 
 // BuiltinProvider is a provider that runs directly in the core process
 type BuiltinProvider interface {
 	Provider
-	Deliver(ctx context.Context, task *Task) error
+	Deliver(ctx context.Context, task *DeliveryTask) error
 }
 
 // WorkerProvider is a provider that runs in a separate worker process
 type WorkerProvider interface {
 	Provider
-
-	// WorkerID returns the worker ID
 	WorkerID() string
-
-	// Capabilities returns the provider capabilities
 	Capabilities() []string
 }
 

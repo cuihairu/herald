@@ -70,8 +70,16 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"plain"},
+	}
+}
+
 // Deliver delivers a task to Feishu
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Build message
 	message := p.buildMessage(task)
 
@@ -80,7 +88,7 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // buildMessage builds a Feishu message from a task
-func (p *Provider) buildMessage(task *core.Task) *Message {
+func (p *Provider) buildMessage(task *core.DeliveryTask) *Message {
 	// Build content
 	content := p.formatMessage(task)
 
@@ -93,7 +101,9 @@ func (p *Provider) buildMessage(task *core.Task) *Message {
 }
 
 // formatMessage formats the task as a Feishu message
-func (p *Provider) formatMessage(task *core.Task) string {
+func (p *Provider) formatMessage(task *core.DeliveryTask) string {
+	title, body := extractContent(task)
+
 	message := ""
 
 	// Add level indicator
@@ -107,14 +117,22 @@ func (p *Provider) formatMessage(task *core.Task) string {
 	}
 
 	// Add title
-	message += task.Title + "\n\n"
+	message += title + "\n\n"
 
 	// Add body
-	if task.Body != "" {
-		message += task.Body
+	if body != "" {
+		message += body
 	}
 
 	return message
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // sendMessage sends a message to Feishu

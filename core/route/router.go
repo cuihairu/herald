@@ -2,14 +2,11 @@ package route
 
 import (
 	"fmt"
-
-	"github.com/cuihairu/herald/core"
 )
 
-// Router routes events to providers
+// Router routes notifications to providers
 type Router struct {
-	routes map[string][]string
-	// levelRoutes maps event levels to providers
+	routes      map[string][]string
 	levelRoutes map[string][]string
 }
 
@@ -35,7 +32,6 @@ func NewRouter(config *Config) *Router {
 		}
 	}
 
-	// Default level routes
 	if len(r.levelRoutes) == 0 {
 		r.levelRoutes = map[string][]string{
 			"error":   {},
@@ -47,36 +43,19 @@ func NewRouter(config *Config) *Router {
 	return r
 }
 
-// Route routes an event to providers
-func (r *Router) Route(event *core.Event) ([]string, error) {
-	// First, try to route by event type
-	if providers, ok := r.routes[event.Type]; ok {
+// Route resolves providers for a notification type and level
+func (r *Router) Route(notificationType, level string) ([]string, error) {
+	// Try by notification type
+	if providers, ok := r.routes[notificationType]; ok && len(providers) > 0 {
 		return providers, nil
 	}
 
-	// Then, try to route by event level (if present in labels)
-	if level, ok := event.Labels["level"]; ok {
-		if providers, ok := r.levelRoutes[level]; ok && len(providers) > 0 {
-			return providers, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no route found for event type: %s", event.Type)
-}
-
-// RouteByLevel routes by notification level
-func (r *Router) RouteByLevel(level string) ([]string, error) {
-	// First check level routes
+	// Try by level
 	if providers, ok := r.levelRoutes[level]; ok && len(providers) > 0 {
 		return providers, nil
 	}
 
-	// Then check routes (for backward compatibility)
-	if providers, ok := r.routes[level]; ok && len(providers) > 0 {
-		return providers, nil
-	}
-
-	return nil, fmt.Errorf("no route found for level: %s", level)
+	return nil, fmt.Errorf("no route found for type=%s level=%s", notificationType, level)
 }
 
 // SetRoute sets a route

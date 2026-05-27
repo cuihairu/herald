@@ -71,8 +71,16 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"markdown", "plain"},
+	}
+}
+
 // Deliver delivers a task to Telegram
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Build message
 	message := p.formatMessage(task)
 
@@ -81,7 +89,9 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // formatMessage formats the task as a Telegram message
-func (p *Provider) formatMessage(task *core.Task) string {
+func (p *Provider) formatMessage(task *core.DeliveryTask) string {
+	title, body := extractContent(task)
+
 	message := ""
 
 	// Add level emoji
@@ -95,14 +105,22 @@ func (p *Provider) formatMessage(task *core.Task) string {
 	}
 
 	// Add title
-	message += "*" + task.Title + "*\n\n"
+	message += "*" + title + "*\n\n"
 
 	// Add body
-	if task.Body != "" {
-		message += task.Body
+	if body != "" {
+		message += body
 	}
 
 	return message
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // sendMessage sends a message to Telegram

@@ -178,8 +178,16 @@ func parseConfig(config map[string]interface{}) (*Config, error) {
 	return cfg, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"plain"},
+	}
+}
+
 // Deliver delivers a task to WeChat Personal
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("wechat: task is nil")
 	}
@@ -197,12 +205,23 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // sendServerChan sends via ServerChan
-func (p *Provider) sendServerChan(ctx context.Context, task *core.Task) error {
+func (p *Provider) sendServerChan(ctx context.Context, task *core.DeliveryTask) error {
+	title, body := extractContent(task)
 	content := formatContent(task)
 
 	req := &serverChanRequest{
-		Title: task.Title,
+		Title: title,
 		Desp:  content,
+	}
+
+	// Use body as short description if available
+	if body != "" {
+		runes := []rune(body)
+		if len(runes) > 64 {
+			req.Short = string(runes[:64])
+		} else {
+			req.Short = body
+		}
 	}
 
 	resp, err := p.client.PostJSON(ctx, p.url, req)
@@ -226,12 +245,13 @@ func (p *Provider) sendServerChan(ctx context.Context, task *core.Task) error {
 }
 
 // sendPushPlus sends via PushPlus
-func (p *Provider) sendPushPlus(ctx context.Context, task *core.Task) error {
+func (p *Provider) sendPushPlus(ctx context.Context, task *core.DeliveryTask) error {
+	title, _ := extractContent(task)
 	content := formatContent(task)
 
 	req := &pushPlusRequest{
 		Token:   p.appToken,
-		Title:   task.Title,
+		Title:   title,
 		Content: content,
 	}
 
@@ -256,13 +276,14 @@ func (p *Provider) sendPushPlus(ctx context.Context, task *core.Task) error {
 }
 
 // sendWxPusher sends via WxPusher
-func (p *Provider) sendWxPusher(ctx context.Context, task *core.Task) error {
+func (p *Provider) sendWxPusher(ctx context.Context, task *core.DeliveryTask) error {
+	title, _ := extractContent(task)
 	content := formatContent(task)
 
 	req := &wxpusherRequest{
 		AppToken:    p.appToken,
 		Content:     content,
-		Summary:     task.Title,
+		Summary:     title,
 		ContentType: 3, // Markdown
 	}
 
@@ -291,7 +312,9 @@ func (p *Provider) sendWxPusher(ctx context.Context, task *core.Task) error {
 }
 
 // formatContent formats the task content
-func formatContent(task *core.Task) string {
+func formatContent(task *core.DeliveryTask) string {
+	_, body := extractContent(task)
+
 	content := ""
 
 	// Add level indicator
@@ -313,14 +336,22 @@ func formatContent(task *core.Task) string {
 	}
 
 	// Add body
-	if task.Body != "" {
-		content += task.Body
+	if body != "" {
+		content += body
 	}
 
 	// Add timestamp
 	content += fmt.Sprintf("\n\n---\n%s", time.Now().Format("2006-01-02 15:04:05"))
 
 	return content
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // Name returns the provider name

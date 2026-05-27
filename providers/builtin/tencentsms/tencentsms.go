@@ -123,20 +123,17 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 }
 
 // Deliver delivers a task to Tencent SMS
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if !p.enabled {
 		return fmt.Errorf("provider is disabled")
 	}
 
-	// Extract phone numbers from target (comma separated)
-	phoneNumbersStr := task.Target
-	if phoneNumbersStr == "" {
+	// Extract phone numbers from targets and add +86 prefix if not present
+	if len(task.Targets) == 0 {
 		return fmt.Errorf("phone numbers are required")
 	}
-
-	// Add +86 prefix if not present
-	phoneNumberSet := []string{}
-	for _, num := range strings.Split(phoneNumbersStr, ",") {
+	phoneNumberSet := make([]string, 0, len(task.Targets))
+	for _, num := range task.Targets {
 		num = strings.TrimSpace(num)
 		if !strings.HasPrefix(num, "+") {
 			num = "+86" + num
@@ -144,26 +141,26 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 		phoneNumberSet = append(phoneNumberSet, num)
 	}
 
-	// Extract template ID from task data
-	templateID, _ := task.Data["template_id"].(string)
-	if templateID == "" {
-		return fmt.Errorf("template_id is required")
-	}
-
-	// Build template params from task data
+	// Extract template ID from provider template payload
+	templateID := ""
 	templateParamSet := []string{}
-	if params, ok := task.Data["template_params"].([]interface{}); ok {
-		for _, p := range params {
-			if s, ok := p.(string); ok {
-				templateParamSet = append(templateParamSet, s)
+	if task.Payload.ProviderTemplate != nil {
+		templateID = task.Payload.ProviderTemplate.TemplateID
+		// Build template params from Params
+		if params := task.Payload.ProviderTemplate.Params; params != nil {
+			if arr, ok := params.([]string); ok {
+				templateParamSet = arr
+			} else if arr, ok := params.([]interface{}); ok {
+				for _, v := range arr {
+					if s, ok := v.(string); ok {
+						templateParamSet = append(templateParamSet, s)
+					}
+				}
 			}
 		}
-	} else if paramStr, ok := task.Data["template_params"].(string); ok {
-		// Try to parse as JSON array
-		var params []string
-		if err := json.Unmarshal([]byte(paramStr), &params); err == nil {
-			templateParamSet = params
-		}
+	}
+	if templateID == "" {
+		return fmt.Errorf("template_id is required")
 	}
 
 	// Build request
@@ -173,10 +170,6 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 		TemplateParamSet: templateParamSet,
 	}
 
-	if sessionContext, ok := task.Data["session_context"].(string); ok {
-		reqBody.SessionContext = sessionContext
-	}
-
 	// Send request
 	err := p.sendRequest(ctx, reqBody)
 	if err != nil {
@@ -184,6 +177,14 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 	}
 
 	return nil
+}
+
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:     []core.PayloadKind{core.PayloadProviderTemplate},
+		SupportsTemplate: true,
+	}
 }
 
 // sendRequest sends the actual request to Tencent Cloud API

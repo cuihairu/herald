@@ -3,13 +3,12 @@ package dedup
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"sync"
 	"time"
-
-	"github.com/cuihairu/herald/core"
 )
 
-// Dedup deduplicates events
+// Dedup deduplicates notifications
 type Dedup struct {
 	mu     sync.RWMutex
 	seen   map[string]time.Time
@@ -18,7 +17,7 @@ type Dedup struct {
 
 // Config is the dedup configuration
 type Config struct {
-	Window time.Duration `yaml:"window"` // dedup window
+	Window time.Duration `yaml:"window"`
 }
 
 // NewDedup creates a new dedup
@@ -34,29 +33,9 @@ func NewDedup(config *Config) *Dedup {
 	}
 }
 
-// Check checks if an event should be deduplicated
-func (d *Dedup) Check(event *core.Event) bool {
-	key := d.key(event)
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Clean old entries
-	d.clean()
-
-	if t, ok := d.seen[key]; ok {
-		if time.Since(t) < d.window {
-			return true // duplicate
-		}
-	}
-
-	d.seen[key] = time.Now()
-	return false
-}
-
-// CheckTask checks if a task should be deduplicated
-func (d *Dedup) CheckTask(task *core.Task) bool {
-	key := d.taskKey(task)
+// Check checks if a notification should be deduplicated
+func (d *Dedup) Check(id string, channels []string, params map[string]any) bool {
+	key := d.key(id, channels, params)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -73,28 +52,19 @@ func (d *Dedup) CheckTask(task *core.Task) bool {
 	return false
 }
 
-// key generates a dedup key for an event
-func (d *Dedup) key(event *core.Event) string {
+func (d *Dedup) key(id string, channels []string, params map[string]any) string {
 	h := sha256.New()
-	h.Write([]byte(event.Type))
-	for k, v := range event.Labels {
-		h.Write([]byte(k))
-		h.Write([]byte(v))
+	h.Write([]byte(id))
+	for _, c := range channels {
+		h.Write([]byte(c))
+	}
+	if params != nil {
+		b, _ := json.Marshal(params)
+		h.Write(b)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// taskKey generates a dedup key for a task
-func (d *Dedup) taskKey(task *core.Task) string {
-	h := sha256.New()
-	h.Write([]byte(task.Provider))
-	h.Write([]byte(task.Title))
-	h.Write([]byte(task.Body))
-	h.Write([]byte(task.Target))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// clean removes old entries
 func (d *Dedup) clean() {
 	now := time.Now()
 	for k, t := range d.seen {

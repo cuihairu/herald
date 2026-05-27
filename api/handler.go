@@ -1,44 +1,34 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/cuihairu/herald/core"
-	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/logstore"
-	"github.com/cuihairu/herald/core/route"
-	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/internal/logger"
-	"github.com/google/uuid"
 )
 
 // Handler handles HTTP requests
 type Handler struct {
-	router          *route.Router
-	queue           core.Queue
-	runtime         *runtime.Manager
-	dedup           *dedup.Dedup
+	notificationSvc *service.NotificationService
 	templateManager *template.Manager
 	_wsServer       *websocket.Server
+	queue           core.Queue
 }
 
 // NewHandler creates a new handler
-func NewHandler(router *route.Router, queue core.Queue, runtime *runtime.Manager, dedup *dedup.Dedup, templateMgr *template.Manager) *Handler {
+func NewHandler(notificationSvc *service.NotificationService, templateMgr *template.Manager) *Handler {
 	if templateMgr == nil {
 		templateMgr = template.NewManager()
 	}
 	return &Handler{
-		router:          router,
-		queue:           queue,
-		runtime:         runtime,
-		dedup:           dedup,
+		notificationSvc: notificationSvc,
 		templateManager: templateMgr,
 	}
 }
@@ -53,22 +43,18 @@ func (h *Handler) GetTemplateManager() *template.Manager {
 	return h.templateManager
 }
 
-// NotifyRequest is a notify request
+// NotifyRequest is the notification request
 type NotifyRequest struct {
-	Title      string                 `json:"title"`
-	Body       string                 `json:"body"`
+	Type       string                 `json:"type"`
 	Level      string                 `json:"level,omitempty"`
-	Channels   []string               `json:"channels,omitempty"`
-	TemplateID string                 `json:"templateId,omitempty"` // Use template
-	RenderAs   string                 `json:"renderAs,omitempty"`   // Render format: auto, html, markdown, plain, json
-	Params     map[string]interface{} `json:"params,omitempty"`     // Template parameters
-}
+	Channels   []string               `json:"channels"`
+	Recipients map[string][]string    `json:"recipients,omitempty"`
+	Template   string                 `json:"template,omitempty"`
+	Params     map[string]any         `json:"params,omitempty"`
 
-// EventRequest is an event request
-type EventRequest struct {
-	Type   string                 `json:"type"`
-	Labels map[string]string      `json:"labels"`
-	Data   map[string]interface{} `json:"data,omitempty"`
+	// Direct content (when no template)
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
 }
 
 // Response is a response
@@ -86,249 +72,45 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if using template
-	if req.TemplateID != "" {
-		h.handleTemplateNotify(w, r, &req)
-		return
+	// Build Notification from request
+	notification := &core.Notification{
+		Type:        req.Type,
+		Level:       req.Level,
+		Channels:    req.Channels,
+		Recipients:  req.Recipients,
+		TemplateRef: req.Template,
+		Params:      req.Params,
 	}
 
-	// Direct notification (backward compatible)
-	h.handleDirectNotify(w, r, &req)
-}
+	// Attach direct content if present
+	if req.Title != "" || req.Body != "" {
+		notification.Content = &core.DirectContent{
+			Title: req.Title,
+			Body:  req.Body,
+		}
+	}
 
-// handleTemplateNotify handles template-based notifications
-func (h *Handler) handleTemplateNotify(w http.ResponseWriter, r *http.Request, req *NotifyRequest) {
-	// Step 1: Render template to get channel-agnostic data
-	renderedData, err := h.templateManager.Render(req.TemplateID, req.Params)
+	// Process notification
+	taskIDs, err := h.notificationSvc.Process(r.Context(), notification, h.getQueue())
 	if err != nil {
-		h.respondError(w, http.StatusNotFound, "template not found")
-		return
-	}
-
-	// Step 2: Determine providers
-	providers := req.Channels
-	if len(providers) == 0 && renderedData.Level != "" {
-		routed, err := h.router.RouteByLevel(renderedData.Level)
-		if err != nil {
-			logger.Warn("no route for level", "level", renderedData.Level)
-		} else {
-			providers = routed
-		}
-	}
-
-	if len(providers) == 0 {
-		h.respondError(w, http.StatusBadRequest, "no providers specified")
-		return
-	}
-
-	// Step 3: Determine render format
-	requestedFormat := template.RenderFormat(req.RenderAs)
-	if requestedFormat == "" {
-		requestedFormat = template.RenderFormatAuto
-	}
-
-	// Step 4: Create tasks for each provider
-	for _, providerName := range providers {
-		provider, err := h.runtime.GetProvider(providerName)
-		if err != nil {
-			logger.Warn("provider not found", "provider", providerName)
-			continue
-		}
-
-		// Step 5: Choose format for this provider
-		format := h.chooseFormat(provider, requestedFormat)
-
-		// Step 6: Render content in the chosen format
-		content, err := h.renderContent(r.Context(), renderedData, format)
-		if err != nil {
-			logger.Error("failed to render content", "format", format, "error", err)
-			continue
-		}
-
-		// Step 7: Create task
-		task := &core.Task{
-			ID:           uuid.New().String(),
-			Provider:     providerName,
-			Title:        renderedData.Title,
-			Body:         content,
-			Level:        renderedData.Level,
-			RenderFormat: string(format),
-			Data:         req.Params,
-			CreatedAt:    time.Now(),
-		}
-
-		// Step 8: Check dedup
-		if h.dedup != nil && h.dedup.CheckTask(task) {
-			logger.Info("task deduplicated", "task_id", task.ID)
-			continue
-		}
-
-		// Step 9: Push to queue
-		if err := h.queue.PushTask(r.Context(), task); err != nil {
-			logger.Error("failed to push task", "error", err)
-			h.respondError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "ok",
-	})
-}
-
-// chooseFormat chooses the best format for a provider
-func (h *Handler) chooseFormat(provider core.Provider, requestedFormat template.RenderFormat) template.RenderFormat {
-	// If provider supports format selection
-	if fp, ok := provider.(core.FormattableProvider); ok {
-		supported := fp.SupportedFormats()
-		if requestedFormat == template.RenderFormatAuto {
-			// Use provider's default
-			return template.RenderFormat(fp.DefaultFormat())
-		}
-		// Check if requested format is supported
-		for _, f := range supported {
-			if string(requestedFormat) == f {
-				return requestedFormat
-			}
-		}
-		// Fall back to provider's default
-		return template.RenderFormat(fp.DefaultFormat())
-	}
-
-	// Provider doesn't declare format support, use plain text
-	if requestedFormat == template.RenderFormatAuto {
-		return template.RenderFormatPlain
-	}
-	return requestedFormat
-}
-
-// renderContent renders the data in the specified format
-func (h *Handler) renderContent(ctx context.Context, data *template.RenderedData, format template.RenderFormat) (string, error) {
-	renderer, ok := template.GetRenderer(format)
-	if !ok {
-		return "", fmt.Errorf("unsupported format: %s", format)
-	}
-
-	result, err := renderer.Render(ctx, data)
-	if err != nil {
-		return "", err
-	}
-
-	// Convert to string
-	switch v := result.(type) {
-	case string:
-		return v, nil
-	case []byte:
-		return string(v), nil
-	default:
-		// For JSON renderer, serialize
-		if jr, ok := renderer.(*template.JSONRenderer); ok {
-			return jr.ToJSON(result)
-		}
-		return "", fmt.Errorf("unsupported render result type")
-	}
-}
-
-// handleDirectNotify handles direct notifications (backward compatible)
-func (h *Handler) handleDirectNotify(w http.ResponseWriter, r *http.Request, req *NotifyRequest) {
-	// Determine providers
-	providers := req.Channels
-	if len(providers) == 0 && req.Level != "" {
-		routed, err := h.router.RouteByLevel(req.Level)
-		if err != nil {
-			logger.Warn("no route for level", "level", req.Level)
-		} else {
-			providers = routed
-		}
-	}
-
-	if len(providers) == 0 {
-		h.respondError(w, http.StatusBadRequest, "no providers specified")
-		return
-	}
-
-	// Create tasks
-	for _, provider := range providers {
-		task := &core.Task{
-			ID:        uuid.New().String(),
-			Provider:  provider,
-			Title:     req.Title,
-			Body:      req.Body,
-			Level:     req.Level,
-			CreatedAt: time.Now(),
-		}
-
-		// Check dedup
-		if h.dedup != nil && h.dedup.CheckTask(task) {
-			logger.Info("task deduplicated", "task_id", task.ID)
-			continue
-		}
-
-		// Push to queue
-		if err := h.queue.PushTask(r.Context(), task); err != nil {
-			logger.Error("failed to push task", "error", err)
-			h.respondError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "ok",
-	})
-}
-
-// HandleEvent handles event requests
-func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
-	var req EventRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request")
-		return
-	}
-
-	event := &core.Event{
-		ID:        uuid.New().String(),
-		Type:      req.Type,
-		Labels:    req.Labels,
-		Data:      req.Data,
-		Timestamp: time.Now(),
-	}
-
-	// Check dedup
-	if h.dedup != nil && h.dedup.Check(event) {
-		logger.Info("event deduplicated", "event_id", event.ID)
-		h.respondJSON(w, &Response{
-			Code:    0,
-			Message: "ok",
-			Data: map[string]string{
-				"event_id": event.ID,
-				"status":   "deduplicated",
-			},
-		})
-		return
-	}
-
-	// Push to queue
-	if err := h.queue.Push(r.Context(), event); err != nil {
-		logger.Error("failed to push event", "error", err)
-		h.respondError(w, http.StatusInternalServerError, "internal error")
+		logger.Error("notification processing failed", "error", err)
+		h.respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data: map[string]string{
-			"event_id": event.ID,
+		Data: map[string]interface{}{
+			"notification_id": notification.ID,
+			"task_ids":        taskIDs,
 		},
 	})
 }
 
 // HandleStatus handles status requests
 func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
-	statuses := h.runtime.GetProviderStatus()
-
+	statuses := h.notificationSvc.GetRuntime().GetProviderStatus()
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
@@ -341,8 +123,7 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 // HandleProviders handles providers requests
 func (h *Handler) HandleProviders(w http.ResponseWriter, r *http.Request) {
-	statuses := h.runtime.GetProviderStatus()
-
+	statuses := h.notificationSvc.GetRuntime().GetProviderStatus()
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
@@ -358,27 +139,23 @@ func (h *Handler) HandleWorkers(w http.ResponseWriter, r *http.Request) {
 		h.respondJSON(w, &Response{
 			Code:    0,
 			Message: "ok",
-			Data: map[string]interface{}{
-				"workers": []interface{}{},
-			},
+			Data:    map[string]interface{}{"workers": []interface{}{}},
 		})
 		return
 	}
 
 	workers := h._wsServer.GetWorkers()
 	workerList := make([]map[string]interface{}, 0, len(workers))
-
 	for _, state := range workers {
-		workerInfo := map[string]interface{}{
-			"worker_id":    state.WorkerID,
-			"platform":     state.Platform,
-			"version":      state.Version,
-			"capabilities": state.Capabilities,
-			"connected_at": state.ConnectedAt,
+		workerList = append(workerList, map[string]interface{}{
+			"worker_id":      state.WorkerID,
+			"platform":       state.Platform,
+			"version":        state.Version,
+			"capabilities":   state.Capabilities,
+			"connected_at":   state.ConnectedAt,
 			"last_heartbeat": state.LastHeartbeat,
-			"status":       state.Status,
-		}
-		workerList = append(workerList, workerInfo)
+			"status":         state.Status,
+		})
 	}
 
 	h.respondJSON(w, &Response{
@@ -396,9 +173,7 @@ func (h *Handler) HandleQueue(w http.ResponseWriter, r *http.Request) {
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data: map[string]interface{}{
-			"size": h.queue.Size(),
-		},
+		Data:    map[string]interface{}{"size": h.getQueue().Size()},
 	})
 }
 
@@ -409,16 +184,11 @@ func (h *Handler) HandleEnableProvider(w http.ResponseWriter, r *http.Request) {
 		h.respondError(w, http.StatusBadRequest, "provider name is required")
 		return
 	}
-
-	if err := h.runtime.Enable(name); err != nil {
+	if err := h.notificationSvc.GetRuntime().Enable(name); err != nil {
 		h.respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "provider enabled",
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "provider enabled"})
 }
 
 // HandleDisableProvider disables a provider
@@ -428,63 +198,44 @@ func (h *Handler) HandleDisableProvider(w http.ResponseWriter, r *http.Request) 
 		h.respondError(w, http.StatusBadRequest, "provider name is required")
 		return
 	}
-
-	if err := h.runtime.Disable(name); err != nil {
+	if err := h.notificationSvc.GetRuntime().Disable(name); err != nil {
 		h.respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "provider disabled",
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "provider disabled"})
 }
 
 // HandleEnableProviderWithName enables a provider by name
 func (h *Handler) HandleEnableProviderWithName(w http.ResponseWriter, r *http.Request, name string) {
-	if err := h.runtime.Enable(name); err != nil {
+	if err := h.notificationSvc.GetRuntime().Enable(name); err != nil {
 		h.respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "provider enabled",
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "provider enabled"})
 }
 
 // HandleDisableProviderWithName disables a provider by name
 func (h *Handler) HandleDisableProviderWithName(w http.ResponseWriter, r *http.Request, name string) {
-	if err := h.runtime.Disable(name); err != nil {
+	if err := h.notificationSvc.GetRuntime().Disable(name); err != nil {
 		h.respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "provider disabled",
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "provider disabled"})
 }
 
-func (h *Handler) respondJSON(w http.ResponseWriter, data *Response) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(data)
+// getQueue returns the queue
+func (h *Handler) getQueue() core.Queue {
+	return h.queue
 }
 
-func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(&Response{
-		Code:    status,
-		Message: message,
-	})
+// SetQueue sets the queue reference
+func (h *Handler) SetQueue(q core.Queue) {
+	h.queue = q
 }
 
 // HandleLogs handles logs requests
 func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-
-	// Parse pagination
 	offset, _ := strconv.Atoi(query.Get("offset"))
 	limit, _ := strconv.Atoi(query.Get("limit"))
 	if limit <= 0 {
@@ -494,14 +245,12 @@ func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 		limit = 500
 	}
 
-	// Parse filters
 	filter := &logstore.Filter{
 		Status:   query.Get("status"),
 		Provider: query.Get("provider"),
 		Level:    query.Get("level"),
 	}
 
-	// Parse time range
 	if since := query.Get("since"); since != "" {
 		if t, err := time.Parse(time.RFC3339, since); err == nil {
 			filter.Since = t
@@ -513,30 +262,26 @@ func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs := h.runtime.GetLogs(offset, limit, filter)
-	total := h.runtime.GetLogsCount(filter)
+	rt := h.notificationSvc.GetRuntime()
+	logs := rt.GetLogs(offset, limit, filter)
+	total := rt.GetLogsCount(filter)
 
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
 		Data: map[string]interface{}{
-			"total": total,
+			"total":  total,
 			"offset": offset,
-			"limit": limit,
-			"logs": logs,
+			"limit":  limit,
+			"logs":   logs,
 		},
 	})
 }
 
 // HandleLogsStats handles logs statistics requests
 func (h *Handler) HandleLogsStats(w http.ResponseWriter, r *http.Request) {
-	stats := h.runtime.GetLogsStats()
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "ok",
-		Data: stats,
-	})
+	stats := h.notificationSvc.GetRuntime().GetLogsStats()
+	h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: stats})
 }
 
 // HandleLogByID handles a single log request by ID
@@ -546,32 +291,21 @@ func (h *Handler) HandleLogByID(w http.ResponseWriter, r *http.Request) {
 		h.respondError(w, http.StatusBadRequest, "log id is required")
 		return
 	}
-
-	log := h.runtime.GetLogByID(id)
+	log := h.notificationSvc.GetRuntime().GetLogByID(id)
 	if log == nil {
 		h.respondError(w, http.StatusNotFound, "log not found")
 		return
 	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "ok",
-		Data: log,
-	})
-}
-
-// GetProviderConfigRequest is a request to get provider config
-type GetProviderConfigRequest struct {
-	Name string `json:"name"`
+	h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: log})
 }
 
 // ProviderConfigResponse is a provider config response
 type ProviderConfigResponse struct {
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"`
-	Enabled  bool                   `json:"enabled"`
-	Config   map[string]interface{} `json:"config"`
-	Schema   map[string]string      `json:"schema,omitempty"`
+	Name    string                 `json:"name"`
+	Type    string                 `json:"type"`
+	Enabled bool                   `json:"enabled"`
+	Config  map[string]interface{} `json:"config"`
+	Schema  map[string]string      `json:"schema,omitempty"`
 }
 
 // HandleProviderConfig handles provider config requests
@@ -581,26 +315,23 @@ func (h *Handler) HandleProviderConfig(w http.ResponseWriter, r *http.Request, n
 		return
 	}
 
-	provider, err := h.runtime.GetProvider(name)
+	provider, err := h.notificationSvc.GetRuntime().GetProvider(name)
 	if err != nil {
 		h.respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	status := provider.Status()
-
-	response := &ProviderConfigResponse{
-		Name:    name,
-		Type:    status.Type,
-		Enabled: status.Status != "disabled",
-		Config:  make(map[string]interface{}),
-		Schema:  getProviderSchema(name),
-	}
-
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data: response,
+		Data: &ProviderConfigResponse{
+			Name:    name,
+			Type:    status.Type,
+			Enabled: status.Status != "disabled",
+			Config:  make(map[string]interface{}),
+			Schema:  getProviderSchema(name),
+		},
 	})
 }
 
@@ -622,129 +353,64 @@ func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Recreate provider with new config
-	provider, err := h.runtime.CreateProvider(name, req.Config)
+	rt := h.notificationSvc.GetRuntime()
+	provider, err := rt.CreateProvider(name, req.Config)
 	if err != nil {
 		h.respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Check if provider was previously enabled
-	wasEnabled := h.runtime.IsEnabled(name)
-
-	// Replace provider
-	if err := h.runtime.ReplaceProvider(name, provider); err != nil {
+	wasEnabled := rt.IsEnabled(name)
+	if err := rt.ReplaceProvider(name, provider); err != nil {
 		h.respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	// Restore enabled state
 	if wasEnabled {
-		_ = h.runtime.Enable(name)
+		_ = rt.Enable(name)
 	}
 
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "provider config updated",
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "provider config updated"})
 }
 
 // getProviderSchema returns the config schema for a provider
 func getProviderSchema(name string) map[string]string {
 	schemas := map[string]map[string]string{
-		"telegram": {
-			"token":   "string",
-			"chat_id": "string",
-		},
-		"feishu": {
-			"webhook_url": "string",
-		},
-		"wecom": {
-			"webhook_url": "string",
-		},
-		"dingtalk": {
-			"access_token": "string",
-			"secret":       "string",
-		},
-		"slack": {
-			"webhook_url": "string",
-		},
-		"discord": {
-			"webhook_url": "string",
-		},
-		"email": {
-			"host":     "string",
-			"port":     "number",
-			"username": "string",
-			"password": "string",
-			"from":     "string",
-		},
-		"webhook": {
-			"url": "string",
-		},
-		"wechat": {
-			"service":  "string",
-			"send_key": "string",
-			"token":    "string",
-			"app_token": "string",
-			"uid":      "string",
-		},
-		"wechatmp": {
-			"app_id":      "string",
-			"app_secret":  "string",
-			"template_id": "string",
-			"default_url": "string",
-		},
-		"aliyunsms": {
-			"access_key_id":     "string",
-			"access_key_secret": "string",
-			"sign_name":         "string",
-		},
-		"tencentsms": {
-			"secret_id":  "string",
-			"secret_key": "string",
-			"app_id":     "string",
-		},
-		"neteasesms": {
-			"app_key":    "string",
-			"app_secret": "string",
-		},
+		"telegram":    {"token": "string", "chat_id": "string"},
+		"feishu":      {"webhook_url": "string"},
+		"wecom":       {"webhook_url": "string"},
+		"dingtalk":    {"access_token": "string", "secret": "string"},
+		"slack":       {"webhook_url": "string"},
+		"discord":     {"webhook_url": "string"},
+		"email":       {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
+		"webhook":     {"url": "string"},
+		"wechat":      {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
+		"wechatmp":    {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
+		"aliyunsms":   {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
+		"tencentsms":  {"secret_id": "string", "secret_key": "string", "app_id": "string"},
+		"neteasesms":  {"app_key": "string", "app_secret": "string"},
 	}
-
 	if schema, ok := schemas[name]; ok {
 		return schema
 	}
-
-	return map[string]string{
-		"config": "object",
-	}
+	return map[string]string{"config": "object"}
 }
 
 // TemplateRequest is a template create/update request
 type TemplateRequest struct {
-	ID      string                   `json:"id"`
-	Name    string                   `json:"name"`
-	Title   string                   `json:"title"`
-	Level   string                   `json:"level"`
-	Fields  []template.Field         `json:"fields"`
+	ID     string           `json:"id"`
+	Name   string           `json:"name"`
+	Title  string           `json:"title"`
+	Level  string           `json:"level"`
+	Fields []template.Field `json:"fields"`
 }
 
 // HandleTemplates handles template list requests
 func (h *Handler) HandleTemplates(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		h.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	templates := h.templateManager.List()
-
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data: map[string]interface{}{
-			"templates": templates,
-			"count":     len(templates),
-		},
+		Data:    map[string]interface{}{"templates": templates, "count": len(templates)},
 	})
 }
 
@@ -770,11 +436,6 @@ func (h *Handler) HandleTemplateByID(w http.ResponseWriter, r *http.Request) {
 
 // HandleCreateTemplate handles template creation requests
 func (h *Handler) HandleCreateTemplate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		h.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	var req TemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.respondError(w, http.StatusBadRequest, "invalid request")
@@ -794,31 +455,18 @@ func (h *Handler) HandleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "template created",
-		Data: map[string]interface{}{
-			"id": tmpl.ID,
-		},
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "template created", Data: map[string]interface{}{"id": tmpl.ID}})
 }
 
-// getTemplate retrieves a template by ID
 func (h *Handler) getTemplate(w http.ResponseWriter, id string) {
 	tmpl, err := h.templateManager.Get(id)
 	if err != nil {
 		h.respondError(w, http.StatusNotFound, "template not found")
 		return
 	}
-
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "ok",
-		Data:    tmpl,
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: tmpl})
 }
 
-// updateTemplate updates a template
 func (h *Handler) updateTemplate(w http.ResponseWriter, r *http.Request, id string) {
 	var req TemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -839,21 +487,24 @@ func (h *Handler) updateTemplate(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "template updated",
-	})
+	h.respondJSON(w, &Response{Code: 0, Message: "template updated"})
 }
 
-// deleteTemplate deletes a template
 func (h *Handler) deleteTemplate(w http.ResponseWriter, id string) {
 	if err := h.templateManager.Delete(id); err != nil {
 		h.respondError(w, http.StatusNotFound, "template not found")
 		return
 	}
+	h.respondJSON(w, &Response{Code: 0, Message: "template deleted"})
+}
 
-	h.respondJSON(w, &Response{
-		Code:    0,
-		Message: "template deleted",
-	})
+func (h *Handler) respondJSON(w http.ResponseWriter, data *Response) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(&Response{Code: status, Message: message})
 }

@@ -105,8 +105,16 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"markdown", "plain"},
+	}
+}
+
 // Deliver delivers a task to Discord
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Prefer webhook
 	if p.webhookURL != "" {
 		return p.sendWebhook(ctx, task)
@@ -117,7 +125,7 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 }
 
 // sendWebhook sends a message via webhook
-func (p *Provider) sendWebhook(ctx context.Context, task *core.Task) error {
+func (p *Provider) sendWebhook(ctx context.Context, task *core.DeliveryTask) error {
 	payload := p.buildWebhookPayload(task)
 
 	resp, err := p.client.PostJSON(ctx, p.webhookURL, payload)
@@ -139,7 +147,7 @@ func (p *Provider) sendWebhook(ctx context.Context, task *core.Task) error {
 }
 
 // sendBotMessage sends a message via bot API
-func (p *Provider) sendBotMessage(ctx context.Context, task *core.Task) error {
+func (p *Provider) sendBotMessage(ctx context.Context, task *core.DeliveryTask) error {
 	embed := p.buildEmbed(task)
 	payload := &BotMessage{
 		Embeds: []Embed{embed},
@@ -162,7 +170,7 @@ func (p *Provider) sendBotMessage(ctx context.Context, task *core.Task) error {
 }
 
 // buildWebhookPayload builds a webhook payload
-func (p *Provider) buildWebhookPayload(task *core.Task) *WebhookPayload {
+func (p *Provider) buildWebhookPayload(task *core.DeliveryTask) *WebhookPayload {
 	embed := p.buildEmbed(task)
 
 	return &WebhookPayload{
@@ -173,29 +181,28 @@ func (p *Provider) buildWebhookPayload(task *core.Task) *WebhookPayload {
 }
 
 // buildEmbed builds an embed from a task
-func (p *Provider) buildEmbed(task *core.Task) Embed {
+func (p *Provider) buildEmbed(task *core.DeliveryTask) Embed {
+	title, body := extractContent(task)
+
 	// Determine color based on level
 	color := p.getColor(task.Level)
 
 	embed := Embed{
-		Title:       task.Title,
-		Description: task.Body,
+		Title:       title,
+		Description: body,
 		Color:       color,
 		Timestamp:   task.CreatedAt.Format(time.RFC3339),
 	}
 
-	// Add fields if data exists
-	if len(task.Data) > 0 {
-		embed.Fields = make([]EmbedField, 0, len(task.Data))
-		for k, v := range task.Data {
-			embed.Fields = append(embed.Fields, EmbedField{
-				Name:  k,
-				Value: fmt.Sprintf("%v", v),
-			})
-		}
-	}
-
 	return embed
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // getColor returns a color code based on level

@@ -85,43 +85,55 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"html", "plain"},
+	}
+}
+
 // Deliver delivers a task via email
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
-	// Get recipients from task data or target
-	to := []string{}
-	if task.Target != "" {
-		to = append(to, strings.Split(task.Target, ",")...)
-	}
-	if toData, ok := task.Data["to"]; ok {
-		if toSlice, ok := toData.([]string); ok {
-			to = append(to, toSlice...)
-		} else if toStr, ok := toData.(string); ok {
-			to = append(to, strings.Split(toStr, ",")...)
-		}
-	}
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
+	// Get recipients from targets
+	to := task.Targets
 
 	if len(to) == 0 {
 		return fmt.Errorf("email: no recipients specified")
 	}
 
+	// Extract content
+	title, body := extractContent(task)
+
 	// Build message
-	subject := task.Title
+	subject := title
 	if task.Level != "" {
 		subject = "[" + strings.ToUpper(task.Level) + "] " + subject
 	}
 
-	// Determine if HTML based on render format
-	isHTML := task.RenderFormat == "html"
+	// Determine if HTML based on content format
+	isHTML := false
+	if task.Payload.Content != nil {
+		isHTML = task.Payload.Content.Format == "html"
+	}
 
 	msg := &Message{
-		From:   p.formatFrom(),
-		To:     to,
+		From:    p.formatFrom(),
+		To:      to,
 		Subject: subject,
-		Body:   task.Body,
-		IsHTML: isHTML,
+		Body:    body,
+		IsHTML:  isHTML,
 	}
 
 	return p.sendMessage(ctx, msg)
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // formatFrom formats the from address
@@ -183,16 +195,6 @@ func (p *Provider) Status() *core.ProviderStatus {
 // Close closes the provider
 func (p *Provider) Close() error {
 	return nil
-}
-
-// SupportedFormats returns the formats supported by email provider
-func (p *Provider) SupportedFormats() []string {
-	return []string{"html", "plain"}
-}
-
-// DefaultFormat returns the default format
-func (p *Provider) DefaultFormat() string {
-	return "html"
 }
 
 // Factory creates email providers

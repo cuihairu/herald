@@ -33,21 +33,39 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// Capability returns the provider capabilities
+func (p *Provider) Capability() core.ProviderCapability {
+	return core.ProviderCapability{
+		PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+		ContentFormats: []string{"plain"},
+	}
+}
+
 // Deliver delivers a task
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("task is nil")
 	}
 
+	title, body := extractContent(task)
+
 	logger.Info("delivering task",
 		"provider", p.name,
 		"task_id", task.ID,
-		"title", task.Title,
-		"body", task.Body,
+		"title", title,
+		"body", body,
 		"level", task.Level,
 	)
-	fmt.Printf("[%s] %s: %s\n", task.Level, task.Title, task.Body)
+	fmt.Printf("[%s] %s: %s\n", task.Level, title, body)
 	return nil
+}
+
+// extractContent extracts title and body from a DeliveryTask
+func extractContent(task *core.DeliveryTask) (title, body string) {
+	if task.Payload.Content != nil {
+		return task.Payload.Content.Title, task.Payload.Content.Body
+	}
+	return "", ""
 }
 
 // Name returns the provider name
