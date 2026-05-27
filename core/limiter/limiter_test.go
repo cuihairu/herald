@@ -185,13 +185,13 @@ func TestFactoryCreate(t *testing.T) {
 	factory := NewFactory()
 
 	tests := []struct {
-		name    string
-		config  *Config
+		name        string
+		config      *Config
 		expectError bool
 	}{
 		{
-			name: "default config",
-			config: nil,
+			name:        "default config",
+			config:      nil,
 			expectError: false,
 		},
 		{

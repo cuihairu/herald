@@ -106,20 +106,20 @@ func (f *Factory) Create(config *Config) (Limiter, error) {
 // DefaultConfig returns default limiter config
 func DefaultConfig() *Config {
 	return &Config{
-		Type:  "token_bucket",
-		Rate:  10,    // 10 requests per second
-		Burst: 100,   // Allow bursts of 100
+		Type:   "token_bucket",
+		Rate:   10,  // 10 requests per second
+		Burst:  100, // Allow bursts of 100
 		Window: time.Minute,
 	}
 }
 
 // TokenBucket implements token bucket rate limiting
 type TokenBucket struct {
-	mu        sync.Mutex
-	tokens    float64
-	rate      float64
-	burst     float64
-	lastTime  time.Time
+	mu       sync.Mutex
+	tokens   float64
+	rate     float64
+	burst    float64
+	lastTime time.Time
 }
 
 // NewTokenBucket creates a new token bucket limiter

@@ -23,18 +23,18 @@ type Provider struct {
 
 // Config is the DingTalk provider configuration
 type Config struct {
-	WebhookURL string `yaml:"webhook_url"` // Full webhook URL
+	WebhookURL  string `yaml:"webhook_url"`  // Full webhook URL
 	AccessToken string `yaml:"access_token"` // Access token
 	Secret      string `yaml:"secret"`       // Signing secret (optional)
 }
 
 // Message is a DingTalk message
 type Message struct {
-	MsgType  string      `json:"msgtype"`
-	Text     *Text       `json:"text,omitempty"`
-	Markdown *Markdown   `json:"markdown,omitempty"`
-	Link     *Link       `json:"link,omitempty"`
-	At       *At         `json:"at,omitempty"`
+	MsgType  string    `json:"msgtype"`
+	Text     *Text     `json:"text,omitempty"`
+	Markdown *Markdown `json:"markdown,omitempty"`
+	Link     *Link     `json:"link,omitempty"`
+	At       *At       `json:"at,omitempty"`
 }
 
 // Text is text content
@@ -88,10 +88,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		webhookURL: webhookURL,
 		secret:     secret,
 		status: &core.ProviderStatus{
-			Name:     "dingtalk",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "dingtalk",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil

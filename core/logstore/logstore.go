@@ -17,15 +17,15 @@ type LogStore struct {
 
 // TaskLog is a task execution log
 type TaskLog struct {
-	ID          string    `json:"id"`
-	Provider    string    `json:"provider"`
-	PayloadKind string    `json:"payload_kind"`
-	Level       string    `json:"level,omitempty"`
-	Status      string    `json:"status"` // success, failed, pending
-	Error       string    `json:"error,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string     `json:"id"`
+	Provider    string     `json:"provider"`
+	PayloadKind string     `json:"payload_kind"`
+	Level       string     `json:"level,omitempty"`
+	Status      string     `json:"status"` // success, failed, pending
+	Error       string     `json:"error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Duration    int64     `json:"duration,omitempty"` // milliseconds
+	Duration    int64      `json:"duration,omitempty"` // milliseconds
 }
 
 // New creates a new log store

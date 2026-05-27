@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultAPIURL = "https://discord.com/api/v10/channels/%s/messages"
+	defaultAPIURL    = "https://discord.com/api/v10/channels/%s/messages"
 	webhookURLFormat = "https://discord.com/api/webhooks/%s/%s"
 )
 
@@ -25,19 +25,19 @@ type Provider struct {
 
 // Config is the Discord provider configuration
 type Config struct {
-	WebhookURL string `yaml:"webhook_url"` // Full webhook URL
-	WebhookID  string `yaml:"webhook_id"`  // Webhook ID
+	WebhookURL   string `yaml:"webhook_url"`   // Full webhook URL
+	WebhookID    string `yaml:"webhook_id"`    // Webhook ID
 	WebhookToken string `yaml:"webhook_token"` // Webhook Token
-	BotToken   string `yaml:"bot_token"`  // Bot token (for bot API)
-	ChannelID  string `yaml:"channel_id"` // Channel ID (for bot API)
+	BotToken     string `yaml:"bot_token"`     // Bot token (for bot API)
+	ChannelID    string `yaml:"channel_id"`    // Channel ID (for bot API)
 }
 
 // WebhookPayload is the Discord webhook payload
 type WebhookPayload struct {
-	Username  string         `json:"username,omitempty"`
-	AvatarURL string         `json:"avatar_url,omitempty"`
-	Content   string         `json:"content,omitempty"`
-	Embeds    []Embed        `json:"embeds,omitempty"`
+	Username  string  `json:"username,omitempty"`
+	AvatarURL string  `json:"avatar_url,omitempty"`
+	Content   string  `json:"content,omitempty"`
+	Embeds    []Embed `json:"embeds,omitempty"`
 }
 
 // Embed is a Discord embed
@@ -96,10 +96,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		botToken:   botToken,
 		channelID:  channelID,
 		status: &core.ProviderStatus{
-			Name:     "discord",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "discord",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil
@@ -213,9 +213,9 @@ func (p *Provider) getColor(level string) int {
 	case "warning":
 		return 16776960 // Orange
 	case "info":
-		return 3447003   // Blue
+		return 3447003 // Blue
 	default:
-		return 9807270   // Gray
+		return 9807270 // Gray
 	}
 }
 

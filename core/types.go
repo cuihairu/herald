@@ -16,15 +16,15 @@ const (
 
 // Notification is the top-level notification intent from the API
 type Notification struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Level       string                 `json:"level,omitempty"`
-	Channels    []string               `json:"channels"`
-	Recipients  map[string][]string    `json:"recipients,omitempty"`
-	TemplateRef string                 `json:"template,omitempty"`
-	Params      map[string]any         `json:"params,omitempty"`
-	Content     *DirectContent         `json:"content,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
+	ID          string              `json:"id"`
+	Type        string              `json:"type"`
+	Level       string              `json:"level,omitempty"`
+	Channels    []string            `json:"channels"`
+	Recipients  map[string][]string `json:"recipients,omitempty"`
+	TemplateRef string              `json:"template,omitempty"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Content     *DirectContent      `json:"content,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
 }
 
 // DirectContent holds inline content when no template is used
@@ -35,21 +35,21 @@ type DirectContent struct {
 
 // DeliveryTask is a single provider-bound delivery task
 type DeliveryTask struct {
-	ID         string         `json:"id"`
-	Provider   string         `json:"provider"`
-	Targets    []string       `json:"targets"`
+	ID         string          `json:"id"`
+	Provider   string          `json:"provider"`
+	Targets    []string        `json:"targets"`
 	Payload    DeliveryPayload `json:"payload"`
-	Level      string         `json:"level,omitempty"`
-	RetryCount int            `json:"retry_count"`
-	CreatedAt  time.Time      `json:"created_at"`
+	Level      string          `json:"level,omitempty"`
+	RetryCount int             `json:"retry_count"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider
 type DeliveryPayload struct {
-	Kind             PayloadKind             `json:"kind"`
-	Content          *RenderedContent        `json:"content,omitempty"`
+	Kind             PayloadKind              `json:"kind"`
+	Content          *RenderedContent         `json:"content,omitempty"`
 	ProviderTemplate *ProviderTemplatePayload `json:"provider_template,omitempty"`
-	Raw              map[string]any          `json:"raw,omitempty"`
+	Raw              map[string]any           `json:"raw,omitempty"`
 }
 
 // RenderedContent is the rendered text in a specific format

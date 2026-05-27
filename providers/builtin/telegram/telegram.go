@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultAPIURL = "https://api.telegram.org/bot%s/%s"
+	defaultAPIURL     = "https://api.telegram.org/bot%s/%s"
 	sendMessageMethod = "sendMessage"
 )
 
@@ -62,10 +62,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		chatID:    chatID,
 		parseMode: parseMode,
 		status: &core.ProviderStatus{
-			Name:     "telegram",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "telegram",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil

@@ -11,30 +11,30 @@ import (
 
 // Provider is a generic webhook provider
 type Provider struct {
-	url        string
-	method     string
-	headers    map[string]string
-	status     *core.ProviderStatus
-	client     *httpclient.Client
+	url     string
+	method  string
+	headers map[string]string
+	status  *core.ProviderStatus
+	client  *httpclient.Client
 }
 
 // Config is the webhook provider configuration
 type Config struct {
 	URL     string            `yaml:"url"`
-	Method  string            `yaml:"method"`  // GET, POST, PUT, DELETE
+	Method  string            `yaml:"method"` // GET, POST, PUT, DELETE
 	Headers map[string]string `yaml:"headers"`
 }
 
 // WebhookPayload is the payload sent to the webhook
 type WebhookPayload struct {
-	ID        string                 `json:"id"`
-	Provider  string                 `json:"provider,omitempty"`
-	Level     string                 `json:"level,omitempty"`
-	Targets   []string               `json:"targets,omitempty"`
-	Timestamp string                 `json:"timestamp"`
-	Title     string                 `json:"title,omitempty"`
-	Body      string                 `json:"body,omitempty"`
-	Raw       map[string]any         `json:"raw,omitempty"`
+	ID        string         `json:"id"`
+	Provider  string         `json:"provider,omitempty"`
+	Level     string         `json:"level,omitempty"`
+	Targets   []string       `json:"targets,omitempty"`
+	Timestamp string         `json:"timestamp"`
+	Title     string         `json:"title,omitempty"`
+	Body      string         `json:"body,omitempty"`
+	Raw       map[string]any `json:"raw,omitempty"`
 }
 
 // NewProvider creates a new webhook provider
@@ -59,10 +59,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		method:  method,
 		headers: headers,
 		status: &core.ProviderStatus{
-			Name:     "webhook",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "webhook",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil

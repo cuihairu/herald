@@ -26,23 +26,23 @@ type Config struct {
 
 // WebhookPayload is the Slack webhook payload
 type WebhookPayload struct {
-	Username    string            `json:"username,omitempty"`
-	IconURL     string            `json:"icon_url,omitempty"`
-	IconEmoji   string            `json:"icon_emoji,omitempty"`
-	Channel     string            `json:"channel,omitempty"`
-	Text        string            `json:"text,omitempty"`
-	Attachments []Attachment      `json:"attachments,omitempty"`
-	Blocks      []Block           `json:"blocks,omitempty"`
+	Username    string       `json:"username,omitempty"`
+	IconURL     string       `json:"icon_url,omitempty"`
+	IconEmoji   string       `json:"icon_emoji,omitempty"`
+	Channel     string       `json:"channel,omitempty"`
+	Text        string       `json:"text,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	Blocks      []Block      `json:"blocks,omitempty"`
 }
 
 // Attachment is a Slack attachment
 type Attachment struct {
-	Color   string   `json:"color,omitempty"`
-	Title   string   `json:"title,omitempty"`
-	Text    string   `json:"text,omitempty"`
-	Fields  []Field  `json:"fields,omitempty"`
-	Footer  string   `json:"footer,omitempty"`
-	Ts      int64    `json:"ts,omitempty"`
+	Color  string  `json:"color,omitempty"`
+	Title  string  `json:"title,omitempty"`
+	Text   string  `json:"text,omitempty"`
+	Fields []Field `json:"fields,omitempty"`
+	Footer string  `json:"footer,omitempty"`
+	Ts     int64   `json:"ts,omitempty"`
 }
 
 // Field is an attachment field
@@ -54,9 +54,9 @@ type Field struct {
 
 // Block is a Slack block
 type Block struct {
-	Type    string      `json:"type"`
-	Text    *TextObject `json:"text,omitempty"`
-	Fields  []Field     `json:"fields,omitempty"`
+	Type   string      `json:"type"`
+	Text   *TextObject `json:"text,omitempty"`
+	Fields []Field     `json:"fields,omitempty"`
 }
 
 // TextObject is a Slack text object
@@ -67,8 +67,8 @@ type TextObject struct {
 
 // ErrorResponse is a Slack error response
 type ErrorResponse struct {
-	OK      bool   `json:"ok"`
-	Error   string `json:"error,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // NewProvider creates a new Slack provider
@@ -83,10 +83,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	return &Provider{
 		webhookURL: webhookURL,
 		status: &core.ProviderStatus{
-			Name:     "slack",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "slack",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil

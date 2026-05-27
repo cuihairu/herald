@@ -33,11 +33,11 @@ type ChannelError struct {
 
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
-	templates  *template.Manager
-	router     *route.Router
-	runtime    *runtime.Manager
-	dedup      *dedup.Dedup
-	planner    *DeliveryPlanner
+	templates *template.Manager
+	router    *route.Router
+	runtime   *runtime.Manager
+	dedup     *dedup.Dedup
+	planner   *DeliveryPlanner
 }
 
 // NewNotificationService creates a new NotificationService
@@ -162,14 +162,14 @@ func dedupKey(n *core.Notification) string {
 	sort.Strings(channels)
 
 	key := struct {
-		Type       string                 `json:"type"`
-		Level      string                 `json:"level"`
-		Template   string                 `json:"template"`
-		Channels   []string               `json:"channels"`
-		Recipients map[string][]string    `json:"recipients"`
-		Params     map[string]any         `json:"params"`
-		Title      string                 `json:"title,omitempty"`
-		Body       string                 `json:"body,omitempty"`
+		Type       string              `json:"type"`
+		Level      string              `json:"level"`
+		Template   string              `json:"template"`
+		Channels   []string            `json:"channels"`
+		Recipients map[string][]string `json:"recipients"`
+		Params     map[string]any      `json:"params"`
+		Title      string              `json:"title,omitempty"`
+		Body       string              `json:"body,omitempty"`
 	}{
 		Type:       n.Type,
 		Level:      n.Level,

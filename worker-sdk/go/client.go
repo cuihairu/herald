@@ -19,18 +19,18 @@ type EventHandler func(event *protocol.EventMessage)
 
 // Client is the Worker SDK client
 type Client struct {
-	config    *protocol.WorkerConfig
-	state     atomic.Value // protocol.ConnectionState
-	handler   TaskHandler
+	config       *protocol.WorkerConfig
+	state        atomic.Value // protocol.ConnectionState
+	handler      TaskHandler
 	eventHandler EventHandler
 
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	mu     sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	// Connection state
-	connID     string
+	connID string
 
 	// Callbacks
 	onConnect     func()
@@ -181,9 +181,9 @@ func (c *Client) doConnect() error {
 // sendRegister sends a register message
 func (c *Client) sendRegister() error {
 	msg := &protocol.RegisterMessage{
-		WorkerID:    c.config.WorkerID,
-		Platform:    detectPlatform(),
-		Version:     "1.0.0",
+		WorkerID:     c.config.WorkerID,
+		Platform:     detectPlatform(),
+		Version:      "1.0.0",
 		Capabilities: c.config.Capabilities,
 	}
 

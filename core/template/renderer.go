@@ -159,7 +159,7 @@ func (r *JSONRenderer) Render(ctx context.Context, data *RenderedData) (interfac
 	// Build a card structure compatible with Feishu/DingTalk
 	card := map[string]interface{}{
 		"msg_type": "interactive",
-		"card": r.buildCard(data),
+		"card":     r.buildCard(data),
 	}
 	return card, nil
 }

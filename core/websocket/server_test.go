@@ -12,9 +12,9 @@ import (
 
 // mockHandler is a mock connection handler for testing
 type mockHandler struct {
-	registerCalls  []registerCall
-	ackCalls       []ackCall
-	eventCalls     []eventCall
+	registerCalls   []registerCall
+	ackCalls        []ackCall
+	eventCalls      []eventCall
 	disconnectCalls []string
 }
 
@@ -30,8 +30,8 @@ type ackCall struct {
 }
 
 type eventCall struct {
-	workerID   string
-	event      *protocol.EventMessage
+	workerID string
+	event    *protocol.EventMessage
 }
 
 func (m *mockHandler) OnRegister(workerID string, msg *protocol.RegisterMessage) error {
@@ -164,7 +164,7 @@ func TestServerDispatchTaskNotFound(t *testing.T) {
 	server := NewServer(nil, handler)
 
 	task := &protocol.DispatchMessage{
-		TaskID:  "test-task",
+		TaskID:   "test-task",
 		Provider: "test",
 	}
 
@@ -255,11 +255,11 @@ func TestMessageTypes(t *testing.T) {
 
 func TestConnectionState(t *testing.T) {
 	state := &ConnectionState{
-		WorkerID:    "test-worker",
-		Platform:    "test-platform",
-		Version:     "1.0.0",
+		WorkerID:     "test-worker",
+		Platform:     "test-platform",
+		Version:      "1.0.0",
 		Capabilities: []string{"test", "notify"},
-		Status:      make(map[string]interface{}),
+		Status:       make(map[string]interface{}),
 	}
 
 	if state.WorkerID != "test-worker" {
@@ -403,10 +403,10 @@ func TestEventMessage(t *testing.T) {
 		"message": "test message",
 	}
 	msg := &protocol.EventMessage{
-		WorkerID:   "worker-1",
-		EventType:  "test.event",
-		Data:       data,
-		Timestamp:  time.Now().Unix(),
+		WorkerID:  "worker-1",
+		EventType: "test.event",
+		Data:      data,
+		Timestamp: time.Now().Unix(),
 	}
 
 	msgBytes, err := json.Marshal(msg)

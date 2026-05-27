@@ -11,12 +11,12 @@ import (
 
 // Config is the herald configuration
 type Config struct {
-	Server    ServerConfig                      `yaml:"server"`
-	Auth      AuthConfig                        `yaml:"auth"`
-	Providers map[string]ProviderConfig         `yaml:"providers"`
-	Routes    map[string][]string               `yaml:"routes"`
-	Queue     QueueConfig                       `yaml:"queue"`
-	Retry     RetryConfig                       `yaml:"retry"`
+	Server    ServerConfig                       `yaml:"server"`
+	Auth      AuthConfig                         `yaml:"auth"`
+	Providers map[string]ProviderConfig          `yaml:"providers"`
+	Routes    map[string][]string                `yaml:"routes"`
+	Queue     QueueConfig                        `yaml:"queue"`
+	Retry     RetryConfig                        `yaml:"retry"`
 	Dedup     DedupConfig                        `yaml:"dedup"`
 	Templates map[string]template.TemplateConfig `yaml:"templates"`
 }
@@ -125,8 +125,8 @@ func Default() *Config {
 			Timeout: 30 * time.Second,
 		},
 		Auth: AuthConfig{
-			Enabled: false,
-			APIKeys: make(map[string]string),
+			Enabled:   false,
+			APIKeys:   make(map[string]string),
 			SecretKey: "",
 			AdminUser: map[string]string{
 				"admin": "admin",

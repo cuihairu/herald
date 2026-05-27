@@ -67,10 +67,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	return &Provider{
 		webhookURL: webhookURL,
 		status: &core.ProviderStatus{
-			Name:     "wecom",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "wecom",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil

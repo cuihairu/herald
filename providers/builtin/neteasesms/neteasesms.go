@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultEndpoint = "api.netease.im"
+	defaultEndpoint   = "api.netease.im"
 	defaultAPIVersion = "v1"
 )
 
@@ -39,7 +39,7 @@ type Config struct {
 
 // SendSmsRequest is the request to send SMS
 type SendSmsRequest struct {
-	TemplateID string `json:"templateid"`
+	TemplateID string   `json:"templateid"`
 	Mobiles    []string `json:"mobiles"`
 	Params     []string `json:"params,omitempty"`
 }
@@ -53,9 +53,9 @@ type SendSmsResponse struct {
 
 // SendCodeRequest is the request to send verification code
 type SendCodeRequest struct {
-	Mobile     string `json:"mobile"`
-	AuthCode   string `json:"authCode,omitempty"`
-	DeviceID   string `json:"deviceId,omitempty"`
+	Mobile   string `json:"mobile"`
+	AuthCode string `json:"authCode,omitempty"`
+	DeviceID string `json:"deviceId,omitempty"`
 }
 
 // VerifyCodeRequest is the request to verify code
@@ -105,10 +105,6 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 
 // Deliver delivers a task to NetEase SMS
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
-	if !p.enabled {
-		return fmt.Errorf("provider is disabled")
-	}
-
 	// Extract phone numbers from targets
 	if len(task.Targets) == 0 {
 		return fmt.Errorf("phone numbers are required")
@@ -232,10 +228,6 @@ func (p *Provider) calculateChecksum(nonce, timestamp string) string {
 
 // SendCode sends a verification code
 func (p *Provider) SendCode(ctx context.Context, mobile, authCode, deviceID string) error {
-	if !p.enabled {
-		return fmt.Errorf("provider is disabled")
-	}
-
 	body := map[string]interface{}{
 		"mobile": mobile,
 	}
@@ -257,10 +249,6 @@ func (p *Provider) SendCode(ctx context.Context, mobile, authCode, deviceID stri
 
 // VerifyCode verifies a verification code
 func (p *Provider) VerifyCode(ctx context.Context, mobile, code string) error {
-	if !p.enabled {
-		return fmt.Errorf("provider is disabled")
-	}
-
 	body := map[string]interface{}{
 		"mobile": mobile,
 		"code":   code,

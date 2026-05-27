@@ -44,12 +44,12 @@ func (h *Handler) GetTemplateManager() *template.Manager {
 
 // NotifyRequest is the notification request
 type NotifyRequest struct {
-	Type       string                 `json:"type"`
-	Level      string                 `json:"level,omitempty"`
-	Channels   []string               `json:"channels"`
-	Recipients map[string][]string    `json:"recipients,omitempty"`
-	Template   string                 `json:"template,omitempty"`
-	Params     map[string]any         `json:"params,omitempty"`
+	Type       string              `json:"type"`
+	Level      string              `json:"level,omitempty"`
+	Channels   []string            `json:"channels"`
+	Recipients map[string][]string `json:"recipients,omitempty"`
+	Template   string              `json:"template,omitempty"`
+	Params     map[string]any      `json:"params,omitempty"`
 
 	// Direct content (when no template)
 	Title string `json:"title,omitempty"`
@@ -393,19 +393,19 @@ func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Requ
 // getProviderSchema returns the config schema for a provider
 func getProviderSchema(name string) map[string]string {
 	schemas := map[string]map[string]string{
-		"telegram":    {"token": "string", "chat_id": "string"},
-		"feishu":      {"webhook_url": "string"},
-		"wecom":       {"webhook_url": "string"},
-		"dingtalk":    {"access_token": "string", "secret": "string"},
-		"slack":       {"webhook_url": "string"},
-		"discord":     {"webhook_url": "string"},
-		"email":       {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
-		"webhook":     {"url": "string"},
-		"wechat":      {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
-		"wechatmp":    {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
-		"aliyunsms":   {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
-		"tencentsms":  {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string"},
-		"neteasesms":  {"app_key": "string", "app_secret": "string"},
+		"telegram":   {"token": "string", "chat_id": "string"},
+		"feishu":     {"webhook_url": "string"},
+		"wecom":      {"webhook_url": "string"},
+		"dingtalk":   {"access_token": "string", "secret": "string"},
+		"slack":      {"webhook_url": "string"},
+		"discord":    {"webhook_url": "string"},
+		"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
+		"webhook":    {"url": "string"},
+		"wechat":     {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
+		"wechatmp":   {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
+		"aliyunsms":  {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
+		"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string"},
+		"neteasesms": {"app_key": "string", "app_secret": "string"},
 	}
 	if schema, ok := schemas[name]; ok {
 		return schema
@@ -415,11 +415,11 @@ func getProviderSchema(name string) map[string]string {
 
 // TemplateRequest is a template create/update request
 type TemplateRequest struct {
-	ID       string                    `json:"id"`
-	Name     string                    `json:"name"`
-	Title    string                    `json:"title"`
-	Level    string                    `json:"level"`
-	Fields   []template.Field          `json:"fields"`
+	ID       string                      `json:"id"`
+	Name     string                      `json:"name"`
+	Title    string                      `json:"title"`
+	Level    string                      `json:"level"`
+	Fields   []template.Field            `json:"fields"`
 	Bindings map[string]template.Binding `json:"bindings,omitempty"`
 }
 
@@ -462,12 +462,12 @@ func (h *Handler) HandleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpl := &template.Template{
-		ID:     req.ID,
-		Name:   req.Name,
-		Title:  req.Title,
-		Level:  req.Level,
+		ID:       req.ID,
+		Name:     req.Name,
+		Title:    req.Title,
+		Level:    req.Level,
 		Fields:   req.Fields,
-			Bindings: req.Bindings,
+		Bindings: req.Bindings,
 	}
 
 	if err := h.templateManager.Register(tmpl); err != nil {
@@ -494,13 +494,21 @@ func (h *Handler) updateTemplate(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
+	// Preserve existing bindings if client didn't send any
+	bindings := req.Bindings
+	if bindings == nil {
+		if existing, err := h.templateManager.Get(id); err == nil && existing.Bindings != nil {
+			bindings = existing.Bindings
+		}
+	}
+
 	tmpl := &template.Template{
-		ID:     id,
-		Name:   req.Name,
-		Title:  req.Title,
-		Level:  req.Level,
+		ID:       id,
+		Name:     req.Name,
+		Title:    req.Title,
+		Level:    req.Level,
 		Fields:   req.Fields,
-			Bindings: req.Bindings,
+		Bindings: bindings,
 	}
 
 	if err := h.templateManager.Register(tmpl); err != nil {

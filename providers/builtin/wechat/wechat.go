@@ -22,12 +22,12 @@ const (
 
 // Provider is a WeChat Personal provider
 type Provider struct {
-	service    string
-	appToken   string
-	url        string
-	uid        string // WxPusher UID
-	status     *core.ProviderStatus
-	client     *httpclient.Client
+	service  string
+	appToken string
+	url      string
+	uid      string // WxPusher UID
+	status   *core.ProviderStatus
+	client   *httpclient.Client
 }
 
 // Config is the WeChat Personal provider configuration
@@ -51,7 +51,7 @@ type serverChanRequest struct {
 	Desp    string `json:"desp"`
 	Short   string `json:"short,omitempty"`
 	Channel string `json:"channel,omitempty"`
-	OpenID   string `json:"openid,omitempty"`
+	OpenID  string `json:"openid,omitempty"`
 }
 
 // serverChanResponse is a ServerChan response
@@ -66,16 +66,16 @@ type serverChanResponse struct {
 
 // pushPlusRequest is a PushPlus request
 type pushPlusRequest struct {
-	Token     string            `json:"token"`
-	Title     string            `json:"title"`
-	Content   string            `json:"content"`
-	Template  string            `json:"template,omitempty"` // html, json, txt
-	Topic     string            `json:"topic,omitempty"`
-	Channel   string            `json:"channel,omitempty"`
-	CallbackURL string           `json:"callbackUrl,omitempty"`
-	Timestamp  string            `json:"timestamp,omitempty"`
-	MD5        string            `json:"md5,omitempty"`
-	Extras     map[string]string `json:"extras,omitempty"`
+	Token       string            `json:"token"`
+	Title       string            `json:"title"`
+	Content     string            `json:"content"`
+	Template    string            `json:"template,omitempty"` // html, json, txt
+	Topic       string            `json:"topic,omitempty"`
+	Channel     string            `json:"channel,omitempty"`
+	CallbackURL string            `json:"callbackUrl,omitempty"`
+	Timestamp   string            `json:"timestamp,omitempty"`
+	MD5         string            `json:"md5,omitempty"`
+	Extras      map[string]string `json:"extras,omitempty"`
 }
 
 // pushPlusResponse is a PushPlus response
@@ -89,18 +89,18 @@ type pushPlusResponse struct {
 type wxpusherRequest struct {
 	AppToken    string `json:"appToken"`
 	Content     string `json:"content"`
-	Summary     string `json:"summary"`     // 消息摘要，显示在微信通知标题
-	ContentType int    `json:"contentType"` // 1:文字  2:HTML  3:Markdown
-	UIDs        string `json:"uids"`        // 要接收消息的用户ID，如果不为空则以此为准
+	Summary     string `json:"summary"`       // 消息摘要，显示在微信通知标题
+	ContentType int    `json:"contentType"`   // 1:文字  2:HTML  3:Markdown
+	UIDs        string `json:"uids"`          // 要接收消息的用户ID，如果不为空则以此为准
 	URL         string `json:"url,omitempty"` // 原文链接，点击消息跳转
 }
 
 // wxpusherResponse is a WxPusher response
 type wxpusherResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-	Data string `json:"data"`
-	Success bool `json:"success"`
+	Code    int    `json:"code"`
+	Msg     string `json:"msg"`
+	Data    string `json:"data"`
+	Success bool   `json:"success"`
 }
 
 // NewProvider creates a new WeChat Personal provider
@@ -112,10 +112,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 
 	p := &Provider{
 		status: &core.ProviderStatus{
-			Name:     "wechat",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "wechat",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}

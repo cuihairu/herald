@@ -3,8 +3,8 @@ package builtin
 import (
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/providers/builtin/aliyunsms"
-	"github.com/cuihairu/herald/providers/builtin/discord"
 	"github.com/cuihairu/herald/providers/builtin/dingtalk"
+	"github.com/cuihairu/herald/providers/builtin/discord"
 	"github.com/cuihairu/herald/providers/builtin/email"
 	"github.com/cuihairu/herald/providers/builtin/feishu"
 	"github.com/cuihairu/herald/providers/builtin/log"
@@ -13,9 +13,9 @@ import (
 	"github.com/cuihairu/herald/providers/builtin/telegram"
 	"github.com/cuihairu/herald/providers/builtin/tencentsms"
 	"github.com/cuihairu/herald/providers/builtin/webhook"
-	"github.com/cuihairu/herald/providers/builtin/wecom"
 	"github.com/cuihairu/herald/providers/builtin/wechat"
 	"github.com/cuihairu/herald/providers/builtin/wechatmp"
+	"github.com/cuihairu/herald/providers/builtin/wecom"
 )
 
 // RegisterBuiltinProviders registers all builtin provider factories

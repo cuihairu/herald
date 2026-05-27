@@ -126,10 +126,10 @@ func (m *Manager) Render(templateID string, params map[string]interface{}) (*Ren
 func (m *Manager) LoadFromMap(templates map[string]TemplateConfig) error {
 	for id, config := range templates {
 		tmpl := &Template{
-			ID:      id,
-			Name:    config.Name,
-			Title:   config.Title,
-			Level:   config.Level,
+			ID:       id,
+			Name:     config.Name,
+			Title:    config.Title,
+			Level:    config.Level,
 			Fields:   make([]Field, len(config.Fields)),
 			Bindings: config.Bindings,
 		}

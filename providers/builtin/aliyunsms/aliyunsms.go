@@ -39,9 +39,9 @@ type Config struct {
 	AccessKeyID     string `yaml:"access_key_id"`
 	AccessKeySecret string `yaml:"access_key_secret"`
 	SignName        string `yaml:"sign_name"`
-	Region          string `yaml:"region"`          // default: cn-hangzhou
-	Endpoint        string `yaml:"endpoint"`        // default: dysmsapi.aliyuncs.com
-	Enabled         bool   `yaml:"enabled"`         // default: true
+	Region          string `yaml:"region"`   // default: cn-hangzhou
+	Endpoint        string `yaml:"endpoint"` // default: dysmsapi.aliyuncs.com
+	Enabled         bool   `yaml:"enabled"`  // default: true
 }
 
 // SendSmsRequest is the request to send SMS
@@ -112,10 +112,6 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 
 // Deliver delivers a task to Aliyun SMS
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
-	if !p.enabled {
-		return fmt.Errorf("provider is disabled")
-	}
-
 	// Extract phone numbers from targets
 	if len(task.Targets) == 0 {
 		return fmt.Errorf("phone numbers are required")
@@ -151,18 +147,18 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 
 	// Build request params
 	params := map[string]string{
-		"Action":          defaultAction,
-		"Version":         defaultVersion,
-		"AccessKeyId":     p.accessKeyID,
-		"SignatureMethod": "HMAC-SHA1",
+		"Action":           defaultAction,
+		"Version":          defaultVersion,
+		"AccessKeyId":      p.accessKeyID,
+		"SignatureMethod":  "HMAC-SHA1",
 		"SignatureVersion": "1.0",
-		"SignatureNonce":  fmt.Sprintf("%d", time.Now().UnixNano()),
-		"Timestamp":       time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-		"Format":          "JSON",
-		"RegionId":        p.region,
-		"PhoneNumbers":    phoneNumbers,
-		"SignName":        p.signName,
-		"TemplateCode":    templateCode,
+		"SignatureNonce":   fmt.Sprintf("%d", time.Now().UnixNano()),
+		"Timestamp":        time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+		"Format":           "JSON",
+		"RegionId":         p.region,
+		"PhoneNumbers":     phoneNumbers,
+		"SignName":         p.signName,
+		"TemplateCode":     templateCode,
 	}
 
 	if templateParam != "" {

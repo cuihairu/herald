@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,9 +43,9 @@ type Config struct {
 	SecretKey string `yaml:"secret_key"`
 	AppID     string `yaml:"app_id"`
 	SignName  string `yaml:"sign_name"`
-	Region    string `yaml:"region"`    // default: ap-guangzhou
-	Endpoint  string `yaml:"endpoint"`  // default: sms.tencentcloudapi.com
-	Enabled   bool   `yaml:"enabled"`   // default: true
+	Region    string `yaml:"region"`   // default: ap-guangzhou
+	Endpoint  string `yaml:"endpoint"` // default: sms.tencentcloudapi.com
+	Enabled   bool   `yaml:"enabled"`  // default: true
 }
 
 // SendSmsRequest is the request to send SMS
@@ -61,12 +62,12 @@ type SendSmsRequest struct {
 type SendSmsResponse struct {
 	Response struct {
 		SendStatusSet []struct {
-			SerialNo     string `json:"SerialNo"`
-			PhoneNumber  string `json:"PhoneNumber"`
-			Fee          int    `json:"Fee"`
+			SerialNo       string `json:"SerialNo"`
+			PhoneNumber    string `json:"PhoneNumber"`
+			Fee            int    `json:"Fee"`
 			SessionContext string `json:"SessionContext"`
-			Code         string `json:"Code"`
-			Message      string `json:"Message"`
+			Code           string `json:"Code"`
+			Message        string `json:"Message"`
 		} `json:"SendStatusSet"`
 		RequestId string `json:"RequestId"`
 	} `json:"Response"`
@@ -131,10 +132,6 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 
 // Deliver delivers a task to Tencent SMS
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
-	if !p.enabled {
-		return fmt.Errorf("provider is disabled")
-	}
-
 	// Extract phone numbers from targets and add +86 prefix if not present
 	if len(task.Targets) == 0 {
 		return fmt.Errorf("phone numbers are required")
@@ -266,58 +263,58 @@ func (p *Provider) sendRequest(ctx context.Context, reqBody SendSmsRequest) erro
 	return nil
 }
 
-// calculateAuthorization calculates the Tencent Cloud API signature
+// calculateAuthorization calculates the Tencent Cloud API v3 signature (TC3-HMAC-SHA256)
 func (p *Provider) calculateAuthorization(req *http.Request, body string) string {
-	timestamp := req.Header.Get("X-TC-Timestamp")
+	timestampStr := req.Header.Get("X-TC-Timestamp")
+	ts, _ := strconv.Atoi(timestampStr)
+	t := time.Unix(int64(ts), 0).UTC()
+	date := t.Format("2006-01-02")
 
 	// Build canonical request
 	canonicalHeaders := "content-type:" + req.Header.Get("Content-Type") + "\n" +
 		"host:" + req.Header.Get("Host") + "\n" +
 		"x-tc-action:" + req.Header.Get("X-TC-Action") + "\n" +
-		"x-tc-timestamp:" + timestamp + "\n" +
+		"x-tc-timestamp:" + timestampStr + "\n" +
 		"x-tc-version:" + req.Header.Get("X-TC-Version") + "\n"
 
 	signedHeaders := "content-type;host;x-tc-action;x-tc-timestamp;x-tc-version"
 
-	hash := sha256.New()
-	hash.Write([]byte(body))
-	payloadHash := hex.EncodeToString(hash.Sum(nil))
+	payloadHash := sha256Hex(body)
 
 	canonicalRequest := req.Method + "\n" +
-		"/" + "\n" +
-		"" + "\n" +
+		"/\n" +
+		"\n" +
 		canonicalHeaders + "\n" +
 		signedHeaders + "\n" +
 		payloadHash
 
 	// Build string to sign
-	hash = sha256.New()
-	hash.Write([]byte(canonicalRequest))
-	canonicalRequestHash := hex.EncodeToString(hash.Sum(nil))
-
-	credentialScope := timestamp + "/" + "sms/tc3_request"
-	stringToSign := "TC3-HMAC-SHA256" + "\n" +
-		timestamp + "\n" +
+	credentialScope := date + "/sms/tc3_request"
+	stringToSign := "TC3-HMAC-SHA256\n" +
+		timestampStr + "\n" +
 		credentialScope + "\n" +
-		canonicalRequestHash
+		sha256Hex(canonicalRequest)
 
-	// Calculate signature
-	secretDate := hmacSha256("TC3"+p.secretKey, timestamp)
-	secretService := hmacSha256(secretDate, "sms")
-	secretSigning := hmacSha256(secretService, "tc3_request")
-	signature := hmacSha256(secretSigning, stringToSign)
+	// Calculate signature (binary HMAC chain)
+	secretDate := hmacBytes([]byte("TC3"+p.secretKey), date)
+	secretService := hmacBytes(secretDate, "sms")
+	secretSigning := hmacBytes(secretService, "tc3_request")
+	signature := hex.EncodeToString(hmacBytes(secretSigning, stringToSign))
 
-	// Build authorization
-	authorization := fmt.Sprintf("TC3-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
+	return fmt.Sprintf("TC3-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
 		p.secretID, credentialScope, signedHeaders, signature)
-
-	return authorization
 }
 
-func hmacSha256(key, data string) string {
-	h := hmac.New(sha256.New, []byte(key))
+func sha256Hex(data string) string {
+	h := sha256.New()
 	h.Write([]byte(data))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func hmacBytes(key []byte, data string) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(data))
+	return h.Sum(nil)
 }
 
 // Name returns the provider name

@@ -22,8 +22,8 @@ func TestNewClient(t *testing.T) {
 
 func TestNewClientWithConfig(t *testing.T) {
 	config := &Config{
-		Timeout:        10 * time.Second,
-		MaxIdleConns:   50,
+		Timeout:         10 * time.Second,
+		MaxIdleConns:    50,
 		MaxConnsPerHost: 5,
 	}
 

@@ -11,19 +11,19 @@ import (
 )
 
 const (
-	tokenURL         = "https://api.weixin.qq.com/cgi-bin/token"
+	tokenURL           = "https://api.weixin.qq.com/cgi-bin/token"
 	templateMessageURL = "https://api.weixin.qq.com/cgi-bin/message/template/send"
 )
 
 // Provider is a WeChat Official Account provider
 type Provider struct {
-	appID       string
-	appSecret   string
-	templateID  string
-	defaultURL  string
-	tokenCache  *TokenCache
-	status      *core.ProviderStatus
-	client      *httpclient.Client
+	appID      string
+	appSecret  string
+	templateID string
+	defaultURL string
+	tokenCache *TokenCache
+	status     *core.ProviderStatus
+	client     *httpclient.Client
 }
 
 // Config is the WeChat Official Account provider configuration
@@ -51,11 +51,11 @@ type tokenResponse struct {
 
 // templateMessageRequest is the template message request
 type templateMessageRequest struct {
-	ToUser     string                `json:"touser"`
-	TemplateID  string                `json:"template_id"`
-	URL        string                `json:"url,omitempty"`
-	MiniProgram *MiniProgram          `json:"miniprogram,omitempty"`
-	Data       map[string]TemplateData `json:"data"`
+	ToUser      string                  `json:"touser"`
+	TemplateID  string                  `json:"template_id"`
+	URL         string                  `json:"url,omitempty"`
+	MiniProgram *MiniProgram            `json:"miniprogram,omitempty"`
+	Data        map[string]TemplateData `json:"data"`
 }
 
 // MiniProgram is the mini program info
@@ -101,10 +101,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		defaultURL: cfg.DefaultURL,
 		tokenCache: &TokenCache{},
 		status: &core.ProviderStatus{
-			Name:     "wechatmp",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "wechatmp",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil
@@ -162,7 +162,7 @@ func (p *Provider) buildTemplateMessage(task *core.DeliveryTask) *templateMessag
 
 	// Build template data with common fields
 	data := map[string]TemplateData{
-		"thing1": {Value: truncate(title, 20)},  // 事项/标题
+		"thing1": {Value: truncate(title, 20)},   // 事项/标题
 		"thing2": {Value: truncate(content, 30)}, // 内容
 	}
 

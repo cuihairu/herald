@@ -174,7 +174,7 @@ func hashPassword(password string) (string, error) {
 	_, _ = rand.Read(salt)
 
 	// Combine password and salt
-combined := append([]byte(password), salt...)
+	combined := append([]byte(password), salt...)
 
 	// Simple hash - replace with bcrypt in production
 	hash := base64.StdEncoding.EncodeToString(combined)

@@ -37,15 +37,15 @@ type TextContent struct {
 // PostContent is post content
 type PostContent struct {
 	Post map[string]struct {
-		Title   string                   `json:"title,omitempty"`
+		Title   string                     `json:"title,omitempty"`
 		Content [][]map[string]interface{} `json:"content"`
 	} `json:"post"`
 }
 
 // Response is a Feishu webhook response
 type Response struct {
-	Code    int    `json:"code"`
-	Msg     string `json:"msg"`
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
 }
 
 // NewProvider creates a new Feishu provider
@@ -61,10 +61,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		webhookURL: webhookURL,
 		signSecret: signSecret,
 		status: &core.ProviderStatus{
-			Name:     "feishu",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "feishu",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 		client: httpclient.NewClient(nil),
 	}, nil

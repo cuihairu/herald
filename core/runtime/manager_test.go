@@ -17,10 +17,10 @@ func (m *mockProvider) Deliver(ctx context.Context, task *core.DeliveryTask) err
 	return nil
 }
 
-func (m *mockProvider) Name() string { return m.name }
-func (m *mockProvider) Type() string { return m.pType }
+func (m *mockProvider) Name() string                 { return m.name }
+func (m *mockProvider) Type() string                 { return m.pType }
 func (m *mockProvider) Status() *core.ProviderStatus { return m.status }
-func (m *mockProvider) Close() error { return nil }
+func (m *mockProvider) Close() error                 { return nil }
 
 type mockFactory struct {
 	name  string

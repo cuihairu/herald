@@ -77,10 +77,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		from:     from,
 		fromName: fromName,
 		status: &core.ProviderStatus{
-			Name:     "email",
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   "email",
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 	}, nil
 }

@@ -25,10 +25,10 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	return &Provider{
 		name: name,
 		status: &core.ProviderStatus{
-			Name:     name,
-			Type:     "builtin",
-			Status:   "available",
-			Since:    time.Now(),
+			Name:   name,
+			Type:   "builtin",
+			Status: "available",
+			Since:  time.Now(),
 		},
 	}, nil
 }

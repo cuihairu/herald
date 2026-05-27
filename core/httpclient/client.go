@@ -22,8 +22,8 @@ type Client struct {
 
 // Config is the client configuration
 type Config struct {
-	Timeout   time.Duration
-	MaxIdleConns int
+	Timeout         time.Duration
+	MaxIdleConns    int
 	MaxConnsPerHost int
 }
 

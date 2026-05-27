@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/cuihairu/herald/internal/logger"
 	"github.com/cuihairu/herald/protocol"
+	"github.com/gorilla/websocket"
 )
 
 // Default upgrader
@@ -52,22 +52,22 @@ type ConnHandler interface {
 
 // Server handles WebSocket connections from workers
 type Server struct {
-	addr     string
-	handler  ConnHandler
-	server   *http.Server
+	addr    string
+	handler ConnHandler
+	server  *http.Server
 
-	mu       sync.RWMutex
-	workers  map[string]*ConnectionState
+	mu      sync.RWMutex
+	workers map[string]*ConnectionState
 
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	// Configuration
-	readTimeout    time.Duration
-	writeTimeout   time.Duration
-	pingTimeout    time.Duration
-	pingInterval   time.Duration
+	readTimeout  time.Duration
+	writeTimeout time.Duration
+	pingTimeout  time.Duration
+	pingInterval time.Duration
 }
 
 // Config is the WebSocket server configuration
@@ -94,13 +94,13 @@ func NewServer(config *Config, handler ConnHandler) *Server {
 
 	mux := http.NewServeMux()
 	s := &Server{
-		addr:          config.Addr,
-		handler:       handler,
-		workers:       make(map[string]*ConnectionState),
-		readTimeout:   config.ReadTimeout,
-		writeTimeout:  config.WriteTimeout,
-		pingTimeout:   config.PingTimeout,
-		pingInterval:  config.PingInterval,
+		addr:         config.Addr,
+		handler:      handler,
+		workers:      make(map[string]*ConnectionState),
+		readTimeout:  config.ReadTimeout,
+		writeTimeout: config.WriteTimeout,
+		pingTimeout:  config.PingTimeout,
+		pingInterval: config.PingInterval,
 	}
 
 	mux.HandleFunc("/worker", s.handleWebSocket)

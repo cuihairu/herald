@@ -15,11 +15,11 @@ import (
 func main() {
 	// Create worker config
 	config := &protocol.WorkerConfig{
-		WorkerID:         "demo-worker-001",
-		CoreURL:          "ws://localhost:8080/worker",
-		ReconnectDelay:   5 * time.Second,
+		WorkerID:          "demo-worker-001",
+		CoreURL:           "ws://localhost:8080/worker",
+		ReconnectDelay:    5 * time.Second,
 		HeartbeatInterval: 30 * time.Second,
-		Capabilities:     []string{"demo"},
+		Capabilities:      []string{"demo"},
 	}
 
 	// Create client

@@ -6,13 +6,13 @@ import (
 
 // Message types
 const (
-	MessageTypeRegister   = "register"
+	MessageTypeRegister    = "register"
 	MessageTypeRegisterAck = "register_ack"
-	MessageTypeHeartbeat  = "heartbeat"
-	MessageTypeDispatch   = "dispatch"
-	MessageTypeAck        = "ack"
-	MessageTypeError      = "error"
-	MessageTypeEvent      = "event"
+	MessageTypeHeartbeat   = "heartbeat"
+	MessageTypeDispatch    = "dispatch"
+	MessageTypeAck         = "ack"
+	MessageTypeError       = "error"
+	MessageTypeEvent       = "event"
 )
 
 // Message is the base interface for all protocol messages
@@ -22,9 +22,9 @@ type Message interface {
 
 // RegisterMessage is sent by worker to register with the core
 type RegisterMessage struct {
-	WorkerID    string   `json:"worker_id"`
-	Platform    string   `json:"platform"`
-	Version     string   `json:"version"`
+	WorkerID     string   `json:"worker_id"`
+	Platform     string   `json:"platform"`
+	Version      string   `json:"version"`
 	Capabilities []string `json:"capabilities"`
 }
 
@@ -122,11 +122,11 @@ func (s ConnectionState) String() string {
 
 // WorkerConfig is the worker configuration
 type WorkerConfig struct {
-	WorkerID     string        `json:"worker_id"`
-	CoreURL      string        `json:"core_url"`       // WebSocket URL
-	ReconnectDelay time.Duration `json:"reconnect_delay"`
+	WorkerID          string        `json:"worker_id"`
+	CoreURL           string        `json:"core_url"` // WebSocket URL
+	ReconnectDelay    time.Duration `json:"reconnect_delay"`
 	HeartbeatInterval time.Duration `json:"heartbeat_interval"`
-	Capabilities []string      `json:"capabilities"`
+	Capabilities      []string      `json:"capabilities"`
 }
 
 // DefaultWorkerConfig returns default worker configuration
