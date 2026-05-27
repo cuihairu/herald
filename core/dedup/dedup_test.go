@@ -25,10 +25,10 @@ func TestNewDedupWithConfig(t *testing.T) {
 func TestDedupCheck(t *testing.T) {
 	d := NewDedup(&Config{Window: 100 * time.Millisecond})
 
-	if d.Check("id1", []string{"email"}, nil) {
+	if d.Check("key1") {
 		t.Error("expected first check to not dedup")
 	}
-	if !d.Check("id1", []string{"email"}, nil) {
+	if !d.Check("key1") {
 		t.Error("expected second check to dedup")
 	}
 }
@@ -36,31 +36,31 @@ func TestDedupCheck(t *testing.T) {
 func TestDedupCheckExpired(t *testing.T) {
 	d := NewDedup(&Config{Window: 50 * time.Millisecond})
 
-	d.Check("id1", []string{"email"}, nil)
+	d.Check("key1")
 	time.Sleep(60 * time.Millisecond)
 
-	if d.Check("id1", []string{"email"}, nil) {
+	if d.Check("key1") {
 		t.Error("expected check to not dedup after window expires")
 	}
 }
 
-func TestDedupCheckDifferentChannels(t *testing.T) {
+func TestDedupCheckDifferentKeys(t *testing.T) {
 	d := NewDedup(nil)
 
-	if d.Check("id1", []string{"email"}, nil) {
-		t.Error("expected first check to not dedup")
+	if d.Check("key1") {
+		t.Error("expected first key to not dedup")
 	}
-	if d.Check("id1", []string{"slack"}, nil) {
-		t.Error("expected different channels to not dedup")
+	if d.Check("key2") {
+		t.Error("expected different key to not dedup")
 	}
 }
 
 func TestDedupCleanOldEntries(t *testing.T) {
 	d := NewDedup(&Config{Window: 50 * time.Millisecond})
-	d.Check("id1", []string{"email"}, nil)
+	d.Check("key1")
 	time.Sleep(60 * time.Millisecond)
 
-	if d.Check("id1", []string{"email"}, nil) {
+	if d.Check("key1") {
 		t.Error("expected check to not dedup after cleanup")
 	}
 }

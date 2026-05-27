@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/template"
@@ -56,8 +57,14 @@ func main() {
 		Routes: cfg.Routes,
 	})
 
-	// Create runtime manager
-	manager := runtime.NewManager(10000)
+	// Create runtime manager with retry
+	retryCfg := &retry.Config{
+		Max:          cfg.Retry.Max,
+		Backoff:      cfg.Retry.Backoff,
+		InitialDelay: cfg.Retry.InitialDelay,
+		MaxDelay:     cfg.Retry.MaxDelay,
+	}
+	manager := runtime.NewManager(10000, retryCfg)
 
 	// Register builtin provider factories
 	builtinregistry.RegisterBuiltinProviders(manager)

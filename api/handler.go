@@ -11,7 +11,6 @@ import (
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
-	"github.com/cuihairu/herald/internal/logger"
 )
 
 // Handler handles HTTP requests
@@ -91,20 +90,35 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process notification
-	taskIDs, err := h.notificationSvc.Process(r.Context(), notification, h.getQueue())
+	result, err := h.notificationSvc.Process(r.Context(), notification, h.getQueue())
 	if err != nil {
-		logger.Error("notification processing failed", "error", err)
-		h.respondError(w, http.StatusInternalServerError, err.Error())
+		// All channels failed
+		h.respondJSON(w, &Response{
+			Code:    422,
+			Message: err.Error(),
+			Data: map[string]interface{}{
+				"notification_id": result.NotificationID,
+				"accepted":        result.Accepted,
+				"failed":          result.Failed,
+			},
+		})
 		return
+	}
+
+	data := map[string]interface{}{
+		"notification_id": result.NotificationID,
+		"task_ids":        result.TaskIDs,
+		"accepted":        result.Accepted,
+	}
+
+	if len(result.Failed) > 0 {
+		data["failed"] = result.Failed
 	}
 
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data: map[string]interface{}{
-			"notification_id": notification.ID,
-			"task_ids":        taskIDs,
-		},
+		Data:    data,
 	})
 }
 

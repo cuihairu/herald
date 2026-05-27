@@ -7,6 +7,7 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/logstore"
+	"github.com/cuihairu/herald/core/retry"
 )
 
 // Manager manages provider runtimes
@@ -16,15 +17,21 @@ type Manager struct {
 	factories map[string]core.ProviderFactory
 	enabled   map[string]bool
 	logStore  *logstore.LogStore
+	retryer   *retry.Retryer
 }
 
 // NewManager creates a new runtime manager
-func NewManager(logLimit int) *Manager {
+func NewManager(logLimit int, retryCfg ...*retry.Config) *Manager {
+	var r *retry.Retryer
+	if len(retryCfg) > 0 && retryCfg[0] != nil {
+		r = retry.NewRetryer(retryCfg[0])
+	}
 	return &Manager{
 		providers: make(map[string]core.Provider),
 		factories: make(map[string]core.ProviderFactory),
 		enabled:   make(map[string]bool),
 		logStore:  logstore.New(logLimit),
+		retryer:   r,
 	}
 }
 
@@ -125,10 +132,20 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	logEntry := logstore.NewTaskLog(task)
 	m.logStore.Add(logEntry)
 
-	err = provider.Deliver(ctx, task)
-	if err != nil {
-		m.logStore.UpdateStatus(task.ID, "failed", err.Error())
-		return err
+	deliverFn := func() error {
+		return provider.Deliver(ctx, task)
+	}
+
+	var deliverErr error
+	if m.retryer != nil {
+		deliverErr = m.retryer.Execute(ctx, task, deliverFn)
+	} else {
+		deliverErr = deliverFn()
+	}
+
+	if deliverErr != nil {
+		m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
+		return deliverErr
 	}
 
 	m.logStore.UpdateStatus(task.ID, "success", "")

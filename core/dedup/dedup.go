@@ -1,14 +1,11 @@
 package dedup
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"sync"
 	"time"
 )
 
-// Dedup deduplicates notifications
+// Dedup deduplicates notifications by stable key
 type Dedup struct {
 	mu     sync.RWMutex
 	seen   map[string]time.Time
@@ -33,10 +30,9 @@ func NewDedup(config *Config) *Dedup {
 	}
 }
 
-// Check checks if a notification should be deduplicated
-func (d *Dedup) Check(id string, channels []string, params map[string]any) bool {
-	key := d.key(id, channels, params)
-
+// Check checks if a key should be deduplicated.
+// The caller is responsible for generating a stable, content-derived key.
+func (d *Dedup) Check(key string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -50,19 +46,6 @@ func (d *Dedup) Check(id string, channels []string, params map[string]any) bool 
 
 	d.seen[key] = time.Now()
 	return false
-}
-
-func (d *Dedup) key(id string, channels []string, params map[string]any) string {
-	h := sha256.New()
-	h.Write([]byte(id))
-	for _, c := range channels {
-		h.Write([]byte(c))
-	}
-	if params != nil {
-		b, _ := json.Marshal(params)
-		h.Write(b)
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (d *Dedup) clean() {
