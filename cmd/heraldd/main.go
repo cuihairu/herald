@@ -76,11 +76,15 @@ func main() {
 			logger.Error("failed to create provider", "name", name, "error", err)
 			os.Exit(1)
 		}
-		if err := manager.RegisterProvider(provider); err != nil {
+		enabled := true
+		if providerCfg.Enabled != nil {
+			enabled = *providerCfg.Enabled
+		}
+		if err := manager.RegisterProvider(provider, enabled); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
 			os.Exit(1)
 		}
-		logger.Info("provider registered", "name", name, "type", provider.Type())
+		logger.Info("provider registered", "name", name, "type", provider.Type(), "enabled", enabled)
 	}
 
 	// Create dedup

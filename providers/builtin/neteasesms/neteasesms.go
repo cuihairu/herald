@@ -2,7 +2,7 @@ package neteasesms
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"net/url"
@@ -223,9 +223,9 @@ func (p *Provider) sendRequest(ctx context.Context, action string, body map[stri
 
 // calculateChecksum calculates NetEase API checksum
 func (p *Provider) calculateChecksum(nonce, timestamp string) string {
-	// checksum = sha1(appSecret + nonce + timestamp)
+	// checksum = sha1(appSecret + nonce + curTime)
 	data := p.appSecret + nonce + timestamp
-	h := sha256.New()
+	h := sha1.New()
 	h.Write([]byte(data))
 	return hex.EncodeToString(h.Sum(nil))
 }

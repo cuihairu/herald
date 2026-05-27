@@ -28,6 +28,7 @@ type Provider struct {
 	secretID  string
 	secretKey string
 	appID     string
+	signName  string
 	region    string
 	endpoint  string
 	enabled   bool
@@ -40,6 +41,7 @@ type Config struct {
 	SecretID  string `yaml:"secret_id"`
 	SecretKey string `yaml:"secret_key"`
 	AppID     string `yaml:"app_id"`
+	SignName  string `yaml:"sign_name"`
 	Region    string `yaml:"region"`    // default: ap-guangzhou
 	Endpoint  string `yaml:"endpoint"`  // default: sms.tencentcloudapi.com
 	Enabled   bool   `yaml:"enabled"`   // default: true
@@ -47,10 +49,12 @@ type Config struct {
 
 // SendSmsRequest is the request to send SMS
 type SendSmsRequest struct {
-	PhoneNumberSet    []string `json:"PhoneNumberSet"`
-	TemplateID        string   `json:"TemplateID"`
-	TemplateParamSet  []string `json:"TemplateParamSet,omitempty"`
-	SessionContext    string   `json:"SessionContext,omitempty"`
+	SmsSdkAppId      string   `json:"SmsSdkAppId"`
+	SignName         string   `json:"SignName"`
+	PhoneNumberSet   []string `json:"PhoneNumberSet"`
+	TemplateID       string   `json:"TemplateID"`
+	TemplateParamSet []string `json:"TemplateParamSet,omitempty"`
+	SessionContext   string   `json:"SessionContext,omitempty"`
 }
 
 // SendSmsResponse is the response from Tencent
@@ -89,6 +93,8 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		return nil, fmt.Errorf("tencentsms: app_id is required")
 	}
 
+	signName, _ := config["sign_name"].(string)
+
 	region := "ap-guangzhou"
 	if r, ok := config["region"].(string); ok && r != "" {
 		region = r
@@ -108,6 +114,7 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		secretID:  secretID,
 		secretKey: secretKey,
 		appID:     appID,
+		signName:  signName,
 		region:    region,
 		endpoint:  endpoint,
 		enabled:   enabled,
@@ -165,6 +172,8 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 
 	// Build request
 	reqBody := SendSmsRequest{
+		SmsSdkAppId:      p.appID,
+		SignName:         p.signName,
 		PhoneNumberSet:   phoneNumberSet,
 		TemplateID:       templateID,
 		TemplateParamSet: templateParamSet,

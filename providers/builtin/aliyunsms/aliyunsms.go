@@ -127,10 +127,19 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	var templateParam string
 	if task.Payload.ProviderTemplate != nil {
 		templateCode = task.Payload.ProviderTemplate.TemplateCode
-		// Build template param from Params
+		// Build template param from Params (accept map[string]string or map[string]interface{})
 		if params := task.Payload.ProviderTemplate.Params; params != nil {
-			if m, ok := params.(map[string]interface{}); ok {
-				if b, err := json.Marshal(m); err == nil {
+			paramMap := make(map[string]interface{})
+			switch v := params.(type) {
+			case map[string]string:
+				for k, val := range v {
+					paramMap[k] = val
+				}
+			case map[string]interface{}:
+				paramMap = v
+			}
+			if len(paramMap) > 0 {
+				if b, err := json.Marshal(paramMap); err == nil {
 					templateParam = string(b)
 				}
 			}
@@ -164,11 +173,17 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	signature := p.sign(params, "POST")
 	params["Signature"] = signature
 
-	// Build URL
+	// Build URL (RPC mode: form-encoded POST)
 	reqURL := fmt.Sprintf("https://%s/", p.endpoint)
 
+	// Build form body
+	form := url.Values{}
+	for k, v := range params {
+		form.Set(k, v)
+	}
+
 	// Send request
-	resp, err := p.client.PostJSON(ctx, reqURL, params)
+	resp, err := p.client.PostForm(ctx, reqURL, form)
 	if err != nil {
 		return httpclient.WithRetry(err)
 	}

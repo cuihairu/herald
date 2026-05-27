@@ -80,8 +80,9 @@ func (p *DeliveryPlanner) buildPayload(
 	channel string,
 	binding *template.Binding,
 ) (*core.DeliveryPayload, error) {
-	// 1. If binding specifies a vendor template (SMS), build provider_template payload
-	if binding != nil && (binding.TemplateCode != "" || binding.TemplateID != "") {
+	// 1. Provider supports vendor template AND binding provides template info
+	if hasKind(cap.PayloadKinds, core.PayloadProviderTemplate) && binding != nil &&
+		(binding.TemplateCode != "" || binding.TemplateID != "") {
 		pt := p.buildProviderTemplate(notification, renderedData, binding)
 		return &core.DeliveryPayload{
 			Kind:             core.PayloadProviderTemplate,
@@ -89,15 +90,10 @@ func (p *DeliveryPlanner) buildPayload(
 		}, nil
 	}
 
-	// 2. If provider supports template natively and binding provides template info
-	if cap.SupportsTemplate && hasKind(cap.PayloadKinds, core.PayloadProviderTemplate) && binding != nil {
-		if binding.TemplateCode != "" || binding.TemplateID != "" {
-			pt := p.buildProviderTemplate(notification, renderedData, binding)
-			return &core.DeliveryPayload{
-				Kind:             core.PayloadProviderTemplate,
-				ProviderTemplate: pt,
-			}, nil
-		}
+	// 2. Binding specifies template but provider doesn't support it → error early
+	if binding != nil && (binding.TemplateCode != "" || binding.TemplateID != "") &&
+		!hasKind(cap.PayloadKinds, core.PayloadProviderTemplate) {
+		return nil, fmt.Errorf("binding specifies vendor template but provider %s does not support provider_template payload", channel)
 	}
 
 	// 3. Content-based delivery (email, IM, etc.)

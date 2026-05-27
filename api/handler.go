@@ -92,15 +92,19 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 	// Process notification
 	result, err := h.notificationSvc.Process(r.Context(), notification, h.getQueue())
 	if err != nil {
-		// All channels failed
+		data := map[string]interface{}{
+			"accepted": []string{},
+			"failed":   []string{},
+		}
+		if result != nil {
+			data["notification_id"] = result.NotificationID
+			data["accepted"] = result.Accepted
+			data["failed"] = result.Failed
+		}
 		h.respondJSON(w, &Response{
 			Code:    422,
 			Message: err.Error(),
-			Data: map[string]interface{}{
-				"notification_id": result.NotificationID,
-				"accepted":        result.Accepted,
-				"failed":          result.Failed,
-			},
+			Data:    data,
 		})
 		return
 	}

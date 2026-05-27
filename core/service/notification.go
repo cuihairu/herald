@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/cuihairu/herald/core"
@@ -98,6 +100,11 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification,
 			continue
 		}
 
+		if !s.runtime.IsEnabled(channel) {
+			result.Failed = append(result.Failed, ChannelError{Channel: channel, Error: "provider is disabled"})
+			continue
+		}
+
 		targets := resolveTargets(n, channel)
 
 		task, err := s.planner.Plan(ctx, provider, n, renderedData, targets, channel)
@@ -147,22 +154,38 @@ func formatChannelErrors(errs []ChannelError) string {
 	return fmt.Sprintf("%v", msgs)
 }
 
-// dedupKey generates a stable key from notification content
+// dedupKey generates a stable, canonical key from notification content
 func dedupKey(n *core.Notification) string {
-	h := sha256.New()
-	h.Write([]byte(n.Type))
-	h.Write([]byte(n.Level))
-	h.Write([]byte(n.TemplateRef))
-	for _, c := range n.Channels {
-		h.Write([]byte(c))
-	}
-	for k, v := range n.Params {
-		h.Write([]byte(k))
-		h.Write([]byte(fmt.Sprintf("%v", v)))
+	// Build a canonical structure with sorted keys
+	channels := make([]string, len(n.Channels))
+	copy(channels, n.Channels)
+	sort.Strings(channels)
+
+	key := struct {
+		Type       string                 `json:"type"`
+		Level      string                 `json:"level"`
+		Template   string                 `json:"template"`
+		Channels   []string               `json:"channels"`
+		Recipients map[string][]string    `json:"recipients"`
+		Params     map[string]any         `json:"params"`
+		Title      string                 `json:"title,omitempty"`
+		Body       string                 `json:"body,omitempty"`
+	}{
+		Type:       n.Type,
+		Level:      n.Level,
+		Template:   n.TemplateRef,
+		Channels:   channels,
+		Recipients: n.Recipients,
+		Params:     n.Params,
 	}
 	if n.Content != nil {
-		h.Write([]byte(n.Content.Title))
-		h.Write([]byte(n.Content.Body))
+		key.Title = n.Content.Title
+		key.Body = n.Content.Body
 	}
-	return hex.EncodeToString(h.Sum(nil))
+
+	// json.Marshal on struct fields is deterministic (field order follows struct definition)
+	// map entries are NOT guaranteed sorted, so we rely on the struct field order
+	data, _ := json.Marshal(key)
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
 }

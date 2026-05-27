@@ -40,6 +40,7 @@ type ProviderConfig struct {
 	Type     string                 `yaml:"type"`
 	Platform string                 `yaml:"platform"`
 	Config   map[string]interface{} `yaml:"config"`
+	Enabled  *bool                  `yaml:"enabled"` // nil means true (default enabled)
 }
 
 // QueueConfig is the queue configuration

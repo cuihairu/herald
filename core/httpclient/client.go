@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/herald/internal/logger"
@@ -89,6 +91,39 @@ func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*R
 	}
 
 	// Check status code
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &Response{
+			StatusCode: resp.StatusCode,
+			Body:       respBody,
+		}, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	return &Response{
+		StatusCode: resp.StatusCode,
+		Body:       respBody,
+	}, nil
+}
+
+// PostForm sends a form-encoded POST request
+func (c *Client) PostForm(ctx context.Context, reqURL string, data url.Values) (*Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &Response{
 			StatusCode: resp.StatusCode,
