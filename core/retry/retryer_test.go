@@ -110,7 +110,7 @@ func TestRetryerExecuteNonRetryableError(t *testing.T) {
 	calls := 0
 	fn := func() error { calls++; return errors.New("permanent") }
 
-	r.Execute(context.Background(), task, fn)
+	_ = r.Execute(context.Background(), task, fn)
 	if calls != 1 {
 		t.Errorf("expected 1 call, got %d", calls)
 	}
