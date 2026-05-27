@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cuihairu/herald/core"
@@ -82,16 +81,17 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/providers", s.withAuth(s.handleProviders))
 	mux.HandleFunc("/api/v1/workers", s.withAuth(s.handleWorkers))
 	mux.HandleFunc("/api/v1/queue", s.withAuth(s.handleQueue))
-	mux.HandleFunc("/api/v1/providers/", s.withAuth(s.handleProviderAction))
+	mux.HandleFunc("/api/v1/providers/{name}/enable", s.withAuth(s.handleProviderEnable))
+	mux.HandleFunc("/api/v1/providers/{name}/disable", s.withAuth(s.handleProviderDisable))
 	mux.HandleFunc("/api/v1/logs", s.withAuth(s.handleLogs))
 	mux.HandleFunc("/api/v1/logs/stats", s.withAuth(s.handleLogsStats))
-	mux.HandleFunc("/api/v1/logs/", s.withAuth(s.handleLogByID))
-	mux.HandleFunc("/api/v1/config/", s.withAuth(s.handleProviderConfig))
+	mux.HandleFunc("/api/v1/logs/{id}", s.withAuth(s.handleLogByID))
+	mux.HandleFunc("/api/v1/config/{name}", s.withAuth(s.handleProviderConfig))
 
 	// Template management
 	mux.HandleFunc("/api/v1/templates", s.withAuth(s.handleTemplates))
 	mux.HandleFunc("/api/v1/templates/create", s.withAuth(s.handleCreateTemplate))
-	mux.HandleFunc("/api/v1/templates/", s.withAuth(s.handleTemplateByID))
+	mux.HandleFunc("/api/v1/templates/{id}", s.withAuth(s.handleTemplateByID))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -187,22 +187,11 @@ func (s *Server) handleLogByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProviderConfig(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	prefix := "/api/v1/config/"
-
-	if len(path) <= len(prefix) {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "provider name is required", http.StatusBadRequest)
 		return
 	}
-
-	rest := path[len(prefix):]
-	parts := strings.Split(rest, "/")
-	if len(parts) < 1 {
-		http.Error(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-
-	name := parts[0]
 
 	switch r.Method {
 	case http.MethodGet:
@@ -214,41 +203,30 @@ func (s *Server) handleProviderConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleProviderAction(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	prefix := "/api/v1/providers/"
-
-	if len(path) <= len(prefix) {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+func (s *Server) handleProviderEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	rest := path[len(prefix):]
-	parts := strings.Split(rest, "/")
-	if len(parts) < 2 {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "provider name is required", http.StatusBadRequest)
 		return
 	}
+	s.handler.HandleEnableProviderWithName(w, r, name)
+}
 
-	name := parts[0]
-	action := parts[1]
-
-	switch action {
-	case "enable":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		s.handler.HandleEnableProviderWithName(w, r, name)
-	case "disable":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		s.handler.HandleDisableProviderWithName(w, r, name)
-	default:
-		http.Error(w, "invalid action", http.StatusBadRequest)
+func (s *Server) handleProviderDisable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "provider name is required", http.StatusBadRequest)
+		return
+	}
+	s.handler.HandleDisableProviderWithName(w, r, name)
 }
 
 // SetWebSocketServer sets the WebSocket server
@@ -300,13 +278,5 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTemplateByID(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	prefix := "/api/v1/templates/"
-
-	if len(path) <= len(prefix) {
-		http.Error(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-
 	s.handler.HandleTemplateByID(w, r)
 }
