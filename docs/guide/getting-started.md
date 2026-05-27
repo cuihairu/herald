@@ -26,11 +26,31 @@ providers:
     token: "${TELEGRAM_BOT_TOKEN}"
     chat_id: "@my-channel"
 
+  email:
+    type: builtin
+    config:
+      host: "smtp.example.com"
+      port: 587
+      username: "${EMAIL_USER}"
+      password: "${EMAIL_PASS}"
+      from: "notify@example.com"
+
 routes:
   error:
     - telegram
   warning:
     - telegram
+    - email
+
+retry:
+  max: 3
+  backoff: exponential
+  initial_delay: 1s
+  max_delay: 1m
+
+dedup:
+  enabled: true
+  window: 5m
 ```
 
 ## 启动服务
@@ -41,26 +61,61 @@ heraldd --config config.yaml
 
 ## 发送通知
 
+### 使用直接内容
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "server.alert",
+    "level": "error",
     "title": "Node Offline",
     "body": "node-17 is offline",
-    "level": "error"
+    "channels": ["telegram"]
   }'
 ```
 
-## 发送事件
+### 使用模板
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/events \
+curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "node.offline",
-    "labels": {
-      "region": "shanghai",
-      "node": "node-17"
-    }
+    "type": "server.alert",
+    "level": "error",
+    "template": "server_alert",
+    "params": {
+      "host": "node-17",
+      "status": "offline"
+    },
+    "channels": ["telegram", "email"]
   }'
+```
+
+### 响应
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+    "task_ids": ["task-001", "task-002"],
+    "accepted": ["telegram", "email"],
+    "failed": []
+  }
+}
+```
+
+## 查看状态
+
+```bash
+# 服务状态
+curl http://localhost:8080/api/v1/status
+
+# Provider 列表
+curl http://localhost:8080/api/v1/providers
+
+# 投递日志
+curl http://localhost:8080/api/v1/logs?limit=10
 ```

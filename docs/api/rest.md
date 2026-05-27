@@ -11,11 +11,29 @@ POST /api/v1/notify
 Content-Type: application/json
 ```
 
+**使用模板：**
+
 ```json
 {
+  "type": "server.alert",
+  "level": "error",
+  "template": "server_alert",
+  "params": {
+    "host": "node-17",
+    "status": "offline"
+  },
+  "channels": ["telegram", "aliunsms"]
+}
+```
+
+**直接内容：**
+
+```json
+{
+  "type": "server.alert",
+  "level": "error",
   "title": "Node Offline",
   "body": "node-17 is offline",
-  "level": "error",
   "channels": ["telegram"]
 }
 ```
@@ -24,60 +42,61 @@ Content-Type: application/json
 
 | 字段       | 类型     | 必填   | 描述    |
 | -------- | ------ | ---- | ----- |
-| title    | string | 是    | 标题    |
-| body     | string | 是    | 内容    |
+| type     | string | 是    | 通知类型（用于路由） |
 | level    | string | 否    | 级别 (debug/info/warning/error/critical) |
-| channels | array  | 否    | 指定渠道，不指定则根据 level 路由 |
+| channels | array  | 否    | 指定渠道，不指定则根据 type/level 路由 |
+| recipients | map | 否    | 按渠道指定接收人 `{ "telegram": ["chat_id_1"] }` |
+| template | string | 否    | 模板 ID |
+| params   | map    | 否    | 模板参数 |
+| title    | string | 否    | 直接标题（无模板时使用） |
+| body     | string | 否    | 直接内容（无模板时使用） |
 
 ### 响应
 
-```json
-{
-  "code": 0,
-  "message": "ok"
-}
-```
-
-## POST /api/v1/events
-
-发送事件。
-
-### 请求
-
-```http
-POST /api/v1/events
-Content-Type: application/json
-```
-
-```json
-{
-  "type": "node.offline",
-  "labels": {
-    "node": "node-17",
-    "level": "error"
-  },
-  "data": {
-    "reason": "connection timeout"
-  }
-}
-```
-
-### 参数
-
-| 字段       | 类型     | 必填   | 描述    |
-| -------- | ------ | ---- | ----- |
-| type    | string | 是    | 事件类型 |
-| labels  | map    | 否    | 标签    |
-| data    | map    | 否    | 附加数据 |
-
-### 响应
+**成功：**
 
 ```json
 {
   "code": 0,
   "message": "ok",
   "data": {
-    "event_id": "550e8400-e29b-41d4-a716-446655440000"
+    "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+    "task_ids": ["task-001", "task-002"],
+    "accepted": ["telegram", "email"],
+    "failed": []
+  }
+}
+```
+
+**部分失败：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+    "task_ids": ["task-001"],
+    "accepted": ["telegram"],
+    "failed": [
+      { "channel": "aliunsms", "error": "factory not found" }
+    ]
+  }
+}
+```
+
+**全部失败：**
+
+```json
+{
+  "code": 422,
+  "message": "all channels failed: [aliunsms: factory not found]",
+  "data": {
+    "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+    "accepted": [],
+    "failed": [
+      { "channel": "aliunsms", "error": "factory not found" }
+    ]
   }
 }
 ```
@@ -126,7 +145,7 @@ Content-Type: application/json
         "since": "2026-05-18T08:00:00Z"
       },
       {
-        "name": "aliyunsms",
+        "name": "aliunsms",
         "type": "builtin",
         "status": "available",
         "enabled": false,
@@ -220,3 +239,85 @@ POST /api/v1/providers/telegram/disable
   }
 }
 ```
+
+## GET /api/v1/logs
+
+查询投递日志。
+
+### 参数
+
+| 参数       | 类型     | 描述    |
+| -------- | ------ | ----- |
+| offset   | int    | 偏移量 |
+| limit    | int    | 每页数量（默认 50，最大 500） |
+| status   | string | 按状态过滤（success/failed） |
+| provider | string | 按 Provider 过滤 |
+| level    | string | 按级别过滤 |
+| since    | string | 起始时间（RFC3339） |
+| until    | string | 结束时间（RFC3339） |
+
+### 响应
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "total": 100,
+    "offset": 0,
+    "limit": 50,
+    "logs": [...]
+  }
+}
+```
+
+## GET /api/v1/logs/stats
+
+查询日志统计。
+
+## GET /api/v1/logs/{id}
+
+查询单条日志。
+
+## GET /api/v1/config/{name}
+
+查询 Provider 配置。
+
+## PUT /api/v1/config/{name}
+
+更新 Provider 配置。
+
+## GET /api/v1/templates
+
+查询模板列表。
+
+## POST /api/v1/templates/create
+
+创建模板。
+
+### 请求
+
+```json
+{
+  "id": "server_alert",
+  "name": "服务器告警",
+  "title": "服务器 {{.host}} 告警",
+  "level": "error",
+  "fields": [
+    { "label": "主机", "value": "{{.host}}" },
+    { "label": "状态", "value": "{{.status}}" }
+  ]
+}
+```
+
+## GET /api/v1/templates/{id}
+
+查询指定模板。
+
+## PUT /api/v1/templates/{id}
+
+更新模板。
+
+## DELETE /api/v1/templates/{id}
+
+删除模板。
