@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/herald/providers/builtin/neteasesms"
 	"github.com/cuihairu/herald/providers/builtin/slack"
 	"github.com/cuihairu/herald/providers/builtin/telegram"
+	"github.com/cuihairu/herald/providers/builtin/worker"
 	"github.com/cuihairu/herald/providers/builtin/tencentsms"
 	"github.com/cuihairu/herald/providers/builtin/webhook"
 	"github.com/cuihairu/herald/providers/builtin/wechat"
@@ -34,4 +35,5 @@ func RegisterBuiltinProviders(manager *runtime.Manager) {
 	manager.RegisterFactory(&neteasesms.Factory{})
 	manager.RegisterFactory(&wechat.Factory{})
 	manager.RegisterFactory(&wechatmp.Factory{})
+	manager.RegisterFactory(&worker.Factory{})
 }

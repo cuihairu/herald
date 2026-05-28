@@ -22,11 +22,6 @@ type Server struct {
 	handler *Handler
 	server  *http.Server
 	auth    *auth.Auth
-
-	router          *route.Router
-	queue           core.Queue
-	runtime         *runtime.Manager
-	notificationSvc *service.NotificationService
 }
 
 // Config is the server configuration
@@ -59,13 +54,9 @@ func NewServer(config *Config) *Server {
 	handler.SetQueue(config.Queue)
 
 	s := &Server{
-		addr:            config.Addr,
-		handler:         handler,
-		auth:            config.Auth,
-		router:          config.Router,
-		queue:           config.Queue,
-		runtime:         config.Runtime,
-		notificationSvc: notificationSvc,
+		addr:    config.Addr,
+		handler: handler,
+		auth:    config.Auth,
 	}
 
 	mux := http.NewServeMux()
@@ -78,6 +69,7 @@ func NewServer(config *Config) *Server {
 
 	// Protected endpoints
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
+	mux.HandleFunc("/api/v1/events", s.withAuth(s.handleEvent))
 	mux.HandleFunc("/api/v1/providers", s.withAuth(s.handleProviders))
 	mux.HandleFunc("/api/v1/workers", s.withAuth(s.handleWorkers))
 	mux.HandleFunc("/api/v1/queue", s.withAuth(s.handleQueue))
@@ -107,13 +99,16 @@ func NewServer(config *Config) *Server {
 func (s *Server) Start(ctx context.Context) error {
 	logger.Info("server starting", "addr", s.addr)
 
-	go s.dispatch(ctx)
-
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
 	return nil
+}
+
+// SetWebSocketServer sets the websocket server for worker endpoints.
+func (s *Server) SetWebSocketServer(wsServer *websocket.Server) {
+	s.handler.SetWebSocketServer(wsServer)
 }
 
 // Shutdown shuts down the server
@@ -128,6 +123,14 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleNotify(w, r)
+}
+
+func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleEvent(w, r)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -229,42 +232,12 @@ func (s *Server) handleProviderDisable(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleDisableProviderWithName(w, r, name)
 }
 
-// SetWebSocketServer sets the WebSocket server
-func (s *Server) SetWebSocketServer(wsServer *websocket.Server) {
-	s.handler.SetWebSocketServer(wsServer)
-}
-
 // withAuth wraps a handler with authentication middleware
 func (s *Server) withAuth(fn http.HandlerFunc) http.HandlerFunc {
 	if s.auth == nil || !s.auth.IsEnabled() {
 		return fn
 	}
 	return s.auth.Middleware(fn).ServeHTTP
-}
-
-// dispatch processes tasks from the queue
-func (s *Server) dispatch(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			task, err := s.queue.Pop(ctx)
-			if err != nil {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-			s.processTask(ctx, task)
-		}
-	}
-}
-
-func (s *Server) processTask(ctx context.Context, task *core.DeliveryTask) {
-	if err := s.runtime.Deliver(ctx, task); err != nil {
-		logger.Error("failed to deliver task", "task_id", task.ID, "provider", task.Provider, "error", err)
-	} else {
-		logger.Info("task delivered", "task_id", task.ID, "provider", task.Provider)
-	}
 }
 
 // Template management handlers

@@ -60,7 +60,7 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		headers: headers,
 		status: &core.ProviderStatus{
 			Name:   "webhook",
-			Type:   "builtin",
+			Type:   "webhook",
 			Status: "available",
 			Since:  time.Now(),
 		},
@@ -126,7 +126,7 @@ func (p *Provider) Name() string {
 
 // Type returns the provider type
 func (p *Provider) Type() string {
-	return "builtin"
+	return "webhook"
 }
 
 // Status returns the current status
@@ -155,5 +155,5 @@ func (f *Factory) Name() string {
 
 // Type returns the factory type
 func (f *Factory) Type() string {
-	return "builtin"
+	return "webhook"
 }

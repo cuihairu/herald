@@ -7,12 +7,14 @@ Herald 是一个事件驱动的通知投递基础设施。
 ## 特性
 
 - **HTTP First** - curl 友好，无 SDK 依赖
+- **API Compatible** - 支持 `/api/v1/notify` 和 `/api/v1/events`
 - **Runtime First** - 支持 Builtin 和 Worker 两种 Runtime
 - **Event First** - 处理事件而非简单发送消息
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
 - **Worker Model** - 支持复杂场景如 Hook/GUI/DLL
 - **WebSocket** - 支持 Worker 实时连接
 - **Dashboard** - Web 管理界面
+- **Config First** - 通过配置文件加载 Provider、路由和模板
 
 ## 支持的 Provider
 
@@ -79,6 +81,21 @@ curl -X POST http://localhost:8080/api/v1/notify \
   }'
 ```
 
+### 发送事件
+
+```bash
+curl -X POST http://localhost:8080/api/v1/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "service.down",
+    "labels": {
+      "level": "error",
+      "title": "服务宕机",
+      "message": "order-service 不可用"
+    }
+  }'
+```
+
 ### 查看状态
 
 ```bash
@@ -117,12 +134,14 @@ curl http://localhost:8080/api/v1/templates
 
 ## 配置
 
+Herald 使用 `config.yaml` 启动，Provider 类型应与内置工厂名一致，例如 `log`、`telegram`、`feishu`、`email`、`aliyunsms`。
+
 ### Discord
 
 ```yaml
 providers:
   discord:
-    type: builtin
+    type: discord
     config:
       webhook_url: "${DISCORD_WEBHOOK_URL}"
       # 或使用 bot API
@@ -135,7 +154,7 @@ providers:
 ```yaml
 providers:
   slack:
-    type: builtin
+    type: slack
     config:
       webhook_url: "${SLACK_WEBHOOK_URL}"
 ```
@@ -145,7 +164,7 @@ providers:
 ```yaml
 providers:
   telegram:
-    type: builtin
+    type: telegram
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
       chat_id: "${TELEGRAM_CHAT_ID}"
@@ -156,7 +175,7 @@ providers:
 ```yaml
 providers:
   feishu:
-    type: builtin
+    type: feishu
     config:
       webhook_url: "${FEISHU_WEBHOOK_URL}"
 ```
@@ -166,7 +185,7 @@ providers:
 ```yaml
 providers:
   wecom:
-    type: builtin
+    type: wecom
     config:
       webhook_url: "${WECOM_WEBHOOK_URL}"
 ```
@@ -176,7 +195,7 @@ providers:
 ```yaml
 providers:
   email:
-    type: builtin
+    type: email
     config:
       host: "smtp.gmail.com"
       port: 587
@@ -188,36 +207,9 @@ providers:
 ## 架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         Frontend                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Dashboard  │  │   HTTP API   │  │   WebSocket  │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                       Herald Core                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ Event Queue  │  │    Router    │  │   Runtime    │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │    Retry     │  │    Dedup     │  │   Template   │      │
-│  └──────────────┘  └──────────────┘  │    System    │      │
-│  ┌──────────────┐  ┌──────────────┐  └──────────────┘      │
-│  │   WebSocket  │  │ Rate Limit   │                        │
-│  └──────────────┘  └──────────────┘                        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-   ┌────▼────┐          ┌────▼────┐          ┌────▼────┐
-   │Telegram │          │ Discord │          │  Email  │
-   └─────────┘          └─────────┘          └─────────┘
-        │
-   ┌────▼────┐
-   │ Worker  │
-   │ Runtime │
-   └─────────┘
+External System -> Herald HTTP API -> Queue -> Dispatcher -> Runtime -> Provider
+                      │
+                      └-> /api/v1/events
 ```
 
 ## 文档

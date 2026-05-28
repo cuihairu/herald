@@ -56,6 +56,12 @@ type NotifyRequest struct {
 	Body  string `json:"body,omitempty"`
 }
 
+// EventRequest is a lightweight event payload.
+type EventRequest struct {
+	Type   string            `json:"type"`
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
 // Response is a response
 type Response struct {
 	Code    int         `json:"code"`
@@ -123,6 +129,60 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 		Code:    0,
 		Message: "ok",
 		Data:    data,
+	})
+}
+
+// HandleEvent accepts an event-style payload and converts it to a notification.
+func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
+	var req EventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	params := make(map[string]any, len(req.Labels))
+	for k, v := range req.Labels {
+		params[k] = v
+	}
+
+	notification := &core.Notification{
+		Type:     req.Type,
+		Params:   params,
+		Channels: nil,
+		Level:    req.Labels["level"],
+	}
+
+	if title := req.Labels["title"]; title != "" || req.Labels["message"] != "" {
+		notification.Content = &core.DirectContent{
+			Title: title,
+			Body:  req.Labels["message"],
+		}
+	}
+
+	result, err := h.notificationSvc.Process(r.Context(), notification, h.getQueue())
+	if err != nil {
+		data := map[string]interface{}{"accepted": []string{}, "failed": []string{}}
+		if result != nil {
+			data["notification_id"] = result.NotificationID
+			data["accepted"] = result.Accepted
+			data["failed"] = result.Failed
+		}
+		h.respondJSON(w, &Response{
+			Code:    422,
+			Message: err.Error(),
+			Data:    data,
+		})
+		return
+	}
+
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data: map[string]interface{}{
+			"notification_id": result.NotificationID,
+			"task_ids":        result.TaskIDs,
+			"accepted":        result.Accepted,
+		},
 	})
 }
 
@@ -372,7 +432,13 @@ func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Requ
 	}
 
 	rt := h.notificationSvc.GetRuntime()
-	provider, err := rt.CreateProvider(name, req.Config)
+	current, err := rt.GetProvider(name)
+	if err != nil {
+		h.respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	provider, err := rt.CreateProvider(current.Type(), req.Config)
 	if err != nil {
 		h.respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -385,6 +451,8 @@ func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Requ
 	}
 	if wasEnabled {
 		_ = rt.Enable(name)
+	} else {
+		_ = rt.Disable(name)
 	}
 
 	h.respondJSON(w, &Response{Code: 0, Message: "provider config updated"})

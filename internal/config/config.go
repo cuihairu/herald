@@ -12,6 +12,7 @@ import (
 // Config is the herald configuration
 type Config struct {
 	Server    ServerConfig                       `yaml:"server"`
+	WebSocket WebSocketConfig                    `yaml:"websocket"`
 	Auth      AuthConfig                         `yaml:"auth"`
 	Providers map[string]ProviderConfig          `yaml:"providers"`
 	Routes    map[string][]string                `yaml:"routes"`
@@ -27,6 +28,15 @@ type ServerConfig struct {
 	Timeout time.Duration `yaml:"timeout"`
 }
 
+// WebSocketConfig is the websocket worker server configuration
+type WebSocketConfig struct {
+	Addr          string        `yaml:"addr"`
+	ReadTimeout   time.Duration `yaml:"read_timeout"`
+	WriteTimeout  time.Duration `yaml:"write_timeout"`
+	PingTimeout   time.Duration `yaml:"ping_timeout"`
+	PingInterval  time.Duration `yaml:"ping_interval"`
+}
+
 // AuthConfig is the authentication configuration
 type AuthConfig struct {
 	Enabled   bool              `yaml:"enabled"`
@@ -37,10 +47,9 @@ type AuthConfig struct {
 
 // ProviderConfig is a provider configuration
 type ProviderConfig struct {
-	Type     string                 `yaml:"type"`
-	Platform string                 `yaml:"platform"`
-	Config   map[string]interface{} `yaml:"config"`
-	Enabled  *bool                  `yaml:"enabled"` // nil means true (default enabled)
+	Type    string                 `yaml:"type"`
+	Config  map[string]interface{} `yaml:"config"`
+	Enabled *bool                  `yaml:"enabled"` // nil means true (default enabled)
 }
 
 // QueueConfig is the queue configuration
@@ -83,6 +92,21 @@ func Load(path string) (*Config, error) {
 	if cfg.Server.Timeout == 0 {
 		cfg.Server.Timeout = 30 * time.Second
 	}
+	if cfg.WebSocket.Addr == "" {
+		cfg.WebSocket.Addr = ":8081"
+	}
+	if cfg.WebSocket.ReadTimeout == 0 {
+		cfg.WebSocket.ReadTimeout = 60 * time.Second
+	}
+	if cfg.WebSocket.WriteTimeout == 0 {
+		cfg.WebSocket.WriteTimeout = 60 * time.Second
+	}
+	if cfg.WebSocket.PingTimeout == 0 {
+		cfg.WebSocket.PingTimeout = 30 * time.Second
+	}
+	if cfg.WebSocket.PingInterval == 0 {
+		cfg.WebSocket.PingInterval = 20 * time.Second
+	}
 	if cfg.Queue.Type == "" {
 		cfg.Queue.Type = "memory"
 	}
@@ -123,6 +147,13 @@ func Default() *Config {
 		Server: ServerConfig{
 			Addr:    ":8080",
 			Timeout: 30 * time.Second,
+		},
+		WebSocket: WebSocketConfig{
+			Addr:         ":8081",
+			ReadTimeout:  60 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			PingTimeout:  30 * time.Second,
+			PingInterval: 20 * time.Second,
 		},
 		Auth: AuthConfig{
 			Enabled:   false,
@@ -186,6 +217,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
 		return fmt.Errorf("auth enabled but no api_keys configured")
+	}
+	for name, provider := range c.Providers {
+		if provider.Type == "" {
+			return fmt.Errorf("provider %s type is required", name)
+		}
 	}
 	return nil
 }

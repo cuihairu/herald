@@ -97,7 +97,7 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		channelID:  channelID,
 		status: &core.ProviderStatus{
 			Name:   "discord",
-			Type:   "builtin",
+			Type:   "discord",
 			Status: "available",
 			Since:  time.Now(),
 		},
@@ -226,7 +226,7 @@ func (p *Provider) Name() string {
 
 // Type returns the provider type
 func (p *Provider) Type() string {
-	return "builtin"
+	return "discord"
 }
 
 // Status returns the current status
@@ -255,5 +255,5 @@ func (f *Factory) Name() string {
 
 // Type returns the factory type
 func (f *Factory) Type() string {
-	return "builtin"
+	return "discord"
 }

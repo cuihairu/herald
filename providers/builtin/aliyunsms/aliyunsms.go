@@ -254,7 +254,7 @@ func (p *Provider) Name() string {
 
 // Type returns the provider type
 func (p *Provider) Type() string {
-	return "builtin"
+	return "aliyunsms"
 }
 
 // Status returns the current status
@@ -300,5 +300,5 @@ func (f *Factory) Name() string {
 
 // Type returns the factory type
 func (f *Factory) Type() string {
-	return "builtin"
+	return "aliyunsms"
 }

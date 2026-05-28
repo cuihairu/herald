@@ -19,8 +19,8 @@ func TestNewProvider(t *testing.T) {
 	if provider.Name() != "log" {
 		t.Errorf("expected name 'log', got %s", provider.Name())
 	}
-	if provider.Type() != "builtin" {
-		t.Errorf("expected type 'builtin', got %s", provider.Type())
+	if provider.Type() != "log" {
+		t.Errorf("expected type 'log', got %s", provider.Type())
 	}
 }
 
@@ -86,8 +86,8 @@ func TestProviderStatus(t *testing.T) {
 	if status.Status != "available" {
 		t.Errorf("expected status 'available', got %s", status.Status)
 	}
-	if status.Type != "builtin" {
-		t.Errorf("expected type 'builtin', got %s", status.Type)
+	if status.Type != "log" {
+		t.Errorf("expected type 'log', got %s", status.Type)
 	}
 }
 
@@ -109,8 +109,8 @@ func TestFactory(t *testing.T) {
 	if factory.Name() != "log" {
 		t.Errorf("expected factory name 'log', got %s", factory.Name())
 	}
-	if factory.Type() != "builtin" {
-		t.Errorf("expected factory type 'builtin', got %s", factory.Type())
+	if factory.Type() != "log" {
+		t.Errorf("expected factory type 'log', got %s", factory.Type())
 	}
 }
 

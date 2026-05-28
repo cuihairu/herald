@@ -1,9 +1,31 @@
 # 模块设计
 
+## 核心模块
+
+### Dispatcher（调度器）
+
+调度器负责从队列中消费任务并分发给相应的 Runtime：
+
+```
+Queue → Dispatcher → Runtime Manager → Provider
+                      │
+                      ├─ Builtin Provider（直接投递）
+                      └─ Worker Provider（WebSocket 分发）
+```
+
+**核心职责：**
+
+1. 从队列中获取待投递任务
+2. 根据 Provider 类型选择分发方式
+3. Builtin Provider → 直接通过 Runtime Manager 投递
+4. Worker Provider → 通过 WebSocket Hub 分发给远程 Worker
+
+**源码位置：** `core/dispatch/dispatcher.go`
+
 ## 数据流
 
 ```
-API Request → Handler → NotificationService → DeliveryPlanner → Queue → Dispatcher → Provider
+API Request → Handler → NotificationService → DeliveryPlanner → Queue → Dispatcher → Runtime → Provider
                           │                      │
                           ├─ Template 渲染       ├─ Binding 解析
                           ├─ Dedup 去重          ├─ SMS 参数适配
@@ -18,7 +40,7 @@ API 层的输入，描述"用户想发什么"。
 
 ```go
 type Notification struct {
-    ID          string
+    ID          string              // 通知唯一标识
     Type        string              // 通知类型，用于路由
     Level       string              // 级别
     Channels    []string            // 目标渠道
@@ -144,7 +166,24 @@ routes:
 API → Queue → Dispatcher → Provider Runtime
 ```
 
-## 8. Provider Capability
+## 8. WebSocket Hub
+
+管理 Worker 连接和任务分发：
+
+```go
+type Hub struct {
+    server        *Server
+    workerByCap   map[string]string  // capability → workerID
+}
+```
+
+**职责：**
+
+- Worker 注册与能力管理
+- 任务分发（按 capability 或 worker_id）
+- 连接状态管理
+
+## 9. Provider Capability
 
 每个 Provider 声明自己的能力：
 
@@ -156,3 +195,17 @@ type ProviderCapability struct {
     SupportsTemplate bool            // 是否支持厂商模板（SMS）
 }
 ```
+
+## Provider 类型
+
+### Builtin Provider
+
+直接在 Herald 进程内运行，通过 Runtime Manager 直接投递。
+
+**支持：** Telegram、Feishu、Email、Webhook、SMS 等
+
+### Worker Provider
+
+代理远程 Worker，通过 WebSocket 分发任务。
+
+**支持：** 微信公众号、微信个人推送等需要特殊运行环境的渠道

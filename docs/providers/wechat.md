@@ -20,11 +20,10 @@ Herald 支持通过第三方服务发送消息到个人微信。
 ```yaml
 providers:
   wechat:
-    type: builtin
+    type: wechat
     enabled: true
     config:
-      service: "serverchan"
-      send_key: "${WECHAT_SERVERCHAN_SEND_KEY}"
+      sendkey: "${WECHAT_SENDKEY}"
 ```
 
 ### PushPlus
@@ -35,11 +34,10 @@ providers:
 ```yaml
 providers:
   wechat:
-    type: builtin
+    type: wechat
     enabled: true
     config:
-      service: "pushplus"
-      token: "${WECHAT_PUSHPLUS_TOKEN}"
+      sendkey: "${WECHAT_PUSHPLUS_TOKEN}"
 ```
 
 ### WxPusher
@@ -51,11 +49,10 @@ providers:
 ```yaml
 providers:
   wechat:
-    type: builtin
+    type: wechat
     enabled: true
     config:
-      service: "wxpusher"
-      app_token: "${WECHAT_WXPUSHER_APP_TOKEN}"
+      sendkey: "${WECHAT_WXPUSHER_APP_TOKEN}"
       uid: "${WECHAT_WXPUSHER_UID}"  # 可选，不填则发送给所有订阅者
 ```
 
@@ -67,6 +64,7 @@ providers:
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "alert",
     "title": "服务器告警",
     "body": "CPU 使用率超过 90%",
     "level": "warning",
@@ -80,6 +78,7 @@ curl -X POST http://localhost:8080/api/v1/notify \
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "deploy",
     "title": "部署成功",
     "body": "**项目**: Herald\n**版本**: v1.0.0\n**状态**: ✅ 成功",
     "level": "info",

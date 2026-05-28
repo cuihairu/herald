@@ -33,11 +33,11 @@ import (
 func main() {
     // 创建配置
     config := &protocol.WorkerConfig{
-        WorkerID:         "my-worker-001",
-        CoreURL:          "ws://localhost:8080/worker",
-        ReconnectDelay:   5 * time.Second,
+        WorkerID:          "my-worker-001",
+        CoreURL:           "ws://localhost:8081",
+        ReconnectDelay:    5 * time.Second,
         HeartbeatInterval: 30 * time.Second,
-        Capabilities:     []string{"wechat"},
+        Capabilities:      []string{"wechat"},
     }
 
     // 创建客户端

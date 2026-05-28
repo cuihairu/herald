@@ -6,11 +6,6 @@ Herald 是一个：
 
 > **事件驱动的通知投递基础设施**（Event-driven Delivery Infrastructure）
 
-**不是：**
-
-- ❌ Webhook 聚合工具
-- ❌ 消息推送 SDK
-
 **核心流程：**
 
 ```
@@ -43,8 +38,8 @@ Herald 的复杂度核心不是 Provider，而是 **Provider Runtime**。
 | 企业微信 Bot      | HTTP            |
 | 飞书             | HTTP            |
 | 邮件             | SMTP            |
-| 微信公众号         | HTTP            |
-| 微信个人推送        | HTTP            |
+| 微信公众号         | Worker Runtime |
+| 微信个人推送        | Worker Runtime |
 
 > Provider 的本质差异来自运行环境。
 

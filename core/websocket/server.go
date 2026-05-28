@@ -117,6 +117,13 @@ func NewServer(config *Config, handler ConnHandler) *Server {
 	return s
 }
 
+// SetHandler updates the connection handler.
+func (s *Server) SetHandler(handler ConnHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handler = handler
+}
+
 // Start starts the WebSocket server
 func (s *Server) Start() error {
 	logger.Info("websocket server starting", "addr", s.addr)

@@ -17,7 +17,7 @@ Herald 支持国内主流短信服务商的接入。
 ```yaml
 providers:
   aliyunsms:
-    type: builtin
+    type: aliyunsms
     enabled: true
     config:
       access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
@@ -31,7 +31,7 @@ providers:
 ```yaml
 providers:
   tencentsms:
-    type: builtin
+    type: tencentsms
     enabled: true
     config:
       secret_id: "${TENCENT_SECRET_ID}"
@@ -45,7 +45,7 @@ providers:
 ```yaml
 providers:
   neteasesms:
-    type: builtin
+    type: neteasesms
     enabled: true
     config:
       app_key: "${NETEASE_APP_KEY}"
@@ -54,76 +54,117 @@ providers:
 
 ## 使用示例
 
-### 发送模板短信
+### 通过模板发送短信
 
-```bash
-curl -X POST http://localhost:8080/api/v1/notify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "验证码",
-    "body": "您的验证码是123456",
-    "channels": ["aliyunsms"],
-    "level": "info"
-  }'
+在 `config.yaml` 中定义模板：
+
+```yaml
+templates:
+  verify_code:
+    name: "验证码"
+    title: "验证码"
+    level: "info"
+    fields:
+      - label: "验证码"
+        value: "{{.code}}"
+      - label: "有效期"
+        value: "{{.minutes}}分钟"
+    bindings:
+      aliyunsms:
+        template_code: "SMS_123456789"
+        params:
+          code: "code"
+          minutes: "minutes"
+      tencentsms:
+        template_id: "789"
+        param_order: ["code", "minutes"]
 ```
 
-### 通过 API 发送指定模板
+发送短信：
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "短信通知",
-    "channels": ["tencentsms"],
-    "target": "+8613800138000",
-    "data": {
-      "template_id": "123456",
-      "template_params": ["123456", "5"]
+    "type": "verify",
+    "template": "verify_code",
+    "params": {
+      "code": "123456",
+      "minutes": "5"
+    },
+    "channels": ["aliyunsms"],
+    "recipients": {
+      "aliyunsms": ["+8613800138000"]
     }
   }'
 ```
 
-### 通过 Worker 发送短信
+### 直接发送短信
 
-使用 Worker SDK 可以更灵活地发送短信：
-
-```go
-task := &core.Task{
-    Provider: "aliyunsms",
-    Target:   "+8613800138000",
-    Data: map[string]interface{}{
-        "template_id": "SMS_123456789",
-        "template_params": map[string]interface{}{
-            "code": "123456",
-            "time": "5",
-        },
-    },
-}
+```bash
+curl -X POST http://localhost:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "alert",
+    "title": "验证码",
+    "body": "您的验证码是123456",
+    "channels": ["aliyunsms"],
+    "level": "info",
+    "recipients": {
+      "aliyunsms": ["+8613800138000"]
+    }
+  }'
 ```
 
 ## 模板参数说明
 
 ### 阿里云
 
-- `template_code`: 短信模板CODE
-- `template_param`: JSON字符串或模板参数对象
+使用命名参数：
+
+```yaml
+bindings:
+  aliyunsms:
+    template_code: "SMS_123456789"
+    params:
+      code: "code"        # 模板变量名 → 参数键
+      time: "minutes"
+```
+
+参数格式：`map[string]string`
 
 ### 腾讯云
 
-- `template_id`: 模板ID
-- `template_params`: 模板参数数组
+使用有序参数：
+
+```yaml
+bindings:
+  tencentsms:
+    template_id: "789"
+    param_order: ["code", "time"]  # 按模板变量顺序排列
+```
+
+参数格式：`[]string`
 
 ### 网易云信
 
-- `template_id`: 模板ID
-- `template_params`: 模板参数数组（逗号分隔）
+使用有序参数：
+
+```yaml
+bindings:
+  neteasesms:
+    template_id: "12345"
+    param_order: ["code", "time"]
+```
+
+参数格式：逗号分隔的字符串
 
 ## 注意事项
 
 1. **手机号格式**：
    - 国内号码：可使用 `13800138000` 或 `+8613800138000`
    - 国际号码：必须使用 `+` 开头，如 `+1234567890`
-   - 多个号码：用逗号分隔
+   - 多个号码：通过 `recipients` 字段指定数组
 
 2. **模板审核**：
    - 短信模板需要先在服务商平台审核通过
@@ -135,7 +176,7 @@ task := &core.Task{
 
 4. **频率限制**：
    - 建议配置限流器避免超频
-   - Herald 默认使用 Token Bucket 限流
+   - Herald 支持通过配置限流参数
 
 5. **启用/禁用**：
    - 可通过 Dashboard 或 API 动态启用/禁用
@@ -158,3 +199,4 @@ Herald 会自动重试可恢复的错误：
 2. **多服务商配置**：配置多个 SMS Provider 提高可用性
 3. **路由规则**：根据级别选择不同服务商
 4. **去重配置**：避免重复发送
+5. **模板管理**：使用模板系统统一管理短信模板

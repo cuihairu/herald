@@ -78,7 +78,7 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		fromName: fromName,
 		status: &core.ProviderStatus{
 			Name:   "email",
-			Type:   "builtin",
+			Type:   "email",
 			Status: "available",
 			Since:  time.Now(),
 		},
@@ -183,7 +183,7 @@ func (p *Provider) Name() string {
 
 // Type returns the provider type
 func (p *Provider) Type() string {
-	return "builtin"
+	return "email"
 }
 
 // Status returns the current status
@@ -212,5 +212,5 @@ func (f *Factory) Name() string {
 
 // Type returns the factory type
 func (f *Factory) Type() string {
-	return "builtin"
+	return "email"
 }

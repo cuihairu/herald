@@ -10,6 +10,8 @@ herald/
 ├── core/                     # 核心模块
 │   ├── types.go              # 核心类型（Notification, DeliveryTask, Queue）
 │   ├── provider.go           # Provider/CapableProvider 接口
+│   ├── dispatch/             # 调度器（队列消费 + Runtime 分发）
+│   │   └── dispatcher.go     # Dispatcher 实现
 │   ├── queue/                # 任务队列
 │   │   ├── memory.go         # 内存队列实现
 │   │   └── factory.go        # 队列工厂
@@ -17,6 +19,7 @@ herald/
 │   ├── retry/                # 重试机制
 │   ├── dedup/                # 去重机制（基于内容稳定 key）
 │   ├── runtime/              # Runtime 管理（Provider 注册 + 投递 + 重试）
+│   │   └── manager.go        # Runtime Manager 实现
 │   ├── service/              # 服务层
 │   │   ├── notification.go   # NotificationService 编排层
 │   │   └── planner.go        # DeliveryPlanner（Binding + Renderer）
@@ -28,6 +31,8 @@ herald/
 │   ├── auth/                 # 认证
 │   ├── logstore/             # 投递日志存储
 │   ├── websocket/            # WebSocket（Worker 连接）
+│   │   ├── server.go         # WebSocket 服务器
+│   │   └── hub.go            # Worker 注册与任务分发
 │   └── limiter/              # 限流机制
 │
 ├── api/                      # HTTP API
@@ -53,7 +58,8 @@ herald/
 │       ├── tencentsms/       # 腾讯云 SMS
 │       ├── neteasesms/       # 网易云 SMS
 │       ├── wechat/           # 微信（Server酱）
-│       └── wechatmp/         # 微信公众号
+│       ├── wechatmp/         # 微信公众号
+│       └── worker/           # Worker Provider（代理远程 Worker）
 │
 ├── worker-sdk/               # Worker SDK
 │   └── go/                   # Go SDK + 示例
@@ -70,35 +76,48 @@ herald/
 └── README.md
 ```
 
+## 数据流
+
+```
+API Request → Handler → NotificationService → DeliveryPlanner → Queue → Dispatcher → Runtime → Provider
+                          │                      │
+                          ├─ Template 渲染       ├─ Builtin 投递
+                          ├─ Dedup 去重          └─ Worker 分发
+                          └─ Route 路由
+```
+
 ## Provider 配置示例
 
 ```yaml
 providers:
   log:
-    type: builtin
+    type: log
+    enabled: true
     config:
       name: "log"
 
   telegram:
-    type: bot-api
+    type: telegram
+    enabled: true
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
       chat_id: "${TELEGRAM_CHAT_ID}"
 
   feishu:
-    type: builtin
+    type: feishu
+    enabled: false
     config:
       webhook_url: "${FEISHU_WEBHOOK_URL}"
 
-  aliyunsms:
-    type: builtin
+  wechatmp:
+    type: worker
+    enabled: true
     config:
-      access_key_id: "${ALIYUN_AK}"
-      access_key_secret: "${ALIYUN_SK}"
-      sign_name: "Herald"
+      target: "wechat-worker-01"
 
   email:
-    type: builtin
+    type: email
+    enabled: true
     config:
       host: "smtp.example.com"
       port: 587

@@ -1,21 +1,20 @@
-# 自建微信公众号推送
+# 微信公众号推送
 
 本指南介绍如何使用自己的微信公众号实现消息推送。
 
 ## 快速开始
 
-### 1. 配置 Herald
+### 1. 配置 Worker
+
+使用 Worker SDK 开发微信公众号 Worker：
 
 ```yaml
 providers:
   wechatmp:
-    type: builtin
+    type: worker
     enabled: true
     config:
-      app_id: "${WECHATMP_APP_ID}"
-      app_secret: "${WECHATMP_APP_SECRET}"
-      template_id: "${WECHATMP_TEMPLATE_ID}"
-      default_url: "https://your-domain.com"
+      target: "wechat-worker-01"
 ```
 
 ### 2. 发送消息
@@ -24,11 +23,14 @@ providers:
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "order",
     "title": "订单通知",
     "body": "您的订单已发货",
     "level": "info",
     "channels": ["wechatmp"],
-    "target": "用户OpenID"
+    "recipients": {
+      "wechatmp": ["用户OpenID"]
+    }
   }'
 ```
 
@@ -81,6 +83,96 @@ curl -X POST http://localhost:8080/api/v1/notify \
 3. 选用或申请新模板
 4. 记录模板ID（类似 `AT0001`）
 
+## Worker 开发
+
+### Worker 配置
+
+```yaml
+# Worker 端配置
+worker_id: "wechat-worker-01"
+core_url: "ws://localhost:8081"
+
+# 微信公众号配置
+wechat:
+  app_id: "${WECHATMP_APP_ID}"
+  app_secret: "${WECHATMP_APP_SECRET}"
+  template_id: "${WECHATMP_TEMPLATE_ID}"
+  default_url: "https://your-domain.com"
+```
+
+### Worker 实现
+
+使用 Go SDK 开发 Worker：
+
+```go
+package main
+
+import (
+    "context"
+    workersdk "github.com/cuihairu/herald/worker-sdk/go"
+    "github.com/cuihairu/herald/protocol"
+)
+
+func main() {
+    config := &protocol.WorkerConfig{
+        WorkerID:          "wechat-worker-01",
+        CoreURL:           "ws://localhost:8081",
+        ReconnectDelay:    5 * time.Second,
+        HeartbeatInterval: 30 * time.Second,
+        Capabilities:      []string{"wechatmp"},
+    }
+
+    client := workersdk.NewClient(config)
+
+    client.OnTask(func(task *protocol.DispatchMessage) error {
+        // 处理任务
+        err := sendWechatTemplateMessage(task)
+
+        // 确认任务
+        client.Ack(task.TaskID, err == nil, "")
+        return err
+    })
+
+    client.Connect(context.Background())
+    select {}
+}
+```
+
+### 发送模板消息
+
+```go
+type TemplateMessageRequest struct {
+    ToUser     string                 `json:"touser"`
+    TemplateID string                 `json:"template_id"`
+    URL        string                 `json:"url,omitempty"`
+    Data       map[string]TemplateData `json:"data"`
+}
+
+type TemplateData struct {
+    Value string `json:"value"`
+    Color string `json:"color,omitempty"`
+}
+
+func sendWechatTemplateMessage(task *protocol.DispatchMessage) error {
+    // 1. 获取 Access Token
+    accessToken, err := getAccessToken()
+    if err != nil {
+        return err
+    }
+
+    // 2. 构造请求
+    req := &TemplateMessageRequest{
+        ToUser:     task.Target,
+        TemplateID: getTemplateID(),
+        Data:       buildTemplateData(task),
+    }
+
+    // 3. 发送
+    url := fmt.Sprintf("https://api.weixin.qq.com/cgi-bin/message/template/send?access_token=%s", accessToken)
+    return http.Post(url, "application/json", toJSON(req))
+}
+```
+
 ## 服务器配置
 
 ### 步骤 1: 域名与服务器
@@ -108,40 +200,24 @@ curl -X POST http://localhost:8080/api/v1/notify \
 | EncodingAESKey | 消息加密密钥 | 随机生成或自定义 |
 | 消息加密方式 | 安全模式 | 推荐"安全模式" |
 
-3. 点击"提交"验证服务器
-
 ### 步骤 3: 服务器验证代码
 
 ```go
-// wechat.go
-package main
-
-import (
-    "crypto/sha1"
-    "encoding/hex"
-    "fmt"
-    "net/http"
-    "sort"
-    "strings"
-)
-
 func HandleWechatCallback(w http.ResponseWriter, r *http.Request) {
-    signature := r.QueryGet("signature")
-    timestamp := r.QueryGet("timestamp")
-    nonce := r.QueryGet("echostr")
-    token := "your_custom_token" // 与后台配置一致
+    signature := r.URL.Query().Get("signature")
+    timestamp := r.URL.Query().Get("timestamp")
+    nonce := r.URL.Query().Get("nonce")
+    echostr := r.URL.Query().Get("echostr")
+    token := "your_custom_token"
 
-    // 1. 将 token、timestamp、nonce 三个参数进行字典序排序
     params := []string{token, timestamp, nonce}
     sort.Strings(params)
-
-    // 2. 将三个参数字符串拼接成一个字符串进行 sha1 加密
     joined := strings.Join(params, "")
+
     h := sha1.New()
     h.Write([]byte(joined))
     hashed := hex.EncodeToString(h.Sum(nil))
 
-    // 3. 加密后的字符串与 signature 对比
     if hashed == signature {
         w.Write([]byte(echostr))
         return
@@ -151,124 +227,28 @@ func HandleWechatCallback(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-## 获取 Access Token
-
-模板消息 API 需要 Access Token：
-
-```go
-type AccessTokenResponse struct {
-    ErrCode     int    `json:"errcode"`
-    ErrMsg      string `json:"errmsg"`
-    AccessToken string `json:"access_token"`
-    ExpiresIn   int    `json:"expires_in"`
-}
-
-func GetAccessToken(appID, appSecret string) (string, error) {
-    url := fmt.Sprintf("https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=%s&secret=%s", 
-        appID, appSecret)
-    
-    resp, err := http.Get(url)
-    if err != nil {
-        return "", err
-    }
-    defer resp.Body.Close()
-
-    var result AccessTokenResponse
-    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-        return "", err
-    }
-
-    if result.ErrCode != 0 {
-        return "", fmt.Errorf("wechat error: %s", result.ErrMsg)
-    }
-
-    return result.AccessToken, nil
-}
-```
-
-## 发送模板消息
-
-### 请求格式
-
-```go
-type TemplateMessageRequest struct {
-    ToUser     string                 `json:"touser"`      // 用户 OpenID
-    TemplateID string                 `json:"template_id"`  // 模板ID
-    Page       string                 `json:"page,omitempty"`
-    Data       map[string]TemplateData `json:"data"`
-}
-
-type TemplateData struct {
-    Value string `json:"value"`
-    Color string `json:"color,omitempty"`
-}
-```
-
-### 发送代码
-
-```go
-func SendTemplateMessage(accessToken string, msg *TemplateMessageRequest) error {
-    url := fmt.Sprintf("https://api.weixin.qq.com/cgi-bin/message/template/send?access_token=%s", accessToken)
-    
-    resp, err := http.Post(url, "application/json", toJSON(msg))
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-
-    var result struct {
-        ErrCode int    `json:"errcode"`
-        ErrMsg  string `json:"errmsg"`
-        MsgID   int64  `json:"msgid"`
-    }
-    
-    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-        return err
-    }
-
-    if result.ErrCode != 0 {
-        return fmt.Errorf("wechat error: %s", result.ErrMsg)
-    }
-
-    return nil
-}
-```
-
 ## 获取用户 OpenID
 
 用户关注后需要获取 OpenID 才能发送消息：
 
-### 方式 1: 通过用户授权
-
-```go
-// 生成授权链接
-authURL := fmt.Sprintf("https://open.weixin.qq.com/connect/oauth2/authorize?appid=%s&redirect_uri=%s&response_type=code&scope=snsapi_base#wechat_redirect",
-    appID, url.QueryEscape("https://your-domain.com/callback"))
-```
-
-### 方式 2: 通过关注事件
+### 通过关注事件
 
 ```go
 type FollowEvent struct {
     ToUserName   string `xml:"ToUserName"`
-    FromUserName string `xml:"FromUserName"` // 这是用户的 OpenID
+    FromUserName string `xml:"FromUserName"` // 用户 OpenID
     CreateTime   int64  `xml:"CreateTime"`
     Event        string `xml:"Event"`
-    EventKey     string `xml:"EventKey"`
 }
 
-func HandleFollowEvent(body []byte) (string, error) {
+func HandleFollowEvent(body []byte) string {
     var event FollowEvent
-    if err := xml.Unmarshal(body, &event); err != nil {
-        return "", err
-    }
-    
+    xml.Unmarshal(body, &event)
+
     if event.Event == "subscribe" {
-        // 保存用户的 OpenID 到数据库
         saveUserID(event.FromUserName)
     }
-    
-    // 返回欢迎消息
+
     return fmt.Sprintf(`
         <xml>
             <ToUserName><![CDATA[%s]]></ToUserName>
@@ -277,34 +257,8 @@ func HandleFollowEvent(body []byte) (string, error) {
             <MsgType><![CDATA[text]]></MsgType>
             <Content><![CDATA[欢迎关注！]]></Content>
         </xml>
-    `, event.FromUserName, event.ToUserName, time.Now().Unix()), nil
+    `, event.FromUserName, event.ToUserName, time.Now().Unix())
 }
-```
-
-## 配置示例
-
-### config.yaml
-
-```yaml
-providers:
-  wechat-official:
-    type: builtin
-    enabled: true
-    config:
-      app_id: "${WECHAT_APP_ID}"
-      app_secret: "${WECHAT_APP_SECRET}"
-      template_id: "${WECHAT_TEMPLATE_ID}"
-      # 可选：默认跳转链接
-      default_url: "https://your-domain.com"
-```
-
-### .env
-
-```bash
-# 微信服务号配置
-WECHAT_APP_ID=wx1234567890abcdef
-WECHAT_APP_SECRET=abcdef1234567890abcdef
-WECHAT_TEMPLATE_ID=AT0001
 ```
 
 ## 限制说明
@@ -334,41 +288,15 @@ A: 检查：
 - 模板是否已通过审核
 - 是否触发了频率限制
 
-### Q: Access Token 过期？
+### Q: Worker 连接失败？
 
-A: Access Token 有效期 2 小时，建议缓存并自动刷新：
-
-```go
-type TokenCache struct {
-    token      string
-    expireTime time.Time
-    mu         sync.RWMutex
-}
-
-func (c *TokenCache) GetToken() (string, error) {
-    c.mu.RLock()
-    if time.Now().Before(c.expireTime) {
-        defer c.mu.RUnlock()
-        return c.token, nil
-    }
-    c.mu.RUnlock()
-    
-    // 重新获取
-    c.mu.Lock()
-    defer c.mu.Unlock()
-    
-    token, err := GetAccessToken(appID, appSecret)
-    if err != nil {
-        return "", err
-    }
-    
-    c.token = token
-    c.expireTime = time.Now().Add(2 * time.Hour - 5 * time.Minute)
-    return c.token, nil
-}
-```
+A: 检查：
+- WebSocket 地址是否正确（`ws://localhost:8081`）
+- Herald Core 是否运行
+- 网络是否可达
 
 ## 下一步
 
 - [Provider 概览](./overview.md) - 查看所有 Provider
 - [微信个人推送](./wechat.md) - 使用第三方服务的简单方案
+- [Worker SDK](/runtime/sdk) - 了解 Worker 开发

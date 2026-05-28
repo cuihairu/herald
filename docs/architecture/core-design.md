@@ -1,96 +1,139 @@
 # 核心设计
 
-## 重要概念区分
+## 系统定位
+
+Herald 是：
+- ✅ **事件驱动的投递基础设施**
+- ✅ **Runtime 系统**
+- ✅ **统一事件分发平台**
+
+Herald 不是：
+- ❌ Plugin 系统
+- ❌ 简单的 Webhook 聚合工具
+- ❌ 消息推送 SDK
+
+## 核心概念
 
 ### Provider vs Runtime
 
-很多 IM 软件：
+**Provider**：消息渠道的抽象，描述"往哪里发"
 
-- 没有官方 API
-- 不允许自动化
-- 不允许逆向
+**Runtime**：Provider 的运行环境，描述"怎么发"
 
-这类平台应使用合规的第三方推送服务或官方提供的 Webhook/公众号能力。
+不同 Provider 需要不同的 Runtime 环境：
 
-### Provider Category
+| Provider | Runtime 类型 | 原因 |
+|----------|-------------|------|
+| Telegram | Builtin | HTTP API，简单直接 |
+| Email | Builtin | SMTP，标准协议 |
+| 微信公众号 | Worker | 需要特殊认证和会话管理 |
+| 微信个人推送 | Worker | 需要第三方服务或特殊环境 |
 
-| 类型                  | 示例                 |
-| ------------------- | ------------------ |
-| Official API        | Telegram / Discord |
-| Webhook API         | 飞书 / 企业微信          |
-| SMTP                | 邮件                 |
-| Third-party Push    | Server酱 / PushPlus  |
-| Official Account    | 微信公众号模板消息          |
-| Browser Automation  | WhatsApp Web       |
+### Runtime Capability
 
-### 微信 Provider 的定位
+Runtime 通过 capability 声明自己支持的能力：
 
-微信不是 **Notification API**，而是 **Client Runtime Control**。
-
-这是完全不同层级的概念。
-
-### 抽象升级
-
-Herald 不应该只定义 **Provider**，还应该定义 **Runtime Capability**。
-
-```yaml
-capabilities:
-  - send_message
-  - group_message
-  - browser_session
-  - persistent_connection
+```json
+{
+  "worker_id": "wechat-worker-01",
+  "capabilities": ["wechatmp", "wechat"]
+}
 ```
 
-Herald Core 根本不关心"怎么发"，只知道：
-> 某个 Runtime 支持某种 Delivery Capability
+Herald Core 根据 capability 选择合适的 Worker：
+- 需要 `wechatmp` 时 → 分发给支持 `wechatmp` 的 Worker
+- 需要 `wechat` 时 → 分发给支持 `wechat` 的 Worker
 
-## Delivery Method
+## Delivery 抽象
 
-| 类型                  | 示例         |
-| ------------------- | ---------- |
-| webhook             | 飞书         |
-| bot-api             | Telegram   |
-| smtp                | 邮件         |
-| third-party-push    | 微信 (PushPlus) |
-| official-account    | 微信公众号      |
-| browser-automation  | WhatsApp   |
+### Notification → DeliveryTask
 
-## 系统定位升级
+API 层接收的是 **Notification**（用户意图），Provider 层接收的是 **DeliveryTask**（投递指令）。
 
-Herald 不是：
-- ❌ Plugin System
-- ❌ Webhook Notification Tool
+转换过程：
 
-Herald 是：
-- ✅ **Runtime System**
-- ✅ **Event Delivery Runtime System**
+```
+Notification
+    ↓ (路由)
+目标渠道列表
+    ↓ (模板渲染)
+DeliveryTask[] (每个渠道一个)
+    ↓ (入队)
+Queue
+    ↓ (调度)
+Dispatcher → Runtime → Provider
+```
 
-## Runtime 类型支持
+### Payload 类型
 
-### Windows GUI Runtime
-> 已废弃。不推荐使用非官方客户端自动化方案，存在法律风险。
-
-### Browser Runtime
-通过 Playwright / CDP 支持：
-- WhatsApp Web
-- Slack Web
-- Discord Web
-
-### Mobile Runtime
-- Android Notification Bridge
+| PayloadKind | 说明 | 适用 Provider |
+|-------------|------|--------------|
+| `content` | 渲染后的内容 | Telegram、Email、Feishu 等 |
+| `provider_template` | 服务商模板 | 阿里云 SMS、腾讯云 SMS |
+| `raw` | 原始透传 | Worker Provider |
 
 ## Runtime vs Plugin
 
-微信这种 Runtime 本质上更像：
+| 特性 | Runtime | Plugin |
+|------|---------|--------|
+| 生命周期 | 持久运行 | 按需加载 |
+| 连接方式 | WebSocket | 进程内 |
+| 崩溃隔离 | 是 | 否 |
+| 状态管理 | 独立 | 共享 |
+| 适用场景 | 复杂环境、特殊权限 | 简单逻辑 |
 
-| 系统                   | 类比点      |
-| -------------------- | ------- |
-| Discord Gateway Bot  | session |
-| QQ Bot               | runtime |
-| Jenkins Agent        | worker  |
-| Game Bot Node        | automation  |
-| Browser Automation Node | stateful |
+Worker Runtime 本质上更像：
+- Jenkins Agent
+- Buildkite Agent
+- Discord Gateway Bot
 
 而不是简单的"插件"。
 
-> 它们是 **长期在线 Runtime**，不是临时加载的插件。
+> 它们是 **长期在线的 Runtime 节点**，不是临时加载的插件。
+
+## 设计原则
+
+### 1. HTTP First
+
+主要接口是 HTTP REST API，而非 SDK。
+
+**收益：**
+- curl 即可使用
+- 自动化友好
+- CI/CD 友好
+- 多语言天然兼容
+
+### 2. Event First
+
+处理的是"事件"而非简单的"消息"。
+
+**区别：**
+- 消息：我要发什么
+- 事件：发生了什么
+
+事件可以通过路由规则自动决定：
+- 发送到哪些渠道
+- 使用什么模板
+- 什么级别
+
+### 3. Template First
+
+模板定义与渠道无关，一次定义，多渠道复用。
+
+```yaml
+templates:
+  server_alert:
+    name: "服务器告警"
+    title: "【{{.Level}}】{{.Service}}"
+    bindings:
+      email: { format: html }
+      telegram: { format: markdown }
+```
+
+### 4. Runtime First
+
+承认 Provider 的复杂度来自 Runtime 环境，而非 Provider 本身。
+
+因此支持：
+- Builtin Runtime（简单场景）
+- Worker Runtime（复杂场景）

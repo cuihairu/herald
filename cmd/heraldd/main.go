@@ -10,11 +10,13 @@ import (
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/dispatch"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/template"
+	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/internal/config"
 	"github.com/cuihairu/herald/internal/logger"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
@@ -71,7 +73,7 @@ func main() {
 
 	// Initialize providers from config
 	for name, providerCfg := range cfg.Providers {
-		provider, err := manager.CreateProvider(name, providerCfg.Config)
+		provider, err := manager.CreateProvider(providerCfg.Type, providerCfg.Config)
 		if err != nil {
 			logger.Error("failed to create provider", "name", name, "error", err)
 			os.Exit(1)
@@ -80,7 +82,7 @@ func main() {
 		if providerCfg.Enabled != nil {
 			enabled = *providerCfg.Enabled
 		}
-		if err := manager.RegisterProvider(provider, enabled); err != nil {
+		if err := manager.RegisterProvider(name, provider, enabled); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
 			os.Exit(1)
 		}
@@ -123,6 +125,19 @@ func main() {
 		TemplateManager: templateMgr,
 	})
 
+	wsServer := websocket.NewServer(&websocket.Config{
+		Addr:         cfg.WebSocket.Addr,
+		ReadTimeout:  cfg.WebSocket.ReadTimeout,
+		WriteTimeout: cfg.WebSocket.WriteTimeout,
+		PingTimeout:  cfg.WebSocket.PingTimeout,
+		PingInterval: cfg.WebSocket.PingInterval,
+	}, nil)
+	hub := websocket.NewHub(wsServer)
+	wsServer.SetHandler(hub)
+	srv.SetWebSocketServer(wsServer)
+
+	dispatcher := dispatch.New(q, manager, hub)
+
 	// Start server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -133,6 +148,15 @@ func main() {
 			cancel()
 		}
 	}()
+
+	go func() {
+		if err := wsServer.Start(); err != nil {
+			logger.Error("websocket server error", "error", err)
+			cancel()
+		}
+	}()
+
+	go dispatcher.Run(ctx)
 
 	// Wait for signal
 	sigCh := make(chan os.Signal, 1)
@@ -150,6 +174,10 @@ func main() {
 
 	if err := manager.Close(ctx); err != nil {
 		logger.Error("runtime close error", "error", err)
+	}
+
+	if err := wsServer.Stop(); err != nil {
+		logger.Error("websocket shutdown error", "error", err)
 	}
 
 	logger.Info("shutdown complete")

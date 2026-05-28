@@ -8,14 +8,14 @@ server:
 providers:
   # 日志 Provider (默认启用)
   log:
-    type: builtin
+    type: log
     enabled: true
     config:
       name: "log"
 
   # Telegram 机器人
   telegram:
-    type: builtin
+    type: telegram
     enabled: true
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
@@ -23,21 +23,21 @@ providers:
 
   # 飞书
   feishu:
-    type: builtin
+    type: feishu
     enabled: false
     config:
       webhook_url: "${FEISHU_WEBHOOK_URL}"
 
   # 企业微信
   wecom:
-    type: builtin
+    type: wecom
     enabled: false
     config:
       webhook_url: "${WECOM_WEBHOOK_URL}"
 
   # 钉钉
   dingtalk:
-    type: builtin
+    type: dingtalk
     enabled: false
     config:
       access_token: "${DINGTALK_ACCESS_TOKEN}"
@@ -45,21 +45,21 @@ providers:
 
   # Slack
   slack:
-    type: builtin
+    type: slack
     enabled: false
     config:
       webhook_url: "${SLACK_WEBHOOK_URL}"
 
   # Discord
   discord:
-    type: builtin
+    type: discord
     enabled: false
     config:
       webhook_url: "${DISCORD_WEBHOOK_URL}"
 
   # 邮件
   email:
-    type: builtin
+    type: email
     enabled: false
     config:
       host: "smtp.gmail.com"
@@ -71,7 +71,7 @@ providers:
 
   # Webhook
   webhook:
-    type: builtin
+    type: webhook
     enabled: false
     config:
       url: "${WEBHOOK_URL}"
@@ -79,7 +79,7 @@ providers:
 
   # 阿里云短信
   aliyunsms:
-    type: builtin
+    type: aliyunsms
     enabled: false
     config:
       access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
@@ -89,7 +89,7 @@ providers:
 
   # 腾讯云短信
   tencentsms:
-    type: builtin
+    type: tencentsms
     enabled: false
     config:
       secret_id: "${TENCENT_SECRET_ID}"
@@ -99,7 +99,7 @@ providers:
 
   # 网易云信短信
   neteasesms:
-    type: builtin
+    type: neteasesms
     enabled: false
     config:
       app_key: "${NETEASE_APP_KEY}"

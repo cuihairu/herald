@@ -10,32 +10,36 @@ import (
 	"github.com/cuihairu/herald/core/retry"
 )
 
-// Manager manages provider runtimes
+// Manager manages provider runtimes.
 type Manager struct {
 	mu        sync.RWMutex
-	providers map[string]core.Provider
+	providers map[string]*registeredProvider
 	factories map[string]core.ProviderFactory
-	enabled   map[string]bool
 	logStore  *logstore.LogStore
 	retryer   *retry.Retryer
 }
 
-// NewManager creates a new runtime manager
+type registeredProvider struct {
+	name     string
+	provider core.Provider
+	enabled  bool
+}
+
+// NewManager creates a new runtime manager.
 func NewManager(logLimit int, retryCfg ...*retry.Config) *Manager {
 	var r *retry.Retryer
 	if len(retryCfg) > 0 && retryCfg[0] != nil {
 		r = retry.NewRetryer(retryCfg[0])
 	}
 	return &Manager{
-		providers: make(map[string]core.Provider),
+		providers: make(map[string]*registeredProvider),
 		factories: make(map[string]core.ProviderFactory),
-		enabled:   make(map[string]bool),
 		logStore:  logstore.New(logLimit),
 		retryer:   r,
 	}
 }
 
-// RegisterFactory registers a provider factory
+// RegisterFactory registers a provider factory keyed by provider type.
 func (m *Manager) RegisterFactory(factory core.ProviderFactory) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -43,81 +47,84 @@ func (m *Manager) RegisterFactory(factory core.ProviderFactory) {
 	m.factories[factory.Name()] = factory
 }
 
-// RegisterProvider registers a provider
-func (m *Manager) RegisterProvider(provider core.Provider, enabled ...bool) error {
+// RegisterProvider registers a provider instance using the supplied instance name.
+func (m *Manager) RegisterProvider(name string, provider core.Provider, enabled ...bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	name := provider.Name()
 	if _, exists := m.providers[name]; exists {
 		return fmt.Errorf("provider already registered: %s", name)
 	}
 
-	m.providers[name] = provider
 	isEnabled := true
 	if len(enabled) > 0 {
 		isEnabled = enabled[0]
 	}
-	m.enabled[name] = isEnabled
+
+	m.providers[name] = &registeredProvider{
+		name:     name,
+		provider: provider,
+		enabled:  isEnabled,
+	}
 	return nil
 }
 
-// CreateProvider creates a provider from config
-func (m *Manager) CreateProvider(name string, config map[string]interface{}) (core.Provider, error) {
+// CreateProvider creates a provider from config using its provider type.
+func (m *Manager) CreateProvider(providerType string, config map[string]interface{}) (core.Provider, error) {
 	m.mu.RLock()
-	factory, ok := m.factories[name]
+	factory, ok := m.factories[providerType]
 	m.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("factory not found: %s", name)
+		return nil, fmt.Errorf("factory not found: %s", providerType)
 	}
 
 	return factory.Create(config)
 }
 
-// GetProvider returns a provider by name
+// GetProvider returns a provider by instance name.
 func (m *Manager) GetProvider(name string) (core.Provider, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	provider, ok := m.providers[name]
+	entry, ok := m.providers[name]
 	if !ok {
 		return nil, fmt.Errorf("provider not found: %s", name)
 	}
 
-	return provider, nil
+	return entry.provider, nil
 }
 
-// GetProviders returns all registered providers
+// GetProviders returns all registered providers.
 func (m *Manager) GetProviders() []core.Provider {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	providers := make([]core.Provider, 0, len(m.providers))
-	for _, p := range m.providers {
-		providers = append(providers, p)
+	for _, entry := range m.providers {
+		providers = append(providers, entry.provider)
 	}
 
 	return providers
 }
 
 // GetProviderStatus returns the status of all providers.
-// Enabled field is overridden from runtime's internal state (the single source of truth).
 func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	statuses := make([]*core.ProviderStatus, 0, len(m.providers))
-	for name, p := range m.providers {
-		s := p.Status()
-		s.Enabled = m.enabled[name]
+	for name, entry := range m.providers {
+		s := entry.provider.Status()
+		s.Name = name
+		s.Enabled = entry.enabled
 		statuses = append(statuses, s)
 	}
 
 	return statuses
 }
 
-// Deliver delivers a DeliveryTask to its target provider
+// Deliver delivers a DeliveryTask to its target provider.
 func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("task is nil")
@@ -155,46 +162,50 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	return nil
 }
 
-// Enable enables a provider
+// Enable enables a provider instance.
 func (m *Manager) Enable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.providers[name]; !exists {
+	entry, exists := m.providers[name]
+	if !exists {
 		return fmt.Errorf("provider not found: %s", name)
 	}
 
-	m.enabled[name] = true
+	entry.enabled = true
 	return nil
 }
 
-// Disable disables a provider
+// Disable disables a provider instance.
 func (m *Manager) Disable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.providers[name]; !exists {
+	entry, exists := m.providers[name]
+	if !exists {
 		return fmt.Errorf("provider not found: %s", name)
 	}
 
-	m.enabled[name] = false
+	entry.enabled = false
 	return nil
 }
 
-// IsEnabled checks if a provider is enabled
+// IsEnabled checks if a provider instance is enabled.
 func (m *Manager) IsEnabled(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.enabled[name]
+
+	entry, ok := m.providers[name]
+	return ok && entry.enabled
 }
 
-// Close closes all providers
+// Close closes all providers.
 func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for _, p := range m.providers {
-		if closer, ok := p.(interface{ Close() error }); ok {
+	for _, entry := range m.providers {
+		if closer, ok := entry.provider.(interface{ Close() error }); ok {
 			_ = closer.Close()
 		}
 	}
@@ -202,46 +213,45 @@ func (m *Manager) Close(ctx context.Context) error {
 	return nil
 }
 
-// GetLogs returns logs with optional filtering
+// GetLogs returns logs with optional filtering.
 func (m *Manager) GetLogs(offset, limit int, filter *logstore.Filter) []*logstore.TaskLog {
 	return m.logStore.Get(offset, limit, filter)
 }
 
-// GetLogsCount returns the total count of logs
+// GetLogsCount returns the total count of logs.
 func (m *Manager) GetLogsCount(filter *logstore.Filter) int {
 	return m.logStore.Count(filter)
 }
 
-// GetLogByID returns a log entry by ID
+// GetLogByID returns a log entry by ID.
 func (m *Manager) GetLogByID(id string) *logstore.TaskLog {
 	return m.logStore.GetByID(id)
 }
 
-// GetLogsStats returns log statistics
+// GetLogsStats returns log statistics.
 func (m *Manager) GetLogsStats() *logstore.Stats {
 	return m.logStore.Stats()
 }
 
-// ClearLogs clears all logs
+// ClearLogs clears all logs.
 func (m *Manager) ClearLogs() {
 	m.logStore.Clear()
 }
 
-// ReplaceProvider replaces an existing provider
+// ReplaceProvider replaces an existing provider instance.
 func (m *Manager) ReplaceProvider(name string, provider core.Provider) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.providers[name]; !exists {
+	entry, exists := m.providers[name]
+	if !exists {
 		return fmt.Errorf("provider not found: %s", name)
 	}
 
-	if old, ok := m.providers[name]; ok {
-		if closer, ok := old.(interface{ Close() error }); ok {
-			_ = closer.Close()
-		}
+	if closer, ok := entry.provider.(interface{ Close() error }); ok {
+		_ = closer.Close()
 	}
 
-	m.providers[name] = provider
+	entry.provider = provider
 	return nil
 }

@@ -63,10 +63,10 @@ func TestRegisterProvider(t *testing.T) {
 	m := NewManager(100)
 	p := &mockProvider{name: "test-provider", status: &core.ProviderStatus{Name: "test-provider"}}
 
-	if err := m.RegisterProvider(p); err != nil {
+	if err := m.RegisterProvider("test-provider", p); err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
-	if err := m.RegisterProvider(p); err == nil {
+	if err := m.RegisterProvider("test-provider", p); err == nil {
 		t.Error("expected error when registering duplicate")
 	}
 }
@@ -74,7 +74,7 @@ func TestRegisterProvider(t *testing.T) {
 func TestGetProvider(t *testing.T) {
 	m := NewManager(100)
 	p := &mockProvider{name: "test", status: &core.ProviderStatus{Name: "test"}}
-	_ = m.RegisterProvider(p)
+	_ = m.RegisterProvider("test", p)
 
 	retrieved, err := m.GetProvider("test")
 	if err != nil {
@@ -96,7 +96,7 @@ func TestGetProviderNotFound(t *testing.T) {
 func TestDeliver(t *testing.T) {
 	m := NewManager(100)
 	p := &mockProvider{name: "test", status: &core.ProviderStatus{Name: "test"}}
-	_ = m.RegisterProvider(p)
+	_ = m.RegisterProvider("test", p)
 
 	task := &core.DeliveryTask{
 		ID:       "task-1",
@@ -119,7 +119,7 @@ func TestDeliverNilTask(t *testing.T) {
 func TestEnableDisable(t *testing.T) {
 	m := NewManager(100)
 	p := &mockProvider{name: "test", status: &core.ProviderStatus{Name: "test"}}
-	_ = m.RegisterProvider(p)
+	_ = m.RegisterProvider("test", p)
 
 	if err := m.Disable("test"); err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -138,8 +138,8 @@ func TestEnableDisable(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	m := NewManager(100)
-	_ = m.RegisterProvider(&mockProvider{name: "p1", status: &core.ProviderStatus{Name: "p1"}})
-	_ = m.RegisterProvider(&mockProvider{name: "p2", status: &core.ProviderStatus{Name: "p2"}})
+	_ = m.RegisterProvider("p1", &mockProvider{name: "p1", status: &core.ProviderStatus{Name: "p1"}})
+	_ = m.RegisterProvider("p2", &mockProvider{name: "p2", status: &core.ProviderStatus{Name: "p2"}})
 
 	if err := m.Close(context.Background()); err != nil {
 		t.Errorf("expected no error, got %v", err)

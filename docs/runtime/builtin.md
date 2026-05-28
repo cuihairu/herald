@@ -10,22 +10,24 @@ Builtin Runtime 直接运行在 Core 内，适合简单的 HTTP API 类 Provider
 - 企业微信机器人
 - Email SMTP
 - 通用 Webhook
+- SMS（阿里云、腾讯云、网易云）
 
 ## 特点
 
 - 轻量
 - 无 IPC
 - 高性能
-- 简单
+- 配置简单
 
 ## 接口
 
 ```go
-type BuiltinProvider interface {
-    Deliver(ctx context.Context, task *Task) error
+type Provider interface {
+    Deliver(ctx context.Context, task *DeliveryTask) error
     Name() string
     Type() string
     Status() *ProviderStatus
+    Close() error
 }
 ```
 
@@ -40,7 +42,8 @@ type BuiltinProvider interface {
 ```yaml
 providers:
   log:
-    type: builtin
+    type: log
+    enabled: true
     config:
       name: "log"
 ```
@@ -54,7 +57,8 @@ providers:
 ```yaml
 providers:
   telegram:
-    type: builtin
+    type: telegram
+    enabled: true
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
       chat_id: "${TELEGRAM_CHAT_ID}"
@@ -75,7 +79,8 @@ providers:
 ```yaml
 providers:
   feishu:
-    type: builtin
+    type: feishu
+    enabled: false
     config:
       webhook_url: "${FEISHU_WEBHOOK_URL}"
       sign_secret: "${FEISHU_SIGN_SECRET}"  # 可选
@@ -95,7 +100,8 @@ providers:
 ```yaml
 providers:
   wecom:
-    type: builtin
+    type: wecom
+    enabled: false
     config:
       webhook_url: "${WECOM_WEBHOOK_URL}"
       # 或使用 key
@@ -107,6 +113,55 @@ providers:
 - `WECOM_WEBHOOK_URL` - 完整 Webhook URL
 - `WECOM_KEY` - Webhook Key
 
+### DingTalk Provider
+
+通过钉钉 Webhook 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  dingtalk:
+    type: dingtalk
+    enabled: false
+    config:
+      access_token: "${DINGTALK_ACCESS_TOKEN}"
+      secret: "${DINGTALK_SECRET}"
+```
+
+### Slack Provider
+
+通过 Slack Webhook 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  slack:
+    type: slack
+    enabled: false
+    config:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+```
+
+### Discord Provider
+
+通过 Discord Webhook 或 Bot API 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  discord:
+    type: discord
+    enabled: false
+    config:
+      webhook_url: "${DISCORD_WEBHOOK_URL}"
+      # 或使用 bot API
+      bot_token: "${DISCORD_BOT_TOKEN}"
+      channel_id: "${DISCORD_CHANNEL_ID}"
+```
+
 ### Email Provider
 
 通过 SMTP 发送邮件。
@@ -116,14 +171,15 @@ providers:
 ```yaml
 providers:
   email:
-    type: builtin
+    type: email
+    enabled: false
     config:
       host: "smtp.gmail.com"
       port: 587
       username: "${EMAIL_USERNAME}"
       password: "${EMAIL_PASSWORD}"
       from: "${EMAIL_FROM}"
-      from_name: "Herald"  # 可选
+      from_name: "Herald"
 ```
 
 **使用示例：**
@@ -132,9 +188,11 @@ providers:
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "alert",
     "title": "Test Alert",
     "body": "This is a test email",
-    "level": "error"
+    "level": "error",
+    "channels": ["email"]
   }'
 ```
 
@@ -144,10 +202,14 @@ curl -X POST http://localhost:8080/api/v1/notify \
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
+    "type": "alert",
     "title": "Test Alert",
     "body": "This is a test email",
     "level": "error",
-    "target": "user1@example.com,user2@example.com"
+    "channels": ["email"],
+    "recipients": {
+      "email": ["user1@example.com", "user2@example.com"]
+    }
   }'
 ```
 
@@ -160,11 +222,12 @@ curl -X POST http://localhost:8080/api/v1/notify \
 ```yaml
 providers:
   webhook:
-    type: builtin
+    type: webhook
+    enabled: false
     config:
       url: "${WEBHOOK_URL}"
-      method: "POST"  # 可选: GET, POST, PUT
-      headers:        # 可选
+      method: "POST"
+      headers:
         Authorization: "Bearer ${TOKEN}"
 ```
 
@@ -177,10 +240,64 @@ providers:
   "title": "Test Alert",
   "body": "This is a test",
   "level": "error",
-  "target": "",
   "timestamp": "2026-05-18T12:00:00Z",
   "data": {}
 }
+```
+
+### SMS Providers
+
+#### 阿里云短信
+
+```yaml
+providers:
+  aliyunsms:
+    type: aliyunsms
+    enabled: false
+    config:
+      access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
+      access_key_secret: "${ALIYUN_ACCESS_KEY_SECRET}"
+      sign_name: "${ALIYUN_SMS_SIGN_NAME}"
+      region: "cn-hangzhou"
+```
+
+#### 腾讯云短信
+
+```yaml
+providers:
+  tencentsms:
+    type: tencentsms
+    enabled: false
+    config:
+      secret_id: "${TENCENT_SECRET_ID}"
+      secret_key: "${TENCENT_SECRET_KEY}"
+      app_id: "${TENCENT_SMS_APP_ID}"
+      region: "ap-guangzhou"
+```
+
+#### 网易云信短信
+
+```yaml
+providers:
+  neteasesms:
+    type: neteasesms
+    enabled: false
+    config:
+      app_key: "${NETEASE_APP_KEY}"
+      app_secret: "${NETEASE_APP_SECRET}"
+```
+
+### WeChat Provider
+
+微信个人推送（Server酱）。
+
+```yaml
+providers:
+  wechat:
+    type: wechat
+    enabled: false
+    config:
+      sendkey: "${WECHAT_SENDKEY}"
 ```
 
 ## 自定义 Builtin Provider
@@ -199,7 +316,7 @@ type Provider struct {
     name string
 }
 
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
     // 实现发送逻辑
     return nil
 }
@@ -209,15 +326,19 @@ func (p *Provider) Name() string {
 }
 
 func (p *Provider) Type() string {
-    return "builtin"
+    return "myprovider"
 }
 
 func (p *Provider) Status() *core.ProviderStatus {
     return &core.ProviderStatus{
         Name:   p.name,
-        Type:   "builtin",
+        Type:   "myprovider",
         Status: "available",
     }
+}
+
+func (p *Provider) Close() error {
+    return nil
 }
 
 type Factory struct{}
@@ -228,10 +349,6 @@ func (f *Factory) Create(config map[string]interface{}) (core.Provider, error) {
 
 func (f *Factory) Name() string {
     return "myprovider"
-}
-
-func (f *Factory) Type() string {
-    return "builtin"
 }
 ```
 

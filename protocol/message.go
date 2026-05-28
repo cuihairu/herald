@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -136,4 +137,19 @@ func DefaultWorkerConfig() *WorkerConfig {
 		HeartbeatInterval: 30 * time.Second,
 		Capabilities:      []string{},
 	}
+}
+
+// MarshalMessage encodes a protocol message and injects its type.
+func MarshalMessage(msg Message) ([]byte, error) {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return nil, err
+	}
+	body["type"] = msg.Type()
+	return json.Marshal(body)
 }
