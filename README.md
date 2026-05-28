@@ -2,9 +2,8 @@
 
 > Event-driven Delivery Infrastructure
 
-[![Go Version](https://img.shields.io/badge/Go-1.26+-blue?logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE)
-[![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald)
 
 Herald 是一个事件驱动的通知投递基础设施。
 
