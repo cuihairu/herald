@@ -3,6 +3,7 @@ package wechatmp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,11 +137,17 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		return fmt.Errorf("wechatmp: task is nil")
 	}
 
-	// Get target OpenID (required for WeChat, single target)
-	if len(task.Targets) == 0 || task.Targets[0] == "" {
-		return fmt.Errorf("wechatmp: target (OpenID) is required")
+	// Get target OpenIDs (required for WeChat)
+	if len(task.Targets) == 0 {
+		return fmt.Errorf("wechatmp: at least one target (OpenID) is required")
 	}
-	toUser := task.Targets[0]
+
+	// Validate targets are non-empty
+	for _, target := range task.Targets {
+		if target == "" {
+			return fmt.Errorf("wechatmp: empty target found in targets")
+		}
+	}
 
 	// Get access token
 	token, err := p.tokenCache.GetToken(p.appID, p.appSecret, p.client)
@@ -148,11 +155,26 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		return fmt.Errorf("wechatmp: failed to get access token: %w", err)
 	}
 
-	// Build template message
+	// Build template message (shared across all targets)
 	msg := p.buildTemplateMessage(task)
 
-	// Send template message
-	return p.sendTemplateMessage(ctx, token, toUser, msg)
+	// Send to all targets and collect errors
+	var errs []string
+	successCount := 0
+	for _, target := range task.Targets {
+		if err := p.sendTemplateMessage(ctx, token, target, msg); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", truncate(target, 8), err))
+		} else {
+			successCount++
+		}
+	}
+
+	// Return aggregated error if any failed
+	if len(errs) > 0 {
+		return fmt.Errorf("wechatmp: %d/%d succeeded - failed: %s", successCount, len(task.Targets), strings.Join(errs, "; "))
+	}
+
+	return nil
 }
 
 // buildTemplateMessage builds a template message from a task
