@@ -22,17 +22,23 @@ Herald 是一个事件驱动的通知投递基础设施。
 
 ## 支持的 Provider
 
-| Provider        | 类型     | 状态    |
-| --------------- | ------ | ----- |
-| Log             | Builtin | ✅     |
-| Telegram        | Builtin | ✅     |
-| Feishu          | Builtin | ✅     |
-| WeChat Work     | Builtin | ✅     |
-| Email (SMTP)    | Builtin | ✅     |
-| Generic Webhook | Builtin | ✅     |
-| Discord         | Builtin | ✅     |
-| Slack           | Builtin | ✅     |
-| WeChat Hook     | Worker  | 计划中 |
+| Provider             | 类型     | 状态    |
+| -------------------- | ------ | ----- |
+| Log                  | Builtin | ✅     |
+| Telegram             | Builtin | ✅     |
+| Feishu               | Builtin | ✅     |
+| WeChat Work          | Builtin | ✅     |
+| Email (SMTP)         | Builtin | ✅     |
+| Generic Webhook      | Builtin | ✅     |
+| Discord              | Builtin | ✅     |
+| Slack                | Builtin | ✅     |
+| DingTalk             | Builtin | ✅     |
+| AliyunSMS            | Builtin | ✅     |
+| TencentSMS           | Builtin | ✅     |
+| NetEaseSMS           | Builtin | ✅     |
+| WeChat Push          | Builtin | ✅     |
+| WeChat Official (MP) | Builtin | ✅     |
+| Worker               | Proxy  | ✅     |
 
 ## 快速开始
 

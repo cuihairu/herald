@@ -105,6 +105,23 @@ providers:
       app_key: "${NETEASE_APP_KEY}"
       app_secret: "${NETEASE_APP_SECRET}"
 
+  # 微信公众号
+  wechatmp:
+    type: wechatmp
+    enabled: false
+    config:
+      app_id: "${WECHATMP_APP_ID}"
+      app_secret: "${WECHATMP_APP_SECRET}"
+      template_id: "${WECHATMP_TEMPLATE_ID}"
+      default_url: "https://your-domain.com"
+
+  # 微信个人推送
+  wechat:
+    type: wechat
+    enabled: false
+    config:
+      sendkey: "${WECHAT_SENDKEY}"
+
 # 路由配置
 routes:
   error:
