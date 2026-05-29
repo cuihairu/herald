@@ -110,6 +110,17 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"access_key_id":     p.accessKeyID,
+		"access_key_secret": p.accessKeySecret,
+		"sign_name":         p.signName,
+		"region":            p.region,
+		"endpoint":          p.endpoint,
+	}
+}
+
 // Deliver delivers a task to Aliyun SMS
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Extract phone numbers from targets

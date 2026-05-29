@@ -17,7 +17,7 @@ Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
 │                                                                 │
 │  用户请求                                                        │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │ { templateId, params, renderAs, channels }               │   │
+│  │ { template, params, channels }                            │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                          ↓                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -156,10 +156,10 @@ type FormattableProvider interface {
 SMS Provider 使用服务商的模板系统，不参与 Herald 模板渲染：
 
 ```go
-// aliyunsms provider
-func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
-    templateCode := task.Data["template_code"].(string)
-    templateParams := task.Data["template_params"].(map[string]interface{})
+// SMS provider receives vendor template payload from DeliveryPlanner
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
+    templateCode := task.Payload.ProviderTemplate.TemplateCode
+    templateParams := task.Payload.ProviderTemplate.Params
     // 直接发送给服务商
 }
 ```
@@ -170,7 +170,7 @@ func (p *Provider) Deliver(ctx context.Context, task *core.Task) error {
 
 ```
 1. 用户请求
-   { templateId: "alert", params: {Level: "ERROR"} }
+   { template: "alert", params: {Level: "ERROR"} }
 
 2. Manager.Render()
    Template { Title: "【<code v-pre>{{.Level}}</code>】告警" }
@@ -216,7 +216,7 @@ POST /api/v1/notify
 // 模板发送
 POST /api/v1/notify
 {
-  "templateId": "my_template",
+  "template": "my_template",
   "params": {...},
   "channels": ["telegram"]
 }

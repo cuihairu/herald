@@ -131,6 +131,16 @@ func parseConfig(config map[string]interface{}) (*Config, error) {
 	return cfg, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"app_id":       p.appID,
+		"app_secret":   p.appSecret,
+		"template_id":  p.templateID,
+		"default_url":  p.defaultURL,
+	}
+}
+
 // Deliver delivers a task to WeChat Official Account
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {

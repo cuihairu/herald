@@ -103,6 +103,15 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"app_key":    p.appKey,
+		"app_secret": p.appSecret,
+		"endpoint":   p.endpoint,
+	}
+}
+
 // Deliver delivers a task to NetEase SMS
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Extract phone numbers from targets

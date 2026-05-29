@@ -130,6 +130,18 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"secret_id":  p.secretID,
+		"secret_key": p.secretKey,
+		"app_id":     p.appID,
+		"sign_name":  p.signName,
+		"region":     p.region,
+		"endpoint":   p.endpoint,
+	}
+}
+
 // Deliver delivers a task to Tencent SMS
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// Extract phone numbers from targets and add +86 prefix if not present

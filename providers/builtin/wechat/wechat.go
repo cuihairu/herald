@@ -178,6 +178,15 @@ func parseConfig(config map[string]interface{}) (*Config, error) {
 	return cfg, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"service":   p.service,
+		"app_token": p.appToken,
+		"uid":       p.uid,
+	}
+}
+
 // Capability returns the provider capabilities
 func (p *Provider) Capability() core.ProviderCapability {
 	return core.ProviderCapability{

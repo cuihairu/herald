@@ -50,7 +50,7 @@ templates:
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "templateId": "server_alert",
+    "template": "server_alert",
     "params": {
       "Level": "CRITICAL",
       "Service": "order-service",
@@ -58,7 +58,6 @@ curl -X POST http://localhost:8080/api/v1/notify \
       "Error": "CPU 使用率 95%",
       "Timestamp": "2026-05-27 14:30:00"
     },
-    "renderAs": "html",
     "channels": ["email", "feishu"]
   }'
 ```
@@ -78,7 +77,7 @@ curl -X POST http://localhost:8080/api/v1/notify \
 ### 渲染格式选择流程
 
 ```
-用户请求 renderAs
+模板渲染完成
         ↓
 Handler.chooseFormat()
         ↓
@@ -169,34 +168,46 @@ curl -X DELETE http://localhost:8080/api/v1/templates/server_alert
 
 ## SMS Provider 特殊处理
 
-SMS Provider（阿里云、腾讯云等）使用**服务商提供的模板系统**：
+SMS Provider（阿里云、腾讯云等）使用**服务商提供的模板系统**，通过 Template Binding 实现一次定义多渠道适配：
 
 ```yaml
-providers:
-  aliyunsms:
-    access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
-    access_key_secret: "${ALIYUN_ACCESS_KEY_SECRET}"
-    sign_name: "Herald"
+templates:
+  verify_code:
+    name: "验证码"
+    title: "验证码通知"
+    fields:
+      - label: "code"
+        value: "{{.Code}}"
+        type: "text"
+      - label: "product"
+        value: "{{.Product}}"
+        type: "text"
+    bindings:
+      aliyunsms:
+        template_code: "SMS_123456789"
+        params:
+          code: "code"
+          product: "product"
+      tencentsms:
+        template_id: "123456"
+        param_order: ["code", "product"]
 ```
 
-发送 SMS 时，直接传递服务商的模板 ID：
+发送时只需指定模板和参数，DeliveryPlanner 自动根据 Binding 生成服务商所需的 payload：
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "验证码",
-    "body": "",
-    "level": "info",
-    "channels": ["aliyunsms"],
-    "data": {
-      "template_code": "SMS_123456789",
-      "template_params": {
-        "code": "123456",
-        "product": "Herald"
-      }
+    "template": "verify_code",
+    "params": {
+      "Code": "123456",
+      "Product": "Herald"
     },
-    "target": "13800138000"
+    "channels": ["aliyunsms"],
+    "recipients": {
+      "aliyunsms": ["13800138000"]
+    }
   }'
 ```
 
@@ -207,7 +218,7 @@ curl -X POST http://localhost:8080/api/v1/notify \
 | 模板数据 | Email | Telegram | Feishu |
 |---------|-------|----------|--------|
 | Title + Fields | HTML 表格 | Markdown 文本 | 富文本消息 |
-| renderAs: json | 不支持 | 不支持 | 卡片消息 |
+| Binding format: json | 不支持 | 不支持 | 卡片消息 |
 
 ## 最佳实践
 

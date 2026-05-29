@@ -83,3 +83,23 @@ type Queue interface {
 	Size() int
 	Close() error
 }
+
+// SensitiveFields returns a set of field names that should be masked in API responses
+var SensitiveFields = map[string]bool{
+	"token": true, "secret": true, "password": true, "secret_key": true,
+	"access_key_secret": true, "app_secret": true, "bot_token": true,
+	"sign_secret": true,
+}
+
+// MaskConfig masks sensitive fields in a config map
+func MaskConfig(config map[string]interface{}) map[string]interface{} {
+	masked := make(map[string]interface{}, len(config))
+	for k, v := range config {
+		if SensitiveFields[k] {
+			masked[k] = "******"
+		} else {
+			masked[k] = v
+		}
+	}
+	return masked
+}

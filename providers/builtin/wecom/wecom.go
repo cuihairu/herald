@@ -76,6 +76,13 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"webhook_url": p.webhookURL,
+	}
+}
+
 // Capability returns the provider capabilities
 func (p *Provider) Capability() core.ProviderCapability {
 	return core.ProviderCapability{

@@ -68,6 +68,15 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}, nil
 }
 
+// GetConfig returns the provider configuration
+func (p *Provider) GetConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"url":     p.url,
+		"method":  p.method,
+		"headers": p.headers,
+	}
+}
+
 // Capability returns the provider capabilities
 func (p *Provider) Capability() core.ProviderCapability {
 	return core.ProviderCapability{
