@@ -11,11 +11,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type pendingTask struct {
-	StreamID string
-	Task     *core.DeliveryTask
-}
-
 type redisQueue struct {
 	client   *redis.Client
 	stream   string
@@ -53,14 +48,14 @@ func NewRedisQueue(config *QueueConfig) (core.Queue, error) {
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to connect to redis: %w", err)
 	}
 
 	// Create consumer group (MKSTREAM creates the stream if needed, requires Redis 5.0+)
 	if err := client.XGroupCreateMkStream(ctx, stream, group, "0").Err(); err != nil {
 		if err.Error() != "BUSYGROUP Consumer Group name already exists" {
-			client.Close()
+			_ = client.Close()
 			return nil, fmt.Errorf("failed to create consumer group: %w", err)
 		}
 	}
