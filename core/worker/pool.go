@@ -42,7 +42,7 @@ func (p *Pool) Run(ctx context.Context) {
 	// Start local worker goroutines
 	for i := 0; i < p.workers; i++ {
 		workerID := fmt.Sprintf("local-%d", i)
-		p.registry.Register(&Info{
+		_ = p.registry.Register(&Info{
 			ID:           workerID,
 			Mode:         Local,
 			Capabilities: []string{"*"},

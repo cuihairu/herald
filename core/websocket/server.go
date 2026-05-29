@@ -32,7 +32,6 @@ type ConnectionState struct {
 	LastHeartbeat time.Time
 	Status        map[string]interface{}
 	conn          *websocket.Conn
-	mu            sync.RWMutex
 }
 
 // ConnHandler handles worker connections
