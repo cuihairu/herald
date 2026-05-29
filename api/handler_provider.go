@@ -74,7 +74,7 @@ func (h *Handler) HandleProviderConfig(w http.ResponseWriter, r *http.Request, n
 			Type:    status.Type,
 			Enabled: h.runtime.IsEnabled(name),
 			Config:  config,
-			Schema:  getProviderSchema(name),
+			Schema:  getProviderSchema(status.Type),
 		},
 	})
 }
@@ -104,7 +104,12 @@ func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Requ
 	if req.Merge {
 		if existing, err := h.runtime.GetProvider(name); err == nil {
 			if cg, ok := existing.(interface{ GetConfig() map[string]interface{} }); ok {
-				merged := cg.GetConfig()
+				// Deep copy to avoid mutating provider's internal state
+				src := cg.GetConfig()
+				merged := make(map[string]interface{}, len(src))
+				for k, v := range src {
+					merged[k] = v
+				}
 				for k, v := range req.Config {
 					// Don't overwrite with masked values
 					if s, ok := v.(string); !ok || s != "******" {
