@@ -10,35 +10,32 @@ Herald 是一个事件驱动的通知投递基础设施。
 
 ## 特性
 
-- **HTTP First** - curl 友好，无 SDK 依赖
-- **API Compatible** - 支持 `/api/v1/notify` 和 `/api/v1/events`
-- **Runtime First** - 支持 Builtin 和 Worker 两种 Runtime
-- **Event First** - 处理事件而非简单发送消息
+- **HTTP First** - curl 友好，REST API，无 SDK 依赖
+- **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
+- **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
-- **Worker Model** - 支持复杂场景如 Hook/GUI/DLL
-- **WebSocket** - 支持 Worker 实时连接
+- **Multi-channel** - 统一接口对接 15+ 通知渠道
 - **Dashboard** - Web 管理界面
 - **Config First** - 通过配置文件加载 Provider、路由和模板
 
 ## 支持的 Provider
 
-| Provider             | 类型     | 状态    |
-| -------------------- | ------ | ----- |
-| Log                  | Builtin | ✅     |
-| Telegram             | Builtin | ✅     |
-| Feishu               | Builtin | ✅     |
-| WeChat Work          | Builtin | ✅     |
-| Email (SMTP)         | Builtin | ✅     |
-| Generic Webhook      | Builtin | ✅     |
-| Discord              | Builtin | ✅     |
-| Slack                | Builtin | ✅     |
-| DingTalk             | Builtin | ✅     |
-| AliyunSMS            | Builtin | ✅     |
-| TencentSMS           | Builtin | ✅     |
-| NetEaseSMS           | Builtin | ✅     |
-| WeChat Push          | Builtin | ✅     |
-| WeChat Official (MP) | Builtin | ✅     |
-| Worker               | Proxy  | ✅     |
+| Provider             | 类型     | 状态 |
+| -------------------- | -------- | ---- |
+| Log                  | Builtin  | ✅   |
+| Telegram             | Builtin  | ✅   |
+| Feishu               | Builtin  | ✅   |
+| WeChat Work          | Builtin  | ✅   |
+| Email (SMTP)         | Builtin  | ✅   |
+| Generic Webhook      | Builtin  | ✅   |
+| Discord              | Builtin  | ✅   |
+| Slack                | Builtin  | ✅   |
+| DingTalk             | Builtin  | ✅   |
+| AliyunSMS            | Builtin  | ✅   |
+| TencentSMS           | Builtin  | ✅   |
+| NetEaseSMS           | Builtin  | ✅   |
+| WeChat Push          | Builtin  | ✅   |
+| WeChat Official (MP) | Builtin  | ✅   |
 
 ## 快速开始
 
@@ -52,7 +49,7 @@ cp .env.example .env
 vim .env
 
 # 启动服务
-make docker-up
+docker-compose up -d herald
 ```
 
 ### 本地运行
@@ -61,8 +58,11 @@ make docker-up
 # 构建
 make build
 
-# 启动服务
-make run
+# 启动调度器
+./bin/heraldd serve --config config.yaml
+
+# 启动远程 Worker（分布式部署时）
+./bin/heraldd worker --config worker.yaml
 
 # 启动 Dashboard（另一个终端）
 make dashboard-dev
@@ -70,8 +70,7 @@ make dashboard-dev
 
 ### 访问 Dashboard
 
-```bash
-# Dashboard 启动后访问
+```
 http://localhost:3000
 ```
 
@@ -83,7 +82,6 @@ http://localhost:3000
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "alert",
     "title": "Node Offline",
     "body": "node-17 is offline",
     "level": "error",
@@ -91,18 +89,20 @@ curl -X POST http://localhost:8080/api/v1/notify \
   }'
 ```
 
-### 发送事件
+### 使用模板发送
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/events \
+curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "service.down",
-    "labels": {
-      "level": "error",
-      "title": "服务宕机",
-      "message": "order-service 不可用"
-    }
+    "template": "server_alert",
+    "params": {
+      "Level": "CRITICAL",
+      "Service": "order-service",
+      "Server": "order-01",
+      "Error": "CPU 使用率 95%"
+    },
+    "channels": ["email", "telegram"]
   }'
 ```
 
@@ -118,108 +118,77 @@ curl http://localhost:8080/api/v1/status
 curl http://localhost:8080/api/v1/providers
 ```
 
-### 使用模板发送消息
+## 架构
 
-```bash
-curl -X POST http://localhost:8080/api/v1/notify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "alert",
-    "template": "server_alert",
-    "params": {
-      "Level": "CRITICAL",
-      "Service": "order-service",
-      "Server": "order-01",
-      "Error": "CPU 使用率 95%"
-    },
-    "channels": ["email", "telegram"]
-  }'
+```
+                         ┌──────────────────────────┐
+                         │     Herald Scheduler      │
+                         │   (API + 路由 + 模板渲染)  │
+                         └─────────┬────────────────┘
+                                   │ Push
+                            ┌──────▼──────┐
+                            │    Queue     │  memory / redis
+                            └──────┬──────┘
+                                   │ Pop + Ack/Nack
+                    ┌──────────────┼──────────────┐
+                    ↓              ↓              ↓
+              ┌──────────┐  ┌──────────┐  ┌──────────┐
+              │ Worker   │  │ Worker   │  │ Worker   │
+              │ mode:local│  │ mode:local│  │ mode:remote│
+              │ goroutine │  │ goroutine │  │ 独立进程  │
+              └──────────┘  └──────────┘  └──────────┘
 ```
 
-### 查看模板列表
+| 命令 | 模式 | 说明 |
+|------|------|------|
+| `heraldd serve` | 调度器 | API + Queue + local workers |
+| `heraldd worker` | 远程 Worker | 从共享 Queue 消费，独立部署 |
 
-```bash
-curl http://localhost:8080/api/v1/templates
+### 部署模式
+
+**单机**（memory 队列，所有 Worker 在同一进程内）：
+
+```yaml
+queue:
+  type: memory
+  workers: 0    # 自动：CPU核心数*2+1
+```
+
+**分布式**（redis 队列，调度器和 Worker 独立部署）：
+
+```yaml
+queue:
+  type: redis
+  workers: 4
+  redis:
+    addr: "localhost:6379"
+    stream: "herald:tasks"
+    group: "herald-workers"
 ```
 
 ## 配置
 
-Herald 使用 `config.yaml` 启动，Provider 类型应与内置工厂名一致，例如 `log`、`telegram`、`feishu`、`email`、`aliyunsms`。
-
-### Discord
+详见 [配置文档](./docs/guide/configuration.md)。
 
 ```yaml
-providers:
-  discord:
-    type: discord
-    config:
-      webhook_url: "${DISCORD_WEBHOOK_URL}"
-      # 或使用 bot API
-      bot_token: "${DISCORD_BOT_TOKEN}"
-      channel_id: "${DISCORD_CHANNEL_ID}"
-```
+server:
+  addr: ":8080"
+  timeout: 30s
 
-### Slack
-
-```yaml
-providers:
-  slack:
-    type: slack
-    config:
-      webhook_url: "${SLACK_WEBHOOK_URL}"
-```
-
-### Telegram
-
-```yaml
 providers:
   telegram:
     type: telegram
+    enabled: true
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
       chat_id: "${TELEGRAM_CHAT_ID}"
-```
 
-### 飞书
+queue:
+  type: memory
+  workers: 0
 
-```yaml
-providers:
-  feishu:
-    type: feishu
-    config:
-      webhook_url: "${FEISHU_WEBHOOK_URL}"
-```
-
-### 企业微信
-
-```yaml
-providers:
-  wecom:
-    type: wecom
-    config:
-      webhook_url: "${WECOM_WEBHOOK_URL}"
-```
-
-### Email
-
-```yaml
-providers:
-  email:
-    type: email
-    config:
-      host: "smtp.gmail.com"
-      port: 587
-      username: "${EMAIL_USERNAME}"
-      password: "${EMAIL_PASSWORD}"
-      from: "${EMAIL_FROM}"
-```
-
-## 架构
-
-```
-External System -> Herald HTTP API -> Queue -> Dispatcher -> Runtime -> Provider
-                      │
-                      └-> /api/v1/events
+routes:
+  error: [telegram, email]
 ```
 
 ## 文档
