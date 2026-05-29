@@ -74,7 +74,7 @@ func (h *Handler) HandleProviderConfig(w http.ResponseWriter, r *http.Request, n
 			Type:    status.Type,
 			Enabled: h.runtime.IsEnabled(name),
 			Config:  config,
-			Schema:  getProviderSchema(status.Type),
+			Schema:  h.runtime.GetProviderSchema(status.Type),
 		},
 	})
 }
@@ -144,27 +144,4 @@ func (h *Handler) HandleUpdateProviderConfig(w http.ResponseWriter, r *http.Requ
 	}
 
 	h.respondJSON(w, &Response{Code: 0, Message: "provider config updated"})
-}
-
-// getProviderSchema returns the config schema for a provider
-func getProviderSchema(name string) map[string]string {
-	schemas := map[string]map[string]string{
-		"telegram":   {"token": "string", "chat_id": "string"},
-		"feishu":     {"webhook_url": "string"},
-		"wecom":      {"webhook_url": "string"},
-		"dingtalk":   {"access_token": "string", "secret": "string"},
-		"slack":      {"webhook_url": "string"},
-		"discord":    {"webhook_url": "string"},
-		"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
-		"webhook":    {"url": "string"},
-		"wechat":     {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
-		"wechatmp":   {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
-		"aliyunsms":  {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
-		"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string"},
-		"neteasesms": {"app_key": "string", "app_secret": "string"},
-	}
-	if schema, ok := schemas[name]; ok {
-		return schema
-	}
-	return map[string]string{"config": "object"}
 }

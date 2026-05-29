@@ -19,6 +19,22 @@ type Manager struct {
 	retryer   *retry.Retryer
 }
 
+var providerSchemas = map[string]map[string]string{
+	"telegram":   {"token": "string", "chat_id": "string"},
+	"feishu":     {"webhook_url": "string"},
+	"wecom":      {"webhook_url": "string"},
+	"dingtalk":   {"access_token": "string", "secret": "string"},
+	"slack":      {"webhook_url": "string"},
+	"discord":    {"webhook_url": "string"},
+	"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
+	"webhook":    {"url": "string"},
+	"wechat":     {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
+	"wechatmp":   {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
+	"aliyunsms":  {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
+	"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string"},
+	"neteasesms": {"app_key": "string", "app_secret": "string"},
+}
+
 type registeredProvider struct {
 	name     string
 	provider core.Provider
@@ -93,6 +109,18 @@ func (m *Manager) GetProviderType(name string) (string, error) {
 	}
 
 	return entry.provider.Type(), nil
+}
+
+// GetProviderSchema returns the config schema for a provider type.
+func (m *Manager) GetProviderSchema(providerType string) map[string]string {
+	if schema, ok := providerSchemas[providerType]; ok {
+		result := make(map[string]string, len(schema))
+		for k, v := range schema {
+			result[k] = v
+		}
+		return result
+	}
+	return map[string]string{"config": "object"}
 }
 
 // GetProvider returns a provider by instance name.
