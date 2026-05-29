@@ -8,18 +8,21 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/protocol"
 )
 
-// TaskHandler is called when a task is received
-type TaskHandler func(task *protocol.DispatchMessage) error
+// TaskHandler is called when a task is received from the queue
+type TaskHandler func(task *core.DeliveryTask) error
 
 // EventHandler is called when an event is received
 type EventHandler func(event *protocol.EventMessage)
 
-// Client is the Worker SDK client
+// Client is the Worker SDK client.
+// Remote workers register via WebSocket and consume tasks from a Queue.
 type Client struct {
 	config       *protocol.WorkerConfig
+	queue        core.Queue
 	state        atomic.Value // protocol.ConnectionState
 	handler      TaskHandler
 	eventHandler EventHandler
@@ -29,23 +32,22 @@ type Client struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// Connection state
 	connID string
 
-	// Callbacks
 	onConnect     func()
 	onDisconnect  func(err error)
 	onStateChange func(state protocol.ConnectionState)
 }
 
 // NewClient creates a new Worker SDK client
-func NewClient(config *protocol.WorkerConfig) *Client {
+func NewClient(config *protocol.WorkerConfig, queue core.Queue) *Client {
 	if config == nil {
 		config = protocol.DefaultWorkerConfig()
 	}
 
 	c := &Client{
 		config: config,
+		queue:  queue,
 	}
 	c.state.Store(protocol.StateDisconnected)
 
@@ -62,7 +64,6 @@ func (c *Client) State() protocol.ConnectionState {
 	return c.state.Load().(protocol.ConnectionState)
 }
 
-// setState sets the connection state
 func (c *Client) setState(state protocol.ConnectionState) {
 	old := c.state.Load().(protocol.ConnectionState)
 	if old != state {
@@ -98,113 +99,102 @@ func (c *Client) OnStateChange(fn func(state protocol.ConnectionState)) {
 	c.onStateChange = fn
 }
 
-// Connect connects to the Herald core
-func (c *Client) Connect(ctx context.Context) error {
+// Run starts the worker: registers with core via WebSocket, then consumes tasks from queue.
+// Blocks until context is cancelled.
+func (c *Client) Run(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.State() != protocol.StateDisconnected {
-		return fmt.Errorf("already connected or connecting")
-	}
-
 	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.mu.Unlock()
+
+	// Step 1: Register with core via WebSocket
 	c.setState(protocol.StateConnecting)
-
-	// TODO: Implement actual WebSocket connection
-	// For now, simulate connection
-	go c.connectLoop()
-
-	return nil
-}
-
-// connectLoop manages the connection loop
-func (c *Client) connectLoop() {
-	c.wg.Add(1)
-	defer c.wg.Done()
-
-	for {
-		select {
-		case <-c.ctx.Done():
-			c.setState(protocol.StateDisconnected)
-			return
-		default:
-		}
-
-		if c.State() == protocol.StateDisconnected || c.State() == protocol.StateConnecting {
-			if err := c.doConnect(); err != nil {
-				c.setState(protocol.StateDisconnected)
-				if c.onDisconnect != nil {
-					c.onDisconnect(err)
-				}
-				// Wait before reconnecting
-				select {
-				case <-time.After(c.config.ReconnectDelay):
-				case <-c.ctx.Done():
-					return
-				}
-				continue
-			}
-		}
-
-		// Connected, start heartbeat
-		if c.State() == protocol.StateReady {
-			c.heartbeatLoop()
-		}
-	}
-}
-
-// doConnect performs the actual connection
-func (c *Client) doConnect() error {
-	// TODO: Implement WebSocket connection
-	// For now, simulate successful connection
-	time.Sleep(100 * time.Millisecond)
-
-	c.setState(protocol.StateConnected)
-
-	// Send register message
-	if err := c.sendRegister(); err != nil {
+	if err := c.register(ctx); err != nil {
+		c.setState(protocol.StateDisconnected)
 		return fmt.Errorf("failed to register: %w", err)
 	}
-
-	// Wait for register ack
-	// TODO: Implement actual message receive
 	c.setState(protocol.StateReady)
-	c.connID = fmt.Sprintf("conn-%d", time.Now().Unix())
 
 	if c.onConnect != nil {
 		c.onConnect()
 	}
 
+	// Step 2: Start heartbeat
+	c.wg.Add(1)
+	go c.heartbeatLoop(ctx)
+
+	// Step 3: Consume tasks from queue
+	c.consumeLoop(ctx)
+
 	return nil
 }
 
-// sendRegister sends a register message
-func (c *Client) sendRegister() error {
+// register registers the worker with the Herald core via WebSocket
+func (c *Client) register(ctx context.Context) error {
 	msg := &protocol.RegisterMessage{
 		WorkerID:     c.config.WorkerID,
+		Mode:         "remote",
 		Platform:     detectPlatform(),
 		Version:      "1.0.0",
 		Capabilities: c.config.Capabilities,
 	}
 
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Send via WebSocket
-	fmt.Printf("[Worker SDK] Sending register: %s\n", string(data))
+	// TODO: Implement actual WebSocket registration
+	data, _ := json.Marshal(msg)
+	fmt.Printf("[Worker SDK] Registering: %s\n", string(data))
+	c.connID = fmt.Sprintf("conn-%d", time.Now().Unix())
 	return nil
 }
 
-// heartbeatLoop sends periodic heartbeats
-func (c *Client) heartbeatLoop() {
+// consumeLoop pops tasks from the queue and processes them
+func (c *Client) consumeLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			c.setState(protocol.StateDisconnected)
+			return
+		default:
+		}
+
+		if c.queue == nil {
+			// No queue configured (legacy mode)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		task, err := c.queue.Pop(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		if c.handler != nil {
+			if err := c.handler(task); err != nil {
+				if nackErr := c.queue.Nack(ctx, task.ID, err); nackErr != nil {
+					fmt.Printf("[Worker SDK] Nack failed: %v\n", nackErr)
+				}
+				continue
+			}
+		}
+
+		if err := c.queue.Ack(ctx, task.ID); err != nil {
+			fmt.Printf("[Worker SDK] Ack failed: %v\n", err)
+		}
+	}
+}
+
+// heartbeatLoop sends periodic heartbeats via WebSocket
+func (c *Client) heartbeatLoop(ctx context.Context) {
+	defer c.wg.Done()
+
 	ticker := time.NewTicker(c.config.HeartbeatInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			if c.State() != protocol.StateReady {
@@ -212,68 +202,22 @@ func (c *Client) heartbeatLoop() {
 			}
 			if err := c.sendHeartbeat(); err != nil {
 				fmt.Printf("[Worker SDK] Heartbeat error: %v\n", err)
-				return
 			}
 		}
 	}
 }
 
-// sendHeartbeat sends a heartbeat message
 func (c *Client) sendHeartbeat() error {
 	msg := &protocol.HeartbeatMessage{
 		WorkerID:  c.config.WorkerID,
 		Timestamp: time.Now().Unix(),
 	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Send via WebSocket
-	fmt.Printf("[Worker SDK] Sending heartbeat: %s\n", string(data))
+	data, _ := json.Marshal(msg)
+	fmt.Printf("[Worker SDK] Heartbeat: %s\n", string(data))
 	return nil
 }
 
-// Ack acknowledges a task completion
-func (c *Client) Ack(taskID string, success bool, errMsg string) error {
-	msg := &protocol.AckMessage{
-		TaskID:    taskID,
-		Success:   success,
-		Error:     errMsg,
-		Timestamp: time.Now().Unix(),
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Send via WebSocket
-	fmt.Printf("[Worker SDK] Sending ack: %s\n", string(data))
-	return nil
-}
-
-// SendEvent sends an event to the core
-func (c *Client) SendEvent(eventType string, data map[string]interface{}) error {
-	msg := &protocol.EventMessage{
-		WorkerID:  c.config.WorkerID,
-		EventType: eventType,
-		Data:      data,
-		Timestamp: time.Now().Unix(),
-	}
-
-	dataBytes, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Send via WebSocket
-	fmt.Printf("[Worker SDK] Sending event: %s\n", string(dataBytes))
-	return nil
-}
-
-// Disconnect disconnects from the core
+// Disconnect stops the worker
 func (c *Client) Disconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -285,7 +229,6 @@ func (c *Client) Disconnect() error {
 	c.cancel()
 	c.wg.Wait()
 	c.setState(protocol.StateDisconnected)
-
 	return nil
 }
 
@@ -295,6 +238,5 @@ func (c *Client) Close() error {
 }
 
 func detectPlatform() string {
-	// Simple platform detection
 	return "unknown"
 }

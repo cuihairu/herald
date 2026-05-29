@@ -159,21 +159,6 @@ func TestServerDisconnectWorkerNotFound(t *testing.T) {
 	}
 }
 
-func TestServerDispatchTaskNotFound(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	task := &protocol.DispatchMessage{
-		TaskID:   "test-task",
-		Provider: "test",
-	}
-
-	err := server.DispatchTask("nonexistent", task)
-	if err == nil {
-		t.Error("expected error for non-existent worker")
-	}
-}
-
 func TestServerHandleInvalidMessage(t *testing.T) {
 	handler := &mockHandler{}
 	config := &Config{

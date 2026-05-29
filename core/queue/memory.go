@@ -54,6 +54,14 @@ func (q *memoryQueue) Size() int {
 	return len(q.tasks)
 }
 
+func (q *memoryQueue) Ack(_ context.Context, _ string) error {
+	return nil
+}
+
+func (q *memoryQueue) Nack(_ context.Context, _ string, _ error) error {
+	return nil
+}
+
 func (q *memoryQueue) Close() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()

@@ -24,6 +24,7 @@ type Message interface {
 // RegisterMessage is sent by worker to register with the core
 type RegisterMessage struct {
 	WorkerID     string   `json:"worker_id"`
+	Mode         string   `json:"mode"`         // "local" or "remote"
 	Platform     string   `json:"platform"`
 	Version      string   `json:"version"`
 	Capabilities []string `json:"capabilities"`

@@ -69,7 +69,6 @@ func NewServer(config *Config) *Server {
 
 	// Protected endpoints
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
-	mux.HandleFunc("/api/v1/events", s.withAuth(s.handleEvent))
 	mux.HandleFunc("/api/v1/providers", s.withAuth(s.handleProviders))
 	mux.HandleFunc("/api/v1/workers", s.withAuth(s.handleWorkers))
 	mux.HandleFunc("/api/v1/queue", s.withAuth(s.handleQueue))
@@ -123,14 +122,6 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleNotify(w, r)
-}
-
-func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	s.handler.HandleEvent(w, r)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

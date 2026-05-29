@@ -1,39 +1,38 @@
 package websocket
 
 import (
-	"fmt"
-	"sync"
-
+	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/protocol"
 )
 
-// Hub manages worker registration and task dispatch.
+// Hub handles remote worker registration and lifecycle via WebSocket.
+// Task dispatch is handled by the queue; Hub only manages registration/heartbeat.
 type Hub struct {
-	server *Server
-	mu     sync.RWMutex
-	workerByCap map[string]string
+	server   *Server
+	registry *worker.Registry
 }
 
-// NewHub creates a hub for a websocket server.
-func NewHub(server *Server) *Hub {
+// NewHub creates a hub for a websocket server backed by a worker registry.
+func NewHub(server *Server, registry *worker.Registry) *Hub {
+	if registry == nil {
+		registry = worker.NewRegistry()
+	}
 	return &Hub{
-		server: server,
-		workerByCap: make(map[string]string),
+		server:   server,
+		registry: registry,
 	}
 }
 
-// OnRegister records worker capabilities.
+// OnRegister records a remote worker in the registry.
 func (h *Hub) OnRegister(workerID string, msg *protocol.RegisterMessage) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for _, cap := range msg.Capabilities {
-		h.workerByCap[cap] = workerID
-	}
-	return nil
+	return h.registry.Register(&worker.Info{
+		ID:           workerID,
+		Mode:         worker.Remote,
+		Capabilities: msg.Capabilities,
+	})
 }
 
-// OnTaskAck is currently a no-op.
+// OnTaskAck is currently a no-op (task results handled via queue Ack/Nack).
 func (h *Hub) OnTaskAck(taskID string, success bool, errMsg string) error {
 	return nil
 }
@@ -43,33 +42,7 @@ func (h *Hub) OnWorkerEvent(workerID string, event *protocol.EventMessage) error
 	return nil
 }
 
-// OnDisconnect removes worker capability mappings.
+// OnDisconnect removes a remote worker from the registry.
 func (h *Hub) OnDisconnect(workerID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for cap, id := range h.workerByCap {
-		if id == workerID {
-			delete(h.workerByCap, cap)
-		}
-	}
-}
-
-// Dispatch dispatches a task to a worker selected by provider key.
-func (h *Hub) Dispatch(task *protocol.DispatchMessage) error {
-	h.mu.RLock()
-	workerID, ok := h.workerByCap[task.Provider]
-	h.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("worker not found for provider: %s", task.Provider)
-	}
-	return h.server.DispatchTask(workerID, task)
-}
-
-// DispatchToWorker dispatches a task to a specific worker ID.
-func (h *Hub) DispatchToWorker(workerID string, task *protocol.DispatchMessage) error {
-	if workerID == "" {
-		return fmt.Errorf("worker id is empty")
-	}
-	return h.server.DispatchTask(workerID, task)
+	h.registry.Deregister(workerID)
 }

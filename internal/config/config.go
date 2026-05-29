@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/cuihairu/herald/core/template"
@@ -56,6 +57,7 @@ type ProviderConfig struct {
 type QueueConfig struct {
 	Type    string        `yaml:"type"`
 	Size    int           `yaml:"size"`
+	Workers int           `yaml:"workers"`
 	Timeout time.Duration `yaml:"timeout"`
 }
 
@@ -112,6 +114,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Queue.Size == 0 {
 		cfg.Queue.Size = 10000
+	}
+	if cfg.Queue.Workers == 0 {
+		cfg.Queue.Workers = runtime.NumCPU()*2 + 1
 	}
 	if cfg.Routes == nil {
 		cfg.Routes = make(map[string][]string)

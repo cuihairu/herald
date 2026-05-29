@@ -3,54 +3,66 @@
 ## 系统定位
 
 Herald 是：
-- ✅ **事件驱动的投递基础设施**
-- ✅ **Runtime 系统**
-- ✅ **统一事件分发平台**
+- **事件驱动的投递基础设施**
+- **统一 Worker 模型**
+- **Queue 为骨干的任务分发平台**
 
 Herald 不是：
-- ❌ Plugin 系统
-- ❌ 简单的 Webhook 聚合工具
-- ❌ 消息推送 SDK
+- Plugin 系统
+- 简单的 Webhook 聚合工具
+- 消息推送 SDK
 
 ## 核心概念
 
-### Provider vs Runtime
+### Worker 统一模型
 
-**Provider**：消息渠道的抽象，描述"往哪里发"
+所有 Worker 都是同一种东西，只通过 `mode` 区分部署方式：
 
-**Runtime**：Provider 的运行环境，描述"怎么发"
+- **local**：进程内 goroutine，直接调用内置 Provider
+- **remote**：独立进程（`heraldd worker`），从共享 Queue 消费任务
 
-不同 Provider 需要不同的 Runtime 环境：
+**"谁来做" 是部署问题，"怎么做" 是 Provider 问题。** Queue 是唯一的任务分发通道。
 
-| Provider | Runtime 类型 | 原因 |
-|----------|-------------|------|
-| Telegram | Builtin | HTTP API，简单直接 |
-| Email | Builtin | SMTP，标准协议 |
-| 微信公众号 | Worker | 需要特殊认证和会话管理 |
-| 微信个人推送 | Worker | 需要第三方服务或特殊环境 |
+### Queue as Backbone
 
-### Runtime Capability
-
-Runtime 通过 capability 声明自己支持的能力：
-
-```json
-{
-  "worker_id": "wechat-worker-01",
-  "capabilities": ["wechatmp", "wechat"]
-}
+```
+API → Queue (唯一入口)
+         ↓
+    Worker Pool (统一出口)
+    ├── local-0  → Provider.Deliver()
+    ├── local-1  → Provider.Deliver()
+    └── remote-0 → (独立进程，从 Queue Pop)
 ```
 
-Herald Core 根据 capability 选择合适的 Worker：
-- 需要 `wechatmp` 时 → 分发给支持 `wechatmp` 的 Worker
-- 需要 `wechat` 时 → 分发给支持 `wechat` 的 Worker
+Queue 提供可靠消费语义（Ack/Nack），支持背压、持久化（Redis 模式）。
+
+### Provider vs Worker
+
+| 概念 | 职责 | 关注点 |
+|------|------|--------|
+| Provider | 实现 Deliver 逻辑 | 怎么发 |
+| Worker | 从 Queue 消费任务 | 谁来做 |
+
+### Queue 实现
+
+| 实现 | 适用场景 | Remote Worker |
+|------|---------|---------------|
+| `memory` | 单机，开发 | 不支持 |
+| `redis` | 分布式，生产 | 支持 |
+
+切换实现只需改配置，代码零改动。
+
+### WebSocket 管理通道
+
+WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
+
+- 注册（上报 ID、能力）
+- 心跳（保活，超时自动注销）
+- 状态上报（session 过期、需要扫码等）
 
 ## Delivery 抽象
 
 ### Notification → DeliveryTask
-
-API 层接收的是 **Notification**（用户意图），Provider 层接收的是 **DeliveryTask**（投递指令）。
-
-转换过程：
 
 ```
 Notification
@@ -60,8 +72,8 @@ Notification
 DeliveryTask[] (每个渠道一个)
     ↓ (入队)
 Queue
-    ↓ (调度)
-Dispatcher → Runtime → Provider
+    ↓ (Worker Pop)
+Worker Pool → Runtime → Provider
 ```
 
 ### Payload 类型
@@ -72,68 +84,22 @@ Dispatcher → Runtime → Provider
 | `provider_template` | 服务商模板 | 阿里云 SMS、腾讯云 SMS |
 | `raw` | 原始透传 | Worker Provider |
 
-## Runtime vs Plugin
-
-| 特性 | Runtime | Plugin |
-|------|---------|--------|
-| 生命周期 | 持久运行 | 按需加载 |
-| 连接方式 | WebSocket | 进程内 |
-| 崩溃隔离 | 是 | 否 |
-| 状态管理 | 独立 | 共享 |
-| 适用场景 | 复杂环境、特殊权限 | 简单逻辑 |
-
-Worker Runtime 本质上更像：
-- Jenkins Agent
-- Buildkite Agent
-- Discord Gateway Bot
-
-而不是简单的"插件"。
-
-> 它们是 **长期在线的 Runtime 节点**，不是临时加载的插件。
-
 ## 设计原则
 
 ### 1. HTTP First
 
-主要接口是 HTTP REST API，而非 SDK。
+主要接口是 HTTP REST API。
 
-**收益：**
-- curl 即可使用
-- 自动化友好
-- CI/CD 友好
-- 多语言天然兼容
+### 2. Queue First
 
-### 2. Event First
-
-处理的是"事件"而非简单的"消息"。
-
-**区别：**
-- 消息：我要发什么
-- 事件：发生了什么
-
-事件可以通过路由规则自动决定：
-- 发送到哪些渠道
-- 使用什么模板
-- 什么级别
+Queue 是唯一的任务分发通道，不存在第二条路径。
 
 ### 3. Template First
 
 模板定义与渠道无关，一次定义，多渠道复用。
 
-```yaml
-templates:
-  server_alert:
-    name: "服务器告警"
-    title: "【{{.Level}}】{{.Service}}"
-    bindings:
-      email: { format: html }
-      telegram: { format: markdown }
-```
+### 4. Deploy Flexible
 
-### 4. Runtime First
-
-承认 Provider 的复杂度来自 Runtime 环境，而非 Provider 本身。
-
-因此支持：
-- Builtin Runtime（简单场景）
-- Worker Runtime（复杂场景）
+- 单机：`memory` 队列 + local workers
+- 分布式：`redis` 队列 + local workers + remote workers
+- 配置切换，代码不变

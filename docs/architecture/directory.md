@@ -5,39 +5,42 @@
 ```
 herald/
 ├── cmd/
-│   └── heraldd/              # 主服务入口
+│   └── heraldd/              # 统一入口（serve / worker 子命令）
 │
 ├── core/                     # 核心模块
 │   ├── types.go              # 核心类型（Notification, DeliveryTask, Queue）
 │   ├── provider.go           # Provider/CapableProvider 接口
-│   ├── dispatch/             # 调度器（队列消费 + Runtime 分发）
-│   │   └── dispatcher.go     # Dispatcher 实现
+│   ├── worker/               # 统一 Worker 架构
+│   │   ├── pool.go           # Worker Pool（管理 local worker goroutine）
+│   │   └── registry.go       # Worker 注册表（local + remote）
+│   ├── dispatch/             # 调度器（Worker Pool 的薄封装）
+│   │   └── dispatcher.go
 │   ├── queue/                # 任务队列
 │   │   ├── memory.go         # 内存队列实现
 │   │   └── factory.go        # 队列工厂
 │   ├── route/                # 路由引擎
 │   ├── retry/                # 重试机制
-│   ├── dedup/                # 去重机制（基于内容稳定 key）
+│   ├── dedup/                # 去重机制
 │   ├── runtime/              # Runtime 管理（Provider 注册 + 投递 + 重试）
-│   │   └── manager.go        # Runtime Manager 实现
+│   │   └── manager.go
 │   ├── service/              # 服务层
 │   │   ├── notification.go   # NotificationService 编排层
-│   │   └── planner.go        # DeliveryPlanner（Binding + Renderer）
+│   │   └── planner.go        # DeliveryPlanner
 │   ├── template/             # 模板系统
-│   │   ├── types.go          # Template/Binding/RenderedData 类型
-│   │   ├── engine.go         # Go template 引擎
-│   │   ├── renderer.go       # 内容渲染器（HTML/Markdown/Plain/JSON）
-│   │   └── manager.go        # 模板管理（CRUD + 渲染）
+│   │   ├── types.go
+│   │   ├── engine.go
+│   │   ├── renderer.go
+│   │   └── manager.go
 │   ├── auth/                 # 认证
 │   ├── logstore/             # 投递日志存储
-│   ├── websocket/            # WebSocket（Worker 连接）
+│   ├── websocket/            # WebSocket（远程 Worker 管理通道）
 │   │   ├── server.go         # WebSocket 服务器
-│   │   └── hub.go            # Worker 注册与任务分发
+│   │   └── hub.go            # Worker 注册/心跳管理
 │   └── limiter/              # 限流机制
 │
 ├── api/                      # HTTP API
 │   ├── handler.go            # 请求处理器
-│   └── server.go             # HTTP 服务器 + 路由 + 消费循环
+│   └── server.go             # HTTP 服务器
 │
 ├── protocol/                 # 内部协议定义
 │   └── message.go            # WebSocket 消息类型
@@ -45,7 +48,7 @@ herald/
 ├── providers/                # Provider 实现
 │   └── builtin/              # 内置 Provider
 │       ├── registry/         # Provider 注册
-│       ├── log/              # 日志 Provider
+│       ├── log/              # 日志
 │       ├── telegram/         # Telegram
 │       ├── feishu/           # 飞书
 │       ├── wecom/            # 企业微信
@@ -69,8 +72,6 @@ herald/
 │   └── logger/               # 日志管理
 │
 ├── docs/                     # 文档
-│   └── .vitepress/           # VitePress 配置
-│
 ├── config.yaml               # 配置文件
 ├── Makefile                  # 构建脚本
 └── README.md
@@ -79,71 +80,27 @@ herald/
 ## 数据流
 
 ```
-API Request → Handler → NotificationService → DeliveryPlanner → Queue → Dispatcher → Runtime → Provider
-                          │                      │
-                          ├─ Template 渲染       ├─ Builtin 投递
-                          ├─ Dedup 去重          └─ Worker 分发
+API Request → Handler → NotificationService → DeliveryPlanner → Queue → Worker Pool → Provider
+                          │                      │                        │
+                          ├─ Template 渲染       ├─ Binding 解析          ├─ local: 直接调用
+                          ├─ Dedup 去重          └─ SMS 参数适配          └─ remote: Queue 消费
                           └─ Route 路由
 ```
 
-## Provider 配置示例
+## 配置示例
 
 ```yaml
-providers:
-  log:
-    type: log
-    enabled: true
-    config:
-      name: "log"
+# 调度器模式
+queue:
+  type: memory          # memory | redis
+  workers: 0            # 0 = CPU*2+1
 
-  telegram:
-    type: telegram
-    enabled: true
-    config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
-
-  feishu:
-    type: feishu
-    enabled: false
-    config:
-      webhook_url: "${FEISHU_WEBHOOK_URL}"
-
-  wechatmp:
-    type: worker
-    enabled: true
-    config:
-      target: "wechat-worker-01"
-
-  email:
-    type: email
-    enabled: true
-    config:
-      host: "smtp.example.com"
-      port: 587
-      username: "${EMAIL_USER}"
-      password: "${EMAIL_PASS}"
-      from: "notify@example.com"
-```
-
-## 模板配置示例
-
-```yaml
-templates:
-  server_alert:
-    name: "服务器告警"
-    title: "服务器 {{.host}} 告警"
-    level: error
-    fields:
-      - { label: "主机", value: "{{.host}}" }
-      - { label: "状态", value: "{{.status}}" }
-    bindings:
-      email:        { format: html }
-      telegram:     { format: markdown }
-      aliyunsms:
-        template_code: "SMS_123456"
-        params: { "主机": "host", "状态": "status" }
-      tencentsms:
-        template_id: "789"
-        param_order: ["主机", "状态"]
+# 分布式模式
+queue:
+  type: redis
+  workers: 4
+  redis:
+    addr: "localhost:6379"
+    stream: "herald:tasks"
+    group: "herald-workers"
 ```

@@ -449,41 +449,6 @@ func (s *Server) checkStaleWorkers() {
 	}
 }
 
-// DispatchTask dispatches a task to a worker
-func (s *Server) DispatchTask(workerID string, task *protocol.DispatchMessage) error {
-	s.mu.RLock()
-	state, ok := s.workers[workerID]
-	s.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("worker not found: %s", workerID)
-	}
-
-	data, err := json.Marshal(task)
-	if err != nil {
-		return fmt.Errorf("failed to marshal task: %w", err)
-	}
-
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	if err := state.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
-		return err
-	}
-
-	if err := state.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		return fmt.Errorf("failed to send task: %w", err)
-	}
-
-	logger.Info("task dispatched",
-		"worker_id", workerID,
-		"task_id", task.TaskID,
-		"provider", task.Provider,
-	)
-
-	return nil
-}
-
 // GetWorkers returns all connected workers
 func (s *Server) GetWorkers() map[string]*ConnectionState {
 	s.mu.RLock()

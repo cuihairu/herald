@@ -2,30 +2,43 @@
 
 ## 核心模块
 
-### Dispatcher（调度器）
+### Worker Pool（统一 Worker 池）
 
-调度器负责从队列中消费任务并分发给相应的 Runtime：
+Worker Pool 管理一组 Worker，统一从 Queue 消费任务并投递：
 
 ```
-Queue → Dispatcher → Runtime Manager → Provider
-                      │
-                      ├─ Builtin Provider（直接投递）
-                      └─ Worker Provider（WebSocket 分发）
+Queue → Worker Pool → Runtime Manager → Provider
 ```
 
 **核心职责：**
 
-1. 从队列中获取待投递任务
-2. 根据 Provider 类型选择分发方式
-3. Builtin Provider → 直接通过 Runtime Manager 投递
-4. Worker Provider → 通过 WebSocket Hub 分发给远程 Worker
+1. 启动 N 个 local worker goroutine
+2. 每个 worker 循环：Pop → Deliver → Ack/Nack
+3. 管理远程 Worker 注册信息
 
-**源码位置：** `core/dispatch/dispatcher.go`
+**源码位置：** `core/worker/pool.go`
+
+### Registry（Worker 注册表）
+
+统一管理所有 Worker 的元信息：
+
+```
+┌─────────────────────────────────┐
+│          Registry               │
+│                                 │
+│  local-0   → { mode: local }   │
+│  local-1   → { mode: local }   │
+│  worker-01 → { mode: remote }  │
+│  worker-02 → { mode: remote }  │
+└─────────────────────────────────┘
+```
+
+**源码位置：** `core/worker/registry.go`
 
 ## 数据流
 
 ```
-API Request → Handler → NotificationService → DeliveryPlanner → Queue → Dispatcher → Runtime → Provider
+API Request → Handler → NotificationService → DeliveryPlanner → Queue → Worker Pool → Runtime → Provider
                           │                      │
                           ├─ Template 渲染       ├─ Binding 解析
                           ├─ Dedup 去重          ├─ SMS 参数适配
@@ -40,14 +53,14 @@ API 层的输入，描述"用户想发什么"。
 
 ```go
 type Notification struct {
-    ID          string              // 通知唯一标识
-    Type        string              // 通知类型，用于路由
-    Level       string              // 级别
-    Channels    []string            // 目标渠道
-    Recipients  map[string][]string // 按渠道的接收人
-    TemplateRef string              // 模板 ID
-    Params      map[string]any      // 模板参数
-    Content     *DirectContent      // 直接内容（无模板时）
+    ID          string
+    Type        string
+    Level       string
+    Channels    []string
+    Recipients  map[string][]string
+    TemplateRef string
+    Params      map[string]any
+    Content     *DirectContent
 }
 ```
 
@@ -57,155 +70,106 @@ Provider 层的输入，描述"怎么发到具体渠道"。
 
 ```go
 type DeliveryTask struct {
-    ID      string
+    ID       string
     Provider string
-    Targets []string
-    Payload DeliveryPayload
-    Level   string
+    Targets  []string
+    Payload  DeliveryPayload
+    Level    string
 }
 
 type DeliveryPayload struct {
-    Kind             PayloadKind              // content / provider_template / raw
-    Content          *RenderedContent         // 内容类 Provider 使用
-    ProviderTemplate *ProviderTemplatePayload // SMS 类 Provider 使用
-    Raw              map[string]any           // 原始透传
+    Kind             PayloadKind
+    Content          *RenderedContent
+    ProviderTemplate *ProviderTemplatePayload
+    Raw              map[string]any
 }
 ```
 
-## 1. NotificationService
+### Queue（任务队列）
+
+```go
+type Queue interface {
+    Push(ctx context.Context, task *DeliveryTask) error
+    Pop(ctx context.Context) (*DeliveryTask, error)
+    Ack(ctx context.Context, taskID string) error
+    Nack(ctx context.Context, taskID string, reason error) error
+    Size() int
+    Close() error
+}
+```
+
+## 模块列表
+
+### 1. NotificationService
 
 核心编排层，流程：
 
-1. **去重** — 基于内容的 SHA256 稳定 key（type+level+channels+params+content）
+1. **去重** — 基于内容的 SHA256 稳定 key
 2. **路由** — 根据 type/level 解析目标渠道
 3. **模板渲染** — 替换模板变量
 4. **投递规划** — 为每个渠道生成 DeliveryTask
 5. **入队** — 推送到 Queue
 
-返回 `ProcessResult`，包含 accepted/failed 渠道列表，错误透明上报。
-
-## 2. DeliveryPlanner
+### 2. DeliveryPlanner
 
 根据 Provider 能力和模板 Binding 生成 `DeliveryTask`：
 
-- **SMS Provider**（aliunsms/tencentsms/neteasesms）→ `ProviderTemplatePayload`
-  - 从模板 Binding 获取 `template_code`/`template_id`
-  - 通过 `params`（命名参数）或 `param_order`（有序参数）适配不同厂商
-- **内容 Provider**（email/telegram/feishu 等）→ `RenderedContent`
-  - 使用 Renderer 渲染为 HTML/Markdown/Plain/JSON
-  - Binding 中可指定 `format` 覆盖默认格式
+- **SMS Provider** → `ProviderTemplatePayload`
+- **内容 Provider** → `RenderedContent`
 
-## 3. Template + Binding
+### 3. Template + Binding
 
 一个业务模板可映射到多个渠道配置：
 
 ```yaml
 templates:
   server_alert:
-    name: "服务器告警"
-    title: "服务器 {{.host}} 告警"
-    level: error
-    fields:
-      - { label: "主机", value: "{{.host}}" }
-      - { label: "状态", value: "{{.status}}" }
     bindings:
       email:        { format: html }
       telegram:     { format: markdown }
       aliyunsms:
         template_code: "SMS_123456"
         params: { "主机": "host", "状态": "status" }
-      tencentsms:
-        template_id: "789"
-        param_order: ["主机", "状态"]
 ```
 
-### SMS 参数适配
-
-| Provider | Template 字段 | 参数类型 | 格式 |
-|----------|--------------|---------|------|
-| Aliyun   | `template_code` | `map[string]string` | JSON 字符串 |
-| Tencent  | `template_id` | `[]string` | 有序数组 |
-| NetEase  | `template_id` | `[]string` | 逗号分隔 |
-
-## 4. Route Engine
+### 4. Route Engine
 
 负责：`Notification Type/Level → Provider`
 
-```yaml
-routes:
-  server.alert:
-    - telegram
-    - email
-  error:
-    - telegram
-    - wecom
-```
+### 5. Retry
 
-## 5. Retry
+接入 `runtime.Manager.Deliver()`，支持指数退避重试。
 
-接入 `runtime.Manager.Deliver()`，支持：
+### 6. Dedup
 
-| 类型           | Retry |
-| ------------ | ----- |
-| timeout      | yes   |
-| 429          | yes   |
-| 502          | yes   |
-| auth failed  | no    |
+基于内容的稳定 key（SHA256），窗口 5 分钟。
 
-策略：Exponential Backoff
+### 7. Queue
 
-## 6. Dedup
+队列抽象，当前实现：
 
-基于内容的稳定 key（SHA256 of type+level+channels+params+content），窗口 5 分钟。
+| 实现 | 适用场景 | Remote Worker |
+|------|---------|---------------|
+| `memory` | 单机部署 | 不支持 |
+| `redis` | 分布式部署 | 支持 |
 
-## 7. Queue
+### 8. WebSocket Hub
 
-异步解耦：
+远程 Worker 的管理通道（非任务分发通道）：
 
-```
-API → Queue → Dispatcher → Provider Runtime
-```
+- Worker 注册与能力记录
+- 心跳保活与超时注销
+- 状态事件上报
 
-## 8. WebSocket Hub
-
-管理 Worker 连接和任务分发：
-
-```go
-type Hub struct {
-    server        *Server
-    workerByCap   map[string]string  // capability → workerID
-}
-```
-
-**职责：**
-
-- Worker 注册与能力管理
-- 任务分发（按 capability 或 worker_id）
-- 连接状态管理
-
-## 9. Provider Capability
+### 9. Provider Capability
 
 每个 Provider 声明自己的能力：
 
 ```go
 type ProviderCapability struct {
-    PayloadKinds     []PayloadKind   // 支持的 payload 类型
-    ContentFormats   []string        // html, markdown, plain, json
+    PayloadKinds     []PayloadKind
+    ContentFormats   []string
     SupportsBatch    bool
-    SupportsTemplate bool            // 是否支持厂商模板（SMS）
+    SupportsTemplate bool
 }
 ```
-
-## Provider 类型
-
-### Builtin Provider
-
-直接在 Herald 进程内运行，通过 Runtime Manager 直接投递。
-
-**支持：** Telegram、Feishu、Email、Webhook、SMS 等
-
-### Worker Provider
-
-代理远程 Worker，通过 WebSocket 分发任务。
-
-**支持：** 微信公众号、微信个人推送等需要特殊运行环境的渠道

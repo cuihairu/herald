@@ -4,7 +4,21 @@
 
 Herald 使用 YAML 配置文件（`config.yaml`）。
 
+## 运行模式
+
+Herald 使用统一二进制，通过子命令区分运行模式：
+
+```bash
+# 调度器模式（API + Queue + 本地 Worker）
+heraldd serve --config config.yaml
+
+# 远程 Worker 模式（从共享 Queue 消费任务）
+heraldd worker --config worker.yaml
+```
+
 ## 完整配置示例
+
+### 调度器配置（scheduler.yaml）
 
 ```yaml
 # 服务配置
@@ -123,13 +137,6 @@ providers:
     config:
       sendkey: "${WECHAT_SENDKEY}"
 
-  # 微信公众号（Worker）
-  wechatmp:
-    type: worker
-    enabled: false
-    config:
-      target: "wechat-worker-01"
-
 # 路由配置
 routes:
   error:
@@ -141,9 +148,14 @@ routes:
 
 # 队列配置
 queue:
-  type: memory
-  size: 10000
+  type: memory          # memory | redis
+  size: 10000           # 队列容量
+  workers: 0            # 本地 Worker 数量（0 = 自动，默认 CPU核心数*2+1）
   timeout: 5s
+  # redis:              # type=redis 时需要配置
+  #   addr: "localhost:6379"
+  #   stream: "herald:tasks"
+  #   group: "herald-workers"
 
 # 重试配置
 retry:
@@ -157,7 +169,7 @@ dedup:
   enabled: true
   window: 5m
 
-# WebSocket 配置（用于 Worker 连接）
+# WebSocket 配置（远程 Worker 管理通道）
 websocket:
   addr: ":8081"
   read_timeout: 60s
@@ -202,6 +214,50 @@ templates:
         type: "text"
 ```
 
+### 远程 Worker 配置（worker.yaml）
+
+远程 Worker 从共享 Queue 消费任务，需要使用 `redis` 类型的队列：
+
+```yaml
+# 队列配置（必须与调度器使用相同的 Queue 后端）
+queue:
+  type: redis
+  workers: 0            # Worker 数量（0 = 自动，默认 CPU核心数*2+1）
+  redis:
+    addr: "localhost:6379"
+    stream: "herald:tasks"
+    group: "herald-workers"
+
+# Worker 注册信息
+websocket:
+  addr: "localhost:8081"    # 调度器 WebSocket 地址（用于注册和心跳）
+
+# Worker 本地 Provider（可选）
+providers:
+  wechatmp:
+    type: builtin
+    enabled: true
+    config:
+      app_id: "${WECHAT_APP_ID}"
+      app_secret: "${WECHAT_APP_SECRET}"
+```
+
+## 队列配置说明
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `type` | string | `memory` | 队列类型：`memory`（单机）或 `redis`（分布式） |
+| `size` | int | `10000` | 队列容量 |
+| `workers` | int | `CPU*2+1` | 本地 Worker 并发数 |
+| `timeout` | duration | `5s` | 队列操作超时 |
+
+### 部署模式对照
+
+| 场景 | queue.type | 说明 |
+|------|-----------|------|
+| 单机开发/小规模 | `memory` | 所有 Worker 在同一进程内 |
+| 分布式/高可用 | `redis` | 调度器和 Worker 可以独立部署 |
+
 ## 环境变量
 
 支持使用 `${VAR_NAME}` 引用环境变量：
@@ -237,9 +293,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 2. 配置文件（启动时加载）
 3. 默认配置
 
-## 配置说明
-
-### Provider 类型
+## Provider 类型
 
 | 类型 | 说明 | 配置示例 |
 |------|------|---------|
@@ -256,7 +310,6 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `tencentsms` | 腾讯云短信 | `type: tencentsms` |
 | `neteasesms` | 网易云短信 | `type: neteasesms` |
 | `wechat` | 微信个人推送 | `type: wechat` |
-| `worker` | Worker 代理 | `type: worker` |
 
 ### 模板配置
 

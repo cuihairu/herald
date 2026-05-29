@@ -76,10 +76,12 @@ type ProviderStatus struct {
 	Since    time.Time `json:"since"`
 }
 
-// Queue is the interface for task queuing
+// Queue is the interface for task queuing with reliable consumption semantics
 type Queue interface {
 	Push(ctx context.Context, task *DeliveryTask) error
 	Pop(ctx context.Context) (*DeliveryTask, error)
+	Ack(ctx context.Context, taskID string) error
+	Nack(ctx context.Context, taskID string, reason error) error
 	Size() int
 	Close() error
 }

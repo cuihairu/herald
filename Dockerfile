@@ -29,8 +29,8 @@ COPY --from=builder /build/heraldd .
 # Copy example env file for reference
 COPY .env.example .env.example
 
-# Expose port
-EXPOSE 8080
+# Expose ports (API + WebSocket management)
+EXPOSE 8080 8081
 
-# Run
+# Run (subcommand passed via CMD or docker-compose command)
 ENTRYPOINT ["./heraldd"]

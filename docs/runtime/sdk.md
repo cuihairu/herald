@@ -1,37 +1,36 @@
 # Worker SDK
 
-虽然业务 SDK 不重要，但 **Worker SDK 非常重要**。
+Worker SDK 用于开发远程 Worker。远程 Worker 从共享 Queue 消费任务，通过 WebSocket 注册到调度器。
 
-## 为什么需要 Worker SDK
+## 核心概念
 
-- 自动处理连接和重连
-- 心跳管理
-- 任务分发和确认
-- 事件上报
-- 状态管理
-
-## Worker SDK 职责
-
-- register - 向 Core 注册
-- heartbeat - 定时心跳
-- reconnect - 断线重连
-- dispatch - 接收任务
-- ack - 确认任务完成
-- stream - 消息流处理
+```
+远程 Worker 启动流程：
+1. WebSocket 注册（上报 ID、能力） → 调度器
+2. Queue 消费（Pop → Deliver → Ack/Nack） ← 共享 Queue
+```
 
 ## Go SDK 使用示例
 
 ### 基本使用
 
 ```go
+package main
+
 import (
     "context"
-    workersdk "github.com/cuihairu/herald/worker-sdk/go"
+    "fmt"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/cuihairu/herald/core"
     "github.com/cuihairu/herald/protocol"
+    workersdk "github.com/cuihairu/herald/worker-sdk/go"
 )
 
 func main() {
-    // 创建配置
     config := &protocol.WorkerConfig{
         WorkerID:          "my-worker-001",
         CoreURL:           "ws://localhost:8081",
@@ -40,96 +39,51 @@ func main() {
         Capabilities:      []string{"wechat"},
     }
 
-    // 创建客户端
-    client := workersdk.NewClient(config)
+    // Queue 设置为 nil；生产环境传入 redis queue
+    client := workersdk.NewClient(config, nil)
 
     // 设置任务处理器
-    client.OnTask(func(task *protocol.DispatchMessage) error {
-        // 处理任务
-        err := processTask(task)
-
-        // 确认任务
-        client.Ack(task.TaskID, err == nil, "")
-
-        return err
+    client.OnTask(func(task *core.DeliveryTask) error {
+        fmt.Printf("Task: %s, Provider: %s\n", task.ID, task.Provider)
+        if task.Payload.Content != nil {
+            fmt.Printf("Title: %s\n", task.Payload.Content.Title)
+        }
+        return nil
     })
 
-    // 设置事件处理器
-    client.OnEvent(func(event *protocol.EventMessage) {
-        fmt.Printf("Received event: %s\n", event.EventType)
-    })
-
-    // 设置回调
     client.OnConnect(func() {
         fmt.Println("Connected to Herald core")
     })
 
-    client.OnDisconnect(func(err error) {
-        fmt.Printf("Disconnected: %v\n", err)
-    })
-
-    client.OnStateChange(func(state protocol.ConnectionState) {
-        fmt.Printf("State: %s\n", state)
-    })
-
-    // 连接
+    // 启动（注册 + 消费循环）
     ctx := context.Background()
-    if err := client.Connect(ctx); err != nil {
+    if err := client.Run(ctx); err != nil {
         panic(err)
     }
 
-    // 等待退出
-    select {}
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+    <-sigCh
+    _ = client.Disconnect()
 }
 ```
 
-### 任务处理
+### 使用内置二进制
 
-```go
-client.OnTask(func(task *protocol.DispatchMessage) error {
-    // 任务信息
-    taskID := task.TaskID
-    provider := task.Provider
-    title := task.Title
-    body := task.Body
-    level := task.Level
-    target := task.Target
-    data := task.Data
+也可以直接使用 `heraldd worker` 子命令，无需编写代码：
 
-    // 处理任务...
-    success := doSomething(task)
-
-    // 确认
-    client.Ack(taskID, success, "")
-
-    return nil
-})
-```
-
-### 发送事件
-
-```go
-// 上报 worker 状态
-client.SendEvent("status", map[string]interface{}{
-    "online": true,
-    "contacts": 150,
-})
-
-// 上报错误
-client.SendEvent("error", map[string]interface{}{
-    "message": "connection timeout",
-    "code": "CONNECTION_TIMEOUT",
-})
+```bash
+heraldd worker --config worker.yaml
 ```
 
 ## SDK 选择指南
 
-| 语言     | 用途           | 状态    |
-| ------ | ------------ | ----- |
-| Go     | 普通 Worker     | ✅ 完成  |
-| C++    | Native Addon | 计划中   |
-| Python | Automation   | 计划中   |
-| Rust   | Native Worker | 计划中   |
+| 语言 | 用途 | 状态 |
+|------|------|------|
+| Go | Worker 开发 | 完成 |
+| C++ | Native Addon | 计划中 |
+| Python | Automation | 计划中 |
+| Rust | Native Worker | 计划中 |
 
 ## 连接状态
 
@@ -139,14 +93,6 @@ Disconnected → Connecting → Connected → Registered → Ready
    (error)       (error)        (error)     (error)
 ```
 
-| 状态            | 说明     |
-| ------------- | ------ |
-| Disconnected  | 未连接    |
-| Connecting    | 连接中    |
-| Connected     | 已连接    |
-| Registered    | 已注册    |
-| Ready         | 就绪，可接收 |
-
 ## 协议消息
 
 ### 注册消息
@@ -155,6 +101,7 @@ Disconnected → Connecting → Connected → Registered → Ready
 {
   "type": "register",
   "worker_id": "wechat-node-01",
+  "mode": "remote",
   "platform": "windows",
   "version": "1.0.0",
   "capabilities": ["wechat"]
@@ -169,35 +116,8 @@ Disconnected → Connecting → Connected → Registered → Ready
   "worker_id": "wechat-node-01",
   "timestamp": 1716000000,
   "status": {
-    "contacts": 150,
-    "memory": 100
+    "tasks_done": 98
   }
-}
-```
-
-### 分发消息
-
-```json
-{
-  "type": "dispatch",
-  "task_id": "task-123",
-  "provider": "wechat",
-  "title": "Node Offline",
-  "body": "node-17 is offline",
-  "level": "error",
-  "target": "group_xxx",
-  "timestamp": 1716000000
-}
-```
-
-### 确认消息
-
-```json
-{
-  "type": "ack",
-  "task_id": "task-123",
-  "success": true,
-  "timestamp": 1716000001
 }
 ```
 

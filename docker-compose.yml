@@ -1,14 +1,17 @@
 version: '3.8'
 
 services:
+  # 调度器（API + Queue + local workers）
   herald:
     build:
       context: .
       dockerfile: Dockerfile
     image: herald:latest
     container_name: herald
+    command: serve --config /app/config.yaml
     ports:
       - "8080:8080"
+      - "8081:8081"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     environment:
@@ -24,6 +27,32 @@ services:
       retries: 3
       start_period: 10s
 
+  # 远程 Worker 示例（取消注释启用）
+  # 使用 Redis 队列时，Worker 可独立部署
+  #
+  # herald-worker:
+  #   image: herald:latest
+  #   container_name: herald-worker
+  #   command: worker --config /app/worker.yaml
+  #   volumes:
+  #     - ./worker.yaml:/app/worker.yaml:ro
+  #   depends_on:
+  #     - redis
+  #   restart: unless-stopped
+
+  # Redis（分布式部署时启用，队列后端）
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: herald-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
+
 networks:
   default:
     name: herald-network
+
+# volumes:
+#   redis-data:
