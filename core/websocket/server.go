@@ -13,13 +13,45 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Default upgrader
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins in development
-	},
+// newUpgrader creates a websocket upgrader with origin checking
+func newUpgrader(allowedOrigins []string) websocket.Upgrader {
+	checkOrigin := func(r *http.Request) bool {
+		// Wildcard: allow all
+		for _, o := range allowedOrigins {
+			if o == "*" {
+				return true
+			}
+		}
+
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // Non-browser clients
+		}
+
+		// No explicit config: allow localhost only
+		if len(allowedOrigins) == 0 {
+			return isLocalhost(origin)
+		}
+
+		for _, allowed := range allowedOrigins {
+			if origin == allowed {
+				return true
+			}
+		}
+		return false
+	}
+
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     checkOrigin,
+	}
+}
+
+func isLocalhost(origin string) bool {
+	return origin == "http://localhost" || origin == "https://localhost" ||
+		origin == "http://127.0.0.1" || origin == "https://127.0.0.1" ||
+		origin == "http://[::1]" || origin == "https://[::1]"
 }
 
 // ConnectionState represents a worker connection state
@@ -54,6 +86,7 @@ type Server struct {
 	addr    string
 	handler ConnHandler
 	server  *http.Server
+	upgrader websocket.Upgrader
 
 	mu      sync.RWMutex
 	workers map[string]*ConnectionState
@@ -77,6 +110,7 @@ type Config struct {
 	PingTimeout    time.Duration // Ping timeout
 	PingInterval   time.Duration // Ping interval
 	MaxMessageSize int64         // Max message size
+	AllowedOrigins []string      // Allowed origins for WebSocket connections (["*"] to allow all)
 }
 
 // NewServer creates a new WebSocket server
@@ -95,6 +129,7 @@ func NewServer(config *Config, handler ConnHandler) *Server {
 	s := &Server{
 		addr:         config.Addr,
 		handler:      handler,
+		upgrader:     newUpgrader(config.AllowedOrigins),
 		workers:      make(map[string]*ConnectionState),
 		readTimeout:  config.ReadTimeout,
 		writeTimeout: config.WriteTimeout,
@@ -169,7 +204,7 @@ func (s *Server) Stop() error {
 // handleWebSocket handles a WebSocket connection
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade to WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Error("failed to upgrade websocket", "error", err)
 		return
@@ -448,30 +483,59 @@ func (s *Server) checkStaleWorkers() {
 	}
 }
 
-// GetWorkers returns all connected workers
-func (s *Server) GetWorkers() map[string]*ConnectionState {
+// WorkerInfo is a read-only snapshot of a worker's connection state
+type WorkerInfo struct {
+	WorkerID      string
+	Platform      string
+	Version       string
+	Capabilities  []string
+	ConnectedAt   time.Time
+	LastHeartbeat time.Time
+	Status        map[string]interface{}
+}
+
+// GetWorkers returns copies of all connected workers
+func (s *Server) GetWorkers() map[string]WorkerInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make(map[string]*ConnectionState, len(s.workers))
+	result := make(map[string]WorkerInfo, len(s.workers))
 	for k, v := range s.workers {
-		result[k] = v
+		result[k] = cloneWorkerInfo(v)
 	}
 
 	return result
 }
 
-// GetWorker returns a specific worker state
-func (s *Server) GetWorker(workerID string) (*ConnectionState, error) {
+// GetWorker returns a copy of a specific worker state
+func (s *Server) GetWorker(workerID string) (WorkerInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	state, ok := s.workers[workerID]
 	if !ok {
-		return nil, fmt.Errorf("worker not found: %s", workerID)
+		return WorkerInfo{}, fmt.Errorf("worker not found: %s", workerID)
 	}
 
-	return state, nil
+	return cloneWorkerInfo(state), nil
+}
+
+func cloneWorkerInfo(s *ConnectionState) WorkerInfo {
+	caps := make([]string, len(s.Capabilities))
+	copy(caps, s.Capabilities)
+	status := make(map[string]interface{}, len(s.Status))
+	for k, v := range s.Status {
+		status[k] = v
+	}
+	return WorkerInfo{
+		WorkerID:      s.WorkerID,
+		Platform:      s.Platform,
+		Version:       s.Version,
+		Capabilities:  caps,
+		ConnectedAt:   s.ConnectedAt,
+		LastHeartbeat: s.LastHeartbeat,
+		Status:        status,
+	}
 }
 
 // GetWorkerCount returns the number of connected workers

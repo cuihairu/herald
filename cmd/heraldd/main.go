@@ -62,18 +62,7 @@ func serveCmd(args []string) {
 	}
 
 	// Create queue
-	q, err := queue.NewQueue(&queue.QueueConfig{
-		Type:    cfg.Queue.Type,
-		Size:    cfg.Queue.Size,
-		Timeout: cfg.Queue.Timeout,
-		Redis: queue.RedisConfig{
-			Addr:     cfg.Queue.Redis.Addr,
-			Password: cfg.Queue.Redis.Password,
-			DB:       cfg.Queue.Redis.DB,
-			Stream:   cfg.Queue.Redis.Stream,
-			Group:    cfg.Queue.Redis.Group,
-		},
-	})
+	q, err := queue.NewQueue(cfg.Queue.ToQueueConfig())
 	if err != nil {
 		logger.Error("failed to create queue", "error", err)
 		os.Exit(1)
@@ -153,11 +142,12 @@ func serveCmd(args []string) {
 
 	// Create WebSocket server (management channel)
 	wsServer := websocket.NewServer(&websocket.Config{
-		Addr:         cfg.WebSocket.Addr,
-		ReadTimeout:  cfg.WebSocket.ReadTimeout,
-		WriteTimeout: cfg.WebSocket.WriteTimeout,
-		PingTimeout:  cfg.WebSocket.PingTimeout,
-		PingInterval: cfg.WebSocket.PingInterval,
+		Addr:           cfg.WebSocket.Addr,
+		ReadTimeout:    cfg.WebSocket.ReadTimeout,
+		WriteTimeout:   cfg.WebSocket.WriteTimeout,
+		PingTimeout:    cfg.WebSocket.PingTimeout,
+		PingInterval:   cfg.WebSocket.PingInterval,
+		AllowedOrigins: cfg.WebSocket.AllowedOrigins,
 	}, nil)
 	hub := websocket.NewHub(wsServer, registry)
 	wsServer.SetHandler(hub)
@@ -219,18 +209,7 @@ func workerCmd(args []string) {
 	}
 
 	// Create queue (must be a shared backend like redis)
-	q, err := queue.NewQueue(&queue.QueueConfig{
-		Type:    cfg.Queue.Type,
-		Size:    cfg.Queue.Size,
-		Timeout: cfg.Queue.Timeout,
-		Redis: queue.RedisConfig{
-			Addr:     cfg.Queue.Redis.Addr,
-			Password: cfg.Queue.Redis.Password,
-			DB:       cfg.Queue.Redis.DB,
-			Stream:   cfg.Queue.Redis.Stream,
-			Group:    cfg.Queue.Redis.Group,
-		},
-	})
+	q, err := queue.NewQueue(cfg.Queue.ToQueueConfig())
 	if err != nil {
 		logger.Error("failed to create queue", "error", err)
 		os.Exit(1)

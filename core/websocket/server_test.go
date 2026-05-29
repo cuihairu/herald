@@ -447,18 +447,34 @@ func TestMockHandler(t *testing.T) {
 }
 
 func TestUpgraderSettings(t *testing.T) {
+	server := NewServer(nil, nil)
+
 	// Verify upgrader is configured
-	if upgrader.ReadBufferSize != 1024 {
-		t.Errorf("expected ReadBufferSize 1024, got %d", upgrader.ReadBufferSize)
+	if server.upgrader.ReadBufferSize != 1024 {
+		t.Errorf("expected ReadBufferSize 1024, got %d", server.upgrader.ReadBufferSize)
 	}
-	if upgrader.WriteBufferSize != 1024 {
-		t.Errorf("expected WriteBufferSize 1024, got %d", upgrader.WriteBufferSize)
+	if server.upgrader.WriteBufferSize != 1024 {
+		t.Errorf("expected WriteBufferSize 1024, got %d", server.upgrader.WriteBufferSize)
 	}
 
-	// Test CheckOrigin
+	// Test CheckOrigin: default (no config) should allow localhost
 	req := httptest.NewRequest("GET", "http://example.com", nil)
-	if !upgrader.CheckOrigin(req) {
-		t.Error("expected CheckOrigin to return true in development")
+	req.Header.Set("Origin", "http://localhost")
+	if !server.upgrader.CheckOrigin(req) {
+		t.Error("expected localhost origin to be allowed")
+	}
+
+	// Non-localhost should be rejected by default
+	req2 := httptest.NewRequest("GET", "http://example.com", nil)
+	req2.Header.Set("Origin", "http://evil.example.com")
+	if server.upgrader.CheckOrigin(req2) {
+		t.Error("expected non-localhost origin to be rejected by default")
+	}
+
+	// Wildcard should allow all
+	wildcardServer := NewServer(&Config{AllowedOrigins: []string{"*"}}, nil)
+	if !wildcardServer.upgrader.CheckOrigin(req2) {
+		t.Error("expected wildcard to allow all origins")
 	}
 }
 

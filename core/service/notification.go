@@ -12,7 +12,6 @@ import (
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
-	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/google/uuid"
 )
@@ -31,11 +30,17 @@ type ChannelError struct {
 	Error   string
 }
 
+// ProviderRuntime defines the runtime capabilities needed by NotificationService
+type ProviderRuntime interface {
+	GetProvider(name string) (core.Provider, error)
+	IsEnabled(name string) bool
+}
+
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
 	templates *template.Manager
 	router    *route.Router
-	runtime   *runtime.Manager
+	runtime   ProviderRuntime
 	dedup     *dedup.Dedup
 	planner   *DeliveryPlanner
 }
@@ -44,7 +49,7 @@ type NotificationService struct {
 func NewNotificationService(
 	templates *template.Manager,
 	router *route.Router,
-	runtime *runtime.Manager,
+	runtime ProviderRuntime,
 	dedup *dedup.Dedup,
 ) *NotificationService {
 	return &NotificationService{
@@ -138,11 +143,6 @@ func resolveTargets(n *core.Notification, channel string) []string {
 		}
 	}
 	return nil
-}
-
-// GetRuntime returns the runtime manager
-func (s *NotificationService) GetRuntime() *runtime.Manager {
-	return s.runtime
 }
 
 // formatChannelErrors formats channel errors into a single string

@@ -82,6 +82,19 @@ func (m *Manager) CreateProvider(providerType string, config map[string]interfac
 	return factory.Create(config)
 }
 
+// GetProviderType returns the provider type for a registered instance.
+func (m *Manager) GetProviderType(name string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, ok := m.providers[name]
+	if !ok {
+		return "", fmt.Errorf("provider not found: %s", name)
+	}
+
+	return entry.provider.Type(), nil
+}
+
 // GetProvider returns a provider by instance name.
 func (m *Manager) GetProvider(name string) (core.Provider, error) {
 	m.mu.RLock()

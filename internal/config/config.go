@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/template"
 	"gopkg.in/yaml.v3"
 )
@@ -31,11 +32,12 @@ type ServerConfig struct {
 
 // WebSocketConfig is the websocket worker server configuration
 type WebSocketConfig struct {
-	Addr          string        `yaml:"addr"`
-	ReadTimeout   time.Duration `yaml:"read_timeout"`
-	WriteTimeout  time.Duration `yaml:"write_timeout"`
-	PingTimeout   time.Duration `yaml:"ping_timeout"`
-	PingInterval  time.Duration `yaml:"ping_interval"`
+	Addr           string        `yaml:"addr"`
+	ReadTimeout    time.Duration `yaml:"read_timeout"`
+	WriteTimeout   time.Duration `yaml:"write_timeout"`
+	PingTimeout    time.Duration `yaml:"ping_timeout"`
+	PingInterval   time.Duration `yaml:"ping_interval"`
+	AllowedOrigins []string      `yaml:"allowed_origins"`
 }
 
 // AuthConfig is the authentication configuration
@@ -69,6 +71,22 @@ type RedisConfig struct {
 	DB       int    `yaml:"db"`
 	Stream   string `yaml:"stream"`
 	Group    string `yaml:"group"`
+}
+
+// ToQueueConfig converts to queue.QueueConfig
+func (c QueueConfig) ToQueueConfig() *queue.QueueConfig {
+	return &queue.QueueConfig{
+		Type:    c.Type,
+		Size:    c.Size,
+		Timeout: c.Timeout,
+		Redis: queue.RedisConfig{
+			Addr:     c.Redis.Addr,
+			Password: c.Redis.Password,
+			DB:       c.Redis.DB,
+			Stream:   c.Redis.Stream,
+			Group:    c.Redis.Group,
+		},
+	}
 }
 
 // RetryConfig is the retry configuration

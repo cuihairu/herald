@@ -175,6 +175,10 @@ websocket:
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s
+  # allowed_origins:       # WebSocket 允许的来源列表
+  #   - "https://your-domain.com"
+  #   - "*"                 # 允许所有来源（仅开发环境）
+  # 未配置时默认允许 localhost/127.0.0.1
 
 # 模板定义
 templates:

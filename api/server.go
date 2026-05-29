@@ -50,7 +50,7 @@ func NewServer(config *Config) *Server {
 		config.Dedup,
 	)
 
-	handler := NewHandler(notificationSvc, config.TemplateManager)
+	handler := NewHandler(notificationSvc, config.Runtime, config.TemplateManager)
 	handler.SetQueue(config.Queue)
 
 	s := &Server{

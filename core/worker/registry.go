@@ -74,42 +74,56 @@ func (r *Registry) Heartbeat(workerID string) error {
 	return nil
 }
 
-// Get returns info for a specific worker
-func (r *Registry) Get(workerID string) (*Info, error) {
+// Get returns a copy of info for a specific worker
+func (r *Registry) Get(workerID string) (Info, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	w, ok := r.workers[workerID]
 	if !ok {
-		return nil, fmt.Errorf("worker not found: %s", workerID)
+		return Info{}, fmt.Errorf("worker not found: %s", workerID)
 	}
-	return w, nil
+	return cloneInfo(w), nil
 }
 
-// List returns all registered workers
-func (r *Registry) List() []*Info {
+// List returns copies of all registered workers
+func (r *Registry) List() []Info {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make([]*Info, 0, len(r.workers))
+	result := make([]Info, 0, len(r.workers))
 	for _, w := range r.workers {
-		result = append(result, w)
+		result = append(result, cloneInfo(w))
 	}
 	return result
 }
 
-// ListByMode returns workers filtered by mode
-func (r *Registry) ListByMode(mode Mode) []*Info {
+// ListByMode returns copies of workers filtered by mode
+func (r *Registry) ListByMode(mode Mode) []Info {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var result []*Info
+	var result []Info
 	for _, w := range r.workers {
 		if w.Mode == mode {
-			result = append(result, w)
+			result = append(result, cloneInfo(w))
 		}
 	}
 	return result
+}
+
+// cloneInfo returns a deep copy of Info
+func cloneInfo(w *Info) Info {
+	caps := make([]string, len(w.Capabilities))
+	copy(caps, w.Capabilities)
+	return Info{
+		ID:            w.ID,
+		Mode:          w.Mode,
+		Capabilities:  caps,
+		Status:        w.Status,
+		ConnectedAt:   w.ConnectedAt,
+		LastHeartbeat: w.LastHeartbeat,
+	}
 }
 
 // RemoveStale removes remote workers that haven't sent a heartbeat within the threshold
