@@ -62,27 +62,48 @@ Herald 不只是"发送消息"，而是"处理事件"。
 
 ## 总体架构
 
-```
-                         ┌──────────────────────────┐
-                         │     Herald Scheduler      │
-                         │   (API + 路由 + 模板渲染)  │
-                         └─────────┬────────────────┘
-                                   │ Push
-                            ┌──────▼──────┐
-                            │    Queue     │  ← 统一抽象层
-                            │  (interface) │
-                            └──────┬──────┘
-                                   │ Pop + Ack/Nack
-                    ┌──────────────┼──────────────┐
-                    ↓              ↓              ↓
-              ┌──────────┐  ┌──────────┐  ┌──────────┐
-              │ Worker   │  │ Worker   │  │ Worker   │
-              │ mode:local│  │ mode:local│  │ mode:remote│
-              │ goroutine │  │ goroutine │  │ 独立进程  │
-              └──────────┘  └──────────┘  └──────────┘
-              Telegram       Email          微信公众号
-              Slack          Webhook        浏览器自动化
-              Discord        SMS            ...
+```mermaid
+graph TB
+    Client["External Client"]
+
+    subgraph Scheduler["Herald Scheduler"]
+        API["HTTP API"]
+        Router["Route Engine"]
+        Template["Template System"]
+        API --> Router --> Template
+    end
+
+    Queue["Queue<br/>memory / redis"]
+
+    subgraph LocalWorkers["Local Workers"]
+        LW1["Worker goroutine"]
+        LW2["Worker goroutine"]
+    end
+
+    subgraph RemoteWorkers["Remote Workers"]
+        RW1["独立进程"]
+        RW2["独立进程"]
+    end
+
+    subgraph Providers["Providers"]
+        P1["Telegram / Email"]
+        P2["Feishu / Slack / Discord"]
+        P3["SMS"]
+        P4["WeChat MP / ..."]
+    end
+
+    Client -->|HTTP REST| API
+    Template -->|Push| Queue
+    Queue -->|Pop + Ack| LW1
+    Queue -->|Pop + Ack| LW2
+    Queue -->|Pop + Ack| RW1
+    Queue -->|Pop + Ack| RW2
+    RW1 -.->|WebSocket 注册/心跳| Scheduler
+    RW2 -.->|WebSocket 注册/心跳| Scheduler
+    LW1 --> P1
+    LW2 --> P2
+    LW1 --> P3
+    RW1 --> P4
 ```
 
 ## 运行模式

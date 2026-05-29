@@ -25,13 +25,15 @@ Herald 不是：
 
 ### Queue as Backbone
 
-```
-API → Queue (唯一入口)
-         ↓
-    Worker Pool (统一出口)
-    ├── local-0  → Provider.Deliver()
-    ├── local-1  → Provider.Deliver()
-    └── remote-0 → (独立进程，从 Queue Pop)
+```mermaid
+graph LR
+    API -->|Push| Queue
+    Queue -->|Pop + Ack| WP["Worker Pool"]
+    WP --> L0["local-0"]
+    WP --> L1["local-1"]
+    Queue -->|Pop + Ack| R0["remote-0<br/>(独立进程)"]
+    L0 -->|Provider.Deliver| P1["Provider"]
+    L1 -->|Provider.Deliver| P2["Provider"]
 ```
 
 Queue 提供可靠消费语义（Ack/Nack），支持背压、持久化（Redis 模式）。
@@ -64,16 +66,13 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
 
 ### Notification → DeliveryTask
 
-```
-Notification
-    ↓ (路由)
-目标渠道列表
-    ↓ (模板渲染)
-DeliveryTask[] (每个渠道一个)
-    ↓ (入队)
-Queue
-    ↓ (Worker Pop)
-Worker Pool → Runtime → Provider
+```mermaid
+graph TB
+    N["Notification"] -->|路由| Channels["目标渠道列表"]
+    Channels -->|模板渲染| Tasks["DeliveryTask[]"]
+    Tasks -->|入队| Q["Queue"]
+    Q -->|Worker Pop| WP["Worker Pool"]
+    WP -->|Provider.Deliver| Provider["Provider"]
 ```
 
 ### Payload 类型

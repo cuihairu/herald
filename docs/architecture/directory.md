@@ -79,12 +79,14 @@ herald/
 
 ## 数据流
 
-```
-API Request → Handler → NotificationService → DeliveryPlanner → Queue → Worker Pool → Provider
-                          │                      │                        │
-                          ├─ Template 渲染       ├─ Binding 解析          ├─ local: 直接调用
-                          ├─ Dedup 去重          └─ SMS 参数适配          └─ remote: Queue 消费
-                          └─ Route 路由
+```mermaid
+graph LR
+    API["API Request"] --> Handler --> NS["NotificationService"]
+    NS --> Planner["DeliveryPlanner"]
+    Planner --> Queue["Queue"]
+    Queue --> WP["Worker Pool"]
+    WP -->|local| P1["Provider"]
+    Queue -->|remote| P2["Provider"]
 ```
 
 ## 配置示例

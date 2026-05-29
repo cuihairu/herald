@@ -4,24 +4,28 @@
 
 Herald 中所有 Worker 都是同一种概念，通过 `local`/`remote` 区分部署方式：
 
-```
-                         ┌──────────────────────────┐
-                         │     Herald Scheduler      │
-                         │   (API + 路由 + 模板渲染)  │
-                         └─────────┬────────────────┘
-                                   │ Push
-                            ┌──────▼──────┐
-                            │    Queue     │  ← 唯一任务通道 (memory/redis)
-                            └──────┬──────┘
-                                   │ Pop + Ack/Nack
-                    ┌──────────────┼──────────────┐
-                    ↓              ↓              ↓
-              ┌──────────┐  ┌──────────┐  ┌──────────┐
-              │ Worker   │  │ Worker   │  │ Worker   │
-              │ mode:local│  │ mode:local│  │ mode:remote│
-              │ goroutine │  │ goroutine │  │ 独立进程  │
-              └──────────┘  └──────────┘  └──────────┘
-                                            ↕ WebSocket (注册/心跳/状态)
+```mermaid
+graph TB
+    subgraph Scheduler["Herald Scheduler"]
+        API["HTTP API"]
+    end
+
+    Queue["Queue<br/>memory / redis"]
+
+    subgraph Local["Local Workers"]
+        LW1["goroutine"]
+        LW2["goroutine"]
+    end
+
+    subgraph Remote["Remote Workers"]
+        RW1["独立进程"]
+    end
+
+    API -->|Push| Queue
+    Queue -->|Pop + Ack| LW1
+    Queue -->|Pop + Ack| LW2
+    Queue -->|Pop + Ack| RW1
+    RW1 -.->|WebSocket<br/>注册/心跳| Scheduler
 ```
 
 | 属性 | Local Worker | Remote Worker |

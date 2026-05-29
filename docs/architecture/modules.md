@@ -6,8 +6,12 @@
 
 Worker Pool 管理一组 Worker，统一从 Queue 消费任务并投递：
 
-```
-Queue → Worker Pool → Runtime Manager → Provider
+```mermaid
+graph LR
+    Queue -->|Pop| WP["Worker Pool"]
+    WP -->|Ack/Nack| Queue
+    WP --> RM["Runtime Manager"]
+    RM --> Provider["Provider"]
 ```
 
 **核心职责：**
@@ -22,27 +26,30 @@ Queue → Worker Pool → Runtime Manager → Provider
 
 统一管理所有 Worker 的元信息：
 
-```
-┌─────────────────────────────────┐
-│          Registry               │
-│                                 │
-│  local-0   → { mode: local }   │
-│  local-1   → { mode: local }   │
-│  worker-01 → { mode: remote }  │
-│  worker-02 → { mode: remote }  │
-└─────────────────────────────────┘
+```mermaid
+graph LR
+    subgraph Registry["Registry"]
+        L0["local-0 → mode: local"]
+        L1["local-1 → mode: local"]
+        W1["worker-01 → mode: remote"]
+        W2["worker-02 → mode: remote"]
+    end
 ```
 
 **源码位置：** `core/worker/registry.go`
 
 ## 数据流
 
-```
-API Request → Handler → NotificationService → DeliveryPlanner → Queue → Worker Pool → Runtime → Provider
-                          │                      │
-                          ├─ Template 渲染       ├─ Binding 解析
-                          ├─ Dedup 去重          ├─ SMS 参数适配
-                          └─ Route 路由          └─ Renderer 内容渲染
+```mermaid
+graph LR
+    API["API Request"] --> Handler --> NS["NotificationService"]
+    NS -->|路由| Route["Route Engine"]
+    NS -->|去重| Dedup["Dedup"]
+    NS -->|渲染| Template["Template"]
+    NS --> Planner["DeliveryPlanner"]
+    Planner -->|Binding 解析| Queue["Queue"]
+    Queue --> WP["Worker Pool"]
+    WP -->|Provider.Deliver| Provider["Provider"]
 ```
 
 ## 核心类型

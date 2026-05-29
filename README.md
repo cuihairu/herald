@@ -120,23 +120,36 @@ curl http://localhost:8080/api/v1/providers
 
 ## 架构
 
-```
-                         ┌──────────────────────────┐
-                         │     Herald Scheduler      │
-                         │   (API + 路由 + 模板渲染)  │
-                         └─────────┬────────────────┘
-                                   │ Push
-                            ┌──────▼──────┐
-                            │    Queue     │  memory / redis
-                            └──────┬──────┘
-                                   │ Pop + Ack/Nack
-                    ┌──────────────┼──────────────┐
-                    ↓              ↓              ↓
-              ┌──────────┐  ┌──────────┐  ┌──────────┐
-              │ Worker   │  │ Worker   │  │ Worker   │
-              │ mode:local│  │ mode:local│  │ mode:remote│
-              │ goroutine │  │ goroutine │  │ 独立进程  │
-              └──────────┘  └──────────┘  └──────────┘
+```mermaid
+graph TB
+    Client["External Client<br/>curl / CI/CD / SDK"]
+
+    subgraph Scheduler["Herald Scheduler"]
+        API["HTTP API<br/>(路由 + 模板渲染)"]
+    end
+
+    Queue["Queue<br/>memory / redis"]
+
+    subgraph Workers["Worker Pool"]
+        W1["Worker<br/>mode: local"]
+        W2["Worker<br/>mode: local"]
+        W3["Worker<br/>mode: remote"]
+    end
+
+    subgraph Providers
+        P1["Telegram / Email"]
+        P2["Feishu / Slack"]
+        P3["WeChat MP / ..."]
+    end
+
+    Client -->|POST /api/v1/notify| API
+    API -->|Push| Queue
+    Queue -->|Pop + Ack/Nack| W1
+    Queue -->|Pop + Ack/Nack| W2
+    Queue -->|Pop + Ack/Nack| W3
+    W1 --> P1
+    W2 --> P2
+    W3 --> P3
 ```
 
 | 命令 | 模式 | 说明 |
