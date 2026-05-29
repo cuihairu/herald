@@ -66,6 +66,13 @@ func serveCmd(args []string) {
 		Type:    cfg.Queue.Type,
 		Size:    cfg.Queue.Size,
 		Timeout: cfg.Queue.Timeout,
+		Redis: queue.RedisConfig{
+			Addr:     cfg.Queue.Redis.Addr,
+			Password: cfg.Queue.Redis.Password,
+			DB:       cfg.Queue.Redis.DB,
+			Stream:   cfg.Queue.Redis.Stream,
+			Group:    cfg.Queue.Redis.Group,
+		},
 	})
 	if err != nil {
 		logger.Error("failed to create queue", "error", err)
@@ -216,6 +223,13 @@ func workerCmd(args []string) {
 		Type:    cfg.Queue.Type,
 		Size:    cfg.Queue.Size,
 		Timeout: cfg.Queue.Timeout,
+		Redis: queue.RedisConfig{
+			Addr:     cfg.Queue.Redis.Addr,
+			Password: cfg.Queue.Redis.Password,
+			DB:       cfg.Queue.Redis.DB,
+			Stream:   cfg.Queue.Redis.Stream,
+			Group:    cfg.Queue.Redis.Group,
+		},
 	})
 	if err != nil {
 		logger.Error("failed to create queue", "error", err)

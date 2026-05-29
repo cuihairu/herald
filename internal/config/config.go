@@ -59,6 +59,16 @@ type QueueConfig struct {
 	Size    int           `yaml:"size"`
 	Workers int           `yaml:"workers"`
 	Timeout time.Duration `yaml:"timeout"`
+	Redis   RedisConfig   `yaml:"redis"`
+}
+
+// RedisConfig is the redis queue configuration
+type RedisConfig struct {
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
+	Stream   string `yaml:"stream"`
+	Group    string `yaml:"group"`
 }
 
 // RetryConfig is the retry configuration

@@ -258,6 +258,12 @@ providers:
 | 单机开发/小规模 | `memory` | 所有 Worker 在同一进程内 |
 | 分布式/高可用 | `redis` | 调度器和 Worker 可以独立部署 |
 
+### Redis 队列要求
+
+- **最低版本**：Redis 5.0+（需要 Streams 和 Consumer Groups 支持）
+- 推荐使用 Redis 6.0+ 以获得更好的稳定性
+- Redis Streams 的 `XADD`、`XREADGROUP`、`XACK` 命令是核心依赖
+
 ## 环境变量
 
 支持使用 `${VAR_NAME}` 引用环境变量：

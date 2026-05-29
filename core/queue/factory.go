@@ -11,6 +11,8 @@ func NewQueue(config *QueueConfig) (core.Queue, error) {
 	switch config.Type {
 	case "memory", "":
 		return NewMemoryQueue(config)
+	case "redis":
+		return NewRedisQueue(config)
 	default:
 		return nil, fmt.Errorf("unknown queue type: %s", config.Type)
 	}
