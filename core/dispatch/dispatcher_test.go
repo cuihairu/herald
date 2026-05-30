@@ -79,43 +79,6 @@ func (m *mockQueue) Close() error {
 	return nil
 }
 
-// mockRuntime is a simple runtime manager for testing
-type mockRuntime struct {
-	deliverError error
-	delivered    []*core.DeliveryTask
-	enabled      map[string]bool
-}
-
-func newMockRuntime() *mockRuntime {
-	return &mockRuntime{
-		delivered: make([]*core.DeliveryTask, 0),
-		enabled:   make(map[string]bool),
-	}
-}
-
-func (m *mockRuntime) Deliver(ctx context.Context, task *core.DeliveryTask) error {
-	if m.deliverError != nil {
-		return m.deliverError
-	}
-	m.delivered = append(m.delivered, task)
-	return nil
-}
-
-func (m *mockRuntime) IsEnabled(name string) bool {
-	if enabled, ok := m.enabled[name]; ok {
-		return enabled
-	}
-	return true
-}
-
-func (m *mockRuntime) RegisterProvider(name string, provider core.Provider, enabled ...bool) error {
-	return nil
-}
-
-func (m *mockRuntime) GetProvider(name string) (core.Provider, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
 func TestNew(t *testing.T) {
 	t.Run("with valid parameters", func(t *testing.T) {
 		queue := newMockQueue()
@@ -220,7 +183,7 @@ func TestDispatcher_Run(t *testing.T) {
 			Provider: "test",
 			Targets:  []string{"test@example.com"},
 		}
-		queue.Push(ctx, task)
+		_ = queue.Push(ctx, task)
 
 		// Run dispatcher in background
 		runDone := make(chan struct{})
@@ -259,7 +222,7 @@ func TestDispatcher_Run(t *testing.T) {
 				Provider: "test",
 				Targets:  []string{fmt.Sprintf("test%d@example.com", i)},
 			}
-			queue.Push(ctx, task)
+			_ = queue.Push(ctx, task)
 		}
 
 		// Run dispatcher in background

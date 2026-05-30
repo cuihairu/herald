@@ -346,7 +346,7 @@ func TestNotificationService_Process(t *testing.T) {
 		}
 
 		before := time.Now()
-		service.Process(context.Background(), notification, queue)
+		_, _ = service.Process(context.Background(), notification, queue)
 		after := time.Now()
 
 		if notification.CreatedAt.Before(before) || notification.CreatedAt.After(after) {

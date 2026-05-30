@@ -184,10 +184,7 @@ func TestManager_header(t *testing.T) {
 	}
 
 	// Should be base64 encoded JSON
-	_, err := mgr.Validate("invalid." + header + ".signature")
-	if err != nil {
-		// This is expected since it's not a valid token
-	}
+	_, _ = mgr.Validate("invalid." + header + ".signature")
 }
 
 func TestManager_sign(t *testing.T) {

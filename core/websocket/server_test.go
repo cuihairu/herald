@@ -1064,15 +1064,13 @@ func TestHandleDisconnect(t *testing.T) {
 
 	// Simulate what happens when a worker disconnects
 	// The handler should be called
-	if handler != nil {
-		handler.OnDisconnect("test-worker")
+	handler.OnDisconnect("test-worker")
 
-		if len(handler.disconnectCalls) != 1 {
-			t.Errorf("expected 1 disconnect call, got %d", len(handler.disconnectCalls))
-		}
-		if handler.disconnectCalls[0] != "test-worker" {
-			t.Errorf("expected workerID test-worker, got %s", handler.disconnectCalls[0])
-		}
+	if len(handler.disconnectCalls) != 1 {
+		t.Errorf("expected 1 disconnect call, got %d", len(handler.disconnectCalls))
+	}
+	if handler.disconnectCalls[0] != "test-worker" {
+		t.Errorf("expected workerID test-worker, got %s", handler.disconnectCalls[0])
 	}
 }
 

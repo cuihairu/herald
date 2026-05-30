@@ -47,12 +47,9 @@ func TestManager_CreateDefaultUser(t *testing.T) {
 
 	t.Run("empty username", func(t *testing.T) {
 		mgr := NewManager()
-		err := mgr.CreateDefaultUser("", "password123")
-
 		// Empty username should create a user with empty string as key
-		if err != nil {
-			// This is actually allowed by the current implementation
-		}
+		// This is actually allowed by the current implementation
+		_ = mgr.CreateDefaultUser("", "password123")
 	})
 }
 
