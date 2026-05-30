@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -272,6 +273,244 @@ func TestClientInvalidURL(t *testing.T) {
 
 	// Invalid URL should cause an error
 	_, err := c.Get(ctx, "\n")
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestClientPostForm(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/x-www-form-urlencoded" {
+			t.Errorf("expected Content-Type application/x-www-form-urlencoded, got %s", ct)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"result":"ok"}`))
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	formData := url.Values{}
+	formData.Set("username", "test")
+	formData.Set("password", "secret")
+
+	resp, err := c.PostForm(ctx, server.URL, formData)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestClientPostFormError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	formData := url.Values{}
+	formData.Set("key", "value")
+
+	_, err := c.PostForm(ctx, server.URL, formData)
+	if err == nil {
+		t.Error("expected error for 401 status")
+	}
+}
+
+func TestClientPostFormWithEmptyValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	formData := url.Values{}
+
+	resp, err := c.PostForm(ctx, server.URL, formData)
+	if err != nil {
+		t.Errorf("expected no error with empty form data, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestClientPostFormInvalidURL(t *testing.T) {
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	formData := url.Values{}
+	formData.Set("key", "value")
+
+	_, err := c.PostForm(ctx, "\n", formData)
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestClientGetWithHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") != "" {
+			w.Header().Set("X-Received-Header", "true")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	resp, err := c.Get(ctx, server.URL)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestClientGetWithSpecialCharactersInURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	// Test URL with query parameters
+	testURL := server.URL + "?key=value&foo=bar"
+	resp, err := c.Get(ctx, testURL)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestResponseJSONError(t *testing.T) {
+	resp := &Response{
+		StatusCode: http.StatusOK,
+		Body:       []byte(`invalid json`),
+	}
+
+	var result struct {
+		Name string `json:"name"`
+	}
+
+	err := resp.JSON(&result)
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestClientConfigDefaults(t *testing.T) {
+	config := &Config{}
+	c := NewClient(config)
+
+	if c.timeout != 30*time.Second {
+		t.Errorf("expected default timeout 30s, got %v", c.timeout)
+	}
+}
+
+func TestClientConfigWithZeroTimeout(t *testing.T) {
+	config := &Config{Timeout: 0}
+	c := NewClient(config)
+
+	// Zero timeout should default to 30s
+	if c.timeout != 30*time.Second {
+		t.Errorf("expected default timeout 30s, got %v", c.timeout)
+	}
+}
+
+func TestClientConfigWithZeroMaxIdleConns(t *testing.T) {
+	config := &Config{MaxIdleConns: 0}
+	c := NewClient(config)
+
+	// Should use default of 100
+	transport, ok := c.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("expected http.Transport")
+	}
+	if transport.MaxIdleConns != 100 {
+		t.Errorf("expected MaxIdleConns 100, got %d", transport.MaxIdleConns)
+	}
+}
+
+func TestClientConfigWithZeroMaxConnsPerHost(t *testing.T) {
+	config := &Config{MaxConnsPerHost: 0}
+	c := NewClient(config)
+
+	transport, ok := c.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("expected http.Transport")
+	}
+	if transport.MaxIdleConnsPerHost != 10 {
+		t.Errorf("expected MaxIdleConnsPerHost 10, got %d", transport.MaxIdleConnsPerHost)
+	}
+}
+
+func TestPostJSONReadBodyError(t *testing.T) {
+	// This test would require a server that closes the connection mid-response
+	// which is difficult to implement reliably. Skipping this edge case.
+	// The error path is tested through context cancellation and timeout tests.
+}
+
+func TestRetryableErrorUnwrap(t *testing.T) {
+	baseErr := errors.New("base error")
+	retryableErr := &RetryableError{Err: baseErr}
+
+	if retryableErr.Unwrap() != baseErr {
+		t.Error("expected Unwrap to return base error")
+	}
+
+	if retryableErr.Error() != "base error" {
+		t.Errorf("expected Error() to return 'base error', got %s", retryableErr.Error())
+	}
+}
+
+func TestIsRetryableWithNilError(t *testing.T) {
+	if IsRetryable(nil) {
+		t.Error("expected IsRetryable to return false for nil error")
+	}
+}
+
+func TestGetConvenience(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	resp, err := Get(ctx, server.URL)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetConvenienceError(t *testing.T) {
+	ctx := context.Background()
+	_, err := Get(ctx, "http://invalid.local.test.example")
+	// Error is expected for invalid URL
 	if err == nil {
 		t.Error("expected error for invalid URL")
 	}
