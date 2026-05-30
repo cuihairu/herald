@@ -54,15 +54,14 @@ func TestRegisterBuiltinProviders(t *testing.T) {
 				continue
 			}
 
-			if config != nil {
-				provider, err := manager.CreateProvider(providerType, config)
-				if err != nil && providerType != "worker" {
-					// worker might fail without proper config
-					t.Logf("Failed to create %s: %v", providerType, err)
-				}
-				if provider != nil && provider.Type() != providerType {
-					t.Errorf("expected provider type %s, got %s", providerType, provider.Type())
-				}
+			// config is always non-nil here since default case continues
+			provider, err := manager.CreateProvider(providerType, config)
+			if err != nil && providerType != "worker" {
+				// worker might fail without proper config
+				t.Logf("Failed to create %s: %v", providerType, err)
+			}
+			if provider != nil && provider.Type() != providerType {
+				t.Errorf("expected provider type %s, got %s", providerType, provider.Type())
 			}
 		}
 	})
