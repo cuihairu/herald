@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -249,7 +250,7 @@ func TestNotificationService_Process(t *testing.T) {
 		queue := newMockQueue()
 
 		// Register multiple providers
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			provider := &mockProvider{
 				providerType: "test",
 				capability: core.ProviderCapability{
@@ -707,6 +708,275 @@ func TestProcessResult(t *testing.T) {
 	})
 }
 
+func TestNotificationService_ProcessWithRouter(t *testing.T) {
+	t.Run("route channels when not specified", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		queue := newMockQueue()
+
+		// Add route
+		router.SetRoute("alert", []string{"email", "slack"})
+
+		provider := &mockProvider{
+			providerType: "email",
+			capability: core.ProviderCapability{
+				PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+				ContentFormats: []string{"plain"},
+			},
+		}
+		runtime.RegisterProvider("email", provider, true)
+		runtime.RegisterProvider("slack", provider, true)
+
+		service := NewNotificationService(templates, router, runtime, nil)
+
+		notification := &core.Notification{
+			Type:  "alert",
+			Level: "high",
+			Content: &core.DirectContent{
+				Title: "Test Alert",
+				Body:  "Test body",
+			},
+		}
+
+		result, err := service.Process(context.Background(), notification, queue)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(result.Accepted) != 2 {
+			t.Errorf("expected 2 accepted channels from routing, got %d", len(result.Accepted))
+		}
+	})
+
+	t.Run("route error when no channels and no route", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		queue := newMockQueue()
+
+		service := NewNotificationService(templates, router, runtime, nil)
+
+		notification := &core.Notification{
+			Type:  "unknown",
+			Level: "high",
+			Content: &core.DirectContent{
+				Title: "Test",
+				Body:  "Test",
+			},
+		}
+
+		_, err := service.Process(context.Background(), notification, queue)
+		if err == nil {
+			t.Error("expected error when no route found")
+		}
+	})
+
+	t.Run("process with template rendering", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		queue := newMockQueue()
+
+		// Register template
+		_ = templates.Register(&template.Template{
+			ID:    "test-template",
+			Name:  "Test",
+			Title: "Alert: {{.title}}",
+			Fields: []template.Field{
+				{Label: "title", Value: "{{.title}}"},
+				{Label: "message", Value: "{{.message}}"},
+			},
+		})
+
+		provider := &mockProvider{
+			providerType: "email",
+			capability: core.ProviderCapability{
+				PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+				ContentFormats: []string{"plain"},
+			},
+		}
+		runtime.RegisterProvider("email", provider, true)
+
+		service := NewNotificationService(templates, router, runtime, nil)
+
+		notification := &core.Notification{
+			Channels:    []string{"email"},
+			TemplateRef: "test-template",
+			Params: map[string]any{
+				"title":   "Test Title",
+				"message": "Test Message",
+			},
+		}
+
+		result, err := service.Process(context.Background(), notification, queue)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(result.Accepted) != 1 {
+			t.Errorf("expected 1 accepted channel, got %d", len(result.Accepted))
+		}
+	})
+
+	t.Run("process with template rendering error", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		queue := newMockQueue()
+
+		service := NewNotificationService(templates, router, runtime, nil)
+
+		notification := &core.Notification{
+			Channels:    []string{"email"},
+			TemplateRef: "nonexistent",
+		}
+
+		_, err := service.Process(context.Background(), notification, queue)
+		if err == nil {
+			t.Error("expected error when template not found")
+		}
+	})
+
+	t.Run("dedup prevents duplicate processing", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		dedupMgr := dedup.NewDedup(&dedup.Config{Window: 100 * time.Second})
+		queue := newMockQueue()
+
+		provider := &mockProvider{
+			providerType: "email",
+			capability: core.ProviderCapability{
+				PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+				ContentFormats: []string{"plain"},
+			},
+		}
+		runtime.RegisterProvider("email", provider, true)
+
+		service := NewNotificationService(templates, router, runtime, dedupMgr)
+
+		notification := &core.Notification{
+			Channels: []string{"email"},
+			Type:     "alert",
+			Level:    "high",
+			Content: &core.DirectContent{
+				Title: "Test Alert",
+				Body:  "Test body",
+			},
+		}
+
+		// First call should succeed
+		result1, err1 := service.Process(context.Background(), notification, queue)
+		if err1 != nil {
+			t.Fatalf("first call should succeed, got %v", err1)
+		}
+		if len(result1.TaskIDs) != 1 {
+			t.Errorf("expected 1 task ID from first call, got %d", len(result1.TaskIDs))
+		}
+
+		// Second call with same content should be deduplicated
+		result2, err2 := service.Process(context.Background(), notification, queue)
+		if err2 != nil {
+			t.Fatalf("second call should succeed (dedup), got %v", err2)
+		}
+		if len(result2.TaskIDs) != 0 {
+			t.Errorf("expected 0 task IDs from second call (dedup), got %d", len(result2.TaskIDs))
+		}
+		if result2.NotificationID != result1.NotificationID {
+			t.Error("expected same notification ID for deduplicated call")
+		}
+	})
+
+	t.Run("provider not found error", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		queue := newMockQueue()
+
+		service := NewNotificationService(templates, router, runtime, nil)
+
+		notification := &core.Notification{
+			Channels: []string{"nonexistent"},
+			Content: &core.DirectContent{
+				Title: "Test",
+				Body:  "Test",
+			},
+		}
+
+		result, err := service.Process(context.Background(), notification, queue)
+		if err == nil {
+			t.Error("expected error when provider not found")
+		}
+		if len(result.Failed) != 1 {
+			t.Errorf("expected 1 failed channel, got %d", len(result.Failed))
+		}
+	})
+
+	t.Run("queue push failure", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+
+		// Create a failing queue
+		failingQueue := &failingQueue{pushError: fmt.Errorf("queue full")}
+
+		provider := &mockProvider{
+			providerType: "email",
+			capability: core.ProviderCapability{
+				PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+				ContentFormats: []string{"plain"},
+			},
+		}
+		runtime.RegisterProvider("email", provider, true)
+
+		service := NewNotificationService(templates, router, runtime, nil)
+
+		notification := &core.Notification{
+			Channels: []string{"email"},
+			Content: &core.DirectContent{
+				Title: "Test",
+				Body:  "Test",
+			},
+		}
+
+		result, err := service.Process(context.Background(), notification, failingQueue)
+		if err == nil {
+			t.Error("expected error when queue push fails")
+		}
+		if len(result.Failed) != 1 {
+			t.Errorf("expected 1 failed channel, got %d", len(result.Failed))
+		}
+	})
+}
+
+// failingQueue is a mock queue that always fails on Push
+type failingQueue struct {
+	pushError error
+}
+
+func (f *failingQueue) Push(ctx context.Context, task *core.DeliveryTask) error {
+	return f.pushError
+}
+
+func (f *failingQueue) Pop(ctx context.Context) (*core.DeliveryTask, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *failingQueue) Ack(ctx context.Context, id string) error {
+	return nil
+}
+
+func (f *failingQueue) Nack(ctx context.Context, id string, err error) error {
+	return nil
+}
+
+func (f *failingQueue) Size() int {
+	return 0
+}
+
+func (f *failingQueue) Close() error {
+	return nil
+}
+
 func TestHasKind(t *testing.T) {
 	t.Run("kind exists in list", func(t *testing.T) {
 		kinds := []core.PayloadKind{core.PayloadContent, core.PayloadRaw, core.PayloadProviderTemplate}
@@ -732,6 +1002,395 @@ func TestHasKind(t *testing.T) {
 
 		if hasKind(kinds, core.PayloadContent) {
 			t.Error("expected not to find kind in empty list")
+		}
+	})
+}
+
+func TestDeliveryPlanner_renderContent(t *testing.T) {
+	t.Run("render with no renderer returns field body", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		data := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "field1", Value: "value1"},
+				{Label: "field2", Value: "value2"},
+			},
+		}
+
+		result, err := planner.renderContent(context.Background(), data, "unknown")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if result == "" {
+			t.Error("expected non-empty result")
+		}
+		if !strings.Contains(result, "field1:") {
+			t.Errorf("expected result to contain 'field1:', got %s", result)
+		}
+	})
+
+	t.Run("render with empty fields", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		data := &template.RenderedData{
+			Fields: []template.RenderedField{},
+		}
+
+		result, err := planner.renderContent(context.Background(), data, "plain")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		// The plain renderer may return empty string or just whitespace for empty fields
+		// Both are acceptable
+		if result != "" && result != "\n" {
+			t.Errorf("expected empty string or newline for empty fields, got %q", result)
+		}
+	})
+}
+
+func TestDeliveryPlanner_buildProviderTemplate(t *testing.T) {
+	t.Run("with ordered params", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		binding := &template.Binding{
+			ParamOrder: []string{"code", "expire"},
+		}
+
+		renderedData := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "code", Value: "123456"},
+				{Label: "expire", Value: "5"},
+			},
+		}
+
+		notification := &core.Notification{}
+
+		pt := planner.buildProviderTemplate(notification, renderedData, binding)
+
+		params, ok := pt.Params.([]string)
+		if !ok {
+			t.Fatal("expected params to be []string")
+		}
+		if len(params) != 2 {
+			t.Errorf("expected 2 params, got %d", len(params))
+		}
+		if params[0] != "123456" {
+			t.Errorf("expected first param '123456', got %s", params[0])
+		}
+	})
+
+	t.Run("with named params", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		binding := &template.Binding{
+			Params: map[string]string{
+				"code":   "verification_code",
+				"expire": "expiration_time",
+			},
+		}
+
+		renderedData := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "code", Value: "654321"},
+				{Label: "expire", Value: "10"},
+			},
+		}
+
+		notification := &core.Notification{}
+
+		pt := planner.buildProviderTemplate(notification, renderedData, binding)
+
+		params, ok := pt.Params.(map[string]string)
+		if !ok {
+			t.Fatal("expected params to be map[string]string")
+		}
+		if len(params) != 2 {
+			t.Errorf("expected 2 params, got %d", len(params))
+		}
+		if params["verification_code"] != "654321" {
+			t.Errorf("expected verification_code '654321', got %s", params["verification_code"])
+		}
+	})
+
+	t.Run("fallback to all params when no binding params specified", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		binding := &template.Binding{}
+
+		renderedData := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "field1", Value: "value1"},
+			},
+		}
+
+		notification := &core.Notification{
+			Params: map[string]any{
+				"extra": "extravalue",
+			},
+		}
+
+		pt := planner.buildProviderTemplate(notification, renderedData, binding)
+
+		params, ok := pt.Params.(map[string]string)
+		if !ok {
+			t.Fatal("expected params to be map[string]string")
+		}
+		// Should have both rendered fields and notification params
+		if len(params) < 1 {
+			t.Errorf("expected at least 1 param, got %d", len(params))
+		}
+	})
+}
+
+func TestDeliveryPlanner_buildFieldValues(t *testing.T) {
+	t.Run("extract from rendered data", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		renderedData := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "code", Value: "123"},
+				{Label: "name", Value: "test"},
+			},
+		}
+
+		notification := &core.Notification{}
+
+		values := planner.buildFieldValues(renderedData, notification)
+
+		if len(values) != 2 {
+			t.Errorf("expected 2 values, got %d", len(values))
+		}
+		if values["code"] != "123" {
+			t.Errorf("expected code '123', got %s", values["code"])
+		}
+	})
+
+	t.Run("merge with notification params", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		renderedData := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "code", Value: "123"},
+			},
+		}
+
+		notification := &core.Notification{
+			Params: map[string]any{
+				"extra": "value",
+				"code": "456", // Should not override rendered field
+			},
+		}
+
+		values := planner.buildFieldValues(renderedData, notification)
+
+		if values["code"] != "123" {
+			t.Errorf("expected rendered code to take priority, got %s", values["code"])
+		}
+		if values["extra"] != "value" {
+			t.Errorf("expected extra param 'value', got %s", values["extra"])
+		}
+	})
+
+	t.Run("only notification params when no rendered data", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		notification := &core.Notification{
+			Params: map[string]any{
+				"key1": "value1",
+				"key2": 123, // Non-string should be skipped
+			},
+		}
+
+		values := planner.buildFieldValues(nil, notification)
+
+		if len(values) != 1 {
+			t.Errorf("expected 1 value (only string param), got %d", len(values))
+		}
+		if values["key1"] != "value1" {
+			t.Errorf("expected key1 'value1', got %s", values["key1"])
+		}
+	})
+}
+
+func TestDeliveryPlanner_selectFormat(t *testing.T) {
+	t.Run("binding format takes priority", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		binding := &template.Binding{Format: "html"}
+		supported := []string{"plain", "markdown"}
+
+		result := planner.selectFormat(supported, &core.Notification{}, binding)
+		if result != "html" {
+			t.Errorf("expected binding format 'html', got %s", result)
+		}
+	})
+
+	t.Run("first supported format when no binding", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		supported := []string{"markdown", "html"}
+
+		result := planner.selectFormat(supported, &core.Notification{}, nil)
+		if result != "markdown" {
+			t.Errorf("expected first supported format 'markdown', got %s", result)
+		}
+	})
+
+	t.Run("default to plain when no supported formats", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		result := planner.selectFormat([]string{}, &core.Notification{}, nil)
+		if result != "plain" {
+			t.Errorf("expected default format 'plain', got %s", result)
+		}
+	})
+}
+
+func TestDeliveryPlanner_resolveBinding(t *testing.T) {
+	t.Run("resolve existing binding", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		_ = templates.Register(&template.Template{
+			ID:    "test-template",
+			Name:  "Test",
+			Title: "Test",
+			Bindings: map[string]template.Binding{
+				"email": {TemplateCode: "EMAIL_001"},
+			},
+		})
+
+		binding := planner.resolveBinding("test-template", "email")
+		if binding == nil {
+			t.Fatal("expected non-nil binding")
+		}
+		if binding.TemplateCode != "EMAIL_001" {
+			t.Errorf("expected TemplateCode 'EMAIL_001', got %s", binding.TemplateCode)
+		}
+	})
+
+	t.Run("return nil when template not found", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		binding := planner.resolveBinding("nonexistent", "email")
+		if binding != nil {
+			t.Error("expected nil binding when template not found")
+		}
+	})
+
+	t.Run("return nil when no binding for channel", func(t *testing.T) {
+		templates := template.NewManager()
+		planner := NewDeliveryPlanner(templates)
+
+		_ = templates.Register(&template.Template{
+			ID:    "test-template",
+			Name:  "Test",
+			Title: "Test",
+			Bindings: map[string]template.Binding{
+				"slack": {TemplateCode: "SLACK_001"},
+			},
+		})
+
+		binding := planner.resolveBinding("test-template", "email")
+		if binding != nil {
+			t.Error("expected nil binding when channel not in bindings")
+		}
+	})
+
+	t.Run("return nil when templates is nil", func(t *testing.T) {
+		planner := NewDeliveryPlanner(nil)
+
+		binding := planner.resolveBinding("test", "email")
+		if binding != nil {
+			t.Error("expected nil binding when templates is nil")
+		}
+	})
+}
+
+func TestResolveContent(t *testing.T) {
+	t.Run("use rendered data when available", func(t *testing.T) {
+		renderedData := &template.RenderedData{
+			Title: "Rendered Title",
+			Fields: []template.RenderedField{
+				{Label: "field1", Value: "value1"},
+			},
+		}
+
+		title, body := resolveContent(&core.Notification{}, renderedData)
+		if title != "Rendered Title" {
+			t.Errorf("expected rendered title, got %s", title)
+		}
+		if body == "" {
+			t.Error("expected body from rendered fields")
+		}
+	})
+
+	t.Run("fall back to notification content", func(t *testing.T) {
+		notification := &core.Notification{
+			Content: &core.DirectContent{
+				Title: "Direct Title",
+				Body:  "Direct Body",
+			},
+		}
+
+		title, body := resolveContent(notification, nil)
+		if title != "Direct Title" {
+			t.Errorf("expected direct title, got %s", title)
+		}
+		if body != "Direct Body" {
+			t.Errorf("expected direct body, got %s", body)
+		}
+	})
+
+	t.Run("empty when neither available", func(t *testing.T) {
+		title, body := resolveContent(&core.Notification{}, nil)
+		if title != "" {
+			t.Errorf("expected empty title, got %s", title)
+		}
+		if body != "" {
+			t.Errorf("expected empty body, got %s", body)
+		}
+	})
+}
+
+func TestRenderFieldsBody(t *testing.T) {
+	t.Run("render fields as plain text", func(t *testing.T) {
+		data := &template.RenderedData{
+			Fields: []template.RenderedField{
+				{Label: "name", Value: "John"},
+				{Label: "age", Value: "30"},
+			},
+		}
+
+		result := renderFieldsBody(data)
+		if !strings.Contains(result, "name: John") {
+			t.Error("expected result to contain 'name: John'")
+		}
+		if !strings.Contains(result, "age: 30") {
+			t.Error("expected result to contain 'age: 30'")
+		}
+	})
+
+	t.Run("empty when no fields", func(t *testing.T) {
+		data := &template.RenderedData{
+			Fields: []template.RenderedField{},
+		}
+
+		result := renderFieldsBody(data)
+		if result != "" {
+			t.Errorf("expected empty string, got %s", result)
 		}
 	})
 }
