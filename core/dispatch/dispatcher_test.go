@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 // mockQueue is a simple in-memory queue for testing
 type mockQueue struct {
+	mu        sync.RWMutex
 	tasks     chan *core.DeliveryTask
 	acked     map[string]bool
 	nacked    map[string]bool
@@ -58,7 +60,9 @@ func (m *mockQueue) Ack(ctx context.Context, id string) error {
 	if m.ackError != nil {
 		return m.ackError
 	}
+	m.mu.Lock()
 	m.acked[id] = true
+	m.mu.Unlock()
 	return nil
 }
 
@@ -66,7 +70,9 @@ func (m *mockQueue) Nack(ctx context.Context, id string, err error) error {
 	if m.nackError != nil {
 		return m.nackError
 	}
+	m.mu.Lock()
 	m.nacked[id] = true
+	m.mu.Unlock()
 	return nil
 }
 
@@ -77,6 +83,12 @@ func (m *mockQueue) Size() int {
 func (m *mockQueue) Close() error {
 	close(m.tasks)
 	return nil
+}
+
+func (m *mockQueue) isAcked(id string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.acked[id]
 }
 
 // mockProvider is a simple provider for testing
@@ -229,7 +241,7 @@ func TestDispatcher_Run(t *testing.T) {
 		select {
 		case <-time.After(300 * time.Millisecond):
 			// Check if task was processed
-			if queue.acked[task.ID] {
+			if queue.isAcked(task.ID) {
 				t.Log("task was acknowledged")
 			}
 		case <-ctx.Done():
