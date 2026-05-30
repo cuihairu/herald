@@ -79,6 +79,35 @@ func (m *mockQueue) Close() error {
 	return nil
 }
 
+// mockProvider is a simple provider for testing
+type mockProvider struct {
+	name string
+}
+
+func (m *mockProvider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
+	return nil
+}
+
+func (m *mockProvider) Name() string {
+	return m.name
+}
+
+func (m *mockProvider) Type() string {
+	return "mock"
+}
+
+func (m *mockProvider) Status() *core.ProviderStatus {
+	return &core.ProviderStatus{
+		Name:   m.name,
+		Type:   "mock",
+		Status: "available",
+	}
+}
+
+func (m *mockProvider) Close() error {
+	return nil
+}
+
 func TestNew(t *testing.T) {
 	t.Run("with valid parameters", func(t *testing.T) {
 		queue := newMockQueue()
@@ -177,6 +206,10 @@ func TestDispatcher_Run(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
+		// Register a mock provider named "test"
+		mockProvider := &mockProvider{name: "test"}
+		_ = rt.RegisterProvider("test", mockProvider)
+
 		// Push a task
 		task := &core.DeliveryTask{
 			ID:       "test-task-1",
@@ -214,6 +247,10 @@ func TestDispatcher_Run(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
+
+		// Register a mock provider named "test"
+		mockProvider := &mockProvider{name: "test"}
+		_ = rt.RegisterProvider("test", mockProvider)
 
 		// Push multiple tasks
 		for i := 0; i < 5; i++ {
