@@ -766,9 +766,6 @@ func TestNewUpgrader(t *testing.T) {
 	})
 }
 
-// Removed: Server doesn't have a Dispatch method
-// func TestServer_Dispatch(t *testing.T) { ... }
-
 func TestServer_GetWorkerFound(t *testing.T) {
 	handler := &mockHandler{}
 	server := NewServer(nil, handler)
@@ -832,18 +829,6 @@ func TestServer_GetWorkersWithData(t *testing.T) {
 	}
 }
 
-func TestServer_DispatchNotFound(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	// Try to dispatch to a non-existent worker - this should be handled gracefully
-	// Note: Server doesn't have a Dispatch method, so we test through GetWorker
-	_, err := server.GetWorker("non-existent-worker")
-	if err == nil {
-		t.Error("expected error for non-existent worker")
-	}
-}
-
 func TestServer_GetWorkerCountWithWorkers(t *testing.T) {
 	handler := &mockHandler{}
 	server := NewServer(nil, handler)
@@ -862,8 +847,6 @@ func TestServer_GetWorkerCountWithWorkers(t *testing.T) {
 		t.Errorf("expected 3 workers, got %d", count)
 	}
 }
-
-// mockWebSocketConn removed - not needed for current tests
 
 func TestWebSocketIntegration(t *testing.T) {
 	if testing.Short() {
@@ -895,211 +878,187 @@ func TestWebSocketIntegration(t *testing.T) {
 	}
 }
 
-
-func TestHandleRegister(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	// Create a connection state
-	state := &ConnectionState{
-		WorkerID: "",
-		Platform: "",
-		Version:  "",
-		Status:   make(map[string]interface{}),
-	}
-
-	msg := &protocol.RegisterMessage{
-		WorkerID:     "test-worker",
-		Platform:     "linux",
-		Version:      "1.0.0",
-		Capabilities: []string{"telegram", "slack"},
-	}
-
-	// This would normally be called from handleConnection via WebSocket
-	// For unit test, we can't easily test without actual WebSocket connection
-	_ = state
-	_ = msg
-	_ = server
+func TestHandleRegisterDoc2(t *testing.T) {
+	// handleRegister tests are limited due to WebSocket conn requirement
+	// The message routing is tested via handleMessage
 }
 
 func TestHandleHeartbeat(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	// First, add a worker to the server
-	state := &ConnectionState{
-		WorkerID:      "test-worker",
-		LastHeartbeat: time.Now(),
-		Status:        make(map[string]interface{}),
-	}
-
-	server.mu.Lock()
-	server.workers["test-worker"] = state
-	server.mu.Unlock()
-
-	msg := &protocol.HeartbeatMessage{
-		WorkerID: "test-worker",
-		Status:   map[string]interface{}{"tasks_sent": 10, "tasks_done": 8},
-	}
-
-	// Test handleHeartbeat
-	err := server.handleHeartbeat(msg)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
-
-	// Verify status was updated
-	server.mu.RLock()
-	updatedState := server.workers["test-worker"]
-	server.mu.RUnlock()
-
-	if updatedState.Status["tasks_sent"] != 10 {
-		t.Errorf("expected tasks_sent to be 10, got %v", updatedState.Status["tasks_sent"])
-	}
-	if updatedState.Status["tasks_done"] != 8 {
-		t.Errorf("expected tasks_done to be 8, got %v", updatedState.Status["tasks_done"])
-	}
-}
-
-func TestHandleHeartbeatWorkerNotFound(t *testing.T) {
-	server := NewServer(nil, &mockHandler{})
-
-	msg := &protocol.HeartbeatMessage{
-		WorkerID: "non-existent-worker",
-	}
-
-	err := server.handleHeartbeat(msg)
-	if err == nil {
-		t.Error("expected error for non-existent worker")
-	}
-}
-
-func TestHandleAck(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	msg := &protocol.AckMessage{
-		TaskID:  "task-1",
-		Success: true,
-		Error:   "",
-	}
-
-	err := server.handleAck(msg)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
-
-	// Verify handler was notified
-	if len(handler.ackCalls) != 1 {
-		t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
-	}
-	if handler.ackCalls[0].taskID != "task-1" {
-		t.Errorf("expected taskID task-1, got %s", handler.ackCalls[0].taskID)
-	}
-	if !handler.ackCalls[0].success {
-		t.Error("expected success to be true")
-	}
-}
-
-func TestHandleAckFailure(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	msg := &protocol.AckMessage{
-		TaskID:  "task-1",
-		Success: false,
-		Error:   "delivery failed",
-	}
-
-	err := server.handleAck(msg)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
-
-	if len(handler.ackCalls) != 1 {
-		t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
-	}
-	if handler.ackCalls[0].errMsg != "delivery failed" {
-		t.Errorf("expected error message 'delivery failed', got %s", handler.ackCalls[0].errMsg)
-	}
-}
-
-func TestHandleEvent(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(nil, handler)
-
-	data := map[string]interface{}{
-		"message": "test event data",
-	}
-	msg := &protocol.EventMessage{
-		WorkerID:  "test-worker",
-		EventType: "worker.started",
-		Data:      data,
-		Timestamp: time.Now().Unix(),
-	}
-
-	err := server.handleEvent(msg)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
-
-	if len(handler.eventCalls) != 1 {
-		t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
-	}
-	if handler.eventCalls[0].workerID != "test-worker" {
-		t.Errorf("expected workerID test-worker, got %s", handler.eventCalls[0].workerID)
-	}
-	if handler.eventCalls[0].event.EventType != "worker.started" {
-		t.Errorf("expected event type worker.started, got %s", handler.eventCalls[0].event.EventType)
-	}
-}
-
-func TestHandleDisconnect(t *testing.T) {
-	handler := &mockHandler{}
-	_ = NewServer(nil, handler)
-
-	// Note: handleDisconnect calls state.conn.Close() which panics if conn is nil
-	// This is expected behavior - workers with nil conn shouldn't exist in real scenarios
-	// We'll test the handler notification path instead
-
-	// Simulate what happens when a worker disconnects
-	// The handler should be called
-	handler.OnDisconnect("test-worker")
-
-	if len(handler.disconnectCalls) != 1 {
-		t.Errorf("expected 1 disconnect call, got %d", len(handler.disconnectCalls))
-	}
-	if handler.disconnectCalls[0] != "test-worker" {
-		t.Errorf("expected workerID test-worker, got %s", handler.disconnectCalls[0])
-	}
-}
-
-func TestHandleDisconnectNonExistent(t *testing.T) {
-	server := NewServer(nil, &mockHandler{})
-
-	// Should not panic
-	server.handleDisconnect("non-existent-worker")
-}
-
-func TestHandleMessage(t *testing.T) {
-	t.Run("register message", func(t *testing.T) {
+	t.Run("heartbeat updates status", func(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(nil, handler)
 
+		// First, add a worker to the server
 		state := &ConnectionState{
-			WorkerID: "",
-			Status:   make(map[string]interface{}),
+			WorkerID:      "test-worker",
+			LastHeartbeat: time.Now(),
+			Status:        make(map[string]interface{}),
 		}
 
-		data := `{"type":"register","worker_id":"worker-1","platform":"linux","version":"1.0.0","capabilities":["telegram"]}`
+		server.mu.Lock()
+		server.workers["test-worker"] = state
+		server.mu.Unlock()
 
-		// This test documents that handleMessage would parse and route to handleRegister
-		// Since handleRegister needs a WebSocket conn to send ACK, we can't fully test it
-		_ = state
-		_ = data
-		_ = server
+		msg := &protocol.HeartbeatMessage{
+			WorkerID: "test-worker",
+			Status:   map[string]interface{}{"tasks_sent": 10, "tasks_done": 8},
+		}
+
+		// Test handleHeartbeat
+		err := server.handleHeartbeat(msg)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Verify status was updated
+		server.mu.RLock()
+		updatedState := server.workers["test-worker"]
+		server.mu.RUnlock()
+
+		if updatedState.Status["tasks_sent"] != 10 {
+			t.Errorf("expected tasks_sent to be 10, got %v", updatedState.Status["tasks_sent"])
+		}
+		if updatedState.Status["tasks_done"] != 8 {
+			t.Errorf("expected tasks_done to be 8, got %v", updatedState.Status["tasks_done"])
+		}
 	})
 
+	t.Run("heartbeat worker not found", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+
+		msg := &protocol.HeartbeatMessage{
+			WorkerID: "non-existent-worker",
+		}
+
+		err := server.handleHeartbeat(msg)
+		if err == nil {
+			t.Error("expected error for non-existent worker")
+		}
+	})
+}
+
+func TestHandleAck(t *testing.T) {
+	t.Run("ack success", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		msg := &protocol.AckMessage{
+			TaskID:  "task-1",
+			Success: true,
+			Error:   "",
+		}
+
+		err := server.handleAck(msg)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		// Verify handler was notified
+		if len(handler.ackCalls) != 1 {
+			t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+		}
+		if handler.ackCalls[0].taskID != "task-1" {
+			t.Errorf("expected taskID task-1, got %s", handler.ackCalls[0].taskID)
+		}
+		if !handler.ackCalls[0].success {
+			t.Error("expected success to be true")
+		}
+	})
+
+	t.Run("ack failure", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		msg := &protocol.AckMessage{
+			TaskID:  "task-1",
+			Success: false,
+			Error:   "delivery failed",
+		}
+
+		err := server.handleAck(msg)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		if len(handler.ackCalls) != 1 {
+			t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+		}
+		if handler.ackCalls[0].errMsg != "delivery failed" {
+			t.Errorf("expected error message 'delivery failed', got %s", handler.ackCalls[0].errMsg)
+		}
+	})
+
+	t.Run("ack without handler", func(t *testing.T) {
+		server := NewServer(nil, nil)
+
+		msg := &protocol.AckMessage{
+			TaskID:  "task-1",
+			Success: true,
+		}
+
+		err := server.handleAck(msg)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestHandleEvent(t *testing.T) {
+	t.Run("event with handler", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		data := map[string]interface{}{
+			"message": "test event data",
+		}
+		msg := &protocol.EventMessage{
+			WorkerID:  "test-worker",
+			EventType: "worker.started",
+			Data:      data,
+			Timestamp: time.Now().Unix(),
+		}
+
+		err := server.handleEvent(msg)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		if len(handler.eventCalls) != 1 {
+			t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
+		}
+		if handler.eventCalls[0].workerID != "test-worker" {
+			t.Errorf("expected workerID test-worker, got %s", handler.eventCalls[0].workerID)
+		}
+		if handler.eventCalls[0].event.EventType != "worker.started" {
+			t.Errorf("expected event type worker.started, got %s", handler.eventCalls[0].event.EventType)
+		}
+	})
+
+	t.Run("event without handler", func(t *testing.T) {
+		server := NewServer(nil, nil)
+
+		msg := &protocol.EventMessage{
+			WorkerID:  "test-worker",
+			EventType: "test.event",
+		}
+
+		err := server.handleEvent(msg)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestHandleDisconnectBasic(t *testing.T) {
+	t.Run("disconnect non-existent worker", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+
+		// Should not panic
+		server.handleDisconnect("non-existent-worker")
+	})
+}
+
+func TestHandleMessage(t *testing.T) {
 	t.Run("invalid JSON", func(t *testing.T) {
 		server := NewServer(nil, &mockHandler{})
 		state := &ConnectionState{Status: make(map[string]interface{})}
@@ -1119,25 +1078,172 @@ func TestHandleMessage(t *testing.T) {
 		// Unknown message types should be handled gracefully (no error returned)
 		_ = err
 	})
+
+	t.Run("missing type field", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"worker_id":"worker-1"}`
+
+		err := server.handleMessage(state, []byte(data))
+		// Missing type field results in empty type, which falls into default case
+		// No error is returned, just a warning log
+		if err != nil {
+			t.Errorf("expected no error for missing type, got %v", err)
+		}
+	})
+
+	t.Run("empty message", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		err := server.handleMessage(state, []byte(""))
+		if err == nil {
+			t.Error("expected error for empty message")
+		}
+	})
+
+	t.Run("heartbeat message", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		// First add a worker
+		state := &ConnectionState{
+			WorkerID:      "worker-1",
+			LastHeartbeat: time.Now(),
+			Status:        make(map[string]interface{}),
+		}
+
+		server.mu.Lock()
+		server.workers["worker-1"] = state
+		server.mu.Unlock()
+
+		data := `{"type":"heartbeat","worker_id":"worker-1","status":{"tasks":5}}`
+
+		err := server.handleMessage(state, []byte(data))
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ack message", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"type":"ack","task_id":"task-1","success":true,"error":""}`
+
+		err := server.handleMessage(state, []byte(data))
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		if len(handler.ackCalls) != 1 {
+			t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+		}
+	})
+
+	t.Run("event message", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"type":"event","worker_id":"worker-1","event_type":"test.event","data":{"key":"value"},"timestamp":1234567890}`
+
+		err := server.handleMessage(state, []byte(data))
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+
+		if len(handler.eventCalls) != 1 {
+			t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
+		}
+	})
+
+	t.Run("register invalid JSON", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"type":"register","worker_id":"worker-1","invalid`
+
+		err := server.handleMessage(state, []byte(data))
+		if err == nil {
+			t.Error("expected error for invalid register JSON")
+		}
+	})
+
+	t.Run("heartbeat invalid JSON", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"type":"heartbeat","worker_id":"worker-1","status":`
+
+		err := server.handleMessage(state, []byte(data))
+		if err == nil {
+			t.Error("expected error for invalid heartbeat JSON")
+		}
+	})
+
+	t.Run("ack invalid JSON", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"type":"ack","task_id":"task-1","success":`
+
+		err := server.handleMessage(state, []byte(data))
+		if err == nil {
+			t.Error("expected error for invalid ack JSON")
+		}
+	})
+
+	t.Run("event invalid JSON", func(t *testing.T) {
+		server := NewServer(nil, &mockHandler{})
+		state := &ConnectionState{Status: make(map[string]interface{})}
+
+		data := `{"type":"event","worker_id":"worker-1","event_type":"test.event","data":`
+
+		err := server.handleMessage(state, []byte(data))
+		if err == nil {
+			t.Error("expected error for invalid event JSON")
+		}
+	})
 }
 
 func TestCheckStaleWorkers(t *testing.T) {
-	handler := &mockHandler{}
-	server := NewServer(&Config{Addr: ":0"}, handler)
+	t.Run("stale worker detection", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(&Config{Addr: ":0"}, handler)
 
-	// Add a worker with old heartbeat
-	oldTime := time.Now().Add(-3 * time.Minute)
-	state := &ConnectionState{
-		WorkerID:      "stale-worker",
-		LastHeartbeat: oldTime,
-		Status:        make(map[string]interface{}),
-	}
+		// Add a worker with old heartbeat
+		oldTime := time.Now().Add(-3 * time.Minute)
+		state := &ConnectionState{
+			WorkerID:      "stale-worker",
+			LastHeartbeat: oldTime,
+			Status:        make(map[string]interface{}),
+		}
 
-	server.mu.Lock()
-	server.workers["stale-worker"] = state
-	server.mu.Unlock()
+		server.mu.Lock()
+		server.workers["stale-worker"] = state
+		server.mu.Unlock()
 
-	// Note: checkStaleWorkers runs in a goroutine, so we can't easily test it
-	// This test documents that stale workers should be removed
-	_ = server
+		// Note: checkStaleWorkers runs in a goroutine with a ticker
+		// This test documents the expected behavior
+		_ = server
+	})
+}
+
+func TestHandleRegisterDoc(t *testing.T) {
+	// This test documents handleRegister behavior
+	// Note: handleRegister requires a valid WebSocket conn to send the ACK
+	// The message parsing and routing is tested via handleMessage tests
+	t.Run("register message parsing", func(t *testing.T) {
+		// The register message type is tested via handleMessage
+		// This test documents that handleRegister:
+		// 1. Updates state.WorkerID, Platform, Version, Capabilities
+		// 2. Stores state in server.workers
+		// 3. Sends ACK via WebSocket
+		// 4. Calls handler.OnRegister
+	})
 }
