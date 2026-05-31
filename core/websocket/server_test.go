@@ -10,6 +10,7 @@ import (
 
 	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/protocol"
+	"github.com/gorilla/websocket"
 )
 
 // mockHandler is a mock connection handler for testing
@@ -878,11 +879,6 @@ func TestWebSocketIntegration(t *testing.T) {
 	}
 }
 
-func TestHandleRegisterDoc2(t *testing.T) {
-	// handleRegister tests are limited due to WebSocket conn requirement
-	// The message routing is tested via handleMessage
-}
-
 func TestHandleHeartbeat(t *testing.T) {
 	t.Run("heartbeat updates status", func(t *testing.T) {
 		handler := &mockHandler{}
@@ -1075,8 +1071,9 @@ func TestHandleMessage(t *testing.T) {
 
 		data := `{"type":"unknown_type"}`
 		err := server.handleMessage(state, []byte(data))
-		// Unknown message types should be handled gracefully (no error returned)
-		_ = err
+		if err != nil {
+			t.Errorf("expected no error for unknown message type, got %v", err)
+		}
 	})
 
 	t.Run("missing type field", func(t *testing.T) {
@@ -1216,34 +1213,114 @@ func TestCheckStaleWorkers(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(&Config{Addr: ":0"}, handler)
 
-		// Add a worker with old heartbeat
-		oldTime := time.Now().Add(-3 * time.Minute)
-		state := &ConnectionState{
+		staleState := &ConnectionState{
 			WorkerID:      "stale-worker",
-			LastHeartbeat: oldTime,
+			LastHeartbeat: time.Now().Add(-3 * time.Minute),
+			Status:        make(map[string]interface{}),
+		}
+		freshState := &ConnectionState{
+			WorkerID:      "fresh-worker",
+			LastHeartbeat: time.Now(),
 			Status:        make(map[string]interface{}),
 		}
 
 		server.mu.Lock()
-		server.workers["stale-worker"] = state
+		server.workers["stale-worker"] = staleState
+		server.workers["fresh-worker"] = freshState
 		server.mu.Unlock()
 
-		// Note: checkStaleWorkers runs in a goroutine with a ticker
-		// This test documents the expected behavior
-		_ = server
+		server.pruneStaleWorkers(time.Now())
+
+		server.mu.RLock()
+		_, staleExists := server.workers["stale-worker"]
+		_, freshExists := server.workers["fresh-worker"]
+		server.mu.RUnlock()
+
+		if staleExists {
+			t.Error("expected stale worker to be removed")
+		}
+		if !freshExists {
+			t.Error("expected fresh worker to remain")
+		}
+		if len(handler.disconnectCalls) != 1 || handler.disconnectCalls[0] != "stale-worker" {
+			t.Fatalf("expected one disconnect call for stale-worker, got %#v", handler.disconnectCalls)
+		}
 	})
 }
 
-func TestHandleRegisterDoc(t *testing.T) {
-	// This test documents handleRegister behavior
-	// Note: handleRegister requires a valid WebSocket conn to send the ACK
-	// The message parsing and routing is tested via handleMessage tests
-	t.Run("register message parsing", func(t *testing.T) {
-		// The register message type is tested via handleMessage
-		// This test documents that handleRegister:
-		// 1. Updates state.WorkerID, Platform, Version, Capabilities
-		// 2. Stores state in server.workers
-		// 3. Sends ACK via WebSocket
-		// 4. Calls handler.OnRegister
-	})
+func TestHandleRegister(t *testing.T) {
+	handler := &mockHandler{}
+	server := NewServer(&Config{
+		Addr:           "127.0.0.1:0",
+		ReadTimeout:    time.Second,
+		WriteTimeout:   time.Second,
+		PingTimeout:    time.Second,
+		PingInterval:   time.Second,
+		AllowedOrigins: []string{"*"},
+	}, handler)
+
+	testSrv := httptest.NewServer(http.HandlerFunc(server.handleWebSocket))
+	defer testSrv.Close()
+
+	wsURL := "ws" + testSrv.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	register := &protocol.RegisterMessage{
+		WorkerID:     "worker-1",
+		Platform:     "linux",
+		Version:      "1.0.0",
+		Capabilities: []string{"telegram", "slack"},
+	}
+	payload, err := protocol.MarshalMessage(register)
+	if err != nil {
+		t.Fatalf("failed to marshal register message: %v", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		t.Fatalf("failed to write register message: %v", err)
+	}
+
+	_, ackData, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read register ack: %v", err)
+	}
+
+	var ack protocol.RegisterAckMessage
+	if err := json.Unmarshal(ackData, &ack); err != nil {
+		t.Fatalf("failed to decode register ack: %v", err)
+	}
+	if ack.WorkerID != "worker-1" || !ack.Success {
+		t.Fatalf("unexpected ack: %#v", ack)
+	}
+
+	server.mu.RLock()
+	state, ok := server.workers["worker-1"]
+	server.mu.RUnlock()
+	if !ok {
+		t.Fatal("expected worker to be registered")
+	}
+	if state.Platform != "linux" {
+		t.Fatalf("expected platform linux, got %s", state.Platform)
+	}
+	if state.Version != "1.0.0" {
+		t.Fatalf("expected version 1.0.0, got %s", state.Version)
+	}
+	if len(state.Capabilities) != 2 {
+		t.Fatalf("expected 2 capabilities, got %d", len(state.Capabilities))
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(handler.registerCalls) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+
+	if len(handler.registerCalls) != 1 {
+		t.Fatalf("expected 1 register callback, got %d", len(handler.registerCalls))
+	}
+	if handler.registerCalls[0].workerID != "worker-1" {
+		t.Fatalf("expected worker-1 callback, got %s", handler.registerCalls[0].workerID)
+	}
 }

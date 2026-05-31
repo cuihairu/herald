@@ -83,9 +83,9 @@ type ConnHandler interface {
 
 // Server handles WebSocket connections from workers
 type Server struct {
-	addr    string
-	handler ConnHandler
-	server  *http.Server
+	addr     string
+	handler  ConnHandler
+	server   *http.Server
 	upgrader websocket.Upgrader
 
 	mu      sync.RWMutex
@@ -437,7 +437,9 @@ func (s *Server) handleDisconnect(workerID string) {
 	}
 
 	// Close connection
-	_ = state.conn.Close()
+	if state.conn != nil {
+		_ = state.conn.Close()
+	}
 
 	// Remove from workers
 	delete(s.workers, workerID)
@@ -447,6 +449,29 @@ func (s *Server) handleDisconnect(workerID string) {
 	// Notify handler
 	if s.handler != nil {
 		s.handler.OnDisconnect(workerID)
+	}
+}
+
+// pruneStaleWorkers removes workers whose heartbeat is too old.
+func (s *Server) pruneStaleWorkers(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for workerID, state := range s.workers {
+		if now.Sub(state.LastHeartbeat) > 2*time.Minute {
+			logger.Warn("worker stale, closing connection",
+				"worker_id", workerID,
+				"last_heartbeat", state.LastHeartbeat,
+			)
+			if state.conn != nil {
+				_ = state.conn.Close()
+			}
+			delete(s.workers, workerID)
+
+			if s.handler != nil {
+				s.handler.OnDisconnect(workerID)
+			}
+		}
 	}
 }
 
@@ -462,23 +487,7 @@ func (s *Server) checkStaleWorkers() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			s.mu.Lock()
-			now := time.Now()
-			for workerID, state := range s.workers {
-				if now.Sub(state.LastHeartbeat) > 2*time.Minute {
-					logger.Warn("worker stale, closing connection",
-						"worker_id", workerID,
-						"last_heartbeat", state.LastHeartbeat,
-					)
-					_ = state.conn.Close()
-					delete(s.workers, workerID)
-
-					if s.handler != nil {
-						s.handler.OnDisconnect(workerID)
-					}
-				}
-			}
-			s.mu.Unlock()
+			s.pruneStaleWorkers(time.Now())
 		}
 	}
 }
@@ -555,7 +564,9 @@ func (s *Server) DisconnectWorker(workerID string) error {
 		return fmt.Errorf("worker not found: %s", workerID)
 	}
 
-	_ = state.conn.Close()
+	if state.conn != nil {
+		_ = state.conn.Close()
+	}
 	delete(s.workers, workerID)
 
 	logger.Info("worker disconnected", "worker_id", workerID, "reason", "requested")
