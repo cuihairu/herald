@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
+	"github.com/cuihairu/herald/core/worker"
 )
 
 // Handler handles HTTP requests
@@ -16,6 +17,7 @@ type Handler struct {
 	notificationSvc *service.NotificationService
 	runtime         *runtime.Manager
 	templateManager *template.Manager
+	workerRegistry  *worker.Registry
 	_wsServer       *websocket.Server
 	queue           core.Queue
 }
@@ -37,17 +39,22 @@ func (h *Handler) SetWebSocketServer(wsServer *websocket.Server) {
 	h._wsServer = wsServer
 }
 
+// SetWorkerRegistry sets the shared worker registry for worker status endpoints.
+func (h *Handler) SetWorkerRegistry(registry *worker.Registry) {
+	h.workerRegistry = registry
+}
+
 // GetTemplateManager returns the template manager
 func (h *Handler) GetTemplateManager() *template.Manager {
 	return h.templateManager
 }
 
-// getQueue returns the queue
+// getQueue returns the queue for observability endpoints.
 func (h *Handler) getQueue() core.Queue {
 	return h.queue
 }
 
-// SetQueue sets the queue reference
+// SetQueue sets the queue reference used by status endpoints.
 func (h *Handler) SetQueue(q core.Queue) {
 	h.queue = q
 }

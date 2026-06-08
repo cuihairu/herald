@@ -2,25 +2,31 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
+	stdruntime "runtime"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
-	"github.com/cuihairu/herald/core/dispatch"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
-	"github.com/cuihairu/herald/core/runtime"
+	coreruntime "github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/template"
-	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/core/websocket"
+	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/internal/config"
 	"github.com/cuihairu/herald/internal/logger"
+	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
+	gws "github.com/gorilla/websocket"
 )
 
 func main() {
@@ -79,7 +85,7 @@ func serveCmd(args []string) {
 		InitialDelay: cfg.Retry.InitialDelay,
 		MaxDelay:     cfg.Retry.MaxDelay,
 	}
-	manager := runtime.NewManager(10000, retryCfg)
+	manager := coreruntime.NewManager(10000, retryCfg)
 
 	// Register builtin provider factories
 	builtinregistry.RegisterBuiltinProviders(manager)
@@ -126,7 +132,7 @@ func serveCmd(args []string) {
 
 	// Create worker registry and pool
 	registry := worker.NewRegistry()
-	dispatcher := dispatch.New(q, manager, registry, cfg.Queue.Workers)
+	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
 
 	// Create API server
 	srv := api.NewServer(&api.Config{
@@ -138,6 +144,7 @@ func serveCmd(args []string) {
 		Dedup:           d,
 		Auth:            a,
 		TemplateManager: templateMgr,
+		WorkerRegistry:  registry,
 	})
 
 	// Create WebSocket server (management channel)
@@ -171,7 +178,7 @@ func serveCmd(args []string) {
 		}
 	}()
 
-	go dispatcher.Run(ctx)
+	go pool.Run(ctx)
 
 	logger.Info("herald scheduler started", "addr", cfg.Server.Addr, "workers", cfg.Queue.Workers)
 
@@ -217,7 +224,7 @@ func workerCmd(args []string) {
 	defer func() { _ = q.Close() }()
 
 	// Create runtime manager for local provider execution
-	manager := runtime.NewManager(10000)
+	manager := coreruntime.NewManager(10000)
 	builtinregistry.RegisterBuiltinProviders(manager)
 
 	// Initialize providers from config (worker may have its own providers)
@@ -240,12 +247,12 @@ func workerCmd(args []string) {
 	// Create worker pool consuming from shared queue
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
 
-	// TODO: Register with scheduler via WebSocket
 	logger.Info("remote worker starting", "queue_type", cfg.Queue.Type, "workers", cfg.Queue.Workers)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	go runRemoteWorkerControlPlane(ctx, cfg, registry)
 	pool.Run(ctx)
 
 	sigCh := make(chan os.Signal, 1)
@@ -277,4 +284,186 @@ func parseFlags(command string, args []string) string {
 	}
 
 	return configPath
+}
+
+func runRemoteWorkerControlPlane(ctx context.Context, cfg *config.Config, registry *worker.Registry) {
+	wsURL := buildWorkerWebSocketURL(cfg)
+	if wsURL == "" {
+		logger.Warn("remote worker websocket disabled: worker.server_url is not configured")
+		return
+	}
+
+	workerID := cfg.Worker.ID
+	if workerID == "" {
+		workerID = fmt.Sprintf("worker-%d", time.Now().UnixNano())
+	}
+
+	reconnectDelay := cfg.Worker.ReconnectDelay
+	if reconnectDelay <= 0 {
+		reconnectDelay = 5 * time.Second
+	}
+	heartbeatInterval := cfg.Worker.HeartbeatInterval
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = 20 * time.Second
+	}
+	capabilities := cfg.Worker.Capabilities
+	if len(capabilities) == 0 {
+		capabilities = []string{"*"}
+	}
+
+	dialer := gws.Dialer{}
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+		if err != nil {
+			logger.Error("remote worker websocket dial failed", "url", wsURL, "error", err)
+			if !sleepOrDone(ctx, reconnectDelay) {
+				return
+			}
+			continue
+		}
+
+		logger.Info("remote worker websocket connected", "worker_id", workerID, "url", wsURL)
+		if err := registerRemoteWorker(conn, workerID, capabilities); err != nil {
+			logger.Error("remote worker registration failed", "worker_id", workerID, "error", err)
+			_ = conn.Close()
+			if !sleepOrDone(ctx, reconnectDelay) {
+				return
+			}
+			continue
+		}
+
+		_ = registry.Register(&worker.Info{
+			ID:           workerID,
+			Mode:         worker.Remote,
+			Capabilities: capabilities,
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			readRemoteWorkerMessages(ctx, conn)
+		}()
+
+		hbErr := heartbeatRemoteWorker(ctx, conn, workerID, heartbeatInterval, registry)
+		_ = conn.Close()
+		<-done
+		registry.Deregister(workerID)
+
+		if ctx.Err() != nil {
+			return
+		}
+		if hbErr != nil {
+			logger.Error("remote worker control plane disconnected", "worker_id", workerID, "error", hbErr)
+		}
+		if !sleepOrDone(ctx, reconnectDelay) {
+			return
+		}
+	}
+}
+
+func buildWorkerWebSocketURL(cfg *config.Config) string {
+	if cfg.Worker.ServerURL != "" {
+		return strings.TrimRight(cfg.Worker.ServerURL, "/")
+	}
+	if cfg.WebSocket.Addr == "" {
+		return ""
+	}
+	addr := cfg.WebSocket.Addr
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	u := url.URL{Scheme: "ws", Host: addr, Path: "/worker"}
+	return u.String()
+}
+
+func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string) error {
+	msg := &protocol.RegisterMessage{
+		WorkerID:     workerID,
+		Mode:         string(worker.Remote),
+		Platform:     stdruntime.GOOS,
+		Version:      "dev",
+		Capabilities: capabilities,
+	}
+	payload, err := protocol.MarshalMessage(msg)
+	if err != nil {
+		return err
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	if err := conn.WriteMessage(gws.TextMessage, payload); err != nil {
+		return err
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		return err
+	}
+	var ack protocol.RegisterAckMessage
+	if err := json.Unmarshal(data, &ack); err != nil {
+		return err
+	}
+	if !ack.Success {
+		return fmt.Errorf("register rejected: %s", ack.Error)
+	}
+	return conn.SetReadDeadline(time.Time{})
+}
+
+func heartbeatRemoteWorker(ctx context.Context, conn *gws.Conn, workerID string, interval time.Duration, registry *worker.Registry) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			msg := &protocol.HeartbeatMessage{
+				WorkerID:  workerID,
+				Timestamp: time.Now().Unix(),
+			}
+			payload, err := protocol.MarshalMessage(msg)
+			if err != nil {
+				return err
+			}
+			if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				return err
+			}
+			if err := conn.WriteMessage(gws.TextMessage, payload); err != nil {
+				return err
+			}
+			_ = registry.Heartbeat(workerID)
+		}
+	}
+}
+
+func readRemoteWorkerMessages(ctx context.Context, conn *gws.Conn) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
+func sleepOrDone(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

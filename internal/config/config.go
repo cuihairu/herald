@@ -15,6 +15,7 @@ import (
 type Config struct {
 	Server    ServerConfig                       `yaml:"server"`
 	WebSocket WebSocketConfig                    `yaml:"websocket"`
+	Worker    WorkerConfig                       `yaml:"worker"`
 	Auth      AuthConfig                         `yaml:"auth"`
 	Providers map[string]ProviderConfig          `yaml:"providers"`
 	Routes    map[string][]string                `yaml:"routes"`
@@ -38,6 +39,15 @@ type WebSocketConfig struct {
 	PingTimeout    time.Duration `yaml:"ping_timeout"`
 	PingInterval   time.Duration `yaml:"ping_interval"`
 	AllowedOrigins []string      `yaml:"allowed_origins"`
+}
+
+// WorkerConfig is the remote worker control-plane configuration.
+type WorkerConfig struct {
+	ID                string        `yaml:"id"`
+	ServerURL         string        `yaml:"server_url"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
+	ReconnectDelay    time.Duration `yaml:"reconnect_delay"`
+	Capabilities      []string      `yaml:"capabilities"`
 }
 
 // AuthConfig is the authentication configuration
@@ -170,6 +180,12 @@ func Load(path string) (*Config, error) {
 	if cfg.Retry.MaxDelay == 0 {
 		cfg.Retry.MaxDelay = time.Minute
 	}
+	if cfg.Worker.HeartbeatInterval == 0 {
+		cfg.Worker.HeartbeatInterval = 20 * time.Second
+	}
+	if cfg.Worker.ReconnectDelay == 0 {
+		cfg.Worker.ReconnectDelay = 5 * time.Second
+	}
 
 	return &cfg, nil
 }
@@ -187,6 +203,11 @@ func Default() *Config {
 			WriteTimeout: 60 * time.Second,
 			PingTimeout:  30 * time.Second,
 			PingInterval: 20 * time.Second,
+		},
+		Worker: WorkerConfig{
+			HeartbeatInterval: 20 * time.Second,
+			ReconnectDelay:    5 * time.Second,
+			Capabilities:      []string{"*"},
 		},
 		Auth: AuthConfig{
 			Enabled:   false,

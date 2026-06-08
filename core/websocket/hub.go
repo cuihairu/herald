@@ -42,6 +42,11 @@ func (h *Hub) OnWorkerEvent(workerID string, event *protocol.EventMessage) error
 	return nil
 }
 
+// OnHeartbeat updates the liveness timestamp for a remote worker.
+func (h *Hub) OnHeartbeat(workerID string) error {
+	return h.registry.Heartbeat(workerID)
+}
+
 // OnDisconnect removes a remote worker from the registry.
 func (h *Hub) OnDisconnect(workerID string) {
 	h.registry.Deregister(workerID)

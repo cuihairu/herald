@@ -45,6 +45,10 @@ func (m *mockHandler) OnRegister(workerID string, msg *protocol.RegisterMessage)
 	return nil
 }
 
+func (m *mockHandler) OnHeartbeat(workerID string) error {
+	return nil
+}
+
 func (m *mockHandler) OnTaskAck(taskID string, success bool, errMsg string) error {
 	m.ackCalls = append(m.ackCalls, ackCall{
 		taskID:  taskID,

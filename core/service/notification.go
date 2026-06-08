@@ -42,6 +42,7 @@ type NotificationService struct {
 	router    *route.Router
 	runtime   ProviderRuntime
 	dedup     *dedup.Dedup
+	queue     core.Queue
 	planner   *DeliveryPlanner
 }
 
@@ -51,18 +52,23 @@ func NewNotificationService(
 	router *route.Router,
 	runtime ProviderRuntime,
 	dedup *dedup.Dedup,
+	queue core.Queue,
 ) *NotificationService {
 	return &NotificationService{
 		templates: templates,
 		router:    router,
 		runtime:   runtime,
 		dedup:     dedup,
+		queue:     queue,
 		planner:   NewDeliveryPlanner(templates),
 	}
 }
 
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
-func (s *NotificationService) Process(ctx context.Context, n *core.Notification, queue core.Queue) (*ProcessResult, error) {
+func (s *NotificationService) Process(ctx context.Context, n *core.Notification) (*ProcessResult, error) {
+	if s.queue == nil {
+		return nil, fmt.Errorf("queue is not configured")
+	}
 	if n.ID == "" {
 		n.ID = uuid.New().String()
 	}
@@ -118,7 +124,7 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification,
 			continue
 		}
 
-		if err := queue.Push(ctx, task); err != nil {
+		if err := s.queue.Push(ctx, task); err != nil {
 			result.Failed = append(result.Failed, ChannelError{Channel: channel, Error: fmt.Sprintf("queue: %v", err)})
 			continue
 		}

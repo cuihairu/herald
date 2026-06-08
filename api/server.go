@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
+	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/internal/logger"
 )
 
@@ -35,6 +36,7 @@ type Config struct {
 	Dedup           *dedup.Dedup
 	Auth            *auth.Auth
 	TemplateManager *template.Manager
+	WorkerRegistry  *worker.Registry
 }
 
 // NewServer creates a new server
@@ -48,10 +50,12 @@ func NewServer(config *Config) *Server {
 		config.Router,
 		config.Runtime,
 		config.Dedup,
+		config.Queue,
 	)
 
 	handler := NewHandler(notificationSvc, config.Runtime, config.TemplateManager)
 	handler.SetQueue(config.Queue)
+	handler.SetWorkerRegistry(config.WorkerRegistry)
 
 	s := &Server{
 		addr:    config.Addr,

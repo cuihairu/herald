@@ -48,7 +48,7 @@ func (h *Handler) HandleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process notification
-	result, err := h.notificationSvc.Process(r.Context(), notification, h.getQueue())
+	result, err := h.notificationSvc.Process(r.Context(), notification)
 	if err != nil {
 		data := map[string]interface{}{
 			"accepted": []string{},

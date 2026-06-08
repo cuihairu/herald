@@ -71,6 +71,9 @@ type ConnHandler interface {
 	// OnRegister is called when a worker registers
 	OnRegister(workerID string, msg *protocol.RegisterMessage) error
 
+	// OnHeartbeat is called when a worker heartbeat is received.
+	OnHeartbeat(workerID string) error
+
 	// OnTaskAck is called when a task is acknowledged
 	OnTaskAck(taskID string, success bool, errMsg string) error
 
@@ -378,16 +381,22 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 // handleHeartbeat handles a heartbeat message
 func (s *Server) handleHeartbeat(msg *protocol.HeartbeatMessage) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	state, ok := s.workers[msg.WorkerID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("worker not found: %s", msg.WorkerID)
 	}
 
 	state.LastHeartbeat = time.Now()
 	if msg.Status != nil {
 		state.Status = msg.Status
+	}
+	s.mu.Unlock()
+
+	if s.handler != nil {
+		if err := s.handler.OnHeartbeat(msg.WorkerID); err != nil {
+			logger.Error("handler onheartbeat error", "worker_id", msg.WorkerID, "error", err)
+		}
 	}
 
 	return nil

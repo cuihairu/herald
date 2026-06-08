@@ -6,7 +6,7 @@ import (
 
 // HandleWorkers handles workers status requests
 func (h *Handler) HandleWorkers(w http.ResponseWriter, r *http.Request) {
-	if h._wsServer == nil {
+	if h.workerRegistry == nil {
 		h.respondJSON(w, &Response{
 			Code:    0,
 			Message: "ok",
@@ -15,13 +15,12 @@ func (h *Handler) HandleWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workers := h._wsServer.GetWorkers()
+	workers := h.workerRegistry.List()
 	workerList := make([]map[string]interface{}, 0, len(workers))
 	for _, state := range workers {
 		workerList = append(workerList, map[string]interface{}{
-			"worker_id":      state.WorkerID,
-			"platform":       state.Platform,
-			"version":        state.Version,
+			"worker_id":      state.ID,
+			"mode":           state.Mode,
 			"capabilities":   state.Capabilities,
 			"connected_at":   state.ConnectedAt,
 			"last_heartbeat": state.LastHeartbeat,

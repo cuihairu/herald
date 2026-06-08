@@ -124,8 +124,9 @@ func TestNewNotificationService(t *testing.T) {
 		router := route.NewRouter(&route.Config{})
 		runtime := newMockProviderRuntime()
 		dedupMgr := dedup.NewDedup(&dedup.Config{})
+		queue := newMockQueue()
 
-		service := NewNotificationService(templates, router, runtime, dedupMgr)
+		service := NewNotificationService(templates, router, runtime, dedupMgr, queue)
 
 		if service == nil {
 			t.Fatal("expected non-nil service")
@@ -145,7 +146,7 @@ func TestNewNotificationService(t *testing.T) {
 	})
 
 	t.Run("create service with nil components", func(t *testing.T) {
-		service := NewNotificationService(nil, nil, nil, nil)
+		service := NewNotificationService(nil, nil, nil, nil, nil)
 
 		if service == nil {
 			t.Fatal("expected non-nil service")
@@ -177,7 +178,7 @@ func TestNotificationService_Process(t *testing.T) {
 		// Add a route
 		router.SetRoute("alert", []string{"test-provider"})
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Type:     "alert",
@@ -189,7 +190,7 @@ func TestNotificationService_Process(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, queue)
+		result, err := service.Process(context.Background(), notification)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -223,7 +224,7 @@ func TestNotificationService_Process(t *testing.T) {
 		}
 		runtime.RegisterProvider("disabled-provider", provider, false) // disabled
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Type:     "alert",
@@ -234,7 +235,7 @@ func TestNotificationService_Process(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, queue)
+		result, err := service.Process(context.Background(), notification)
 		if err == nil {
 			t.Error("expected error when provider is disabled")
 		}
@@ -261,7 +262,7 @@ func TestNotificationService_Process(t *testing.T) {
 			runtime.RegisterProvider(fmt.Sprintf("provider-%d", i), provider, true)
 		}
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Channels: []string{"provider-0", "provider-1", "provider-2"},
@@ -271,7 +272,7 @@ func TestNotificationService_Process(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, queue)
+		result, err := service.Process(context.Background(), notification)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -299,7 +300,7 @@ func TestNotificationService_Process(t *testing.T) {
 		}
 		runtime.RegisterProvider("test", provider, true)
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Channels: []string{"test"},
@@ -309,7 +310,7 @@ func TestNotificationService_Process(t *testing.T) {
 			},
 		}
 
-		result, _ := service.Process(context.Background(), notification, queue)
+		result, _ := service.Process(context.Background(), notification)
 
 		if result.NotificationID == "" {
 			t.Error("expected auto-generated notification ID")
@@ -336,7 +337,7 @@ func TestNotificationService_Process(t *testing.T) {
 		}
 		runtime.RegisterProvider("test", provider, true)
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Channels: []string{"test"},
@@ -347,7 +348,7 @@ func TestNotificationService_Process(t *testing.T) {
 		}
 
 		before := time.Now()
-		_, _ = service.Process(context.Background(), notification, queue)
+		_, _ = service.Process(context.Background(), notification)
 		after := time.Now()
 
 		if notification.CreatedAt.Before(before) || notification.CreatedAt.After(after) {
@@ -728,7 +729,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		runtime.RegisterProvider("email", provider, true)
 		runtime.RegisterProvider("slack", provider, true)
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Type:  "alert",
@@ -739,7 +740,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, queue)
+		result, err := service.Process(context.Background(), notification)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -754,7 +755,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		runtime := newMockProviderRuntime()
 		queue := newMockQueue()
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Type:  "unknown",
@@ -765,7 +766,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 			},
 		}
 
-		_, err := service.Process(context.Background(), notification, queue)
+		_, err := service.Process(context.Background(), notification)
 		if err == nil {
 			t.Error("expected error when no route found")
 		}
@@ -797,7 +798,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		}
 		runtime.RegisterProvider("email", provider, true)
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Channels:    []string{"email"},
@@ -808,7 +809,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, queue)
+		result, err := service.Process(context.Background(), notification)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -823,14 +824,14 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		runtime := newMockProviderRuntime()
 		queue := newMockQueue()
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Channels:    []string{"email"},
 			TemplateRef: "nonexistent",
 		}
 
-		_, err := service.Process(context.Background(), notification, queue)
+		_, err := service.Process(context.Background(), notification)
 		if err == nil {
 			t.Error("expected error when template not found")
 		}
@@ -852,7 +853,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		}
 		runtime.RegisterProvider("email", provider, true)
 
-		service := NewNotificationService(templates, router, runtime, dedupMgr)
+		service := NewNotificationService(templates, router, runtime, dedupMgr, queue)
 
 		notification := &core.Notification{
 			Channels: []string{"email"},
@@ -865,7 +866,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		}
 
 		// First call should succeed
-		result1, err1 := service.Process(context.Background(), notification, queue)
+		result1, err1 := service.Process(context.Background(), notification)
 		if err1 != nil {
 			t.Fatalf("first call should succeed, got %v", err1)
 		}
@@ -874,7 +875,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		}
 
 		// Second call with same content should be deduplicated
-		result2, err2 := service.Process(context.Background(), notification, queue)
+		result2, err2 := service.Process(context.Background(), notification)
 		if err2 != nil {
 			t.Fatalf("second call should succeed (dedup), got %v", err2)
 		}
@@ -892,7 +893,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		runtime := newMockProviderRuntime()
 		queue := newMockQueue()
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, queue)
 
 		notification := &core.Notification{
 			Channels: []string{"nonexistent"},
@@ -902,7 +903,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, queue)
+		result, err := service.Process(context.Background(), notification)
 		if err == nil {
 			t.Error("expected error when provider not found")
 		}
@@ -928,7 +929,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		}
 		runtime.RegisterProvider("email", provider, true)
 
-		service := NewNotificationService(templates, router, runtime, nil)
+		service := NewNotificationService(templates, router, runtime, nil, failingQueue)
 
 		notification := &core.Notification{
 			Channels: []string{"email"},
@@ -938,7 +939,7 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 			},
 		}
 
-		result, err := service.Process(context.Background(), notification, failingQueue)
+		result, err := service.Process(context.Background(), notification)
 		if err == nil {
 			t.Error("expected error when queue push fails")
 		}
@@ -1184,7 +1185,7 @@ func TestDeliveryPlanner_buildFieldValues(t *testing.T) {
 		notification := &core.Notification{
 			Params: map[string]any{
 				"extra": "value",
-				"code": "456", // Should not override rendered field
+				"code":  "456", // Should not override rendered field
 			},
 		}
 

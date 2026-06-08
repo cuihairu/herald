@@ -167,20 +167,25 @@ func (q *redisQueue) Nack(ctx context.Context, taskID string, _ error) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	// XACK first to remove from pending, then re-add to stream for retry
-	_ = q.client.XAck(ctx, q.stream, q.group, streamID).Err()
-
-	// Read original message and re-add to stream
+	// Read original message before acking so a failed requeue does not lose payload.
 	msgs, err := q.client.XRange(ctx, q.stream, streamID, streamID).Result()
 	if err != nil || len(msgs) == 0 {
-		return nil
+		return fmt.Errorf("failed to load message for retry: %w", err)
 	}
 
-	// Re-push the original message
-	return q.client.XAdd(ctx, &redis.XAddArgs{
+	// Re-push the original message before acking the pending entry.
+	if _, err := q.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: q.stream,
 		Values: msgs[0].Values,
-	}).Err()
+	}).Result(); err != nil {
+		return fmt.Errorf("failed to requeue message: %w", err)
+	}
+
+	if err := q.client.XAck(ctx, q.stream, q.group, streamID).Err(); err != nil {
+		return fmt.Errorf("failed to ack nacked message: %w", err)
+	}
+
+	return nil
 }
 
 func (q *redisQueue) Size() int {
