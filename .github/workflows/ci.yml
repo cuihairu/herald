@@ -29,7 +29,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out
@@ -76,7 +76,7 @@ jobs:
           go build -v -o bin/worker-example ./worker-sdk/go/example
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v8
+        uses: actions/upload-artifact@v7
         with:
           name: binaries
           path: bin/*
@@ -91,10 +91,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v5
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
-        uses: docker/build-push-action@v8
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
