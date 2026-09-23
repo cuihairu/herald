@@ -173,6 +173,18 @@ dedup:
   enabled: true
   window: 5m
 
+# 通知规则（可选）
+# 规则在去重之后、路由解析之前对每条通知求值；命中 active 规则且调用方
+# 未显式指定 channels 时，改走规则的渠道路径；shadow 规则只记录不投递。
+rules:
+  - id: prod-fail-rate            # 1-64 字符：字母、数字与 . _ -
+    match: 'params.fail_rate > 0.05 && params.env == "prod"'
+    mode: shadow                  # shadow（默认，观察）| active | off
+    route:                        # steps 按序求值，首个 match 命中生效
+      - match: 'level == "error"'
+        channels: [oncall]
+      - channels: [devops]        # match 留空 = 恒命中的兜底 step
+
 # WebSocket 配置（远程 Worker 管理通道）
 websocket:
   addr: ":8081"
@@ -282,6 +294,35 @@ providers:
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
 ```
+
+## 规则配置说明
+
+`rules` 是可选配置；不配置时通知行为与静态路由完全一致。
+
+### 表达式环境
+
+| 标识符 | 含义 |
+|--------|------|
+| `type` | 通知类型（`Notification.Type`） |
+| `level` | 通知级别 |
+| `title` / `body` | 内联内容（模板渲染前的直接内容；模板渲染产物不参与匹配） |
+| `params` | 模板参数 map，如 `params.fail_rate` |
+
+### 安全边界
+
+- 表达式在加载/保存时**编译一次**，语法或类型错误直接拒绝（启动失败/保存失败），运行期只执行编译产物
+- 长度 ≤ 2048 字符、AST ≤ 256 节点
+- 内置函数与 `range` 操作符被禁用——表达式是对通知环境的纯比较/逻辑运算，无函数调用、无循环
+
+### 影子模式
+
+- 新规则默认 `mode: shadow`：每次通知照常求值，但只记录不投递
+- 命中写入投递日志（状态 `shadow`，含 `rule_id`、`would_fire` 与本应走到的渠道），按规则采样（首条 + 每 100 条记录一条），命中总数计入日志统计
+- 观察真实命中量符合预期后切 `mode: active` 生效
+
+### P1 未生效字段
+
+`for` / `group_by` / `inhibit` / `escalation` / `silence` 已在规则模型中建模但尚未实现——配置了这些字段会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
 
 ## 动态配置
 

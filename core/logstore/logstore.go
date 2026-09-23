@@ -21,11 +21,21 @@ type TaskLog struct {
 	Provider    string     `json:"provider"`
 	PayloadKind string     `json:"payload_kind"`
 	Level       string     `json:"level,omitempty"`
-	Status      string     `json:"status"` // success, failed, pending
+	Status      string     `json:"status"` // success, failed, pending, shadow
 	Error       string     `json:"error,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	Duration    int64      `json:"duration,omitempty"` // milliseconds
+
+	// Shadow-mode rule observation fields. Entries with Status "shadow"
+	// never represent delivery: they record that a rule matched a
+	// notification during dry-run, sampled per rule.
+	RuleID    string    `json:"rule_id,omitempty"`
+	WouldFire bool      `json:"would_fire,omitempty"`
+	MatchedAt time.Time `json:"matched_at,omitempty"`
+	// Channels is only set on shadow entries: the channels the rule
+	// would have routed to had it been active.
+	Channels []string `json:"channels,omitempty"`
 }
 
 // New creates a new log store

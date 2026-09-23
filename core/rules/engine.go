@@ -114,6 +114,13 @@ type compiledRule struct {
 	steps []compiledStep
 }
 
+// EvalError is one rule's evaluation failure, kept structured so callers
+// can attribute observations to rules individually.
+type EvalError struct {
+	RuleID string
+	Err    error
+}
+
 // Decision is the outcome of evaluating the rule table for one notification.
 // nil return from Engine.Evaluate means no rule matched and static routing
 // applies unchanged.
@@ -128,6 +135,9 @@ type Decision struct {
 	// Shadow lists every shadow-mode rule that matched this notification,
 	// with the channels each would have used — the dry-run evidence.
 	Shadow []ShadowHit
+	// EvalErrors lists rules whose expressions failed to evaluate; these
+	// rules were skipped and never contribute a match.
+	EvalErrors []EvalError
 }
 
 // ShadowHit records one shadow rule match for dry-run observation.
@@ -265,8 +275,9 @@ func compileRule(r Rule) (*compiledRule, error) {
 // Evaluate runs the notification environment against the rule table in
 // priority order and returns the resulting Decision (nil when nothing
 // matched). Evaluation failures (e.g. expressions referencing missing
-// params) skip the offending rule and are joined into the returned error —
-// a broken rule must not break routing for the rest of the table.
+// params) skip the offending rule and are reported both structurally in
+// Decision.EvalErrors and joined into the returned error — a broken rule
+// must not break routing for the rest of the table.
 func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	e.mu.RLock()
 	rules := make([]*compiledRule, len(e.rules))
@@ -274,14 +285,14 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	e.mu.RUnlock()
 
 	var decision *Decision
-	var evalErrs []error
+	var evalErrs []EvalError
 	for _, cr := range rules {
 		if cr.rule.Mode == ModeOff {
 			continue
 		}
 		matched, err := e.runProgram(ctx, cr.match, env)
 		if err != nil {
-			evalErrs = append(evalErrs, fmt.Errorf("rule %q: %w", cr.rule.ID, err))
+			evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
 			continue
 		}
 		if !matched {
@@ -289,7 +300,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 		}
 		channels, err := e.resolveSteps(ctx, cr, env)
 		if err != nil {
-			evalErrs = append(evalErrs, fmt.Errorf("rule %q: %w", cr.rule.ID, err))
+			evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
 			continue
 		}
 		switch cr.rule.Mode {
@@ -303,7 +314,8 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			if decision != nil {
 				governing.Shadow = decision.Shadow
 			}
-			return governing, errors.Join(evalErrs...)
+			governing.EvalErrors = evalErrs
+			return governing, joinEvalErrors(evalErrs)
 		case ModeShadow:
 			if decision == nil {
 				decision = &Decision{RuleID: cr.rule.ID, Mode: ModeShadow}
@@ -311,7 +323,21 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			decision.Shadow = append(decision.Shadow, ShadowHit{RuleID: cr.rule.ID, Channels: channels})
 		}
 	}
-	return decision, errors.Join(evalErrs...)
+	if decision != nil {
+		decision.EvalErrors = evalErrs
+	}
+	return decision, joinEvalErrors(evalErrs)
+}
+
+func joinEvalErrors(evalErrs []EvalError) error {
+	if len(evalErrs) == 0 {
+		return nil
+	}
+	errs := make([]error, len(evalErrs))
+	for i, ee := range evalErrs {
+		errs[i] = fmt.Errorf("rule %q: %w", ee.RuleID, ee.Err)
+	}
+	return errors.Join(errs...)
 }
 
 // resolveSteps returns the channels of the first step whose match holds;

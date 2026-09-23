@@ -12,6 +12,7 @@ import (
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/google/uuid"
 )
@@ -36,6 +37,19 @@ type ProviderRuntime interface {
 	IsEnabled(name string) bool
 }
 
+// RuleEvaluator is the subset of the rules engine the service needs.
+type RuleEvaluator interface {
+	Evaluate(ctx context.Context, env rules.Env) (*rules.Decision, error)
+}
+
+// RuleObserver receives rule evaluation observations: shadow-mode hits
+// (dry-run evidence) and per-rule evaluation failures. Implementations
+// must be safe for concurrent use.
+type RuleObserver interface {
+	RecordShadow(ruleID string, channels []string, n *core.Notification)
+	RecordEvalError(ruleID string, err error, n *core.Notification)
+}
+
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
 	templates *template.Manager
@@ -44,6 +58,8 @@ type NotificationService struct {
 	dedup     *dedup.Dedup
 	queue     core.Queue
 	planner   *DeliveryPlanner
+	rules     RuleEvaluator
+	observer  RuleObserver
 }
 
 // NewNotificationService creates a new NotificationService
@@ -64,6 +80,18 @@ func NewNotificationService(
 	}
 }
 
+// SetRuleEngine attaches the rule engine evaluated after dedup and before
+// routing. nil (the default) keeps processing unchanged.
+func (s *NotificationService) SetRuleEngine(re RuleEvaluator) {
+	s.rules = re
+}
+
+// SetRuleObserver attaches the observer receiving shadow hits and rule
+// evaluation failures. nil (the default) discards observations.
+func (s *NotificationService) SetRuleObserver(ro RuleObserver) {
+	s.observer = ro
+}
+
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
 func (s *NotificationService) Process(ctx context.Context, n *core.Notification) (*ProcessResult, error) {
 	if s.queue == nil {
@@ -79,8 +107,34 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		return &ProcessResult{NotificationID: n.ID}, nil
 	}
 
-	// Resolve channels
+	// Rule evaluation — after dedup, before routing: intercepted events
+	// must not consume queue capacity. Evaluation runs for every
+	// notification so shadow observation covers explicit-channel traffic
+	// too; only routing is conditional on it.
 	channels := n.Channels
+	if s.rules != nil {
+		decision, evalErr := s.rules.Evaluate(ctx, rules.NewEnv(
+			n.Type, n.Level, directTitle(n), directBody(n), n.Params,
+		))
+		if s.observer != nil {
+			if decision != nil {
+				for _, hit := range decision.Shadow {
+					s.observer.RecordShadow(hit.RuleID, hit.Channels, n)
+				}
+				for _, ee := range decision.EvalErrors {
+					s.observer.RecordEvalError(ee.RuleID, ee.Err, n)
+				}
+			} else if evalErr != nil {
+				// Every rule failed before producing any observation.
+				s.observer.RecordEvalError("", evalErr, n)
+			}
+		}
+		// Explicit channels win: rules are an incremental capability over
+		// static routing, never an override of caller intent.
+		if decision != nil && decision.Mode == rules.ModeActive && len(n.Channels) == 0 {
+			channels = decision.Channels
+		}
+	}
 	if len(channels) == 0 {
 		routed, err := s.router.Route(n.Type, n.Level)
 		if err != nil {
@@ -149,6 +203,23 @@ func resolveTargets(n *core.Notification, channel string) []string {
 		}
 	}
 	return nil
+}
+
+// directTitle returns the inline title available before template rendering;
+// template-rendered text deliberately does not feed rule matching.
+func directTitle(n *core.Notification) string {
+	if n.Content != nil {
+		return n.Content.Title
+	}
+	return ""
+}
+
+// directBody returns the inline body available before template rendering.
+func directBody(n *core.Notification) string {
+	if n.Content != nil {
+		return n.Content.Body
+	}
+	return ""
 }
 
 // formatChannelErrors formats channel errors into a single string

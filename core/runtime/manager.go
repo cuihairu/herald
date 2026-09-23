@@ -4,19 +4,22 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/retry"
+	"github.com/cuihairu/herald/core/rules"
 )
 
 // Manager manages provider runtimes.
 type Manager struct {
-	mu        sync.RWMutex
-	providers map[string]*registeredProvider
-	factories map[string]core.ProviderFactory
-	logStore  *logstore.LogStore
-	retryer   *retry.Retryer
+	mu            sync.RWMutex
+	providers     map[string]*registeredProvider
+	factories     map[string]core.ProviderFactory
+	logStore      *logstore.LogStore
+	retryer       *retry.Retryer
+	shadowSampler *rules.ShadowSampler
 }
 
 var providerSchemas = map[string]map[string]string{
@@ -48,11 +51,57 @@ func NewManager(logLimit int, retryCfg ...*retry.Config) *Manager {
 		r = retry.NewRetryer(retryCfg[0])
 	}
 	return &Manager{
-		providers: make(map[string]*registeredProvider),
-		factories: make(map[string]core.ProviderFactory),
-		logStore:  logstore.New(logLimit),
-		retryer:   r,
+		providers:     make(map[string]*registeredProvider),
+		factories:     make(map[string]core.ProviderFactory),
+		logStore:      logstore.New(logLimit),
+		retryer:       r,
+		shadowSampler: rules.NewDefaultShadowSampler(),
 	}
+}
+
+// RecordShadow implements the rule observer contract: it records a
+// shadow-mode rule hit into the delivery log stream (status "shadow"),
+// sampled per rule so high-QPS traffic does not flood the ring buffer.
+func (m *Manager) RecordShadow(ruleID string, channels []string, n *core.Notification) {
+	if !m.shadowSampler.ShouldRecord(ruleID) {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "shadow:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "shadow",
+		CreatedAt: now,
+		RuleID:    ruleID,
+		WouldFire: true,
+		MatchedAt: now,
+		Channels:  channels,
+	})
+}
+
+// RecordEvalError implements the rule observer contract: it records a
+// rule expression that failed to evaluate. Errors are never sampled —
+// they usually mean a misconfigured rule and every occurrence matters.
+func (m *Manager) RecordEvalError(ruleID string, err error, n *core.Notification) {
+	if err == nil {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "ruleerr:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "shadow",
+		Error:     err.Error(),
+		CreatedAt: now,
+		RuleID:    ruleID,
+		MatchedAt: now,
+	})
+}
+
+// ShadowRuleCount returns how many times a rule has matched during shadow
+// evaluation so far — the exact total behind the sampled log entries.
+func (m *Manager) ShadowRuleCount(ruleID string) uint64 {
+	return m.shadowSampler.Count(ruleID)
 }
 
 // RegisterFactory registers a provider factory keyed by provider type.

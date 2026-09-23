@@ -10,7 +10,9 @@ import (
 
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
 )
 
@@ -404,5 +406,139 @@ func TestResolvedEviction(t *testing.T) {
 	// t3 survived the eviction and is served from the cache.
 	if err := aq.wait(ctx, "t3"); err != nil {
 		t.Errorf("wait(cached t3) = %v, want nil", err)
+	}
+}
+
+func TestAppRulesAccessor(t *testing.T) {
+	app, _ := newTestApp(t)
+	if app.Rules() == nil {
+		t.Fatal("Rules() = nil, want the rule engine")
+	}
+	if _, err := app.Rules().List(context.Background()); err != nil {
+		t.Fatalf("Rules().List() error = %v", err)
+	}
+}
+
+func TestNewSeedsRulesFromConfig(t *testing.T) {
+	app, prov := newTestApp(t)
+
+	if _, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:     "alert",
+		Channels: []string{"rec"},
+		Content:  &core.DirectContent{Title: "t"},
+	}); err != nil {
+		t.Fatalf("baseline dispatch (no rules) error = %v", err)
+	}
+	if prov.count() != 1 {
+		t.Fatalf("baseline delivery count = %d, want 1", prov.count())
+	}
+}
+
+func TestNewRejectsInvalidRule(t *testing.T) {
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{{
+		ID:    "broken rule id!", // rejected by Validate (charset)
+		Match: `level == "error"`,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}, {
+		ID:    "ok",
+		Match: `level == "error"`,
+		Mode:  rules.ModeActive,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}}
+	if _, err := New(cfg); err == nil {
+		t.Error("New() with an invalid rule should fail")
+	}
+}
+
+func TestNewBadRuleExpression(t *testing.T) {
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{{
+		ID:    "range",
+		Match: `1..99999999 != []`,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}}
+	if _, err := New(cfg); err == nil {
+		t.Error("New() with a range expression rule should fail")
+	}
+}
+
+func TestDispatchWithActiveRuleRoutes(t *testing.T) {
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{{
+		ID:    "alert-to-rec",
+		Match: `type == "alert" && level == "error"`,
+		Mode:  rules.ModeActive,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	// Matching notification: routed to rec by the rule (no explicit channels).
+	res, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "error",
+		Content: &core.DirectContent{Title: "t"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
+		t.Fatalf("rule should route to rec, accepted = %v", res.Accepted)
+	}
+
+	// Non-matching notification with no channels and no static route:
+	// static routing fails as it would without the engine.
+	_, err = app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "other",
+		Level:   "info",
+		Content: &core.DirectContent{Title: "t"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no route") {
+		t.Fatalf("expected static no-route error, got %v", err)
+	}
+}
+
+func TestDispatchShadowRuleObserves(t *testing.T) {
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{{
+		ID:    "shadow-all",
+		Match: `type == "alert"`,
+		Mode:  rules.ModeShadow,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	// Explicit channel wins over the (shadow) rule; observation still recorded.
+	res, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:     "alert",
+		Channels: []string{"rec"},
+		Content:  &core.DirectContent{Title: "t"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
+		t.Fatalf("expected delivery to rec, accepted = %v", res.Accepted)
+	}
+
+	logs := app.manager.GetLogs(0, 10, &logstore.Filter{Status: "shadow"})
+	if len(logs) != 1 || logs[0].RuleID != "shadow-all" || !logs[0].WouldFire {
+		t.Fatalf("expected one shadow observation, got %+v", logs)
 	}
 }

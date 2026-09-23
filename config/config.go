@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
 	"gopkg.in/yaml.v3"
 )
@@ -23,6 +24,7 @@ type Config struct {
 	Retry     RetryConfig                        `yaml:"retry"`
 	Dedup     DedupConfig                        `yaml:"dedup"`
 	Templates map[string]template.TemplateConfig `yaml:"templates"`
+	Rules     []rules.Rule                       `yaml:"rules"`
 }
 
 // ServerConfig is the server configuration

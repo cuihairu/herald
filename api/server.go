@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
@@ -37,6 +38,7 @@ type Config struct {
 	Auth            *auth.Auth
 	TemplateManager *template.Manager
 	WorkerRegistry  *worker.Registry
+	Rules           *rules.Engine // optional; nil keeps static routing only
 }
 
 // NewServer creates a new server
@@ -52,6 +54,11 @@ func NewServer(config *Config) *Server {
 		config.Dedup,
 		config.Queue,
 	)
+	if config.Rules != nil {
+		notificationSvc.SetRuleEngine(config.Rules)
+		// The runtime manager observes shadow hits into the delivery log.
+		notificationSvc.SetRuleObserver(config.Runtime)
+	}
 
 	handler := NewHandler(notificationSvc, config.Runtime, config.TemplateManager)
 	handler.SetQueue(config.Queue)

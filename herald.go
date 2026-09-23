@@ -30,6 +30,7 @@ import (
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/rules"
 	coreruntime "github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
@@ -46,6 +47,7 @@ type App struct {
 	backend core.Queue
 	manager *coreruntime.Manager
 	svc     *service.NotificationService
+	rules   *rules.Engine
 	cancel  context.CancelFunc
 	done    chan struct{}
 }
@@ -105,6 +107,25 @@ func New(cfg *config.Config) (*App, error) {
 	}
 
 	svc := service.NewNotificationService(templateMgr, router, manager, d, aq)
+
+	// Rule engine: an in-memory store seeded from cfg.Rules (empty by
+	// default), evaluated after dedup and before routing. Shadow hits are
+	// observed by the manager into the delivery log, sampled per rule.
+	rulesEngine := rules.NewEngine(rules.NewMemoryStore())
+	for i := range cfg.Rules {
+		rule := cfg.Rules[i]
+		if err := rulesEngine.Validate(&rule); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("rule %d: %w", i, err)
+		}
+		if err := rulesEngine.Put(context.Background(), &rule); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("put rule %d: %w", i, err)
+		}
+	}
+	svc.SetRuleEngine(rulesEngine)
+	svc.SetRuleObserver(manager)
+
 	pool := worker.NewPool(aq, manager, worker.NewRegistry(), cfg.Queue.Workers)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,6 +141,7 @@ func New(cfg *config.Config) (*App, error) {
 		backend: backend,
 		manager: manager,
 		svc:     svc,
+		rules:   rulesEngine,
 		cancel:  cancel,
 		done:    done,
 	}, nil
@@ -155,6 +177,13 @@ func (a *App) DispatchSync(ctx context.Context, n *core.Notification) (*service.
 // providers beyond those created from cfg.Providers.
 func (a *App) Runtime() *coreruntime.Manager {
 	return a.manager
+}
+
+// Rules exposes the rule engine so embedders can add or update rules at
+// runtime (Put/Delete take effect on the next Dispatch; they compile at
+// save time and reject invalid expressions).
+func (a *App) Rules() *rules.Engine {
+	return a.rules
 }
 
 // Queue returns the queue the App dispatches through.

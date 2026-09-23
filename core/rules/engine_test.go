@@ -446,6 +446,9 @@ func TestEngineEvaluate(t *testing.T) {
 		if d == nil || d.RuleID != "healthy" {
 			t.Fatalf("healthy rule must still govern, got %+v", d)
 		}
+		if len(d.EvalErrors) != 1 || d.EvalErrors[0].RuleID != "broken" {
+			t.Fatalf("expected structured EvalErrors naming broken, got %+v", d.EvalErrors)
+		}
 	})
 
 	t.Run("canceled context reports evaluation failure", func(t *testing.T) {

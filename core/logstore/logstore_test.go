@@ -521,3 +521,26 @@ func TestLogStore_Concurrency(t *testing.T) {
 		}
 	})
 }
+
+func TestLogStoreShadowEntries(t *testing.T) {
+	s := New(100)
+	now := time.Now()
+	s.Add(&TaskLog{ID: "shadow:r1:n1", Status: "shadow", RuleID: "r1", WouldFire: true, MatchedAt: now, CreatedAt: now, Channels: []string{"oncall"}})
+	s.Add(&TaskLog{ID: "task-1", Provider: "log", Status: "pending", CreatedAt: now})
+
+	// Status filter separates shadow entries from delivery entries.
+	shadow := s.Get(0, 10, &Filter{Status: "shadow"})
+	if len(shadow) != 1 || shadow[0].RuleID != "r1" || !shadow[0].WouldFire {
+		t.Fatalf("expected the shadow entry, got %+v", shadow)
+	}
+	delivery := s.Get(0, 10, &Filter{Status: "pending"})
+	if len(delivery) != 1 || delivery[0].Provider != "log" {
+		t.Fatalf("expected the delivery entry, got %+v", delivery)
+	}
+
+	// Stats count shadow as its own status bucket.
+	stats := s.Stats()
+	if stats.ByStatus["shadow"] != 1 || stats.ByStatus["pending"] != 1 {
+		t.Fatalf("unexpected status stats: %+v", stats.ByStatus)
+	}
+}

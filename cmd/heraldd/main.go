@@ -19,6 +19,7 @@ import (
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/rules"
 	coreruntime "github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
@@ -136,6 +137,20 @@ func serveCmd(args []string) int {
 		logger.Info("templates loaded", "count", len(cfg.Templates))
 	}
 
+	// Create rule engine: in-memory store seeded from cfg.Rules, evaluated
+	// after dedup and before routing; shadow hits are logged by the manager.
+	rulesEngine := rules.NewEngine(rules.NewMemoryStore())
+	for i := range cfg.Rules {
+		rule := cfg.Rules[i]
+		if err := rulesEngine.Put(context.Background(), &rule); err != nil {
+			logger.Error("failed to load rule", "index", i, "error", err)
+			return 1
+		}
+	}
+	if len(cfg.Rules) > 0 {
+		logger.Info("rules loaded", "count", len(cfg.Rules))
+	}
+
 	// Create worker registry and pool
 	registry := worker.NewRegistry()
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
@@ -151,6 +166,7 @@ func serveCmd(args []string) int {
 		Auth:            a,
 		TemplateManager: templateMgr,
 		WorkerRegistry:  registry,
+		Rules:           rulesEngine,
 	})
 
 	// Create WebSocket server (management channel)
