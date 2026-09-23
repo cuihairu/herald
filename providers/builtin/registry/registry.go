@@ -11,12 +11,12 @@ import (
 	"github.com/cuihairu/herald/providers/builtin/neteasesms"
 	"github.com/cuihairu/herald/providers/builtin/slack"
 	"github.com/cuihairu/herald/providers/builtin/telegram"
-	"github.com/cuihairu/herald/providers/builtin/worker"
 	"github.com/cuihairu/herald/providers/builtin/tencentsms"
 	"github.com/cuihairu/herald/providers/builtin/webhook"
 	"github.com/cuihairu/herald/providers/builtin/wechat"
 	"github.com/cuihairu/herald/providers/builtin/wechatmp"
 	"github.com/cuihairu/herald/providers/builtin/wecom"
+	"github.com/cuihairu/herald/providers/builtin/worker"
 )
 
 // RegisterBuiltinProviders registers all builtin provider factories

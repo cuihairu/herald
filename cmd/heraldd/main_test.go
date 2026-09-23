@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/config"
+	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/protocol"
 	gws "github.com/gorilla/websocket"
 )

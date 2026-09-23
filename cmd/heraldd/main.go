@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/api"
+	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/queue"
@@ -22,7 +23,6 @@ import (
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/core/worker"
-	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/internal/logger"
 	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"

@@ -134,10 +134,10 @@ func parseConfig(config map[string]interface{}) (*Config, error) {
 // GetConfig returns the provider configuration
 func (p *Provider) GetConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"app_id":       p.appID,
-		"app_secret":   p.appSecret,
-		"template_id":  p.templateID,
-		"default_url":  p.defaultURL,
+		"app_id":      p.appID,
+		"app_secret":  p.appSecret,
+		"template_id": p.templateID,
+		"default_url": p.defaultURL,
 	}
 }
 
