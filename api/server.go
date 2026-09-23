@@ -63,6 +63,9 @@ func NewServer(config *Config) *Server {
 	handler := NewHandler(notificationSvc, config.Runtime, config.TemplateManager)
 	handler.SetQueue(config.Queue)
 	handler.SetWorkerRegistry(config.WorkerRegistry)
+	if config.Rules != nil {
+		handler.SetRuleEngine(config.Rules)
+	}
 
 	s := &Server{
 		addr:    config.Addr,
@@ -94,6 +97,10 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/templates", s.withAuth(s.handleTemplates))
 	mux.HandleFunc("/api/v1/templates/create", s.withAuth(s.handleCreateTemplate))
 	mux.HandleFunc("/api/v1/templates/{id}", s.withAuth(s.handleTemplateByID))
+
+	// Rule management
+	mux.HandleFunc("/api/v1/rules", s.withAuth(s.handleRules))
+	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -254,4 +261,14 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTemplateByID(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleTemplateByID(w, r)
+}
+
+// Rule management handlers
+
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleRules(w, r)
+}
+
+func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleRuleByID(w, r)
 }

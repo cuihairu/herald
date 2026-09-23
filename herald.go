@@ -108,10 +108,19 @@ func New(cfg *config.Config) (*App, error) {
 
 	svc := service.NewNotificationService(templateMgr, router, manager, d, aq)
 
-	// Rule engine: an in-memory store seeded from cfg.Rules (empty by
-	// default), evaluated after dedup and before routing. Shadow hits are
-	// observed by the manager into the delivery log, sampled per rule.
-	rulesEngine := rules.NewEngine(rules.NewMemoryStore())
+	// Rule engine: seeded from cfg.Rules (empty by default), evaluated
+	// after dedup and before routing. Shadow hits are observed by the
+	// manager into the delivery log, sampled per rule.
+	var ruleStore rules.Store = rules.NewMemoryStore()
+	if cfg.RulesStore != "" {
+		fs, err := rules.NewFileStore(cfg.RulesStore)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("open rules store: %w", err)
+		}
+		ruleStore = fs
+	}
+	rulesEngine := rules.NewEngine(ruleStore)
 	for i := range cfg.Rules {
 		rule := cfg.Rules[i]
 		if err := rulesEngine.Validate(&rule); err != nil {

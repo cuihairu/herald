@@ -25,6 +25,9 @@ type Config struct {
 	Dedup     DedupConfig                        `yaml:"dedup"`
 	Templates map[string]template.TemplateConfig `yaml:"templates"`
 	Rules     []rules.Rule                       `yaml:"rules"`
+	// RulesStore points at the persistent rules file. Empty keeps rules
+	// in memory only (seeds from Rules are still honored).
+	RulesStore string `yaml:"rules_store"`
 }
 
 // ServerConfig is the server configuration

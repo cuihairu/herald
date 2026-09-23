@@ -230,6 +230,11 @@ func (e *Engine) List(ctx context.Context) ([]Rule, error) {
 	return e.store.List(ctx)
 }
 
+// Get returns a stored rule by id.
+func (e *Engine) Get(ctx context.Context, id string) (Rule, error) {
+	return e.store.Get(ctx, id)
+}
+
 // Reload re-reads every rule from the store and rebuilds the live table.
 // It is atomic: if any rule fails to validate or compile, the previous
 // table keeps serving and the error names the offending rule.

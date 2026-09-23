@@ -173,7 +173,7 @@ dedup:
   enabled: true
   window: 5m
 
-# 通知规则（可选）
+# 通知规则种子（可选）
 # 规则在去重之后、路由解析之前对每条通知求值；命中 active 规则且调用方
 # 未显式指定 channels 时，改走规则的渠道路径；shadow 规则只记录不投递。
 rules:
@@ -184,6 +184,11 @@ rules:
       - match: 'level == "error"'
         channels: [oncall]
       - channels: [devops]        # match 留空 = 恒命中的兜底 step
+
+# 规则持久化文件（可选）
+# 设置后通过 API 对规则的新增/修改/删除会落盘到该 JSON 文件，重启自动恢复；
+# 不设置时规则仅保存在内存中（rules 种子仍然生效）。
+# rules_store: ./data/rules.json
 
 # WebSocket 配置（远程 Worker 管理通道）
 websocket:
@@ -323,6 +328,31 @@ providers:
 ### P1 未生效字段
 
 `for` / `group_by` / `inhibit` / `escalation` / `silence` 已在规则模型中建模但尚未实现——配置了这些字段会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
+
+### 规则存储与 API（热加载）
+
+- 默认规则只存在内存中（来自 `rules` 种子）；设置 `rules_store: <path>` 后，通过 API 的增删改会原子落盘到该 JSON 文件（tmp + rename），重启自动恢复
+- 规则增删改即热加载：保存时编译，编译产物即时替换进活表，下一条通知就用新规则求值，无需重启
+- 文件损坏（非法 JSON / 版本不识别）时启动失败并保留现场，不会静默丢弃规则
+
+**API：**
+
+```bash
+# 列出规则
+curl http://localhost:8080/api/v1/rules
+
+# 创建规则（重复 id 返回 409；表达式编译失败返回 400）
+curl -X POST http://localhost:8080/api/v1/rules \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"p1","match":"level == \"error\"","mode":"active","route":[{"channels":["oncall"]}]}'
+
+# 查看 / 更新 / 删除（URL 中的 id 优先于 body）
+curl http://localhost:8080/api/v1/rules/p1
+curl -X PUT http://localhost:8080/api/v1/rules/p1 -d '{...}'
+curl -X DELETE http://localhost:8080/api/v1/rules/p1
+```
+
+**实现偏离说明**：设计文档原定持久化以 SQLite 起步；P1 实际采用 JSON 文件存储（实现同一 `Store` 接口）。理由：规则规模 <100 条、单写者进程、无查询需求，SQLite 的 15MB cgo 依赖不成比例；待 P2 ACK 状态需要真实查询能力时再引入 SQLite，届时接口不变、只换实现。
 
 ## 动态配置
 

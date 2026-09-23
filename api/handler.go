@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
@@ -20,6 +21,7 @@ type Handler struct {
 	workerRegistry  *worker.Registry
 	_wsServer       *websocket.Server
 	queue           core.Queue
+	rulesEngine     *rules.Engine
 }
 
 // NewHandler creates a new handler
@@ -57,6 +59,11 @@ func (h *Handler) getQueue() core.Queue {
 // SetQueue sets the queue reference used by status endpoints.
 func (h *Handler) SetQueue(q core.Queue) {
 	h.queue = q
+}
+
+// SetRuleEngine attaches the rule engine for rule CRUD endpoints.
+func (h *Handler) SetRuleEngine(engine *rules.Engine) {
+	h.rulesEngine = engine
 }
 
 // Response is a response

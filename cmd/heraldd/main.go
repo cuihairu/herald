@@ -137,9 +137,21 @@ func serveCmd(args []string) int {
 		logger.Info("templates loaded", "count", len(cfg.Templates))
 	}
 
-	// Create rule engine: in-memory store seeded from cfg.Rules, evaluated
-	// after dedup and before routing; shadow hits are logged by the manager.
-	rulesEngine := rules.NewEngine(rules.NewMemoryStore())
+	// Create rule engine: store seeded from cfg.Rules (persistent JSON
+	// file when rules_store is set), evaluated after dedup and before
+	// routing; shadow hits are logged by the manager.
+	var ruleStore rules.Store
+	if cfg.RulesStore != "" {
+		store, err := rules.NewFileStore(cfg.RulesStore)
+		if err != nil {
+			logger.Error("failed to open rules store", "path", cfg.RulesStore, "error", err)
+			return 1
+		}
+		ruleStore = store
+	} else {
+		ruleStore = rules.NewMemoryStore()
+	}
+	rulesEngine := rules.NewEngine(ruleStore)
 	for i := range cfg.Rules {
 		rule := cfg.Rules[i]
 		if err := rulesEngine.Put(context.Background(), &rule); err != nil {

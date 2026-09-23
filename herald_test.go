@@ -3,6 +3,8 @@ package herald
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -461,6 +463,50 @@ func TestNewBadRuleExpression(t *testing.T) {
 	if _, err := New(cfg); err == nil {
 		t.Error("New() with a range expression rule should fail")
 	}
+}
+
+func TestNewWithRulesStore(t *testing.T) {
+	t.Run("seeds persist through the file store", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "rules.json")
+		cfg := config.Default()
+		cfg.RulesStore = path
+		cfg.Rules = []rules.Rule{{
+			ID:    "seeded",
+			Match: `level == "error"`,
+			Mode:  rules.ModeActive,
+			Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+		}}
+		app, err := New(cfg)
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = app.Close() }()
+
+		// A fresh store over the same file must see the seeded rule.
+		reloaded, err := rules.NewFileStore(path)
+		if err != nil {
+			t.Fatalf("reopen store: %v", err)
+		}
+		got, err := reloaded.List(context.Background())
+		if err != nil {
+			t.Fatalf("list persisted rules: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != "seeded" {
+			t.Fatalf("expected seeded rule persisted, got %v", got)
+		}
+	})
+
+	t.Run("unusable store path aborts construction", func(t *testing.T) {
+		malformed := filepath.Join(t.TempDir(), "malformed.json")
+		if err := os.WriteFile(malformed, []byte("{not json"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		cfg := config.Default()
+		cfg.RulesStore = malformed
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with a malformed rules store should fail")
+		}
+	})
 }
 
 func TestDispatchWithActiveRuleRoutes(t *testing.T) {
