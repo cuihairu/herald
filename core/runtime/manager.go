@@ -21,18 +21,18 @@ type Manager struct {
 
 var providerSchemas = map[string]map[string]string{
 	"telegram":   {"token": "string", "chat_id": "string", "parse_mode": "string", "api_url": "string"},
-	"feishu":     {"webhook_url": "string"},
-	"wecom":      {"webhook_url": "string"},
-	"dingtalk":   {"access_token": "string", "secret": "string"},
+	"feishu":     {"webhook_url": "string", "sign_secret": "string"},
+	"wecom":      {"webhook_url": "string", "key": "string"},
+	"dingtalk":   {"webhook_url": "string", "access_token": "string", "secret": "string"},
 	"slack":      {"webhook_url": "string"},
 	"discord":    {"webhook_url": "string", "webhook_id": "string", "webhook_token": "string", "bot_token": "string", "channel_id": "string"},
-	"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
-	"webhook":    {"url": "string"},
+	"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string", "from_name": "string"},
+	"webhook":    {"url": "string", "method": "string", "headers": "object"},
 	"wechat":     {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},
 	"wechatmp":   {"app_id": "string", "app_secret": "string", "template_id": "string", "default_url": "string"},
-	"aliyunsms":  {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string"},
-	"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string"},
-	"neteasesms": {"app_key": "string", "app_secret": "string"},
+	"aliyunsms":  {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string", "region": "string", "endpoint": "string"},
+	"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string", "region": "string", "endpoint": "string"},
+	"neteasesms": {"app_key": "string", "app_secret": "string", "endpoint": "string"},
 }
 
 type registeredProvider struct {
