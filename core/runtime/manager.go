@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/rules"
@@ -20,6 +21,7 @@ type Manager struct {
 	logStore      *logstore.LogStore
 	retryer       *retry.Retryer
 	shadowSampler *rules.ShadowSampler
+	limiters      *limiter.Manager
 }
 
 var providerSchemas = map[string]map[string]string{
@@ -214,7 +216,37 @@ func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 	return statuses
 }
 
-// Deliver delivers a DeliveryTask to its target provider.
+// SetProviderLimiter attaches a rate limiter to a provider: every Deliver
+// for that provider waits for a token before calling the provider. Calling
+// it twice for the same provider keeps the first limiter (rate limits are
+// set once at configuration time). Config is never nil — a nil config
+// selects the limiter package default.
+func (m *Manager) SetProviderLimiter(provider string, cfg *limiter.Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.limiters == nil {
+		m.limiters = limiter.NewManager()
+	}
+	_, err := m.limiters.GetOrCreate(provider, cfg)
+	return err
+}
+
+// LimiterFor returns the rate limiter registered for a provider, if any.
+// It exists for introspection (tests, dashboards); delivery goes through
+// Deliver, which waits on this limiter automatically.
+func (m *Manager) LimiterFor(provider string) (limiter.Limiter, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.limiters == nil {
+		return nil, false
+	}
+	return m.limiters.Get(provider)
+}
+
+// Deliver delivers a task through the named provider, honoring the
+// provider's rate limiter (if configured) and the retry policy (if
+// configured), and records the outcome into the delivery log.
 func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("task is nil")
@@ -227,6 +259,24 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	provider, err := m.GetProvider(task.Provider)
 	if err != nil {
 		return err
+	}
+
+	// Channel rate limiting: the rule engine can fan one notification out
+	// to many channels, so a misconfigured rule must not turn into a
+	// provider-side storm. Wait BEFORE any delivery attempt.
+	m.mu.RLock()
+	limiters := m.limiters
+	m.mu.RUnlock()
+	if limiters != nil {
+		if lm, ok := limiters.Get(task.Provider); ok {
+			if err := lm.Wait(ctx); err != nil {
+				err = fmt.Errorf("rate limit wait aborted: %w", err)
+				entry := logstore.NewTaskLog(task)
+				m.logStore.Add(entry)
+				m.logStore.UpdateStatus(task.ID, "failed", err.Error())
+				return err
+			}
+		}
 	}
 
 	logEntry := logstore.NewTaskLog(task)

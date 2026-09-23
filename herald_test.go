@@ -12,6 +12,7 @@ import (
 
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/rules"
@@ -586,5 +587,31 @@ func TestDispatchShadowRuleObserves(t *testing.T) {
 	logs := app.manager.GetLogs(0, 10, &logstore.Filter{Status: "shadow"})
 	if len(logs) != 1 || logs[0].RuleID != "shadow-all" || !logs[0].WouldFire {
 		t.Fatalf("expected one shadow observation, got %+v", logs)
+	}
+}
+
+func TestNewWiresProviderRateLimit(t *testing.T) {
+	cfg := config.Default()
+	cfg.Providers = map[string]config.ProviderConfig{
+		"rec": {
+			Type:      "log",
+			Enabled:   nil,
+			RateLimit: &limiter.Config{Type: "token_bucket", Rate: 100, Burst: 2},
+		},
+	}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = app.Close() }()
+
+	// The limiter must be reachable through the runtime manager, so
+	// deliveries through "rec" are throttled from the first tick.
+	lm, ok := app.Runtime().LimiterFor("rec")
+	if !ok {
+		t.Fatal("expected a limiter registered for provider rec")
+	}
+	if lm == nil {
+		t.Fatal("expected a non-nil limiter")
 	}
 }

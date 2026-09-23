@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -513,5 +514,60 @@ func TestGetConvenienceError(t *testing.T) {
 	// Error is expected for invalid URL
 	if err == nil {
 		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestStatusCodesRetryableClassification(t *testing.T) {
+	cases := []struct {
+		name      string
+		status    int
+		retryable bool
+	}{
+		{"rate limited", http.StatusTooManyRequests, true},
+		{"request timeout", http.StatusRequestTimeout, true},
+		{"internal", http.StatusInternalServerError, true},
+		{"bad gateway", http.StatusBadGateway, true},
+		{"service unavailable", http.StatusServiceUnavailable, true},
+		{"bad request", http.StatusBadRequest, false},
+		{"unauthorized", http.StatusUnauthorized, false},
+		{"forbidden", http.StatusForbidden, false},
+		{"not found", http.StatusNotFound, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte("upstream said no"))
+			}))
+			defer server.Close()
+
+			c := NewClient(nil)
+			resp, err := c.PostJSON(context.Background(), server.URL, map[string]string{"k": "v"})
+			if err == nil {
+				t.Fatalf("status %d: expected error", tc.status)
+			}
+			if IsRetryable(err) != tc.retryable {
+				t.Fatalf("status %d: expected retryable=%v, got %v (%v)", tc.status, tc.retryable, IsRetryable(err), err)
+			}
+			if resp == nil || resp.StatusCode != tc.status {
+				t.Fatalf("status %d: expected response with status for diagnostics, got %+v", tc.status, resp)
+			}
+			if tc.retryable && !strings.Contains(err.Error(), "upstream said no") {
+				t.Errorf("retryable error should carry the body for diagnostics, got %v", err)
+			}
+		})
+	}
+}
+
+func TestGetTransportErrorIsRetryable(t *testing.T) {
+	// A closed port produces a transport-level failure, which must be
+	// marked retryable.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := server.URL
+	server.Close()
+
+	c := NewClient(&Config{Timeout: 2 * time.Second})
+	if _, err := c.Get(context.Background(), url); !IsRetryable(err) {
+		t.Fatalf("expected transport error to be retryable, got %v", err)
 	}
 }

@@ -113,6 +113,12 @@ func serveCmd(args []string) int {
 			return 1
 		}
 		logger.Info("provider registered", "name", name, "type", provider.Type(), "enabled", enabled)
+		if providerCfg.RateLimit != nil {
+			if err := manager.SetProviderLimiter(name, providerCfg.RateLimit); err != nil {
+				logger.Error("failed to configure rate limit", "name", name, "error", err)
+				return 1
+			}
+		}
 	}
 
 	// Create dedup

@@ -190,6 +190,17 @@ rules:
 # 不设置时规则仅保存在内存中（rules 种子仍然生效）。
 # rules_store: ./data/rules.json
 
+# Provider 限流（可选，token bucket）
+# 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
+# 限流是渠道风暴的最后安全阀。不配置 = 不限流。
+# providers:
+#   oncall:
+#     type: feishu
+#     config: { webhook_url: "..." }
+#     rate_limit:
+#       rate: 10      # 每秒补充令牌数
+#       burst: 100    # 桶容量（允许的突发量）
+
 # WebSocket 配置（远程 Worker 管理通道）
 websocket:
   addr: ":8081"
@@ -353,6 +364,21 @@ curl -X DELETE http://localhost:8080/api/v1/rules/p1
 ```
 
 **实现偏离说明**：设计文档原定持久化以 SQLite 起步；P1 实际采用 JSON 文件存储（实现同一 `Store` 接口）。理由：规则规模 <100 条、单写者进程、无查询需求，SQLite 的 15MB cgo 依赖不成比例；待 P2 ACK 状态需要真实查询能力时再引入 SQLite，届时接口不变、只换实现。
+
+### 投递限流与重试
+
+**限流**（`providers.<name>.rate_limit`，可选）：投递前按 provider 取令牌（token bucket），等待发生在实际调用之前；等待被取消（关停）时该次投递记为失败。限流是规则引擎扇出场景的最后安全阀——一条错误规则不该演变成渠道风暴。
+
+**重试**：投递失败是否重试由错误类型决定：
+
+| 错误类型 | 可重试 | 说明 |
+|----------|--------|------|
+| 网络传输失败（连接拒绝、超时） | ✅ | HTTP 客户端统一标记 |
+| HTTP 408 / 429 / 5xx | ✅ | 上游过载或临时故障 |
+| HTTP 其它 4xx（400/401/403/404） | ❌ | 确定性客户端错误，重试无意义 |
+| 渠道业务失败（如短信 body 错误码） | 视 provider | 各渠道自行标记 |
+
+重试按 `retry` 配置退避（默认指数退避，最多 3 次）。注意：短信类渠道「HTTP 200 但业务码失败」的错误由 provider 判定 body 后返回，部分渠道标记为可重试（如腾讯云 API 错误），部分不重试（如发送状态中运营商拒收）。
 
 ## 动态配置
 

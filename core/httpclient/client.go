@@ -61,6 +61,25 @@ func NewClient(config *Config) *Client {
 	}
 }
 
+// retryableStatus reports whether an HTTP status code represents a
+// transient failure worth retrying: request timeout, rate limiting, or
+// a server-side error. Other 4xx codes are deterministic client errors
+// (bad payload, bad credentials) — retrying them cannot succeed.
+func retryableStatus(code int) bool {
+	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
+}
+
+// statusError builds the error for a non-2xx response, wrapping it as
+// retryable when the status is transient. The response itself is still
+// returned so callers can inspect the body for diagnostics.
+func statusError(code int, body []byte) error {
+	err := fmt.Errorf("unexpected status code: %d, body: %s", code, string(body))
+	if retryableStatus(code) {
+		return WithRetry(err)
+	}
+	return err
+}
+
 // PostJSON sends a JSON POST request
 func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*Response, error) {
 	// Marshal body
@@ -80,7 +99,7 @@ func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*R
 	// Send request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, WithRetry(fmt.Errorf("failed to send request: %w", err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -95,7 +114,7 @@ func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*R
 		return &Response{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
-		}, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
+		}, statusError(resp.StatusCode, respBody)
 	}
 
 	return &Response{
@@ -115,7 +134,7 @@ func (c *Client) PostForm(ctx context.Context, reqURL string, data url.Values) (
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, WithRetry(fmt.Errorf("failed to send request: %w", err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -128,7 +147,7 @@ func (c *Client) PostForm(ctx context.Context, reqURL string, data url.Values) (
 		return &Response{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
-		}, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
+		}, statusError(resp.StatusCode, respBody)
 	}
 
 	return &Response{
@@ -146,7 +165,7 @@ func (c *Client) Get(ctx context.Context, url string) (*Response, error) {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, WithRetry(fmt.Errorf("failed to send request: %w", err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -159,7 +178,7 @@ func (c *Client) Get(ctx context.Context, url string) (*Response, error) {
 		return &Response{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
-		}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}, statusError(resp.StatusCode, respBody)
 	}
 
 	return &Response{

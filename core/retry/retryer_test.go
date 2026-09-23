@@ -3,10 +3,12 @@ package retry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/httpclient"
 )
 
 func TestNewRetryableError(t *testing.T) {
@@ -131,5 +133,63 @@ func TestRetryerExecuteContextCanceled(t *testing.T) {
 
 	if err := r.Execute(ctx, task, fn); err != context.Canceled {
 		t.Errorf("expected context canceled, got %v", err)
+	}
+}
+
+func TestExecuteRetriesHTTPClientRetryableError(t *testing.T) {
+	// The errors providers actually return are httpclient.RetryableError
+	// (transport failures, HTTP 408/429/5xx). The retryer must honor them
+	// even though they are a different type from retry.RetryableError.
+	r := NewRetryer(&Config{Max: 3, Backoff: "fixed", InitialDelay: time.Millisecond})
+
+	calls := 0
+	err := r.Execute(context.Background(), &core.DeliveryTask{}, func() error {
+		calls++
+		if calls == 1 {
+			return httpclient.WithRetry(errors.New("429 too many requests"))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected eventual success, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls, got %d", calls)
+	}
+}
+
+func TestExecuteRetriesWrappedRetryableError(t *testing.T) {
+	// errors.As must see through extra wrapping layers.
+	r := NewRetryer(&Config{Max: 3, Backoff: "fixed", InitialDelay: time.Millisecond})
+
+	calls := 0
+	err := r.Execute(context.Background(), &core.DeliveryTask{}, func() error {
+		calls++
+		if calls == 1 {
+			return fmt.Errorf("deliver: %w", NewRetryableError(errors.New("boom")))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected eventual success, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls, got %d", calls)
+	}
+}
+
+func TestExecuteDoesNotRetryPlainError(t *testing.T) {
+	r := NewRetryer(&Config{Max: 3, Backoff: "fixed", InitialDelay: time.Millisecond})
+
+	calls := 0
+	err := r.Execute(context.Background(), &core.DeliveryTask{}, func() error {
+		calls++
+		return errors.New("invalid credentials")
+	})
+	if err == nil {
+		t.Fatal("expected error to propagate")
+	}
+	if calls != 1 {
+		t.Fatalf("plain errors must not retry, got %d calls", calls)
 	}
 }

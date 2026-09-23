@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
@@ -68,6 +69,9 @@ type ProviderConfig struct {
 	Type    string                 `yaml:"type"`
 	Config  map[string]interface{} `yaml:"config"`
 	Enabled *bool                  `yaml:"enabled"` // nil means true (default enabled)
+	// RateLimit optionally rate-limits deliveries through this provider
+	// (token bucket). Nil means unlimited.
+	RateLimit *limiter.Config `yaml:"rate_limit"`
 }
 
 // QueueConfig is the queue configuration

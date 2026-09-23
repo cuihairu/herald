@@ -2,10 +2,12 @@ package retry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/httpclient"
 )
 
 // RetryableError is an error that can be retried
@@ -24,6 +26,18 @@ func (e *RetryableError) Unwrap() error {
 // NewRetryableError creates a new retryable error
 func NewRetryableError(err error) error {
 	return &RetryableError{Err: err}
+}
+
+// isRetryable reports whether err is marked retryable. Providers mark
+// transient failures (network errors, HTTP 408/429/5xx) with
+// httpclient.WithRetry; errors.As sees through any additional wrapping.
+func isRetryable(err error) bool {
+	var local *RetryableError
+	if errors.As(err, &local) {
+		return true
+	}
+	var httpErr *httpclient.RetryableError
+	return errors.As(err, &httpErr)
 }
 
 // Policy is the retry policy
@@ -114,8 +128,7 @@ func (p *ExponentialPolicy) ShouldRetry(err error, retryCount int) bool {
 	if retryCount >= p.Max {
 		return false
 	}
-	_, isRetryable := err.(*RetryableError)
-	return isRetryable
+	return isRetryable(err)
 }
 
 func (p *ExponentialPolicy) NextDelay(retryCount int) time.Duration {
@@ -140,8 +153,7 @@ func (p *FixedPolicy) ShouldRetry(err error, retryCount int) bool {
 	if retryCount >= p.Max {
 		return false
 	}
-	_, isRetryable := err.(*RetryableError)
-	return isRetryable
+	return isRetryable(err)
 }
 
 func (p *FixedPolicy) NextDelay(retryCount int) time.Duration {

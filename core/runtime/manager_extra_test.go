@@ -3,10 +3,13 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/retry"
 )
 
@@ -170,3 +173,94 @@ func TestEnableDisableNotFound(t *testing.T) {
 // `if err != nil` branch after GetProvider is unreachable. IsEnabled(name)
 // only returns true when the provider is registered, and Manager offers no
 // API that removes a registration, so GetProvider cannot fail at that point.
+
+func TestSetProviderLimiterThrottlesDeliver(t *testing.T) {
+	m := newRetryTestManager()
+	p := &mockProvider{name: "throttled", status: &core.ProviderStatus{Name: "throttled"}}
+	if err := m.RegisterProvider("throttled", p); err != nil {
+		t.Fatal(err)
+	}
+	// Burst 1 at a near-zero refill rate: the first delivery consumes the
+	// only token, the second must wait far longer than the test allows.
+	if err := m.SetProviderLimiter("throttled", &limiter.Config{Type: "token_bucket", Rate: 0.001, Burst: 1}); err != nil {
+		t.Fatalf("SetProviderLimiter: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	first := &core.DeliveryTask{ID: "task-limit-1", Provider: "throttled", Payload: core.DeliveryPayload{Kind: core.PayloadContent}}
+	if err := m.Deliver(ctx, first); err != nil {
+		t.Fatalf("first delivery should pass the limiter, got %v", err)
+	}
+
+	second := &core.DeliveryTask{ID: "task-limit-2", Provider: "throttled", Payload: core.DeliveryPayload{Kind: core.PayloadContent}}
+	err := m.Deliver(ctx, second)
+	if err == nil {
+		t.Fatal("second delivery should be throttled past the test deadline")
+	}
+	if !strings.Contains(err.Error(), "rate limit wait aborted") {
+		t.Fatalf("expected rate-limit abort error, got %v", err)
+	}
+
+	log := m.GetLogByID("task-limit-2")
+	if log == nil || log.Status != "failed" {
+		t.Fatalf("throttled delivery must be logged as failed, got %+v", log)
+	}
+}
+
+func TestSetProviderLimiterFirstConfigWins(t *testing.T) {
+	m := NewManager(10)
+	if err := m.SetProviderLimiter("p", &limiter.Config{Rate: 1, Burst: 1}); err != nil {
+		t.Fatalf("first config: %v", err)
+	}
+	lm, ok := m.limiters.Get("p")
+	if !ok {
+		t.Fatal("expected limiter to be registered")
+	}
+	// GetOrCreate returns the existing limiter, so the second config can
+	// never replace the first: reconfiguring requires a restart.
+	before := lm
+	if _, err := m.limiters.GetOrCreate("p", &limiter.Config{Rate: 999, Burst: 999}); err != nil {
+		t.Fatalf("GetOrCreate again: %v", err)
+	}
+	after, _ := m.limiters.Get("p")
+	if before != after {
+		t.Fatal("expected the first limiter instance to be kept")
+	}
+}
+
+func TestDeliverUnlimitedWithoutLimiter(t *testing.T) {
+	// No SetProviderLimiter call: deliveries must not wait at all.
+	m := NewManager(10)
+	p := &mockProvider{name: "free", status: &core.ProviderStatus{Name: "free"}}
+	if err := m.RegisterProvider("free", p); err != nil {
+		t.Fatal(err)
+	}
+	if m.limiters != nil {
+		t.Fatal("limiters must stay nil until a limiter is configured")
+	}
+	for i := 0; i < 5; i++ {
+		task := &core.DeliveryTask{ID: fmt.Sprintf("task-free-%d", i), Provider: "free", Payload: core.DeliveryPayload{Kind: core.PayloadContent}}
+		if err := m.Deliver(context.Background(), task); err != nil {
+			t.Fatalf("delivery %d should pass without a limiter, got %v", i, err)
+		}
+	}
+}
+
+func TestLimiterForIntrospection(t *testing.T) {
+	m := NewManager(10)
+	if _, ok := m.LimiterFor("any"); ok {
+		t.Fatal("expected no limiter before configuration")
+	}
+	if err := m.SetProviderLimiter("any", &limiter.Config{Rate: 1, Burst: 1}); err != nil {
+		t.Fatalf("SetProviderLimiter: %v", err)
+	}
+	lm, ok := m.LimiterFor("any")
+	if !ok || lm == nil {
+		t.Fatalf("expected limiter after configuration, got %v", lm)
+	}
+	if _, ok := m.LimiterFor("other"); ok {
+		t.Fatal("expected no limiter for unconfigured provider")
+	}
+}
