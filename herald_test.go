@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/template"
 )
 
 // recordingProvider records delivered tasks, or always fails when err is set.
@@ -30,9 +31,11 @@ func (p *recordingProvider) Deliver(_ context.Context, task *core.DeliveryTask) 
 	return nil
 }
 
-func (p *recordingProvider) Name() string                  { return "rec" }
-func (p *recordingProvider) Type() string                  { return "recording" }
-func (p *recordingProvider) Status() *core.ProviderStatus  { return &core.ProviderStatus{Name: "rec", Type: "recording", Status: "ok"} }
+func (p *recordingProvider) Name() string { return "rec" }
+func (p *recordingProvider) Type() string { return "recording" }
+func (p *recordingProvider) Status() *core.ProviderStatus {
+	return &core.ProviderStatus{Name: "rec", Type: "recording", Status: "ok"}
+}
 
 func (p *recordingProvider) count() int {
 	p.mu.Lock()
@@ -329,5 +332,77 @@ func TestAwaitingQueueWaitContextCanceled(t *testing.T) {
 	cancel()
 	if err := aq.wait(ctx, "t1"); !errors.Is(err, context.Canceled) {
 		t.Errorf("wait() with canceled ctx = %v, want context.Canceled", err)
+	}
+}
+
+func TestNewUnknownQueueType(t *testing.T) {
+	cfg := config.Default()
+	cfg.Queue.Type = "bogus"
+	if _, err := New(cfg); err == nil || !strings.Contains(err.Error(), "create queue") {
+		t.Errorf("New() with unknown queue type = %v, want create-queue failure", err)
+	}
+}
+
+func TestNewInvalidTemplate(t *testing.T) {
+	cfg := config.Default()
+	cfg.Templates = map[string]template.TemplateConfig{"bad": {Name: "no title"}}
+	if _, err := New(cfg); err == nil || !strings.Contains(err.Error(), "load templates") {
+		t.Errorf("New() with invalid template = %v, want load-templates failure", err)
+	}
+}
+
+func TestAppQueueAccessor(t *testing.T) {
+	app, _ := newTestApp(t)
+	if app.Queue() == nil {
+		t.Error("Queue() = nil, want the backend queue")
+	}
+}
+
+func TestDispatchSyncProcessError(t *testing.T) {
+	app, _ := newTestApp(t)
+
+	// No channels and no route: Process fails before anything is queued, so
+	// DispatchSync surfaces the same error as Dispatch.
+	res, err := app.DispatchSync(context.Background(), &core.Notification{Type: "nothing"})
+	if err == nil || !strings.Contains(err.Error(), "no route") {
+		t.Errorf("DispatchSync() error = %v, want no-route failure", err)
+	}
+	// Process failed before anything was queued, so there is no result object.
+	if res != nil {
+		t.Errorf("DispatchSync() res = %+v, want nil alongside the error", res)
+	}
+}
+
+func TestResolvedEviction(t *testing.T) {
+	backend, err := queue.NewMemoryQueue(&queue.QueueConfig{Type: "memory", Size: 10})
+	if err != nil {
+		t.Fatalf("NewMemoryQueue() error = %v", err)
+	}
+	aq := newAwaitingQueue(backend)
+	defer func() { _ = backend.Close() }()
+
+	prev := resolvedResultsLimit
+	resolvedResultsLimit = 2
+	t.Cleanup(func() { resolvedResultsLimit = prev })
+
+	ctx := context.Background()
+	for _, id := range []string{"t1", "t2", "t3"} {
+		if err := aq.Push(ctx, &core.DeliveryTask{ID: id}); err != nil {
+			t.Fatalf("Push(%s) error = %v", id, err)
+		}
+		if err := aq.Ack(ctx, id); err != nil {
+			t.Fatalf("Ack(%s) error = %v", id, err)
+		}
+	}
+
+	// t1 is the oldest outcome and was evicted; its wait can only end via ctx.
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := aq.wait(cctx, "t1"); !errors.Is(err, context.Canceled) {
+		t.Errorf("wait(evicted t1) = %v, want context.Canceled", err)
+	}
+	// t3 survived the eviction and is served from the cache.
+	if err := aq.wait(ctx, "t3"); err != nil {
+		t.Errorf("wait(cached t3) = %v, want nil", err)
 	}
 }

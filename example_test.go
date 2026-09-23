@@ -21,9 +21,11 @@ func (echoProvider) Deliver(_ context.Context, task *core.DeliveryTask) error {
 	return nil
 }
 
-func (echoProvider) Name() string                 { return "echo" }
-func (echoProvider) Type() string                 { return "echo" }
-func (echoProvider) Status() *core.ProviderStatus { return &core.ProviderStatus{Name: "echo", Type: "echo", Status: "ok"} }
+func (echoProvider) Name() string { return "echo" }
+func (echoProvider) Type() string { return "echo" }
+func (echoProvider) Status() *core.ProviderStatus {
+	return &core.ProviderStatus{Name: "echo", Type: "echo", Status: "ok"}
+}
 
 // ExampleNew embeds Herald with the zero-configuration defaults: an
 // in-memory queue, a background delivery pool and dedup.

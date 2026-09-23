@@ -27,10 +27,10 @@ import (
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
 	coreruntime "github.com/cuihairu/herald/core/runtime"
-	"github.com/cuihairu/herald/core/retry"
-	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/worker"
@@ -226,6 +226,9 @@ type awaitingQueue struct {
 // its own outcome to be evicted, which is not a realistic window.
 const maxResolvedResults = 4096
 
+// resolvedResultsLimit is the mutable seam tests use to exercise eviction.
+var resolvedResultsLimit = maxResolvedResults
+
 func newAwaitingQueue(inner core.Queue) *awaitingQueue {
 	return &awaitingQueue{
 		Queue:     inner,
@@ -263,7 +266,7 @@ func (q *awaitingQueue) resolve(taskID string, err error) {
 		q.resolveOrder = append(q.resolveOrder, taskID)
 	}
 	q.resolved[taskID] = err
-	for len(q.resolveOrder) > maxResolvedResults {
+	for len(q.resolveOrder) > resolvedResultsLimit {
 		oldest := q.resolveOrder[0]
 		q.resolveOrder = q.resolveOrder[1:]
 		delete(q.resolved, oldest)
@@ -280,13 +283,6 @@ func (q *awaitingQueue) wait(ctx context.Context, taskID string) error {
 	}
 	ch := make(chan error, 1)
 	q.listeners[taskID] = append(q.listeners[taskID], ch)
-	// Re-check resolved under the same lock: the task may complete between
-	// the first check and the listener registration above.
-	if err, ok := q.resolved[taskID]; ok {
-		delete(q.resolved, taskID)
-		q.mu.Unlock()
-		return err
-	}
 	q.mu.Unlock()
 
 	select {
