@@ -2,6 +2,11 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -319,6 +324,98 @@ func TestSendMessage(t *testing.T) {
 			t.Error("expected error for cancelled context")
 		}
 	})
+}
+
+// newStubTelegramAPI starts a Bot API stub; the returned func reports the
+// request path and decoded body of the last call.
+func newStubTelegramAPI(t *testing.T, response string) (*httptest.Server, func() (string, SendMessageRequest)) {
+	t.Helper()
+	var last SendMessageRequest
+	var path string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &last)
+		_, _ = w.Write([]byte(response))
+	}))
+	t.Cleanup(ts.Close)
+	return ts, func() (string, SendMessageRequest) { return path, last }
+}
+
+// TestSendMessageCustomAPIURL exercises the success path through a stub Bot
+// API, proving api_url overrides the endpoint and the request is well formed.
+func TestSendMessageCustomAPIURL(t *testing.T) {
+	ts, lastReq := newStubTelegramAPI(t, `{"ok":true}`)
+
+	provider, err := NewProvider(map[string]interface{}{
+		"token":      "123456:ABC",
+		"chat_id":    "-100200300",
+		"parse_mode": "markdown",
+		"api_url":    ts.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider() error = %v", err)
+	}
+
+	if err := provider.(*Provider).sendMessage(context.Background(), "hello"); err != nil {
+		t.Fatalf("sendMessage() error = %v", err)
+	}
+	path, req := lastReq()
+	if want := "/bot123456:ABC/sendMessage"; path != want {
+		t.Errorf("request path = %q, want %q", path, want)
+	}
+	if req.ChatID != "-100200300" || req.Text != "hello" || req.ParseMode != "markdown" {
+		t.Errorf("request = %+v, want chat_id -100200300, text hello, parse_mode markdown", req)
+	}
+}
+
+func TestSendMessageAPIError(t *testing.T) {
+	ts, _ := newStubTelegramAPI(t, `{"ok":false,"description":"chat not found"}`)
+
+	provider, _ := NewProvider(map[string]interface{}{
+		"token":   "123456:ABC",
+		"chat_id": "-100200300",
+		"api_url": ts.URL,
+	})
+
+	err := provider.(*Provider).sendMessage(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "telegram API error: chat not found") {
+		t.Errorf("sendMessage() error = %v, want api error", err)
+	}
+}
+
+func TestSendMessageBadResponse(t *testing.T) {
+	ts, _ := newStubTelegramAPI(t, `not json`)
+
+	provider, _ := NewProvider(map[string]interface{}{
+		"token":   "123456:ABC",
+		"chat_id": "-100200300",
+		"api_url": ts.URL,
+	})
+
+	err := provider.(*Provider).sendMessage(context.Background(), "hello")
+	if err == nil || !strings.Contains(err.Error(), "failed to parse response") {
+		t.Errorf("sendMessage() error = %v, want parse failure", err)
+	}
+}
+
+// TestProviderAPIURLConfig verifies api_url round-trips through GetConfig.
+func TestProviderAPIURLConfig(t *testing.T) {
+	provider, err := NewProvider(map[string]interface{}{
+		"token":   "123456:ABC",
+		"chat_id": "-100200300",
+		"api_url": "https://mirror.example.com",
+	})
+	if err != nil {
+		t.Fatalf("NewProvider() error = %v", err)
+	}
+
+	if got := provider.(*Provider).apiURL; got != "https://mirror.example.com" {
+		t.Errorf("apiURL = %q, want https://mirror.example.com", got)
+	}
+	if got := provider.(*Provider).GetConfig()["api_url"]; got != "https://mirror.example.com" {
+		t.Errorf("GetConfig()[api_url] = %v, want the configured mirror", got)
+	}
 }
 
 func TestProviderDeliver(t *testing.T) {

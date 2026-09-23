@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	defaultAPIURL     = "https://api.telegram.org/bot%s/%s"
+	// defaultAPIBase is the public Telegram Bot API root. Self-hosted Bot
+	// API servers and regional mirrors can override it via api_url.
+	defaultAPIBase    = "https://api.telegram.org"
 	sendMessageMethod = "sendMessage"
 )
 
@@ -19,6 +21,7 @@ type Provider struct {
 	token     string
 	chatID    string
 	parseMode string
+	apiURL    string
 	status    *core.ProviderStatus
 	client    *httpclient.Client
 }
@@ -28,6 +31,7 @@ type Config struct {
 	Token     string `yaml:"token"`
 	ChatID    string `yaml:"chat_id"`
 	ParseMode string `yaml:"parse_mode"` // markdown, html, empty
+	APIURL    string `yaml:"api_url"`    // optional Bot API base override
 }
 
 // SendMessageRequest is the request for sendMessage
@@ -56,11 +60,13 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}
 
 	parseMode, _ := config["parse_mode"].(string)
+	apiURL, _ := config["api_url"].(string)
 
 	return &Provider{
 		token:     token,
 		chatID:    chatID,
 		parseMode: parseMode,
+		apiURL:    apiURL,
 		status: &core.ProviderStatus{
 			Name:   "telegram",
 			Type:   "telegram",
@@ -77,6 +83,7 @@ func (p *Provider) GetConfig() map[string]interface{} {
 		"token":      p.token,
 		"chat_id":    p.chatID,
 		"parse_mode": p.parseMode,
+		"api_url":    p.apiURL,
 	}
 }
 
@@ -134,7 +141,11 @@ func extractContent(task *core.DeliveryTask) (title, body string) {
 
 // sendMessage sends a message to Telegram
 func (p *Provider) sendMessage(ctx context.Context, message string) error {
-	url := fmt.Sprintf(defaultAPIURL, p.token, sendMessageMethod)
+	base := p.apiURL
+	if base == "" {
+		base = defaultAPIBase
+	}
+	url := fmt.Sprintf("%s/bot%s/%s", base, p.token, sendMessageMethod)
 
 	req := &SendMessageRequest{
 		ChatID:    p.chatID,
