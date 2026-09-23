@@ -28,8 +28,15 @@ export default function ProviderConfigPage() {
       if (data.code === 0) {
         setConfig(data.data)
         setSchema(data.data.schema || {})
-        setFormData({ ...data.data.config })
-        form.setFieldsValue(data.data.config)
+        // object 型字段（如 webhook headers）以 JSON 文本编辑，回显时序列化
+        const initial: Record<string, any> = { ...data.data.config }
+        for (const [fieldName, fieldType] of Object.entries(data.data.schema || {})) {
+          if (fieldType === 'object' && initial[fieldName] && typeof initial[fieldName] === 'object') {
+            initial[fieldName] = JSON.stringify(initial[fieldName], null, 2)
+          }
+        }
+        setFormData(initial)
+        form.setFieldsValue(initial)
       } else {
         message.error(data.message)
       }
@@ -41,6 +48,19 @@ export default function ProviderConfigPage() {
   }
 
   async function handleSave() {
+    // object 型字段以 JSON 文本编辑，提交前解析为对象
+    const payload: Record<string, any> = { ...formData }
+    for (const [fieldName, fieldType] of Object.entries(schema)) {
+      const value = payload[fieldName]
+      if (fieldType === 'object' && typeof value === 'string' && value.trim() !== '') {
+        try {
+          payload[fieldName] = JSON.parse(value)
+        } catch {
+          message.error(`配置项 ${fieldName} 不是合法的 JSON 对象`)
+          return
+        }
+      }
+    }
     setSaving(true)
     try {
       const token = localStorage.getItem('herald_token')
@@ -50,7 +70,7 @@ export default function ProviderConfigPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ config: formData }),
+        body: JSON.stringify({ config: payload }),
       })
       const data = await res.json()
       if (data.code === 0) {
@@ -126,6 +146,13 @@ export default function ProviderConfigPage() {
                     style={{ width: '100%' }}
                     placeholder={`输入 ${fieldName}`}
                     onChange={(val) => setFormData({ ...formData, [fieldName]: val })}
+                  />
+                ) : fieldType === 'object' ? (
+                  <Input.TextArea
+                    rows={3}
+                    style={{ fontFamily: 'monospace' }}
+                    placeholder={`输入 ${fieldName}（JSON 对象，如 {"key": "value"}）`}
+                    onChange={(e) => setFormData({ ...formData, [fieldName]: e.target.value })}
                   />
                 ) : (
                   <Input
