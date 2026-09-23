@@ -304,7 +304,7 @@ func TestProviderDeliver(t *testing.T) {
 			}
 
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"code":0,"msg":"success"}`))
+			_, _ = w.Write([]byte(`{"code":0,"msg":"success"}`))
 		}))
 		defer server.Close()
 
@@ -330,7 +330,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("feishu error response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"code":19021,"msg":"sign match fail"}`))
+			_, _ = w.Write([]byte(`{"code":19021,"msg":"sign match fail"}`))
 		}))
 		defer server.Close()
 
@@ -354,7 +354,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("invalid response body", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`not json`))
+			_, _ = w.Write([]byte(`not json`))
 		}))
 		defer server.Close()
 

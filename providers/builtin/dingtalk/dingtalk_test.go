@@ -326,7 +326,7 @@ func TestProviderDeliver(t *testing.T) {
 			}
 
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
 		}))
 		defer server.Close()
 
@@ -352,7 +352,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("dingtalk error response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"errcode":310000,"errmsg":"sign not match"}`))
+			_, _ = w.Write([]byte(`{"errcode":310000,"errmsg":"sign not match"}`))
 		}))
 		defer server.Close()
 
@@ -376,7 +376,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("invalid response body", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`not json`))
+			_, _ = w.Write([]byte(`not json`))
 		}))
 		defer server.Close()
 

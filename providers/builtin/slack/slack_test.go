@@ -233,7 +233,7 @@ func TestProviderDeliver(t *testing.T) {
 			}
 
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"ok":true}`))
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		}))
 		defer server.Close()
 
@@ -259,7 +259,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("slack error response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"ok":false,"error":"invalid_payload"}`))
+			_, _ = w.Write([]byte(`{"ok":false,"error":"invalid_payload"}`))
 		}))
 		defer server.Close()
 

@@ -425,7 +425,7 @@ func TestDeliverSuccess(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	}))
 	defer server.Close()
 
@@ -439,8 +439,7 @@ func TestDeliverSuccess(t *testing.T) {
 }
 
 func TestDeliverTemplateParamVariants(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body SendSmsRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("failed to decode body: %v", err)
@@ -449,7 +448,7 @@ func TestDeliverTemplateParamVariants(t *testing.T) {
 		if len(body.TemplateParamSet) != 2 || body.TemplateParamSet[0] != "a" || body.TemplateParamSet[1] != "b" {
 			t.Errorf("expected template params [a b], got %v", body.TemplateParamSet)
 		}
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	}))
 	defer server.Close()
 
@@ -464,7 +463,7 @@ func TestDeliverTemplateParamVariants(t *testing.T) {
 
 func TestDeliverAPIError(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"Response":{},"Error":{"Code":"AuthFailure.SignatureFailure","Message":"invalid signature"}}`)
+		_, _ = fmt.Fprint(w, `{"Response":{},"Error":{"Code":"AuthFailure.SignatureFailure","Message":"invalid signature"}}`)
 	}))
 	defer server.Close()
 
@@ -482,7 +481,7 @@ func TestDeliverAPIError(t *testing.T) {
 
 func TestDeliverSendStatusError(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"Response":{"SendStatusSet":[{"Code":"FailedOperation","PhoneNumber":"+8613800138000","Message":"carrier rejected"}],"RequestId":"req-2"}}`)
+		_, _ = fmt.Fprint(w, `{"Response":{"SendStatusSet":[{"Code":"FailedOperation","PhoneNumber":"+8613800138000","Message":"carrier rejected"}],"RequestId":"req-2"}}`)
 	}))
 	defer server.Close()
 
@@ -497,7 +496,7 @@ func TestDeliverSendStatusError(t *testing.T) {
 
 func TestDeliverInvalidJSON(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "not-json")
+		_, _ = fmt.Fprint(w, "not-json")
 	}))
 	defer server.Close()
 
@@ -512,7 +511,7 @@ func TestDeliverInvalidJSON(t *testing.T) {
 
 func TestDeliverNetworkError(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	}))
 	defer server.Close()
 

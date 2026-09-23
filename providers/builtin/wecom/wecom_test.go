@@ -303,7 +303,7 @@ func TestProviderDeliver(t *testing.T) {
 			}
 
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
 		}))
 		defer server.Close()
 
@@ -329,7 +329,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("wecom error response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"errcode":93000,"errmsg":"invalid webhook url"}`))
+			_, _ = w.Write([]byte(`{"errcode":93000,"errmsg":"invalid webhook url"}`))
 		}))
 		defer server.Close()
 
@@ -353,7 +353,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("invalid response body", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`not json`))
+			_, _ = w.Write([]byte(`not json`))
 		}))
 		defer server.Close()
 

@@ -155,7 +155,7 @@ func TestDeliverSuccess(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	})
 
 	p := newTestProvider(t)
@@ -178,7 +178,7 @@ func TestDeliverTemplateCodeFallback(t *testing.T) {
 		if _, ok := body["params"]; ok {
 			t.Errorf("expected no params entry, got %v", body["params"])
 		}
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	})
 
 	p := newTestProvider(t)
@@ -198,7 +198,7 @@ func TestDeliverTemplateParamVariants(t *testing.T) {
 		if body["params"] != "a,b" {
 			t.Errorf("expected only string params joined \"a,b\", got %v", body["params"])
 		}
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	})
 
 	p := newTestProvider(t)
@@ -218,7 +218,7 @@ func TestDeliverParamsUnsupportedType(t *testing.T) {
 		if _, ok := body["params"]; ok {
 			t.Errorf("expected no params entry for unsupported param type, got %v", body["params"])
 		}
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	})
 
 	p := newTestProvider(t)
@@ -231,7 +231,7 @@ func TestDeliverParamsUnsupportedType(t *testing.T) {
 
 func TestDeliverBusinessError(t *testing.T) {
 	setHandler(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"code":416,"msg":"params invalid"}`)
+		_, _ = fmt.Fprint(w, `{"code":416,"msg":"params invalid"}`)
 	})
 
 	p := newTestProvider(t)
@@ -247,7 +247,7 @@ func TestDeliverBusinessError(t *testing.T) {
 
 func TestDeliverInvalidJSON(t *testing.T) {
 	setHandler(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "not-json")
+		_, _ = fmt.Fprint(w, "not-json")
 	})
 
 	p := newTestProvider(t)
@@ -292,7 +292,7 @@ func TestSendCode(t *testing.T) {
 			if body["deviceId"] != "device-1" {
 				t.Errorf("expected deviceId device-1, got %v", body["deviceId"])
 			}
-			fmt.Fprint(w, okResponse())
+			_, _ = fmt.Fprint(w, okResponse())
 		})
 
 		p := newTestProvider(t)
@@ -310,7 +310,7 @@ func TestSendCode(t *testing.T) {
 			if len(body) != 1 || body["mobile"] != "13800138000" {
 				t.Errorf("expected only mobile in body, got %v", body)
 			}
-			fmt.Fprint(w, okResponse())
+			_, _ = fmt.Fprint(w, okResponse())
 		})
 
 		p := newTestProvider(t)
@@ -321,7 +321,7 @@ func TestSendCode(t *testing.T) {
 
 	t.Run("business error is retryable", func(t *testing.T) {
 		setHandler(t, func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"code":301,"msg":"frequency limit"}`)
+			_, _ = fmt.Fprint(w, `{"code":301,"msg":"frequency limit"}`)
 		})
 
 		p := newTestProvider(t)
@@ -362,7 +362,7 @@ func TestVerifyCode(t *testing.T) {
 			if len(body) != 2 {
 				t.Errorf("expected 2 body entries, got %d: %v", len(body), body)
 			}
-			fmt.Fprint(w, okResponse())
+			_, _ = fmt.Fprint(w, okResponse())
 		})
 
 		p := newTestProvider(t)
@@ -373,7 +373,7 @@ func TestVerifyCode(t *testing.T) {
 
 	t.Run("business error is not retryable", func(t *testing.T) {
 		setHandler(t, func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"code":415,"msg":"code mismatch"}`)
+			_, _ = fmt.Fprint(w, `{"code":415,"msg":"code mismatch"}`)
 		})
 
 		p := newTestProvider(t)
@@ -414,7 +414,7 @@ func TestSendRequestQueryEncoding(t *testing.T) {
 		if got := r.URL.RawQuery; got != want {
 			t.Errorf("expected sorted raw query %q, got %q", want, got)
 		}
-		fmt.Fprint(w, okResponse())
+		_, _ = fmt.Fprint(w, okResponse())
 	})
 
 	p := newTestProvider(t)

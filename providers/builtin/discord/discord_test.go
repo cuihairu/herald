@@ -264,7 +264,7 @@ func TestProviderDeliver(t *testing.T) {
 			}
 
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		}))
 		defer server.Close()
 
@@ -289,7 +289,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("webhook error response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"code":50035,"message":"Invalid Form Body"}`))
+			_, _ = w.Write([]byte(`{"code":50035,"message":"Invalid Form Body"}`))
 		}))
 		defer server.Close()
 
@@ -357,7 +357,7 @@ func TestProviderDeliver(t *testing.T) {
 	t.Run("webhook preferred over bot api", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		}))
 		defer server.Close()
 

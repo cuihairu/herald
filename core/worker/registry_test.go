@@ -275,7 +275,7 @@ func TestRegistryConcurrentRegister(t *testing.T) {
 			if err := r.Register(&Info{ID: fmt.Sprintf("w-%d", i), Mode: Remote}); err != nil {
 				t.Errorf("Register() error = %v", err)
 			}
-			r.Heartbeat(fmt.Sprintf("w-%d", i))
+			_ = r.Heartbeat(fmt.Sprintf("w-%d", i))
 		}(i)
 	}
 	wg.Wait()

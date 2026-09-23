@@ -161,12 +161,10 @@ func TestSleepOrDone(t *testing.T) {
 // wsStub is a WebSocket server stub for exercising the remote-worker
 // control-plane helpers entirely in-process.
 type wsStub struct {
-	server    *httptest.Server
-	conns     chan *gws.Conn
-	ack       func(conn *gws.Conn) // response behavior after receiving a register
-	t         *testing.T
-	muClosed  chan struct{}
-	closeOnce bool
+	server *httptest.Server
+	conns  chan *gws.Conn
+	ack    func(conn *gws.Conn) // response behavior after receiving a register
+	t      *testing.T
 }
 
 func newWSStub(t *testing.T, ack func(conn *gws.Conn)) *wsStub {
@@ -247,7 +245,8 @@ func TestRegisterRemoteWorkerRejected(t *testing.T) {
 
 func TestRegisterRemoteWorkerBadAck(t *testing.T) {
 	stub := newWSStub(t, func(conn *gws.Conn) {
-		_ = conn.WriteMessage(gws.TextMessage, []byte("<<not json>>"))	})
+		_ = conn.WriteMessage(gws.TextMessage, []byte("<<not json>>"))
+	})
 
 	conn, _, err := gws.DefaultDialer.Dial(stub.url(), nil)
 	if err != nil {

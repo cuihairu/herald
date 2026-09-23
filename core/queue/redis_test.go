@@ -150,23 +150,23 @@ func readCommand(r *bufio.Reader) ([]string, error) {
 }
 
 func writeSimple(w *bufio.Writer, s string) {
-	fmt.Fprintf(w, "+%s\r\n", s)
+	_, _ = fmt.Fprintf(w, "+%s\r\n", s)
 }
 
 func writeError(w *bufio.Writer, s string) {
-	fmt.Fprintf(w, "-%s\r\n", s)
+	_, _ = fmt.Fprintf(w, "-%s\r\n", s)
 }
 
 func writeInt(w *bufio.Writer, i int) {
-	fmt.Fprintf(w, ":%d\r\n", i)
+	_, _ = fmt.Fprintf(w, ":%d\r\n", i)
 }
 
 func writeBulk(w *bufio.Writer, s string) {
-	fmt.Fprintf(w, "$%d\r\n%s\r\n", len(s), s)
+	_, _ = fmt.Fprintf(w, "$%d\r\n%s\r\n", len(s), s)
 }
 
 func writeArrayLen(w *bufio.Writer, n int) {
-	fmt.Fprintf(w, "*%d\r\n", n)
+	_, _ = fmt.Fprintf(w, "*%d\r\n", n)
 }
 
 func writeEntry(w *bufio.Writer, e fakeEntry) {

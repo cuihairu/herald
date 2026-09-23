@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "failed to write test certificate:", err)
 		os.Exit(1)
 	}
-	os.Setenv("SSL_CERT_FILE", certPath)
+	_ = os.Setenv("SSL_CERT_FILE", certPath)
 
 	code := m.Run()
 
@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 	// request context (e.g. the canceled-context test) so Close cannot hang.
 	stubServer.CloseClientConnections()
 	stubServer.Close()
-	os.RemoveAll(dir)
+	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
 
@@ -69,7 +69,7 @@ func handleStub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, okResponse)
+	_, _ = fmt.Fprint(w, okResponse)
 }
 
 func setStub(t *testing.T, fn http.HandlerFunc) {
@@ -650,7 +650,7 @@ func TestDeliverSuccess(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, okResponse)
+		_, _ = fmt.Fprint(w, okResponse)
 	})
 
 	task := templateTask([]string{"13800138000", "13900139000"}, "SMS_12345678", map[string]string{"code": "9527"})
@@ -672,7 +672,7 @@ func TestDeliverDefaultTemplateCode(t *testing.T) {
 		if _, ok := form["TemplateParam"]; ok {
 			t.Errorf("expected no TemplateParam, got %s", form.Get("TemplateParam"))
 		}
-		fmt.Fprint(w, okResponse)
+		_, _ = fmt.Fprint(w, okResponse)
 	})
 
 	// Provider template present but empty code.
@@ -723,7 +723,7 @@ func TestDeliverTemplateParamVariants(t *testing.T) {
 				t.Errorf("case 4: expected no TemplateParam for unmarshalable params, got %q", got)
 			}
 		}
-		fmt.Fprint(w, okResponse)
+		_, _ = fmt.Fprint(w, okResponse)
 	})
 
 	if err := p.Deliver(context.Background(), templateTask([]string{"13800138000"}, "SMS_12345678", map[string]string{"code": "9527"})); err != nil {
@@ -747,7 +747,7 @@ func TestDeliverAPIError(t *testing.T) {
 	p := newTestProvider(t, stubEndpoint())
 
 	setStub(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"Code":"isv.BUSINESS_LIMIT_CONTROL","Message":"Triggered the frequency limit","RequestId":"req-1"}`)
+		_, _ = fmt.Fprint(w, `{"Code":"isv.BUSINESS_LIMIT_CONTROL","Message":"Triggered the frequency limit","RequestId":"req-1"}`)
 	})
 
 	err := p.Deliver(context.Background(), templateTask([]string{"13800138000"}, "SMS_12345678", nil))
@@ -763,7 +763,7 @@ func TestDeliverEmptyCodeError(t *testing.T) {
 	p := newTestProvider(t, stubEndpoint())
 
 	setStub(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{}`)
+		_, _ = fmt.Fprint(w, `{}`)
 	})
 
 	err := p.Deliver(context.Background(), templateTask([]string{"13800138000"}, "SMS_12345678", nil))
@@ -776,7 +776,7 @@ func TestDeliverInvalidJSON(t *testing.T) {
 	p := newTestProvider(t, stubEndpoint())
 
 	setStub(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "not-json")
+		_, _ = fmt.Fprint(w, "not-json")
 	})
 
 	err := p.Deliver(context.Background(), templateTask([]string{"13800138000"}, "SMS_12345678", nil))
@@ -790,7 +790,7 @@ func TestDeliverHTTPErrorStatus(t *testing.T) {
 
 	setStub(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"Code":"InternalError","Message":"boom"}`)
+		_, _ = fmt.Fprint(w, `{"Code":"InternalError","Message":"boom"}`)
 	})
 
 	err := p.Deliver(context.Background(), templateTask([]string{"13800138000"}, "SMS_12345678", nil))

@@ -482,7 +482,7 @@ func newMockHeraldServer(registered chan *protocol.RegisterMessage, beats chan *
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
@@ -540,7 +540,7 @@ func TestRegisterHandshakeWithMockServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to dial mock server: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reg := &protocol.RegisterMessage{
 		WorkerID:     cfg.WorkerID,
@@ -614,7 +614,7 @@ func TestMockServerRejectsInvalidMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to dial mock server: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := conn.WriteMessage(websocket.TextMessage, []byte("not json")); err != nil {
 		t.Fatalf("failed to send invalid message: %v", err)
@@ -655,7 +655,7 @@ func TestServerRejectsUpgrade(t *testing.T) {
 
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL(server), nil)
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatal("expected dial error when server rejects upgrade")
 	}
 	if resp != nil && resp.StatusCode != http.StatusForbidden {
