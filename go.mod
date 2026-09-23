@@ -3,6 +3,7 @@ module github.com/cuihairu/herald
 go 1.26.2
 
 require (
+	github.com/expr-lang/expr v1.17.8
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/redis/go-redis/v9 v9.20.0
