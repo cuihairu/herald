@@ -83,6 +83,8 @@ providers:
       # 或使用 bot API
       bot_token: "${DISCORD_BOT_TOKEN}"
       channel_id: "${DISCORD_CHANNEL_ID}"
+      # 可选：自建/代理 Bot API（默认 https://discord.com/api/v10）
+      # api_url: "https://my-discord-api.example.com"
 
   # 邮件
   email:

@@ -379,6 +379,68 @@ func TestProviderDeliver(t *testing.T) {
 		}
 	})
 
+	t.Run("bot api success", func(t *testing.T) {
+		var gotPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		provider, err := NewProvider(map[string]interface{}{
+			"bot_token":  "bot-token",
+			"channel_id": "123456",
+			"api_url":    server.URL,
+		})
+		if err != nil {
+			t.Fatalf("NewProvider() error = %v", err)
+		}
+
+		task := &core.DeliveryTask{
+			Payload: core.DeliveryPayload{
+				Content: &core.RenderedContent{Title: "Test"},
+			},
+			CreatedAt: time.Now(),
+		}
+
+		if err := provider.Deliver(context.Background(), task); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if want := "/channels/123456/messages"; gotPath != want {
+			t.Errorf("request path = %q, want %q", gotPath, want)
+		}
+		if got := provider.(*Provider).GetConfig()["api_url"]; got != server.URL {
+			t.Errorf("GetConfig()[api_url] = %v, want the stub URL", got)
+		}
+	})
+
+	t.Run("bot api error response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"code":50001,"message":"Missing Access"}`))
+		}))
+		defer server.Close()
+
+		provider, _ := NewProvider(map[string]interface{}{
+			"bot_token":  "bot-token",
+			"channel_id": "123456",
+			"api_url":    server.URL,
+		})
+
+		task := &core.DeliveryTask{
+			Payload: core.DeliveryPayload{
+				Content: &core.RenderedContent{Title: "Test"},
+			},
+			CreatedAt: time.Now(),
+		}
+
+		err := provider.Deliver(context.Background(), task)
+		if err == nil {
+			t.Error("expected error for discord API error response")
+		}
+	})
+
 	t.Run("bot api request failure", func(t *testing.T) {
 		provider, _ := NewProvider(map[string]interface{}{
 			"bot_token":  "bot-token",

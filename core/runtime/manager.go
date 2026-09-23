@@ -25,7 +25,7 @@ var providerSchemas = map[string]map[string]string{
 	"wecom":      {"webhook_url": "string", "key": "string"},
 	"dingtalk":   {"webhook_url": "string", "access_token": "string", "secret": "string"},
 	"slack":      {"webhook_url": "string"},
-	"discord":    {"webhook_url": "string", "webhook_id": "string", "webhook_token": "string", "bot_token": "string", "channel_id": "string"},
+	"discord":    {"webhook_url": "string", "webhook_id": "string", "webhook_token": "string", "bot_token": "string", "channel_id": "string", "api_url": "string"},
 	"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string", "from_name": "string"},
 	"webhook":    {"url": "string", "method": "string", "headers": "object"},
 	"wechat":     {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},

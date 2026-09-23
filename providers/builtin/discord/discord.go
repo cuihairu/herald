@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	defaultAPIURL    = "https://discord.com/api/v10/channels/%s/messages"
+	// defaultAPIBase is the public Discord Bot API root; override with
+	// api_url for self-hosted or proxied endpoints.
+	defaultAPIBase   = "https://discord.com/api/v10"
 	webhookURLFormat = "https://discord.com/api/webhooks/%s/%s"
 )
 
@@ -19,6 +21,7 @@ type Provider struct {
 	webhookURL string
 	botToken   string
 	channelID  string
+	apiURL     string
 	status     *core.ProviderStatus
 	client     *httpclient.Client
 }
@@ -30,6 +33,7 @@ type Config struct {
 	WebhookToken string `yaml:"webhook_token"` // Webhook Token
 	BotToken     string `yaml:"bot_token"`     // Bot token (for bot API)
 	ChannelID    string `yaml:"channel_id"`    // Channel ID (for bot API)
+	APIURL       string `yaml:"api_url"`       // optional Bot API base override
 }
 
 // WebhookPayload is the Discord webhook payload
@@ -85,6 +89,7 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 
 	botToken, _ := config["bot_token"].(string)
 	channelID, _ := config["channel_id"].(string)
+	apiURL, _ := config["api_url"].(string)
 
 	// Need either webhook or bot token
 	if webhookURL == "" && (botToken == "" || channelID == "") {
@@ -95,6 +100,7 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		webhookURL: webhookURL,
 		botToken:   botToken,
 		channelID:  channelID,
+		apiURL:     apiURL,
 		status: &core.ProviderStatus{
 			Name:   "discord",
 			Type:   "discord",
@@ -111,6 +117,7 @@ func (p *Provider) GetConfig() map[string]interface{} {
 		"webhook_url": p.webhookURL,
 		"bot_token":   p.botToken,
 		"channel_id":  p.channelID,
+		"api_url":     p.apiURL,
 	}
 }
 
@@ -158,7 +165,11 @@ func (p *Provider) sendBotMessage(ctx context.Context, task *core.DeliveryTask) 
 		Embeds: []Embed{embed},
 	}
 
-	url := fmt.Sprintf(defaultAPIURL, p.channelID)
+	base := p.apiURL
+	if base == "" {
+		base = defaultAPIBase
+	}
+	url := fmt.Sprintf("%s/channels/%s/messages", base, p.channelID)
 
 	req, err := httpclient.NewClient(nil).PostJSON(ctx, url, payload)
 	if err != nil {
