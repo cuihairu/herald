@@ -76,6 +76,13 @@ export default defineConfig({
             { text: '微信公众号', link: '/providers/wechat-official' },
             { text: 'SMS Providers', link: '/providers/sms' },
           ]
+        },
+        {
+          text: '设计文档',
+          items: [
+            { text: '作为 Go 库使用', link: '/library-usage' },
+            { text: '通知规则引擎（设计）', link: '/rule-engine-design' },
+          ]
         }
       ],
     },

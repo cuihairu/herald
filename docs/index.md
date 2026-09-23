@@ -10,6 +10,9 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
+      text: 作为 Go 库使用
+      link: /library-usage
+    - theme: alt
       text: 架构设计
       link: /architecture/overview
 
