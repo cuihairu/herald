@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package queue
@@ -43,7 +44,7 @@ func TestRedisQueueIntegration(t *testing.T) {
 	skipWithoutRedis(t)
 
 	config := &QueueConfig{
-		Type:  "redis",
+		Type: "redis",
 		Redis: RedisConfig{
 			Addr:   getRedisAddr(),
 			Stream: fmt.Sprintf("test-stream-%d", time.Now().UnixNano()),

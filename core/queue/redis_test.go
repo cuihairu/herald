@@ -21,20 +21,20 @@ type fakeEntry struct {
 }
 
 type fakeRedis struct {
-	t    *testing.T
-	ln   net.Listener
-	mu   sync.Mutex
+	t     *testing.T
+	ln    net.Listener
+	mu    sync.Mutex
 	conns map[net.Conn]struct{}
 
 	entries []fakeEntry
 	seq     int
 	groups  map[string]int
 
-	failXGroup  bool
-	failXAdd    bool
-	failXAck    bool
-	emptyXRead  bool
-	closed      bool
+	failXGroup bool
+	failXAdd   bool
+	failXAck   bool
+	emptyXRead bool
+	closed     bool
 }
 
 func newFakeRedis(t *testing.T) *fakeRedis {

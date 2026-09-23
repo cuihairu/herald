@@ -226,9 +226,9 @@ func TestProviderDeliver(t *testing.T) {
 		ctx := context.Background()
 
 		task := &core.DeliveryTask{
-			ID:      "task-123",
-			Level:   "warning",
-			Targets: []string{"channel1"},
+			ID:       "task-123",
+			Level:    "warning",
+			Targets:  []string{"channel1"},
 			Provider: "webhook",
 			Payload: core.DeliveryPayload{
 				Content: &core.RenderedContent{

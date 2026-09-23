@@ -206,9 +206,9 @@ func TestFormatMarkdown(t *testing.T) {
 	dingtalkProvider := provider.(*Provider)
 
 	cases := []struct {
-		name    string
-		task    *core.DeliveryTask
-		prefix  string
+		name   string
+		task   *core.DeliveryTask
+		prefix string
 	}{
 		{
 			name: "error level",

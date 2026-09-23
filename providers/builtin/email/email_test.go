@@ -72,9 +72,9 @@ func TestNewProvider(t *testing.T) {
 
 	t.Run("with port as float64", func(t *testing.T) {
 		config := map[string]any{
-			"host":  "smtp.example.com",
-			"port":  25.0,
-			"from":  "test@example.com",
+			"host": "smtp.example.com",
+			"port": 25.0,
+			"from": "test@example.com",
 		}
 
 		provider, err := NewProvider(config)
