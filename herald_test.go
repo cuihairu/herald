@@ -510,6 +510,68 @@ func TestNewWithRulesStore(t *testing.T) {
 	})
 }
 
+func TestNewWithRulesState(t *testing.T) {
+	t.Run("unknown state type aborts construction", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.RulesState = &config.RulesStateConfig{Type: "etcd"}
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with unknown rules_state type should fail")
+		}
+	})
+
+	t.Run("unreachable redis aborts construction", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.RulesState = &config.RulesStateConfig{Type: "redis", Addr: "127.0.0.1:1"}
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with unreachable redis state store should fail")
+		}
+	})
+}
+
+func TestDispatchWithForRuleSuppressesFirstHit(t *testing.T) {
+	cfg := config.Default()
+	forDur := "1h"
+	cfg.Rules = []rules.Rule{{
+		ID:    "alert-for",
+		Match: `type == "alert"`,
+		Mode:  rules.ModeActive,
+		For:   &forDur,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	// First hit: the window is pending, so nothing is delivered and no
+	// task is queued — the event is swallowed like a dedup hit.
+	res, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "error",
+		Content: &core.DirectContent{Title: "t"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 0 {
+		t.Fatalf("pending window must suppress delivery, accepted = %v", res.Accepted)
+	}
+	if got := prov.count(); got != 0 {
+		t.Fatalf("expected no deliveries, got %d", got)
+	}
+
+	// The suppression is observable in the delivery log.
+	logs := app.Runtime().GetLogs(0, 10, &logstore.Filter{Status: "pending"})
+	if len(logs) != 1 || logs[0].RuleID != "alert-for" {
+		t.Fatalf("expected one pending log for alert-for, got %+v", logs)
+	}
+}
+
 func TestDispatchWithActiveRuleRoutes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Rules = []rules.Rule{{

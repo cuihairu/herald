@@ -43,11 +43,13 @@ type RuleEvaluator interface {
 }
 
 // RuleObserver receives rule evaluation observations: shadow-mode hits
-// (dry-run evidence) and per-rule evaluation failures. Implementations
-// must be safe for concurrent use.
+// (dry-run evidence), per-rule evaluation failures, and active-rule events
+// suppressed by a still-running "for" window. Implementations must be safe
+// for concurrent use.
 type RuleObserver interface {
 	RecordShadow(ruleID string, channels []string, n *core.Notification)
 	RecordEvalError(ruleID string, err error, n *core.Notification)
+	RecordForPending(ruleID string, n *core.Notification)
 }
 
 // NotificationService orchestrates the notification processing pipeline
@@ -129,9 +131,19 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 				s.observer.RecordEvalError("", evalErr, n)
 			}
 		}
-		// Explicit channels win: rules are an incremental capability over
-		// static routing, never an override of caller intent.
+		// Explicit channels win for ROUTING: rules are an incremental
+		// capability over static routing, never an override of caller
+		// intent. The one active-rule outcome that suppresses delivery —
+		// a "for" window still running — only applies to the traffic the
+		// rule would route anyway; explicit-channel calls are deliberate
+		// and go out regardless.
 		if decision != nil && decision.Mode == rules.ModeActive && len(n.Channels) == 0 {
+			if decision.ForPending {
+				if s.observer != nil {
+					s.observer.RecordForPending(decision.RuleID, n)
+				}
+				return &ProcessResult{NotificationID: n.ID}, nil
+			}
 			channels = decision.Channels
 		}
 	}

@@ -93,10 +93,27 @@ func TestRuleValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("for duration validated", func(t *testing.T) {
+		// Valid durations are accepted since P2 enforces "for".
+		for _, whole := range []string{"3m", "90s", "1h30m"} {
+			r := validRule()
+			r.For = &whole
+			if err := r.Validate(); err != nil {
+				t.Errorf("for %q: expected acceptance, got %v", whole, err)
+			}
+		}
+		// Malformed, non-positive, and oversized values are rejected.
+		for _, bad := range []string{"abc", "0s", "-5m", "25h", "9999h"} {
+			r := validRule()
+			r.For = &bad
+			if err := r.Validate(); err == nil {
+				t.Errorf("for %q: expected rejection", bad)
+			}
+		}
+	})
+
 	t.Run("not-yet-effective fields rejected", func(t *testing.T) {
-		whole := "3m"
 		cases := map[string]func(*Rule){
-			"for":        func(r *Rule) { r.For = &whole },
 			"group_by":   func(r *Rule) { r.GroupBy = []string{"env"} },
 			"inhibit":    func(r *Rule) { r.Inhibit = &InhibitSpec{Equal: []string{"env"}} },
 			"escalation": func(r *Rule) { r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{"boss"}} },

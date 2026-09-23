@@ -158,6 +158,20 @@ func serveCmd(args []string) int {
 		ruleStore = rules.NewMemoryStore()
 	}
 	rulesEngine := rules.NewEngine(ruleStore)
+	// Rule state (for windows) defaults to in-process; redis shares it
+	// across restarts and instances.
+	if cfg.RulesState != nil && cfg.RulesState.Type != "" && cfg.RulesState.Type != "memory" {
+		if cfg.RulesState.Type != "redis" {
+			logger.Error("unknown rules_state type", "type", cfg.RulesState.Type)
+			return 1
+		}
+		ss, err := rules.NewRedisStateStore(cfg.RulesState.Addr, cfg.RulesState.Password, cfg.RulesState.DB)
+		if err != nil {
+			logger.Error("failed to open rules state store", "error", err)
+			return 1
+		}
+		rulesEngine.SetStateStore(ss)
+	}
 	for i := range cfg.Rules {
 		rule := cfg.Rules[i]
 		if err := rulesEngine.Put(context.Background(), &rule); err != nil {

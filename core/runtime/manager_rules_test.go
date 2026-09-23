@@ -78,3 +78,35 @@ func TestManagerRecordEvalError(t *testing.T) {
 		t.Fatalf("nil error must not be recorded, got %d entries", got)
 	}
 }
+
+func TestManagerRecordForPending(t *testing.T) {
+	m := NewManager(100)
+	n := &core.Notification{ID: "notif-1", Level: "error"}
+
+	m.RecordForPending("r-for", n)
+
+	logs := m.GetLogs(0, 10, &logstore.Filter{Status: "pending"})
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 pending log, got %d", len(logs))
+	}
+	entry := logs[0]
+	if entry.RuleID != "r-for" || entry.Status != "pending" {
+		t.Fatalf("unexpected pending entry: %+v", entry)
+	}
+	if entry.WouldFire {
+		t.Error("a suppressed event must not be marked would_fire")
+	}
+	if entry.MatchedAt.IsZero() {
+		t.Error("expected matched_at to be set")
+	}
+
+	// Suppressions are sampled per rule like shadow hits: the counter
+	// tracks every occurrence but the second entry is not recorded.
+	m.RecordForPending("r-for", &core.Notification{ID: "notif-2", Level: "error"})
+	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "pending"})); got != 1 {
+		t.Errorf("expected sampling to keep 1 entry, got %d", got)
+	}
+	if m.ShadowRuleCount("r-for") != 2 {
+		t.Errorf("counter must track every suppression, got %d", m.ShadowRuleCount("r-for"))
+	}
+}

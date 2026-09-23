@@ -29,6 +29,21 @@ type Config struct {
 	// RulesStore points at the persistent rules file. Empty keeps rules
 	// in memory only (seeds from Rules are still honored).
 	RulesStore string `yaml:"rules_store"`
+	// RulesState configures the external store for stateful rule semantics
+	// (the "for" duration). Nil keeps state in-process (single instance).
+	RulesState *RulesStateConfig `yaml:"rules_state"`
+}
+
+// RulesStateConfig selects where rule evaluation state (for windows) lives.
+// Type "memory" (default) keeps state in-process; "redis" shares state
+// across instances and restarts.
+type RulesStateConfig struct {
+	// Type is "memory" (default) or "redis".
+	Type string `yaml:"type"`
+	// Redis connection settings, used when Type is "redis".
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
 // ServerConfig is the server configuration

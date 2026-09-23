@@ -16,13 +16,14 @@ import (
 
 // Env is the typed evaluation environment exposed to rule expressions.
 // Field names follow the expr tags so rules read like the design doc:
-// `level == "error" && params.fail_rate > 0.05`.
+// `level == "error" && params.fail_rate > 0.05`. The json tags make the
+// environment canonically serializable for ForGroupKey.
 type Env struct {
-	Type   string         `expr:"type"`
-	Level  string         `expr:"level"`
-	Title  string         `expr:"title"`
-	Body   string         `expr:"body"`
-	Params map[string]any `expr:"params"`
+	Type   string         `expr:"type" json:"type"`
+	Level  string         `expr:"level" json:"level"`
+	Title  string         `expr:"title" json:"title"`
+	Body   string         `expr:"body" json:"body"`
+	Params map[string]any `expr:"params" json:"params"`
 }
 
 // NewEnv builds an evaluation environment from the channel-agnostic view
@@ -109,9 +110,10 @@ type compiledStep struct {
 }
 
 type compiledRule struct {
-	rule  Rule
-	match *vm.Program
-	steps []compiledStep
+	rule   Rule
+	match  *vm.Program
+	steps  []compiledStep
+	forDur time.Duration // 0 = rule has no "for" window
 }
 
 // EvalError is one rule's evaluation failure, kept structured so callers
@@ -135,6 +137,10 @@ type Decision struct {
 	// Shadow lists every shadow-mode rule that matched this notification,
 	// with the channels each would have used — the dry-run evidence.
 	Shadow []ShadowHit
+	// ForPending reports that the governing active rule matched but its
+	// "for" duration has not elapsed yet: the event is suppressed (not
+	// routed, not queued). Callers must treat this like a dedup hit.
+	ForPending bool
 	// EvalErrors lists rules whose expressions failed to evaluate; these
 	// rules were skipped and never contribute a match.
 	EvalErrors []EvalError
@@ -147,17 +153,36 @@ type ShadowHit struct {
 }
 
 // Engine owns the compiled rule table. Rules are compiled once at save
-// time; evaluation only executes compiled programs.
+// time; evaluation only executes compiled programs. Stateful semantics
+// (the "for" window) go through a ForTracker backed by a StateStore —
+// in-memory by default, Redis via SetStateStore.
 type Engine struct {
-	mu    sync.RWMutex
-	store Store
-	rules []*compiledRule
+	mu       sync.RWMutex
+	store    Store
+	rules    []*compiledRule
+	forState *ForTracker
 }
 
 // NewEngine creates an Engine backed by store. Call Reload once after
-// creation to load and compile the stored rules.
+// creation to load and compile the stored rules. Rule state (for windows)
+// is kept in memory by default; see SetStateStore.
 func NewEngine(store Store) *Engine {
-	return &Engine{store: store}
+	return &Engine{
+		store:    store,
+		forState: NewForTracker(NewMemoryStateStore()),
+	}
+}
+
+// SetStateStore moves rule state (for windows) into the given store, e.g.
+// RedisStateStore for multi-instance deployments. Call it during setup,
+// before the engine serves traffic; an in-flight window does not migrate.
+func (e *Engine) SetStateStore(ss StateStore) {
+	if ss == nil {
+		ss = NewMemoryStateStore()
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.forState = NewForTracker(ss)
 }
 
 // Validate normalizes and checks r, then compiles every expression in it —
@@ -202,6 +227,9 @@ func (e *Engine) Put(ctx context.Context, r *Rule) error {
 	for i, existing := range e.rules {
 		if existing.rule.ID == r.ID {
 			e.rules[i] = compiled
+			// The old rule's in-flight for windows no longer mean anything
+			// under the new definition; drop them so groups start fresh.
+			_ = e.forState.ResetRule(ctx, r.ID)
 			return nil
 		}
 	}
@@ -219,6 +247,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	for i, existing := range e.rules {
 		if existing.rule.ID == id {
 			e.rules = append(e.rules[:i], e.rules[i+1:]...)
+			_ = e.forState.ResetRule(ctx, id)
 			return nil
 		}
 	}
@@ -274,7 +303,14 @@ func compileRule(r Rule) (*compiledRule, error) {
 		}
 		steps[i] = c
 	}
-	return &compiledRule{rule: r, match: match, steps: steps}, nil
+	forDur := time.Duration(0)
+	if r.For != nil {
+		forDur, err = ParseFor(*r.For)
+		if err != nil {
+			return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+		}
+	}
+	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur}, nil
 }
 
 // Evaluate runs the notification environment against the rule table in
@@ -283,6 +319,11 @@ func compileRule(r Rule) (*compiledRule, error) {
 // params) skip the offending rule and are reported both structurally in
 // Decision.EvalErrors and joined into the returned error — a broken rule
 // must not break routing for the rest of the table.
+//
+// Rules with a "for" window are judged through the ForTracker: a hit whose
+// window has not elapsed yet yields ForPending for active rules (the event
+// is suppressed) and no shadow record for shadow rules; a match miss resets
+// the window, because the duration counts CONTINUOUS holding.
 func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	e.mu.RLock()
 	rules := make([]*compiledRule, len(e.rules))
@@ -301,7 +342,38 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			continue
 		}
 		if !matched {
+			// Condition stopped holding: drop the in-progress window so the
+			// next hit starts the duration from scratch. Reset failures are
+			// ignored — the state TTL is the backstop, and a miss must not
+			// turn into an evaluation error.
+			if cr.forDur > 0 {
+				_ = e.forState.Reset(ctx, cr.rule.ID, ForGroupKey(env))
+			}
 			continue
+		}
+		if cr.forDur > 0 {
+			fired, err := e.forState.Observe(ctx, cr.rule.ID, ForGroupKey(env), cr.forDur)
+			if err != nil {
+				// State failure fails open: the rule is skipped like any
+				// other evaluation error and routing survives.
+				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
+				continue
+			}
+			if !fired {
+				switch cr.rule.Mode {
+				case ModeActive:
+					// The rule owns this group and its window is still
+					// running: suppress the event, skip the remaining table
+					// (a later rule must not route what this rule holds).
+					governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, ForPending: true}
+					governing.EvalErrors = evalErrs
+					return governing, joinEvalErrors(evalErrs)
+				default: // ModeShadow
+					// A shadow rule only records what WOULD fire; a pending
+					// window would not.
+					continue
+				}
+			}
 		}
 		channels, err := e.resolveSteps(ctx, cr, env)
 		if err != nil {

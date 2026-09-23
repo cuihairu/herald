@@ -100,6 +100,25 @@ func (m *Manager) RecordEvalError(ruleID string, err error, n *core.Notification
 	})
 }
 
+// RecordForPending implements the rule observer contract: it records an
+// event suppressed because the governing rule's "for" window was still
+// running. Suppressions are sampled per rule like shadow hits — a pending
+// window is exactly the noise-reduction scenario where volume is high.
+func (m *Manager) RecordForPending(ruleID string, n *core.Notification) {
+	if !m.shadowSampler.ShouldRecord(ruleID) {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "forpending:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "pending",
+		CreatedAt: now,
+		RuleID:    ruleID,
+		MatchedAt: now,
+	})
+}
+
 // ShadowRuleCount returns how many times a rule has matched during shadow
 // evaluation so far — the exact total behind the sampled log entries.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {

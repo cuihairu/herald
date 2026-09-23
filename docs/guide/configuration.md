@@ -180,6 +180,7 @@ rules:
   - id: prod-fail-rate            # 1-64 字符：字母、数字与 . _ -
     match: 'params.fail_rate > 0.05 && params.env == "prod"'
     mode: shadow                  # shadow（默认，观察）| active | off
+    for: 3m                       # 可选：持续判定防抖，见「for 持续判定」
     route:                        # steps 按序求值，首个 match 命中生效
       - match: 'level == "error"'
         channels: [oncall]
@@ -189,6 +190,15 @@ rules:
 # 设置后通过 API 对规则的新增/修改/删除会落盘到该 JSON 文件，重启自动恢复；
 # 不设置时规则仅保存在内存中（rules 种子仍然生效）。
 # rules_store: ./data/rules.json
+
+# 规则状态存储（可选，for 持续判定使用）
+# type: memory（默认，单实例，进程重启后进行中的窗口重新计时）
+# type: redis（多实例/重启共享窗口状态，连接参数如下）
+# rules_state:
+#   type: redis
+#   addr: "localhost:6379"
+#   # password: "..."
+#   # db: 0
 
 # Provider 限流（可选，token bucket）
 # 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
@@ -336,9 +346,18 @@ providers:
 - 命中写入投递日志（状态 `shadow`，含 `rule_id`、`would_fire` 与本应走到的渠道），按规则采样（首条 + 每 100 条记录一条），命中总数计入日志统计
 - 观察真实命中量符合预期后切 `mode: active` 生效
 
-### P1 未生效字段
+### for 持续判定（P2）
 
-`for` / `group_by` / `inhibit` / `escalation` / `silence` 已在规则模型中建模但尚未实现——配置了这些字段会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
+- 规则可带 `for: <时长>`（如 `for: 3m`，Go duration 语法，上限 24h）：同一逻辑告警的条件**持续成立达到时长**才真正触发，过滤单点闪断噪声
+- 归组粒度：通知的完整内容（类型/级别/标题/正文/参数）相同才算同一组——每组独立计时；窗口从组内首条命中起算，后续每次命中判定「首条至今是否已满时长」；调用方显式指定 `channels` 的通知不受 for 拦截（显式意图优先）
+- 触发一次后同组静默（不再重复投递），状态过期（`for` + 1 小时）或规则被修改/删除后重新计时；注意：事件驱动判定无法感知「无恢复事件」的闪断，需要精确的恢复感知时等 group_by 聚合批次
+- active 规则的窗口未满时事件被拦下（不入队、不投递，类似去重命中），每次拦下按规则采样记入投递日志（状态 `pending`）；shadow 规则只记录「窗口已满」的命中，影子期看到的就是真实触发节奏
+- 窗口状态默认存进程内存（重启后进行中的窗口重新计时）；`rules_state.type: redis` 让多实例共享状态（key 形如 `rule:{id}:state:{group}`，带 TTL 自动回收）
+- 状态存储故障时规则按「求值失败」处理（跳过该规则），路由不受影响
+
+### P2/P3 未生效字段
+
+`group_by` / `inhibit` / `silence` 已在规则模型中建模但尚未实现（P2 后续批次），`escalation` 依赖 P3 的 ACK 闭环——配置了这些字段会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
 
 ### 规则存储与 API（热加载）
 

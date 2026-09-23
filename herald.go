@@ -127,6 +127,20 @@ func New(cfg *config.Config) (*App, error) {
 		ruleStore = fs
 	}
 	rulesEngine := rules.NewEngine(ruleStore)
+	// Rule state (for windows) defaults to in-process; redis shares it
+	// across restarts and instances.
+	if cfg.RulesState != nil && cfg.RulesState.Type != "" && cfg.RulesState.Type != "memory" {
+		if cfg.RulesState.Type != "redis" {
+			_ = backend.Close()
+			return nil, fmt.Errorf("unknown rules_state type %q (want memory or redis)", cfg.RulesState.Type)
+		}
+		ss, err := rules.NewRedisStateStore(cfg.RulesState.Addr, cfg.RulesState.Password, cfg.RulesState.DB)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("open rules state store: %w", err)
+		}
+		rulesEngine.SetStateStore(ss)
+	}
 	for i := range cfg.Rules {
 		rule := cfg.Rules[i]
 		if err := rulesEngine.Validate(&rule); err != nil {

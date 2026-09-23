@@ -24,8 +24,9 @@ func (s *stubEvaluator) Evaluate(ctx context.Context, env rules.Env) (*rules.Dec
 
 // recordingObserver captures what the service reported to the observer.
 type recordingObserver struct {
-	shadows    []rules.ShadowHit
-	evalErrors []string
+	shadows     []rules.ShadowHit
+	evalErrors  []string
+	forPendings []string
 }
 
 func (r *recordingObserver) RecordShadow(ruleID string, channels []string, n *core.Notification) {
@@ -34,6 +35,10 @@ func (r *recordingObserver) RecordShadow(ruleID string, channels []string, n *co
 
 func (r *recordingObserver) RecordEvalError(ruleID string, err error, n *core.Notification) {
 	r.evalErrors = append(r.evalErrors, ruleID+": "+err.Error())
+}
+
+func (r *recordingObserver) RecordForPending(ruleID string, n *core.Notification) {
+	r.forPendings = append(r.forPendings, ruleID)
 }
 
 func newRuleTestService(t *testing.T) (*NotificationService, *mockQueue, *route.Router, *mockProviderRuntime) {
@@ -107,6 +112,49 @@ func TestProcessWithRules(t *testing.T) {
 		}
 		if queue.tasks[0].Provider != "static-provider" {
 			t.Fatalf("explicit channels must win, got %s", queue.tasks[0].Provider)
+		}
+	})
+
+	t.Run("for pending suppresses delivery and is observed", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		observer := &recordingObserver{}
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-for",
+			Mode:       rules.ModeActive,
+			ForPending: true,
+		}})
+		svc.SetRuleObserver(observer)
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 || len(res.Accepted) != 0 {
+			t.Fatalf("pending window must suppress delivery, got %+v", res)
+		}
+		if len(queue.tasks) != 0 {
+			t.Fatalf("expected no queued tasks, got %d", len(queue.tasks))
+		}
+		if len(observer.forPendings) != 1 || observer.forPendings[0] != "r-for" {
+			t.Fatalf("expected for-pending observation, got %v", observer.forPendings)
+		}
+	})
+
+	t.Run("for pending does not suppress explicit channels", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-for",
+			Mode:       rules.ModeActive,
+			ForPending: true,
+		}})
+
+		n := alertNotification()
+		n.Channels = []string{"static-provider"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
+			t.Fatalf("explicit channels must go out despite pending, got %v", queue.tasks)
 		}
 	})
 

@@ -46,10 +46,11 @@ type SilenceSpec struct {
 	End   string `json:"end,omitempty" yaml:"end,omitempty"`
 }
 
-// Rule is the storage model of a notification rule. P1 semantics:
-// Match/Mode/Route are enforced; For/GroupBy/Inhibit/Escalation/Silence
-// are modeled but deliberately rejected by Validate until implemented —
-// accepting them silently would promise behavior that never happens.
+// Rule is the storage model of a notification rule. Enforced semantics:
+// Match/Mode/Route in P1; For in P2 (event-driven duration judgement).
+// GroupBy/Inhibit/Escalation/Silence are modeled but still rejected by
+// Validate until implemented — accepting them silently would promise
+// behavior that never happens.
 type Rule struct {
 	ID    string      `json:"id" yaml:"id"`
 	Match string      `json:"match" yaml:"match"`
@@ -101,9 +102,12 @@ func (r Rule) Validate() error {
 		}
 	}
 	// Fields below are modeled for forward compatibility but not enforced
-	// in P1; reject them so users never rely on behavior that does not exist.
+	// yet; reject them so users never rely on behavior that does not exist.
+	// For is enforced (P2): only its format is validated here.
 	if r.For != nil {
-		return fmt.Errorf("rules: rule %q: for is not effective until P2 (drop it or wait)", r.ID)
+		if _, err := ParseFor(*r.For); err != nil {
+			return err
+		}
 	}
 	if len(r.GroupBy) > 0 {
 		return fmt.Errorf("rules: rule %q: group_by is not effective until P2 (drop it or wait)", r.ID)
