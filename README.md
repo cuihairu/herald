@@ -12,6 +12,38 @@
 
 Herald 是一个事件驱动的通知投递基础设施。
 
+## 两种使用形态
+
+Herald 可以作为独立服务运行，也可以作为 Go 库嵌入你的进程，二者共享同一套核心管道（队列、路由、去重、模板、Provider）：
+
+**CLI 网关** — 独立进程部署，REST API + Dashboard，适合作为组织级通知网关（见下方[快速开始](#快速开始)）：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/notifications \
+  -H "Content-Type: application/json" \
+  -d '{"type": "deploy", "channels": ["feishu-ops"], "content": {"title": "v1.2.0 已发布"}}'
+```
+
+**Go 库** — 一个 `App` 完成入队与投递，零配置即可运行（内存队列 + 本地 worker 池），适合把通知能力直接嵌进自己的服务：
+
+```go
+import (
+    "github.com/cuihairu/herald"
+    "github.com/cuihairu/herald/core"
+)
+
+app, _ := herald.New(nil) // 默认：内存队列、后台投递池、去重
+defer app.Close()
+
+app.Dispatch(ctx, &core.Notification{
+    Type:     "deploy",
+    Channels: []string{"log"},
+    Content:  &core.DirectContent{Title: "v1.2.0 已发布"},
+})
+```
+
+完整导出面与嵌入指南见 [docs/library-usage.md](docs/library-usage.md)，可运行示例见 [examples/quickstart](examples/quickstart/main.go)。
+
 ## 特性
 
 - **HTTP First** - curl 友好，REST API，无 SDK 依赖
