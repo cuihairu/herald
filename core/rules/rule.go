@@ -47,24 +47,62 @@ type SilenceSpec struct {
 }
 
 // Rule is the storage model of a notification rule. Enforced semantics:
-// Match/Mode/Route in P1; For in P2 (event-driven duration judgement).
-// GroupBy/Inhibit/Escalation/Silence are modeled but still rejected by
-// Validate until implemented — accepting them silently would promise
-// behavior that never happens.
+// Match/Mode/Route in P1; For and GroupBy/GroupInterval in P2 (event-driven
+// duration judgement and group aggregation). Inhibit/Escalation/Silence are
+// modeled but still rejected by Validate until implemented — accepting them
+// silently would promise behavior that never happens.
 type Rule struct {
 	ID    string      `json:"id" yaml:"id"`
 	Match string      `json:"match" yaml:"match"`
 	Mode  Mode        `json:"mode,omitempty" yaml:"mode,omitempty"`
 	Route []RouteStep `json:"route" yaml:"route"`
 
-	For        *string         `json:"for,omitempty" yaml:"for,omitempty"`
-	GroupBy    []string        `json:"group_by,omitempty" yaml:"group_by,omitempty"`
-	Inhibit    *InhibitSpec    `json:"inhibit,omitempty" yaml:"inhibit,omitempty"`
-	Escalation *EscalationSpec `json:"escalation,omitempty" yaml:"escalation,omitempty"`
-	Silence    *SilenceSpec    `json:"silence,omitempty" yaml:"silence,omitempty"`
+	For     *string  `json:"for,omitempty" yaml:"for,omitempty"`
+	GroupBy []string `json:"group_by,omitempty" yaml:"group_by,omitempty"`
+	// GroupInterval is how long a group must stay quiet before the next
+	// event opens a new round; the folded events of the finished round are
+	// delivered as a summary with that event. Defaults to 5m; requires
+	// group_by.
+	GroupInterval *string         `json:"group_interval,omitempty" yaml:"group_interval,omitempty"`
+	Inhibit       *InhibitSpec    `json:"inhibit,omitempty" yaml:"inhibit,omitempty"`
+	Escalation    *EscalationSpec `json:"escalation,omitempty" yaml:"escalation,omitempty"`
+	Silence       *SilenceSpec    `json:"silence,omitempty" yaml:"silence,omitempty"`
 }
 
 var ruleIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
+
+// maxGroupByFields caps the group_by dimension count; more dimensions than
+// that almost always means the rule wanted a different match expression.
+const maxGroupByFields = 8
+
+// validateGroupBy checks the group aggregation fields: names must be non-
+// empty, bounded and unique (they address Notification.Params keys), and
+// group_interval is only meaningful together with group_by.
+func validateGroupBy(r *Rule) error {
+	if len(r.GroupBy) == 0 {
+		return fmt.Errorf("rules: rule %q: group_interval requires group_by", r.ID)
+	}
+	if len(r.GroupBy) > maxGroupByFields {
+		return fmt.Errorf("rules: rule %q: group_by has %d fields, max is %d", r.ID, len(r.GroupBy), maxGroupByFields)
+	}
+	seen := make(map[string]bool, len(r.GroupBy))
+	for i, f := range r.GroupBy {
+		f = strings.TrimSpace(f)
+		if f == "" || len(f) > 64 {
+			return fmt.Errorf("rules: rule %q: group_by field %d must be 1-64 chars", r.ID, i)
+		}
+		if seen[f] {
+			return fmt.Errorf("rules: rule %q: duplicate group_by field %q", r.ID, f)
+		}
+		seen[f] = true
+	}
+	if r.GroupInterval != nil {
+		if _, err := ParseGroupInterval(*r.GroupInterval); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Normalize fills in defaults (empty mode becomes shadow) and trims the id.
 func (r *Rule) Normalize() {
@@ -103,14 +141,17 @@ func (r Rule) Validate() error {
 	}
 	// Fields below are modeled for forward compatibility but not enforced
 	// yet; reject them so users never rely on behavior that does not exist.
-	// For is enforced (P2): only its format is validated here.
+	// For and GroupBy/GroupInterval are enforced (P2): only their format is
+	// validated here.
 	if r.For != nil {
 		if _, err := ParseFor(*r.For); err != nil {
 			return err
 		}
 	}
-	if len(r.GroupBy) > 0 {
-		return fmt.Errorf("rules: rule %q: group_by is not effective until P2 (drop it or wait)", r.ID)
+	if len(r.GroupBy) > 0 || r.GroupInterval != nil {
+		if err := validateGroupBy(&r); err != nil {
+			return err
+		}
 	}
 	if r.Inhibit != nil {
 		return fmt.Errorf("rules: rule %q: inhibit is not effective until P2 (drop it or wait)", r.ID)

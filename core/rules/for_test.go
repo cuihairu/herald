@@ -80,12 +80,12 @@ func TestForTrackerFirstHitPending(t *testing.T) {
 	tracker, _, _ := fixedClock(time.Unix(1000, 0))
 	ctx := context.Background()
 
-	fired, err := tracker.Observe(ctx, "r1", "g1", 3*time.Minute)
+	outcome, err := tracker.Observe(ctx, "r1", "g1", 3*time.Minute)
 	if err != nil {
 		t.Fatalf("Observe error = %v", err)
 	}
-	if fired {
-		t.Error("first hit must not fire")
+	if outcome != ForPending {
+		t.Errorf("first hit outcome = %v, want ForPending", outcome)
 	}
 
 	state, err := tracker.store.Get(ctx, stateKey("r1", "g1"))
@@ -101,20 +101,20 @@ func TestForTrackerFiresAfterWindow(t *testing.T) {
 	tracker, _, now := fixedClock(time.Unix(1000, 0))
 	ctx := context.Background()
 
-	if fired, _ := tracker.Observe(ctx, "r1", "g1", 3*time.Minute); fired {
-		t.Fatal("first hit must not fire")
+	if out, _ := tracker.Observe(ctx, "r1", "g1", 3*time.Minute); out != ForPending {
+		t.Fatalf("first hit outcome = %v, want ForPending", out)
 	}
 	*now = (*now).Add(2 * time.Minute)
-	if fired, _ := tracker.Observe(ctx, "r1", "g1", 3*time.Minute); fired {
-		t.Fatal("hit at 2m must not fire")
+	if out, _ := tracker.Observe(ctx, "r1", "g1", 3*time.Minute); out != ForPending {
+		t.Fatalf("hit at 2m outcome = %v, want ForPending", out)
 	}
 	*now = (*now).Add(time.Minute)
-	fired, err := tracker.Observe(ctx, "r1", "g1", 3*time.Minute)
+	outcome, err := tracker.Observe(ctx, "r1", "g1", 3*time.Minute)
 	if err != nil {
 		t.Fatalf("Observe error = %v", err)
 	}
-	if !fired {
-		t.Fatal("hit at 3m must fire")
+	if outcome != ForFire {
+		t.Fatalf("hit at 3m outcome = %v, want ForFire", outcome)
 	}
 
 	state, _ := tracker.store.Get(ctx, stateKey("r1", "g1"))
@@ -131,13 +131,14 @@ func TestForTrackerSilentAfterFired(t *testing.T) {
 		t.Fatalf("Observe error = %v", err)
 	}
 	*now = (*now).Add(time.Minute)
-	if fired, _ := tracker.Observe(ctx, "r1", "g1", time.Minute); !fired {
-		t.Fatal("expected fire at window end")
+	if out, _ := tracker.Observe(ctx, "r1", "g1", time.Minute); out != ForFire {
+		t.Fatalf("outcome = %v, want ForFire at window end", out)
 	}
 	// Continued hits stay silent (already notified for this group).
 	*now = (*now).Add(time.Minute)
-	if fired, err := tracker.Observe(ctx, "r1", "g1", time.Minute); err != nil || fired {
-		t.Errorf("post-fire hit: fired=%v err=%v, want silent", fired, err)
+	outcome, err := tracker.Observe(ctx, "r1", "g1", time.Minute)
+	if err != nil || outcome != ForSilent {
+		t.Errorf("post-fire hit: outcome=%v err=%v, want ForSilent", outcome, err)
 	}
 }
 
@@ -160,8 +161,8 @@ func TestForTrackerResetRestartsWindow(t *testing.T) {
 		t.Fatalf("expected state cleared after reset, got %+v", state)
 	}
 	*now = (*now).Add(30 * time.Second)
-	if fired, _ := tracker.Observe(ctx, "r1", "g1", time.Minute); fired {
-		t.Fatal("first hit after reset must not fire despite old first_seen")
+	if out, _ := tracker.Observe(ctx, "r1", "g1", time.Minute); out != ForPending {
+		t.Fatalf("first hit after reset outcome = %v, want ForPending despite old first_seen", out)
 	}
 }
 
@@ -173,12 +174,12 @@ func TestForTrackerGroupsAreIndependent(t *testing.T) {
 		t.Fatalf("Observe error = %v", err)
 	}
 	// A different group starts its own window; gA's state must not leak.
-	if fired, _ := tracker.Observe(ctx, "r1", "gB", time.Minute); fired {
-		t.Error("group B first hit must not fire because of group A")
+	if out, _ := tracker.Observe(ctx, "r1", "gB", time.Minute); out != ForPending {
+		t.Errorf("group B first hit outcome = %v, want ForPending despite group A", out)
 	}
 	// Rules are independent too.
-	if fired, _ := tracker.Observe(ctx, "r2", "gA", time.Minute); fired {
-		t.Error("rule 2 first hit must not fire because of rule 1")
+	if out, _ := tracker.Observe(ctx, "r2", "gA", time.Minute); out != ForPending {
+		t.Errorf("rule 2 first hit outcome = %v, want ForPending despite rule 1", out)
 	}
 }
 

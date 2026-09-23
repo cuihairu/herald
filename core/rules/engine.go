@@ -114,6 +114,10 @@ type compiledRule struct {
 	match  *vm.Program
 	steps  []compiledStep
 	forDur time.Duration // 0 = rule has no "for" window
+	// groupBy lists the group aggregation fields; empty = no aggregation.
+	groupBy []string
+	// groupInterval is the quiet period that closes a group round.
+	groupInterval time.Duration
 }
 
 // EvalError is one rule's evaluation failure, kept structured so callers
@@ -141,6 +145,14 @@ type Decision struct {
 	// "for" duration has not elapsed yet: the event is suppressed (not
 	// routed, not queued). Callers must treat this like a dedup hit.
 	ForPending bool
+	// Folded reports that the governing active rule matched and its group
+	// aggregation window is open: the event has been counted into the
+	// group but must not be delivered (like ForPending).
+	Folded bool
+	// Summary carries the folded events of a finished group round; the
+	// caller delivers it as a summary notification together with this
+	// event. It is only set when the event itself is being routed.
+	Summary *GroupSummary
 	// EvalErrors lists rules whose expressions failed to evaluate; these
 	// rules were skipped and never contribute a match.
 	EvalErrors []EvalError
@@ -154,35 +166,43 @@ type ShadowHit struct {
 
 // Engine owns the compiled rule table. Rules are compiled once at save
 // time; evaluation only executes compiled programs. Stateful semantics
-// (the "for" window) go through a ForTracker backed by a StateStore —
-// in-memory by default, Redis via SetStateStore.
+// (for-windows and group aggregation) go through trackers backed by a
+// StateStore — in-memory by default, Redis via SetStateStore.
 type Engine struct {
-	mu       sync.RWMutex
-	store    Store
-	rules    []*compiledRule
-	forState *ForTracker
+	mu         sync.RWMutex
+	store      Store
+	rules      []*compiledRule
+	forState   *ForTracker
+	groupState *GroupTracker
+	stateStore StateStore
 }
 
 // NewEngine creates an Engine backed by store. Call Reload once after
-// creation to load and compile the stored rules. Rule state (for windows)
-// is kept in memory by default; see SetStateStore.
+// creation to load and compile the stored rules. Rule state (for windows,
+// group rounds) is kept in memory by default; see SetStateStore.
 func NewEngine(store Store) *Engine {
+	ss := NewMemoryStateStore()
 	return &Engine{
-		store:    store,
-		forState: NewForTracker(NewMemoryStateStore()),
+		store:      store,
+		forState:   NewForTracker(ss),
+		groupState: NewGroupTracker(ss),
+		stateStore: ss,
 	}
 }
 
-// SetStateStore moves rule state (for windows) into the given store, e.g.
-// RedisStateStore for multi-instance deployments. Call it during setup,
-// before the engine serves traffic; an in-flight window does not migrate.
+// SetStateStore moves rule state (for windows, group rounds) into the
+// given store, e.g. RedisStateStore for multi-instance deployments. Call
+// it during setup, before the engine serves traffic; in-flight state does
+// not migrate.
 func (e *Engine) SetStateStore(ss StateStore) {
 	if ss == nil {
 		ss = NewMemoryStateStore()
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.stateStore = ss
 	e.forState = NewForTracker(ss)
+	e.groupState = NewGroupTracker(ss)
 }
 
 // Validate normalizes and checks r, then compiles every expression in it —
@@ -227,9 +247,11 @@ func (e *Engine) Put(ctx context.Context, r *Rule) error {
 	for i, existing := range e.rules {
 		if existing.rule.ID == r.ID {
 			e.rules[i] = compiled
-			// The old rule's in-flight for windows no longer mean anything
-			// under the new definition; drop them so groups start fresh.
+			// The old rule's in-flight for windows and group rounds no longer
+			// mean anything under the new definition; drop them so groups
+			// start fresh.
 			_ = e.forState.ResetRule(ctx, r.ID)
+			_ = e.groupState.ResetRule(ctx, r.ID)
 			return nil
 		}
 	}
@@ -248,6 +270,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 		if existing.rule.ID == id {
 			e.rules = append(e.rules[:i], e.rules[i+1:]...)
 			_ = e.forState.ResetRule(ctx, id)
+			_ = e.groupState.ResetRule(ctx, id)
 			return nil
 		}
 	}
@@ -310,7 +333,18 @@ func compileRule(r Rule) (*compiledRule, error) {
 			return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
 		}
 	}
-	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur}, nil
+	groupBy := r.GroupBy
+	groupInterval := time.Duration(0)
+	if len(groupBy) > 0 {
+		groupInterval = DefaultGroupInterval
+		if r.GroupInterval != nil {
+			groupInterval, err = ParseGroupInterval(*r.GroupInterval)
+			if err != nil {
+				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+			}
+		}
+	}
+	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval}, nil
 }
 
 // Evaluate runs the notification environment against the rule table in
@@ -347,33 +381,63 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			// ignored — the state TTL is the backstop, and a miss must not
 			// turn into an evaluation error.
 			if cr.forDur > 0 {
-				_ = e.forState.Reset(ctx, cr.rule.ID, ForGroupKey(env))
+				groupKey, _ := RuleGroupKey(cr.groupBy, env)
+				_ = e.forState.Reset(ctx, cr.rule.ID, groupKey)
 			}
 			continue
 		}
+
+		// for and group aggregation share the group key: with group_by the
+		// identity is the field values, without it the content hash.
+		groupKey, groupLabel := RuleGroupKey(cr.groupBy, env)
+
+		// Step 1: the "for" window gates everything else. While it runs
+		// the event is suppressed; after it fired once, further hits stay
+		// silent — and for rules with group_by they fall through to the
+		// aggregation below so folded events are still counted.
 		if cr.forDur > 0 {
-			fired, err := e.forState.Observe(ctx, cr.rule.ID, ForGroupKey(env), cr.forDur)
+			outcome, err := e.forState.Observe(ctx, cr.rule.ID, groupKey, cr.forDur)
 			if err != nil {
 				// State failure fails open: the rule is skipped like any
 				// other evaluation error and routing survives.
 				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
 				continue
 			}
-			if !fired {
+			suppress := outcome == ForPending ||
+				(outcome == ForSilent && len(cr.groupBy) == 0)
+			if suppress {
 				switch cr.rule.Mode {
 				case ModeActive:
-					// The rule owns this group and its window is still
-					// running: suppress the event, skip the remaining table
-					// (a later rule must not route what this rule holds).
+					// The rule owns this group: suppress the event, skip
+					// the remaining table (a later rule must not route
+					// what this rule holds).
 					governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, ForPending: true}
 					governing.EvalErrors = evalErrs
 					return governing, joinEvalErrors(evalErrs)
 				default: // ModeShadow
-					// A shadow rule only records what WOULD fire; a pending
-					// window would not.
+					// A shadow rule only records what WOULD fire; a
+					// pending or already-silent window would not.
 					continue
 				}
 			}
+		}
+
+		// Step 2: group aggregation. Only active rules simulate folding —
+		// shadow observation is about condition hits, and its records stay
+		// unsuppressed (the delivery behavior is not what's being previewed).
+		var summary *GroupSummary
+		if len(cr.groupBy) > 0 && cr.rule.Mode == ModeActive {
+			folded, gs, err := e.groupState.Observe(ctx, cr.rule.ID, groupKey, groupLabel, cr.groupInterval)
+			if err != nil {
+				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
+				continue
+			}
+			if folded {
+				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Folded: true}
+				governing.EvalErrors = evalErrs
+				return governing, joinEvalErrors(evalErrs)
+			}
+			summary = gs
 		}
 		channels, err := e.resolveSteps(ctx, cr, env)
 		if err != nil {
@@ -387,7 +451,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 				continue
 			}
 			// First matching active rule governs; shadow observations ride along.
-			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels}
+			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary}
 			if decision != nil {
 				governing.Shadow = decision.Shadow
 			}

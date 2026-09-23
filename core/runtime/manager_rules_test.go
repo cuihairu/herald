@@ -110,3 +110,35 @@ func TestManagerRecordForPending(t *testing.T) {
 		t.Errorf("counter must track every suppression, got %d", m.ShadowRuleCount("r-for"))
 	}
 }
+
+func TestManagerRecordGroupFolded(t *testing.T) {
+	m := NewManager(100)
+	n := &core.Notification{ID: "notif-1", Level: "error"}
+
+	m.RecordGroupFolded("r-group", n)
+
+	logs := m.GetLogs(0, 10, &logstore.Filter{Status: "folded"})
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 folded log, got %d", len(logs))
+	}
+	entry := logs[0]
+	if entry.RuleID != "r-group" || entry.Status != "folded" {
+		t.Fatalf("unexpected folded entry: %+v", entry)
+	}
+	if entry.WouldFire {
+		t.Error("a folded event must not be marked would_fire")
+	}
+	if entry.MatchedAt.IsZero() {
+		t.Error("expected matched_at to be set")
+	}
+
+	// Folded events are sampled per rule like shadow hits: the counter
+	// tracks every occurrence but the second entry is not recorded.
+	m.RecordGroupFolded("r-group", &core.Notification{ID: "notif-2", Level: "error"})
+	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "folded"})); got != 1 {
+		t.Errorf("expected sampling to keep 1 entry, got %d", got)
+	}
+	if m.ShadowRuleCount("r-group") != 2 {
+		t.Errorf("counter must track every folded event, got %d", m.ShadowRuleCount("r-group"))
+	}
+}

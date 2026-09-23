@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/route"
@@ -27,6 +28,7 @@ type recordingObserver struct {
 	shadows     []rules.ShadowHit
 	evalErrors  []string
 	forPendings []string
+	groupFolded []string
 }
 
 func (r *recordingObserver) RecordShadow(ruleID string, channels []string, n *core.Notification) {
@@ -39,6 +41,10 @@ func (r *recordingObserver) RecordEvalError(ruleID string, err error, n *core.No
 
 func (r *recordingObserver) RecordForPending(ruleID string, n *core.Notification) {
 	r.forPendings = append(r.forPendings, ruleID)
+}
+
+func (r *recordingObserver) RecordGroupFolded(ruleID string, n *core.Notification) {
+	r.groupFolded = append(r.groupFolded, ruleID)
 }
 
 func newRuleTestService(t *testing.T) (*NotificationService, *mockQueue, *route.Router, *mockProviderRuntime) {
@@ -155,6 +161,115 @@ func TestProcessWithRules(t *testing.T) {
 		}
 		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
 			t.Fatalf("explicit channels must go out despite pending, got %v", queue.tasks)
+		}
+	})
+
+	t.Run("folded suppresses delivery and is observed", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		observer := &recordingObserver{}
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID: "r-group",
+			Mode:   rules.ModeActive,
+			Folded: true,
+		}})
+		svc.SetRuleObserver(observer)
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 || len(res.Accepted) != 0 {
+			t.Fatalf("folded event must suppress delivery, got %+v", res)
+		}
+		if len(queue.tasks) != 0 {
+			t.Fatalf("expected no queued tasks, got %d", len(queue.tasks))
+		}
+		if len(observer.groupFolded) != 1 || observer.groupFolded[0] != "r-group" {
+			t.Fatalf("expected folded observation, got %v", observer.groupFolded)
+		}
+	})
+
+	t.Run("folded does not suppress explicit channels", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID: "r-group",
+			Mode:   rules.ModeActive,
+			Folded: true,
+		}})
+
+		n := alertNotification()
+		n.Channels = []string{"static-provider"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
+			t.Fatalf("explicit channels must go out despite folding, got %v", queue.tasks)
+		}
+	})
+
+	t.Run("summary rides along with the opening event", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:   "r-group",
+			Mode:     rules.ModeActive,
+			Channels: []string{"rule-provider"},
+			Summary: &rules.GroupSummary{
+				RuleID:    "r-group",
+				Group:     "env=prod",
+				Count:     4,
+				FirstSeen: time.Now().Add(-10 * time.Minute),
+				LastSeen:  time.Now().Add(-6 * time.Minute),
+			},
+		}})
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		// The live event and the synthetic summary both reach rule-provider.
+		if len(res.TaskIDs) != 2 || len(res.Accepted) != 2 {
+			t.Fatalf("expected event + summary delivery, got %+v", res)
+		}
+		if len(queue.tasks) != 2 {
+			t.Fatalf("expected 2 queued tasks, got %d", len(queue.tasks))
+		}
+		if queue.tasks[0].Payload.Content == nil || queue.tasks[0].Payload.Content.Title != "Test Alert" {
+			t.Fatalf("first task must be the live event, got %+v", queue.tasks[0].Payload.Content)
+		}
+		summaryTask := queue.tasks[1]
+		if summaryTask.Payload.Content == nil || !strings.Contains(summaryTask.Payload.Content.Title, "[Aggregation summary]") {
+			t.Fatalf("second task must be the summary, got %+v", summaryTask.Payload.Content)
+		}
+		if !strings.Contains(summaryTask.Payload.Content.Body, "4") {
+			t.Fatalf("summary body must carry the folded count, got %q", summaryTask.Payload.Content.Body)
+		}
+	})
+
+	t.Run("summary without group label names the content grouping", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:   "r-hash",
+			Mode:     rules.ModeActive,
+			Channels: []string{"rule-provider"},
+			Summary: &rules.GroupSummary{
+				RuleID: "r-hash",
+				Count:  2,
+			},
+		}})
+
+		if _, err := svc.Process(ctx, alertNotification()); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(queue.tasks) != 2 {
+			t.Fatalf("expected event + summary, got %d tasks", len(queue.tasks))
+		}
+		title := queue.tasks[1].Payload.Content.Title
+		body := queue.tasks[1].Payload.Content.Body
+		if !strings.Contains(title, "(content grouping)") {
+			t.Fatalf("content-hashed summary must name the grouping, got %q", title)
+		}
+		if !strings.Contains(body, "r-hash") {
+			t.Fatalf("summary body must name the rule, got %q", body)
 		}
 	})
 
@@ -297,5 +412,58 @@ func TestProcessWithRealRuleEngine(t *testing.T) {
 	}
 	if queue.tasks[1].Provider != "static-provider" {
 		t.Fatalf("expected static routing for non-matching notification, got %s", queue.tasks[1].Provider)
+	}
+}
+
+// TestProcessWithRealRuleEngineGroupBy wires the actual rules.Engine with a
+// group_by rule and verifies folding through the full Process pipeline.
+func TestProcessWithRealRuleEngineGroupBy(t *testing.T) {
+	ctx := context.Background()
+	svc, queue, _, _ := newRuleTestService(t)
+	observer := &recordingObserver{}
+
+	engine := rules.NewEngine(rules.NewMemoryStore())
+	r := rules.Rule{
+		ID:      "prod-alerts-grouped",
+		Match:   `level == "error"`,
+		Mode:    rules.ModeActive,
+		Route:   []rules.RouteStep{{Channels: []string{"rule-provider"}}},
+		GroupBy: []string{"env"},
+	}
+	if err := engine.Put(ctx, &r); err != nil {
+		t.Fatalf("engine.Put: %v", err)
+	}
+	svc.SetRuleEngine(engine)
+	svc.SetRuleObserver(observer)
+
+	// First event of the env=prod group: delivered.
+	n1 := alertNotification()
+	n1.Params = map[string]any{"env": "prod"}
+	res1, err := svc.Process(ctx, n1)
+	if err != nil {
+		t.Fatalf("Process first: %v", err)
+	}
+	if len(res1.TaskIDs) != 1 {
+		t.Fatalf("first event must be delivered, got %+v", res1)
+	}
+
+	// Second event of the same group folds: not delivered, observed. The
+	// body differs so plain content dedup would not catch it — the group
+	// is what folds them.
+	n2 := alertNotification()
+	n2.Content.Body = "usage is now 95%"
+	n2.Params = map[string]any{"env": "prod"}
+	res2, err := svc.Process(ctx, n2)
+	if err != nil {
+		t.Fatalf("Process folded: %v", err)
+	}
+	if len(res2.TaskIDs) != 0 {
+		t.Fatalf("folded event must not be delivered, got %+v", res2)
+	}
+	if len(observer.groupFolded) != 1 || observer.groupFolded[0] != "prod-alerts-grouped" {
+		t.Fatalf("expected folded observation, got %v", observer.groupFolded)
+	}
+	if len(queue.tasks) != 1 {
+		t.Fatalf("expected exactly one queued task, got %d", len(queue.tasks))
 	}
 }

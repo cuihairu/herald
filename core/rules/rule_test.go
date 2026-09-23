@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -112,9 +113,63 @@ func TestRuleValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("group_by validated", func(t *testing.T) {
+		// Valid group_by (with or without group_interval) is accepted since
+		// P2 enforces group aggregation.
+		r := validRule()
+		r.GroupBy = []string{"env", "service"}
+		if err := r.Validate(); err != nil {
+			t.Errorf("group_by: expected acceptance, got %v", err)
+		}
+		interval := "10m"
+		r.GroupInterval = &interval
+		if err := r.Validate(); err != nil {
+			t.Errorf("group_by + group_interval: expected acceptance, got %v", err)
+		}
+
+		// group_interval without group_by has nothing to aggregate over.
+		r = validRule()
+		r.GroupInterval = &interval
+		if err := r.Validate(); err == nil {
+			t.Error("group_interval without group_by: expected rejection")
+		}
+
+		// Malformed group_interval values are rejected.
+		r = validRule()
+		r.GroupBy = []string{"env"}
+		for _, bad := range []string{"", "abc", "0s", "-5m", "25h"} {
+			badInterval := bad
+			r.GroupInterval = &badInterval
+			if err := r.Validate(); err == nil {
+				t.Errorf("group_interval %q: expected rejection", bad)
+			}
+		}
+
+		// Field hygiene: bounded, non-empty, unique.
+		r = validRule()
+		r.GroupBy = []string{"env", "service", "env"}
+		if err := r.Validate(); err == nil {
+			t.Error("duplicate group_by field: expected rejection")
+		}
+		r.GroupBy = []string{"env", "  "}
+		if err := r.Validate(); err == nil {
+			t.Error("blank group_by field: expected rejection")
+		}
+		r.GroupBy = []string{"env", strings.Repeat("x", 65)}
+		if err := r.Validate(); err == nil {
+			t.Error("oversized group_by field: expected rejection")
+		}
+		r.GroupBy = make([]string, 9)
+		for i := range r.GroupBy {
+			r.GroupBy[i] = fmt.Sprintf("f%d", i)
+		}
+		if err := r.Validate(); err == nil {
+			t.Error("more than 8 group_by fields: expected rejection")
+		}
+	})
+
 	t.Run("not-yet-effective fields rejected", func(t *testing.T) {
 		cases := map[string]func(*Rule){
-			"group_by":   func(r *Rule) { r.GroupBy = []string{"env"} },
 			"inhibit":    func(r *Rule) { r.Inhibit = &InhibitSpec{Equal: []string{"env"}} },
 			"escalation": func(r *Rule) { r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{"boss"}} },
 			"silence":    func(r *Rule) { r.Silence = &SilenceSpec{Start: "03:00", End: "07:00"} },

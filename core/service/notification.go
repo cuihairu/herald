@@ -43,13 +43,15 @@ type RuleEvaluator interface {
 }
 
 // RuleObserver receives rule evaluation observations: shadow-mode hits
-// (dry-run evidence), per-rule evaluation failures, and active-rule events
-// suppressed by a still-running "for" window. Implementations must be safe
-// for concurrent use.
+// (dry-run evidence), per-rule evaluation failures, active-rule events
+// suppressed by a still-running "for" window, and events folded into an
+// open group-aggregation round. Implementations must be safe for
+// concurrent use.
 type RuleObserver interface {
 	RecordShadow(ruleID string, channels []string, n *core.Notification)
 	RecordEvalError(ruleID string, err error, n *core.Notification)
 	RecordForPending(ruleID string, n *core.Notification)
+	RecordGroupFolded(ruleID string, n *core.Notification)
 }
 
 // NotificationService orchestrates the notification processing pipeline
@@ -114,6 +116,7 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 	// notification so shadow observation covers explicit-channel traffic
 	// too; only routing is conditional on it.
 	channels := n.Channels
+	var summary *rules.GroupSummary
 	if s.rules != nil {
 		decision, evalErr := s.rules.Evaluate(ctx, rules.NewEnv(
 			n.Type, n.Level, directTitle(n), directBody(n), n.Params,
@@ -133,10 +136,10 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		}
 		// Explicit channels win for ROUTING: rules are an incremental
 		// capability over static routing, never an override of caller
-		// intent. The one active-rule outcome that suppresses delivery —
-		// a "for" window still running — only applies to the traffic the
-		// rule would route anyway; explicit-channel calls are deliberate
-		// and go out regardless.
+		// intent. The active-rule outcomes that suppress delivery — a "for"
+		// window still running, a group round open for folding — only apply
+		// to the traffic the rule would route anyway; explicit-channel
+		// calls are deliberate and go out regardless.
 		if decision != nil && decision.Mode == rules.ModeActive && len(n.Channels) == 0 {
 			if decision.ForPending {
 				if s.observer != nil {
@@ -144,7 +147,14 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 				}
 				return &ProcessResult{NotificationID: n.ID}, nil
 			}
+			if decision.Folded {
+				if s.observer != nil {
+					s.observer.RecordGroupFolded(decision.RuleID, n)
+				}
+				return &ProcessResult{NotificationID: n.ID}, nil
+			}
 			channels = decision.Channels
+			summary = decision.Summary
 		}
 	}
 	if len(channels) == 0 {
@@ -170,6 +180,31 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 
 	// Generate DeliveryTasks for each channel, collecting errors
 	result := &ProcessResult{NotificationID: n.ID}
+	s.enqueue(ctx, n, channels, renderedData, result)
+
+	// The summary of a finished group round rides along with the event
+	// that opened the new round. It is a synthetic notification produced
+	// by the rule engine itself, so it bypasses rule evaluation (a
+	// broadly-matching rule must not fold its own summaries back into the
+	// group) and dedup (each round's summary differs in content, and a
+	// dedup hit here would silently lose folded events).
+	if summary != nil {
+		s.enqueue(ctx, summaryNotification(n, summary), channels, nil, result)
+	}
+
+	// If zero tasks created, return error
+	if len(result.TaskIDs) == 0 && len(result.Failed) > 0 {
+		return result, fmt.Errorf("all channels failed: %s", formatChannelErrors(result.Failed))
+	}
+
+	return result, nil
+}
+
+// enqueue delivers one notification to the given channels: resolve the
+// provider, plan the task and push it to the queue, recording per-channel
+// failures into result. Shared by the live-event path and the synthetic
+// group-summary path.
+func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification, channels []string, renderedData *template.RenderedData, result *ProcessResult) {
 	for _, channel := range channels {
 		provider, err := s.runtime.GetProvider(channel)
 		if err != nil {
@@ -198,13 +233,35 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		result.TaskIDs = append(result.TaskIDs, task.ID)
 		result.Accepted = append(result.Accepted, channel)
 	}
+}
 
-	// If zero tasks created, return error
-	if len(result.TaskIDs) == 0 && len(result.Failed) > 0 {
-		return result, fmt.Errorf("all channels failed: %s", formatChannelErrors(result.Failed))
+// summaryNotification builds the synthetic notification reporting a finished
+// group round. It inherits the triggering event's type, level and recipients
+// so it reaches the same audience through the same channel semantics, and
+// carries the round's counts in both the body and params.
+func summaryNotification(trigger *core.Notification, s *rules.GroupSummary) *core.Notification {
+	group := s.Group
+	if group == "" {
+		group = "(content grouping)"
 	}
-
-	return result, nil
+	title := fmt.Sprintf("[Aggregation summary] %s: %d events", group, s.Count)
+	body := fmt.Sprintf("Rule %s folded %d similar notifications between %s and %s; this summary is delivered together with the event that opened the new round.",
+		s.RuleID, s.Count, s.FirstSeen.Format(time.RFC3339), s.LastSeen.Format(time.RFC3339))
+	return &core.Notification{
+		ID:    uuid.New().String(),
+		Type:  trigger.Type,
+		Level: trigger.Level,
+		Params: map[string]any{
+			"group_rule":       s.RuleID,
+			"group":            group,
+			"group_count":      s.Count,
+			"group_first_seen": s.FirstSeen.Format(time.RFC3339),
+			"group_last_seen":  s.LastSeen.Format(time.RFC3339),
+		},
+		Recipients: trigger.Recipients,
+		Content:    &core.DirectContent{Title: title, Body: body},
+		CreatedAt:  time.Now(),
+	}
 }
 
 // resolveTargets returns the target list for a given channel

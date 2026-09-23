@@ -28,15 +28,21 @@ func ParseFor(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, nil
 	}
+	return parseDurationField("for", s)
+}
+
+// parseDurationField parses a rule duration field (for/group_interval) with
+// the shared positivity and range constraints.
+func parseDurationField(name, s string) (time.Duration, error) {
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return 0, fmt.Errorf("rules: invalid for duration %q: %w", s, err)
+		return 0, fmt.Errorf("rules: invalid %s duration %q: %w", name, s, err)
 	}
 	if d <= 0 {
-		return 0, fmt.Errorf("rules: for duration %q must be positive", s)
+		return 0, fmt.Errorf("rules: %s duration %q must be positive", name, s)
 	}
 	if d > MaxForDuration {
-		return 0, fmt.Errorf("rules: for duration %q exceeds max %v", s, MaxForDuration)
+		return 0, fmt.Errorf("rules: %s duration %q exceeds max %v", name, s, MaxForDuration)
 	}
 	return d, nil
 }
@@ -70,38 +76,46 @@ func NewForTracker(store StateStore) *ForTracker {
 	return &ForTracker{store: store, now: time.Now}
 }
 
-// Observe records one hit of ruleID for the given group and reports whether
-// the alert should fire now:
-//
-//   - first sighting: the window starts, not fired;
-//   - window elapsed: fires once, marks the state Fired;
-//   - already fired:  further hits stay silent until a Reset;
-//   - window running: not fired.
-//
-// stateErr is returned verbatim so the caller can treat store failures as
-// rule evaluation errors (fail-open: the rule is skipped, routing survives).
-func (t *ForTracker) Observe(ctx context.Context, ruleID, groupKey string, forDur time.Duration) (fired bool, err error) {
+// ForOutcome is the event-driven "for" judgement for one hit.
+type ForOutcome int
+
+const (
+	// ForPending: the window is still running — the event must not route.
+	ForPending ForOutcome = iota
+	// ForFire: the window just elapsed — the alert fires now.
+	ForFire
+	// ForSilent: the alert already fired for this group — further hits
+	// stay silent (and, for rules with group_by, fall through to group
+	// aggregation so folded events are still counted).
+	ForSilent
+)
+
+// Observe records one hit of ruleID for the given group and reports the
+// window outcome. stateErr is returned verbatim so the caller can treat
+// store failures as rule evaluation errors (fail-open: the rule is skipped,
+// routing survives).
+func (t *ForTracker) Observe(ctx context.Context, ruleID, groupKey string, forDur time.Duration) (ForOutcome, error) {
 	key := stateKey(ruleID, groupKey)
 	now := t.now()
 	state, err := t.store.Get(ctx, key)
 	if err != nil {
-		return false, err
+		return ForPending, err
 	}
 	if state == nil {
 		state = &RuleState{FirstSeen: now, LastSeen: now, Count: 1}
-	} else {
-		state.LastSeen = now
-		state.Count++
+		return ForPending, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
 	}
+	state.LastSeen = now
+	state.Count++
 	if state.Fired {
 		// Alert already went out for this group; stay silent until reset.
-		return false, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
+		return ForSilent, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
 	}
 	if now.Sub(state.FirstSeen) >= forDur {
 		state.Fired = true
-		return true, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
+		return ForFire, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
 	}
-	return false, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
+	return ForPending, t.store.Put(ctx, key, state, forDur+stateTTLBuffer)
 }
 
 // Reset drops the in-progress window for one rule group. It is called when

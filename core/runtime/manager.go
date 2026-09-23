@@ -119,6 +119,25 @@ func (m *Manager) RecordForPending(ruleID string, n *core.Notification) {
 	})
 }
 
+// RecordGroupFolded implements the rule observer contract: it records an
+// event counted into an open group-aggregation round instead of being
+// delivered. Folded events are sampled per rule like shadow hits — folding
+// exists exactly for the high-volume scenario.
+func (m *Manager) RecordGroupFolded(ruleID string, n *core.Notification) {
+	if !m.shadowSampler.ShouldRecord(ruleID) {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "folded:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "folded",
+		CreatedAt: now,
+		RuleID:    ruleID,
+		MatchedAt: now,
+	})
+}
+
 // ShadowRuleCount returns how many times a rule has matched during shadow
 // evaluation so far — the exact total behind the sampled log entries.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {

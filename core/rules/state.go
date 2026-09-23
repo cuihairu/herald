@@ -102,11 +102,13 @@ func (m *MemoryStateStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-// DeleteRule removes every entry whose key belongs to ruleID.
+// DeleteRule removes every entry whose key belongs to ruleID. The prefix
+// covers both state families — for windows (rule:{id}:state:*) and group
+// rounds (rule:{id}:group:*) — so a rule change drops them together.
 func (m *MemoryStateStore) DeleteRule(_ context.Context, ruleID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	prefix := stateKey(ruleID, "")
+	prefix := "rule:" + ruleID + ":"
 	for key := range m.states {
 		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
 			delete(m.states, key)

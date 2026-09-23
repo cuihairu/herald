@@ -572,6 +572,75 @@ func TestDispatchWithForRuleSuppressesFirstHit(t *testing.T) {
 	}
 }
 
+func TestDispatchWithGroupByRuleFoldsAndSummarizes(t *testing.T) {
+	cfg := config.Default()
+	interval := "5ms" // tiny window so the test can outlive it with real time
+	cfg.Rules = []rules.Rule{{
+		ID:            "alert-grouped",
+		Match:         `type == "alert"`,
+		Mode:          rules.ModeActive,
+		Route:         []rules.RouteStep{{Channels: []string{"rec"}}},
+		GroupBy:       []string{"env"},
+		GroupInterval: &interval,
+	}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	env := func(body string) *core.Notification {
+		return &core.Notification{
+			Type:    "alert",
+			Level:   "error",
+			Params:  map[string]any{"env": "prod"},
+			Content: &core.DirectContent{Title: "t", Body: body},
+		}
+	}
+
+	// First event of the env=prod group: delivered.
+	res, err := app.DispatchSync(context.Background(), env("first"))
+	if err != nil {
+		t.Fatalf("DispatchSync(first) error = %v", err)
+	}
+	if len(res.Accepted) != 1 {
+		t.Fatalf("first event must be delivered, accepted = %v", res.Accepted)
+	}
+
+	// Second event, same group (body differs so dedup stays out of the
+	// way): folded — counted, not delivered.
+	res, err = app.DispatchSync(context.Background(), env("second"))
+	if err != nil {
+		t.Fatalf("DispatchSync(second) error = %v", err)
+	}
+	if len(res.Accepted) != 0 {
+		t.Fatalf("folded event must suppress delivery, accepted = %v", res.Accepted)
+	}
+	logs := app.Runtime().GetLogs(0, 10, &logstore.Filter{Status: "folded"})
+	if len(logs) != 1 || logs[0].RuleID != "alert-grouped" {
+		t.Fatalf("expected one folded log for alert-grouped, got %+v", logs)
+	}
+
+	// Quiet past the interval: the next event is delivered and carries the
+	// finished round's summary, so this Process call accepts two deliveries
+	// (the event and the summary) and the provider sees three in total.
+	time.Sleep(20 * time.Millisecond)
+	res, err = app.DispatchSync(context.Background(), env("third"))
+	if err != nil {
+		t.Fatalf("DispatchSync(third) error = %v", err)
+	}
+	if len(res.Accepted) != 2 {
+		t.Fatalf("event after quiet must be delivered together with the summary, accepted = %v", res.Accepted)
+	}
+	if got := prov.count(); got != 3 {
+		t.Fatalf("expected 3 deliveries (event, summary, event), got %d", got)
+	}
+}
+
 func TestDispatchWithActiveRuleRoutes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Rules = []rules.Rule{{
