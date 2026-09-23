@@ -6,7 +6,13 @@ export default defineConfig({
   lang: 'zh-CN',
   base: '/herald/',
 
+  head: [
+    // head 里的资源不会自动附加 base，需与下方 base 保持一致
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/herald/logo.svg' }],
+  ],
+
   themeConfig: {
+    logo: '/logo.svg',
     nav: [
       { text: '指南', link: '/guide/introduction' },
       { text: '架构', link: '/architecture/overview' },
