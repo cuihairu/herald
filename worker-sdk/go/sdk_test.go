@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -90,9 +91,11 @@ func waitForID(t *testing.T, ch chan string, want string) {
 }
 
 func testConfig(id string) *protocol.WorkerConfig {
+	// CoreURL empty = embedded mode (no control plane): Run registers
+	// nothing and goes straight to queue consumption. Control-plane
+	// behavior is covered by the tests that dial a real WebSocket server.
 	return &protocol.WorkerConfig{
 		WorkerID:          id,
-		CoreURL:           "ws://127.0.0.1:1/ws",
 		ReconnectDelay:    100 * time.Millisecond,
 		HeartbeatInterval: 10 * time.Millisecond,
 		Capabilities:      []string{"email", "webhook"},
@@ -466,8 +469,8 @@ func TestClose(t *testing.T) {
 }
 
 func TestDetectPlatform(t *testing.T) {
-	if detectPlatform() != "unknown" {
-		t.Errorf("expected unknown platform, got %s", detectPlatform())
+	if detectPlatform() != runtime.GOOS {
+		t.Errorf("expected %s, got %s", runtime.GOOS, detectPlatform())
 	}
 }
 
@@ -660,5 +663,208 @@ func TestServerRejectsUpgrade(t *testing.T) {
 	}
 	if resp != nil && resp.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+// newRejectServer answers the first register message with a failed ack.
+func newRejectServer(reason string) *httptest.Server {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != protocol.MessageTypeRegister {
+			return
+		}
+		ack, _ := protocol.MarshalMessage(&protocol.RegisterAckMessage{
+			Success: false,
+			Error:   reason,
+		})
+		_ = conn.WriteMessage(websocket.TextMessage, ack)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+}
+
+// newAckThenDropServer acks the register handshake, then immediately drops
+// the connection to exercise the client's disconnect path.
+func newAckThenDropServer() *httptest.Server {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != protocol.MessageTypeRegister {
+			return
+		}
+		ack, _ := protocol.MarshalMessage(&protocol.RegisterAckMessage{
+			WorkerID: "worker-drop",
+			Success:  true,
+			ServerID: "herald-test",
+		})
+		_ = conn.WriteMessage(websocket.TextMessage, ack)
+	}))
+}
+
+func TestClientRegisterWithMockServer(t *testing.T) {
+	registered := make(chan *protocol.RegisterMessage, 1)
+	beats := make(chan *protocol.HeartbeatMessage, 8)
+	server := newMockHeraldServer(registered, beats)
+	defer server.Close()
+
+	cfg := testConfig("worker-e2e")
+	cfg.CoreURL = wsURL(server)
+	c := NewClient(cfg, newFakeQueue())
+
+	connected := make(chan struct{}, 1)
+	c.OnConnect(func() { connected <- struct{}{} })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	select {
+	case msg := <-registered:
+		if msg.WorkerID != cfg.WorkerID {
+			t.Errorf("registered worker = %s, want %s", msg.WorkerID, cfg.WorkerID)
+		}
+		if msg.Mode != "remote" || msg.Platform != detectPlatform() || msg.Version != "1.0.0" {
+			t.Errorf("unexpected register message: %+v", msg)
+		}
+		if len(msg.Capabilities) != 2 {
+			t.Errorf("expected 2 capabilities, got %d", len(msg.Capabilities))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for register message on server")
+	}
+
+	select {
+	case <-connected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for connect callback")
+	}
+	if c.State() != protocol.StateReady {
+		t.Errorf("expected ready state, got %s", c.State())
+	}
+
+	// The control-plane connection is live: heartbeats must reach the
+	// server (HeartbeatInterval is 10ms in testConfig).
+	select {
+	case b := <-beats:
+		if b.WorkerID != cfg.WorkerID {
+			t.Errorf("expected heartbeat from %s, got %s", cfg.WorkerID, b.WorkerID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for heartbeat on server")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("expected nil error from Run, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Run to return")
+	}
+	if c.State() != protocol.StateDisconnected {
+		t.Errorf("expected disconnected state, got %s", c.State())
+	}
+}
+
+func TestClientRegisterRejected(t *testing.T) {
+	server := newRejectServer("unauthorized worker")
+	defer server.Close()
+
+	cfg := testConfig("worker-rej")
+	cfg.CoreURL = wsURL(server)
+	c := NewClient(cfg, nil)
+
+	// Run fails synchronously: the register handshake is rejected before
+	// queue consumption starts.
+	err := c.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "register rejected: unauthorized worker") {
+		t.Errorf("Run() error = %v, want register rejection", err)
+	}
+	if c.State() != protocol.StateDisconnected {
+		t.Errorf("expected disconnected state, got %s", c.State())
+	}
+}
+
+func TestClientRegisterDialFailure(t *testing.T) {
+	cfg := testConfig("worker-dialfail")
+	cfg.CoreURL = "ws://127.0.0.1:1/worker"
+	c := NewClient(cfg, nil)
+
+	err := c.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "failed to register") {
+		t.Errorf("Run() error = %v, want dial failure", err)
+	}
+	if c.State() != protocol.StateDisconnected {
+		t.Errorf("expected disconnected state, got %s", c.State())
+	}
+}
+
+func TestClientDetectsServerClose(t *testing.T) {
+	server := newAckThenDropServer()
+	defer server.Close()
+
+	cfg := testConfig("worker-drop")
+	cfg.CoreURL = wsURL(server)
+	c := NewClient(cfg, newFakeQueue())
+
+	disconnected := make(chan error, 1)
+	c.OnDisconnect(func(err error) { disconnected <- err })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	// The server drops the connection right after acking: the client must
+	// notice, fire onDisconnect and mark itself Disconnected (queue
+	// consumption keeps running).
+	select {
+	case err := <-disconnected:
+		if err == nil {
+			t.Error("expected non-nil error from disconnect callback")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for disconnect callback")
+	}
+	if c.State() != protocol.StateDisconnected {
+		t.Errorf("expected disconnected state, got %s", c.State())
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("expected nil error from Run, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Run to return")
 	}
 }

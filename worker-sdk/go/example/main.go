@@ -29,23 +29,28 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx); err != nil {
+	if err := run(ctx, demoConfig()); err != nil {
 		fmt.Printf("Failed to start: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// run builds the demo worker client with its demo callbacks and runs it
-// until ctx is canceled.
-func run(ctx context.Context) error {
-	config := &protocol.WorkerConfig{
+// demoConfig is the demo worker's control-plane configuration.
+func demoConfig() *protocol.WorkerConfig {
+	return &protocol.WorkerConfig{
 		WorkerID:          "demo-worker-001",
 		CoreURL:           "ws://localhost:8081/worker",
 		ReconnectDelay:    5 * time.Second,
 		HeartbeatInterval: 30 * time.Second,
 		Capabilities:      []string{"demo"},
 	}
+}
 
+// run builds the demo worker client with its demo callbacks and runs it
+// until ctx is canceled. Registration is a real WebSocket handshake, so a
+// config whose CoreURL is unreachable makes run fail fast with the dial
+// error.
+func run(ctx context.Context, config *protocol.WorkerConfig) error {
 	// Queue is set to nil for demo; in production, pass a redis queue
 	client := workersdk.NewClient(config, nil)
 

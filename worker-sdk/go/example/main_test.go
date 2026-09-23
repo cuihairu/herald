@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/protocol"
+	"github.com/gorilla/websocket"
 )
 
 func TestDemoProviderDeliver(t *testing.T) {
@@ -48,13 +53,97 @@ func TestDemoCallbacks(t *testing.T) {
 	onDemoStateChange(protocol.StateReady)
 }
 
-func TestRunReturnsWhenCtxCanceled(t *testing.T) {
-	// The SDK register step is currently a stub that succeeds without a real
-	// connection, so run() must block until ctx is canceled and then return
-	// nil.
+// newAckServer upgrades the first connection and answers exactly one
+// register handshake with a success ack; later messages (heartbeats) are
+// read and dropped until the client goes away.
+func newAckServer(registered chan *protocol.RegisterMessage) *httptest.Server {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var envelope struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != protocol.MessageTypeRegister {
+				continue
+			}
+			var msg protocol.RegisterMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				continue
+			}
+			ack, _ := protocol.MarshalMessage(&protocol.RegisterAckMessage{
+				WorkerID: msg.WorkerID,
+				Success:  true,
+				ServerID: "example-test",
+			})
+			if err := conn.WriteMessage(websocket.TextMessage, ack); err != nil {
+				return
+			}
+			if registered != nil {
+				registered <- &msg
+			}
+		}
+	}))
+}
+
+func wsURL(server *httptest.Server) string {
+	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+func TestRunRegistersAndStopsOnCtxCancel(t *testing.T) {
+	registered := make(chan *protocol.RegisterMessage, 1)
+	server := newAckServer(registered)
+	defer server.Close()
+
+	cfg := demoConfig()
+	cfg.CoreURL = wsURL(server)
+	cfg.HeartbeatInterval = 10 * time.Millisecond
+
+	// run must register with the server, then block until ctx is canceled
+	// and return nil.
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
-	if err := run(ctx); err != nil {
+	if err := run(ctx, cfg); err != nil {
 		t.Errorf("run() error = %v, want nil after ctx cancel", err)
+	}
+
+	select {
+	case msg := <-registered:
+		if msg.WorkerID != cfg.WorkerID {
+			t.Errorf("registered worker = %s, want %s", msg.WorkerID, cfg.WorkerID)
+		}
+		if msg.Mode != "remote" || msg.Platform == "" {
+			t.Errorf("unexpected register message: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for register message on server")
+	}
+}
+
+func TestRunFailsFastWhenCoreUnreachable(t *testing.T) {
+	// Registration is a real WebSocket handshake: an unreachable CoreURL
+	// makes run fail with the dial error instead of blocking forever.
+	cfg := demoConfig()
+	cfg.CoreURL = "ws://127.0.0.1:1/worker"
+
+	done := make(chan error, 1)
+	go func() {
+		done <- run(context.Background(), cfg)
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("run() error = nil, want dial failure")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run() did not return after dial failure")
 	}
 }

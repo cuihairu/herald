@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/protocol"
+	gws "github.com/gorilla/websocket"
 )
+
+// controlTimeout bounds each register/heartbeat write+read round trip.
+const controlTimeout = 10 * time.Second
 
 // TaskHandler is called when a task is received from the queue
 type TaskHandler func(task *core.DeliveryTask) error
@@ -20,6 +25,8 @@ type EventHandler func(event *protocol.EventMessage)
 
 // Client is the Worker SDK client.
 // Remote workers register via WebSocket and consume tasks from a Queue.
+// A config with an empty CoreURL skips the control plane entirely
+// (embedded mode: queue consumption only).
 type Client struct {
 	config       *protocol.WorkerConfig
 	queue        core.Queue
@@ -32,6 +39,7 @@ type Client struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	conn   *gws.Conn
 	connID string
 
 	onConnect     func()
@@ -118,9 +126,14 @@ func (c *Client) Run(ctx context.Context) error {
 		c.onConnect()
 	}
 
-	// Step 2: Start heartbeat
-	c.wg.Add(1)
-	go c.heartbeatLoop(ctx)
+	// Step 2: Read control-plane messages and send heartbeats (only when
+	// a control-plane connection exists).
+	if c.controlConn() != nil {
+		c.wg.Add(1)
+		go c.readLoop(ctx)
+		c.wg.Add(1)
+		go c.heartbeatLoop(ctx)
+	}
 
 	// Step 3: Consume tasks from queue
 	c.consumeLoop(ctx)
@@ -128,8 +141,19 @@ func (c *Client) Run(ctx context.Context) error {
 	return nil
 }
 
-// register registers the worker with the Herald core via WebSocket
+// register performs the register/ack handshake with the Herald core. An
+// empty CoreURL skips the control plane (embedded mode) and returns nil.
 func (c *Client) register(ctx context.Context) error {
+	if c.config.CoreURL == "" {
+		return nil
+	}
+
+	dialer := gws.Dialer{HandshakeTimeout: controlTimeout}
+	conn, _, err := dialer.DialContext(ctx, c.config.CoreURL, nil)
+	if err != nil {
+		return fmt.Errorf("dial %s: %w", c.config.CoreURL, err)
+	}
+
 	msg := &protocol.RegisterMessage{
 		WorkerID:     c.config.WorkerID,
 		Mode:         "remote",
@@ -137,12 +161,106 @@ func (c *Client) register(ctx context.Context) error {
 		Version:      "1.0.0",
 		Capabilities: c.config.Capabilities,
 	}
+	if err := writeControl(conn, msg); err != nil {
+		_ = conn.Close()
+		return err
+	}
 
-	// TODO: Implement actual WebSocket registration
-	data, _ := json.Marshal(msg)
-	fmt.Printf("[Worker SDK] Registering: %s\n", string(data))
+	if err := conn.SetReadDeadline(time.Now().Add(controlTimeout)); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("read register ack: %w", err)
+	}
+	var ack protocol.RegisterAckMessage
+	if err := json.Unmarshal(data, &ack); err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("decode register ack: %w", err)
+	}
+	if !ack.Success {
+		_ = conn.Close()
+		return fmt.Errorf("register rejected: %s", ack.Error)
+	}
+	// Clear the ack deadline; the read loop runs without one.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return err
+	}
+
+	c.mu.Lock()
+	c.conn = conn
 	c.connID = fmt.Sprintf("conn-%d", time.Now().Unix())
+	c.mu.Unlock()
 	return nil
+}
+
+// readLoop consumes control-plane messages until the connection drops or
+// ctx is cancelled. A dropped connection marks the client Disconnected and
+// fires onDisconnect; queue consumption is independent and keeps running.
+// The SDK does not auto-reconnect — restart Run to re-register.
+func (c *Client) readLoop(ctx context.Context) {
+	defer c.wg.Done()
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		conn := c.controlConn()
+		if conn == nil {
+			return
+		}
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			if ctx.Err() == nil && c.State() == protocol.StateReady {
+				c.setState(protocol.StateDisconnected)
+				if c.onDisconnect != nil {
+					c.onDisconnect(err)
+				}
+			}
+			return
+		}
+		c.dispatchEvent(data)
+	}
+}
+
+// dispatchEvent routes an event message to the event handler; other
+// message types are ignored.
+func (c *Client) dispatchEvent(data []byte) {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != protocol.MessageTypeEvent {
+		return
+	}
+	if c.eventHandler == nil {
+		return
+	}
+	var event protocol.EventMessage
+	if err := json.Unmarshal(data, &event); err == nil {
+		c.eventHandler(&event)
+	}
+}
+
+// controlConn returns the live control-plane connection, or nil.
+func (c *Client) controlConn() *gws.Conn {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.conn
+}
+
+// writeControl marshals and sends one protocol message with a deadline.
+func writeControl(conn *gws.Conn, msg protocol.Message) error {
+	payload, err := protocol.MarshalMessage(msg)
+	if err != nil {
+		return err
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(controlTimeout)); err != nil {
+		return err
+	}
+	return conn.WriteMessage(gws.TextMessage, payload)
 }
 
 // consumeLoop pops tasks from the queue and processes them
@@ -164,6 +282,7 @@ func (c *Client) consumeLoop(ctx context.Context) {
 		task, err := c.queue.Pop(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
+				c.setState(protocol.StateDisconnected)
 				return
 			}
 			time.Sleep(100 * time.Millisecond)
@@ -208,12 +327,16 @@ func (c *Client) heartbeatLoop(ctx context.Context) {
 }
 
 func (c *Client) sendHeartbeat() error {
-	msg := &protocol.HeartbeatMessage{
+	conn := c.controlConn()
+	if conn == nil {
+		return nil
+	}
+	if err := writeControl(conn, &protocol.HeartbeatMessage{
 		WorkerID:  c.config.WorkerID,
 		Timestamp: time.Now().Unix(),
+	}); err != nil {
+		return err
 	}
-	data, _ := json.Marshal(msg)
-	fmt.Printf("[Worker SDK] Heartbeat: %s\n", string(data))
 	return nil
 }
 
@@ -227,6 +350,10 @@ func (c *Client) Disconnect() error {
 	}
 
 	c.cancel()
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
 	c.wg.Wait()
 	c.setState(protocol.StateDisconnected)
 	return nil
@@ -238,5 +365,5 @@ func (c *Client) Close() error {
 }
 
 func detectPlatform() string {
-	return "unknown"
+	return runtime.GOOS
 }
