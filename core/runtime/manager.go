@@ -20,12 +20,12 @@ type Manager struct {
 }
 
 var providerSchemas = map[string]map[string]string{
-	"telegram":   {"token": "string", "chat_id": "string"},
+	"telegram":   {"token": "string", "chat_id": "string", "parse_mode": "string", "api_url": "string"},
 	"feishu":     {"webhook_url": "string"},
 	"wecom":      {"webhook_url": "string"},
 	"dingtalk":   {"access_token": "string", "secret": "string"},
 	"slack":      {"webhook_url": "string"},
-	"discord":    {"webhook_url": "string"},
+	"discord":    {"webhook_url": "string", "webhook_id": "string", "webhook_token": "string", "bot_token": "string", "channel_id": "string"},
 	"email":      {"host": "string", "port": "number", "username": "string", "password": "string", "from": "string"},
 	"webhook":    {"url": "string"},
 	"wechat":     {"service": "string", "send_key": "string", "token": "string", "app_token": "string", "uid": "string"},

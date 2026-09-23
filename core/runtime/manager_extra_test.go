@@ -75,10 +75,11 @@ func TestGetProviderSchemaBuiltinReturnsCopy(t *testing.T) {
 	m := NewManager(100)
 
 	schema := m.GetProviderSchema("telegram")
-	if len(schema) != 2 {
-		t.Fatalf("expected 2 schema fields for telegram, got %d", len(schema))
+	if len(schema) != 4 {
+		t.Fatalf("expected 4 schema fields for telegram, got %d", len(schema))
 	}
-	if schema["token"] != "string" || schema["chat_id"] != "string" {
+	if schema["token"] != "string" || schema["chat_id"] != "string" ||
+		schema["parse_mode"] != "string" || schema["api_url"] != "string" {
 		t.Errorf("unexpected telegram schema contents: %v", schema)
 	}
 

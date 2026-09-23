@@ -42,6 +42,8 @@ providers:
     config:
       token: "${TELEGRAM_BOT_TOKEN}"
       chat_id: "${TELEGRAM_CHAT_ID}"
+      # 可选：自建 Bot API 服务器或镜像（默认 https://api.telegram.org）
+      # api_url: "https://my-bot-api.example.com"
 
   # 飞书
   feishu:
