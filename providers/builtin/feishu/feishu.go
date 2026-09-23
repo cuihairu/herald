@@ -147,10 +147,6 @@ func extractContent(task *core.DeliveryTask) (title, body string) {
 func (p *Provider) sendMessage(ctx context.Context, message *Message) error {
 	resp, err := p.client.PostJSON(ctx, p.webhookURL, message)
 	if err != nil {
-		// Check if error is retryable
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 

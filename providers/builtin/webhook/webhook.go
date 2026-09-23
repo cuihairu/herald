@@ -104,10 +104,6 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if p.method == "POST" || p.method == "PUT" {
 		resp, err := p.client.PostJSON(ctx, p.url, payload)
 		if err != nil {
-			// Check if error is retryable
-			if httpclient.IsRetryable(err) {
-				return httpclient.WithRetry(err)
-			}
 			return err
 		}
 

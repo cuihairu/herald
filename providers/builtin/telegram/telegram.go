@@ -155,10 +155,6 @@ func (p *Provider) sendMessage(ctx context.Context, message string) error {
 
 	resp, err := p.client.PostJSON(ctx, url, req)
 	if err != nil {
-		// Check if error is retryable
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 

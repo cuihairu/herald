@@ -235,9 +235,6 @@ func (p *Provider) sendServerChan(ctx context.Context, task *core.DeliveryTask) 
 
 	resp, err := p.client.PostJSON(ctx, p.url, req)
 	if err != nil {
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 
@@ -266,9 +263,6 @@ func (p *Provider) sendPushPlus(ctx context.Context, task *core.DeliveryTask) er
 
 	resp, err := p.client.PostJSON(ctx, p.url, req)
 	if err != nil {
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 
@@ -302,9 +296,6 @@ func (p *Provider) sendWxPusher(ctx context.Context, task *core.DeliveryTask) er
 
 	resp, err := p.client.PostJSON(ctx, p.url, req)
 	if err != nil {
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 

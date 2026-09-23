@@ -139,10 +139,6 @@ func (p *Provider) sendWebhook(ctx context.Context, task *core.DeliveryTask) err
 
 	resp, err := p.client.PostJSON(ctx, p.webhookURL, payload)
 	if err != nil {
-		// Check if error is retryable
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 

@@ -244,9 +244,6 @@ func (p *Provider) sendTemplateMessage(ctx context.Context, token, toUser string
 
 	resp, err := p.client.PostJSON(ctx, url, msg)
 	if err != nil {
-		if httpclient.IsRetryable(err) {
-			return httpclient.WithRetry(err)
-		}
 		return err
 	}
 
