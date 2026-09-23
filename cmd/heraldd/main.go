@@ -30,48 +30,54 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	os.Exit(run(os.Args))
+}
+
+// run dispatches on the command name and returns the process exit code.
+func run(args []string) int {
+	if len(args) < 2 {
 		fmt.Println("Usage: heraldd <command> [options]")
 		fmt.Println()
 		fmt.Println("Commands:")
 		fmt.Println("  serve    Start as scheduler (default mode)")
 		fmt.Println("  worker   Start as remote worker")
 		fmt.Println()
-		os.Exit(1)
+		return 1
 	}
 
-	switch os.Args[1] {
+	switch args[1] {
 	case "serve":
-		serveCmd(os.Args[2:])
+		return serveCmd(args[2:])
 	case "worker":
-		workerCmd(os.Args[2:])
+		return workerCmd(args[2:])
 	default:
-		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
+		fmt.Printf("Unknown command: %s\n\n", args[1])
 		fmt.Println("Commands: serve, worker")
-		os.Exit(1)
+		return 1
 	}
 }
 
-// serveCmd runs Herald in scheduler mode: API + Queue + local workers
-func serveCmd(args []string) {
+// serveCmd runs Herald in scheduler mode: API + Queue + local workers.
+// It returns the process exit code.
+func serveCmd(args []string) int {
 	configPath := parseFlags("serve", args)
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		logger.Error("failed to load config", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	cfg.ExpandEnv()
 	if err := cfg.Validate(); err != nil {
 		logger.Error("invalid config", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Create queue
 	q, err := queue.NewQueue(cfg.Queue.ToQueueConfig())
 	if err != nil {
 		logger.Error("failed to create queue", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() { _ = q.Close() }()
 
@@ -95,7 +101,7 @@ func serveCmd(args []string) {
 		provider, err := manager.CreateProvider(providerCfg.Type, providerCfg.Config)
 		if err != nil {
 			logger.Error("failed to create provider", "name", name, "error", err)
-			os.Exit(1)
+			return 1
 		}
 		enabled := true
 		if providerCfg.Enabled != nil {
@@ -103,7 +109,7 @@ func serveCmd(args []string) {
 		}
 		if err := manager.RegisterProvider(name, provider, enabled); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
-			os.Exit(1)
+			return 1
 		}
 		logger.Info("provider registered", "name", name, "type", provider.Type(), "enabled", enabled)
 	}
@@ -125,7 +131,7 @@ func serveCmd(args []string) {
 	if len(cfg.Templates) > 0 {
 		if err := templateMgr.LoadFromMap(cfg.Templates); err != nil {
 			logger.Error("failed to load templates", "error", err)
-			os.Exit(1)
+			return 1
 		}
 		logger.Info("templates loaded", "count", len(cfg.Templates))
 	}
@@ -197,29 +203,31 @@ func serveCmd(args []string) {
 	_ = wsServer.Stop()
 
 	logger.Info("shutdown complete")
+	return 0
 }
 
-// workerCmd runs Herald in remote worker mode: connects to queue + registers via WebSocket
-func workerCmd(args []string) {
+// workerCmd runs Herald in remote worker mode: connects to queue + registers via WebSocket.
+// It returns the process exit code.
+func workerCmd(args []string) int {
 	configPath := parseFlags("worker", args)
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		logger.Error("failed to load config", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	cfg.ExpandEnv()
 
 	if cfg.Queue.Type == "memory" {
 		logger.Error("remote worker requires a shared queue backend (redis/nats), got: memory")
-		os.Exit(1)
+		return 1
 	}
 
 	// Create queue (must be a shared backend like redis)
 	q, err := queue.NewQueue(cfg.Queue.ToQueueConfig())
 	if err != nil {
 		logger.Error("failed to create queue", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() { _ = q.Close() }()
 
@@ -232,11 +240,11 @@ func workerCmd(args []string) {
 		provider, err := manager.CreateProvider(providerCfg.Type, providerCfg.Config)
 		if err != nil {
 			logger.Error("failed to create provider", "name", name, "error", err)
-			os.Exit(1)
+			return 1
 		}
 		if err := manager.RegisterProvider(name, provider, true); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
-			os.Exit(1)
+			return 1
 		}
 		logger.Info("provider registered", "name", name, "type", provider.Type())
 	}
@@ -247,21 +255,30 @@ func workerCmd(args []string) {
 	// Create worker pool consuming from shared queue
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
 
-	logger.Info("remote worker starting", "queue_type", cfg.Queue.Type, "workers", cfg.Queue.Workers)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go runRemoteWorkerControlPlane(ctx, cfg, registry)
-	pool.Run(ctx)
-
+	// Register signal handlers before blocking on the pool so SIGTERM/SIGINT
+	// trigger a graceful shutdown instead of the default process termination.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go runRemoteWorkerControlPlane(ctx, cfg, registry)
+	poolDone := make(chan struct{})
+	go func() {
+		defer close(poolDone)
+		pool.Run(ctx)
+	}()
+
+	logger.Info("remote worker starting", "queue_type", cfg.Queue.Type, "workers", cfg.Queue.Workers)
+
 	<-sigCh
 
 	logger.Info("remote worker shutting down...")
 	cancel()
+	<-poolDone
 	logger.Info("shutdown complete")
+	return 0
 }
 
 func parseFlags(command string, args []string) string {
