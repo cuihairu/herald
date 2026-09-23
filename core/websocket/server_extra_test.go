@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -338,4 +339,163 @@ func TestStopDoubleAndWorkerInfoJSON(t *testing.T) {
 	if back.WorkerID != "w-json" || back.Platform != "linux" {
 		t.Errorf("round-trip WorkerInfo = %+v", back)
 	}
+}
+
+func TestCheckStaleWorkersTickerPrunes(t *testing.T) {
+	orig := staleCheckInterval
+	staleCheckInterval = 5 * time.Millisecond
+	defer func() { staleCheckInterval = orig }()
+
+	handler := newChannelHandler()
+	server := NewServer(&Config{Addr: "127.0.0.1:0"}, handler)
+
+	// Seed a worker whose heartbeat is far in the past so the periodic
+	// sweep has something to prune.
+	server.mu.Lock()
+	server.workers["w-ticker"] = &ConnectionState{
+		WorkerID:      "w-ticker",
+		LastHeartbeat: time.Now().Add(-5 * time.Minute),
+		Status:        make(map[string]interface{}),
+	}
+	server.mu.Unlock()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// The 5ms ticker must prune the stale worker without any traffic.
+	pruned := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.GetWorkerCount() == 0 {
+			pruned = true
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !pruned {
+		t.Error("expected stale worker to be pruned by the ticker")
+	}
+	if got := waitChannelMessage(t, handler.disconnectCh, 3*time.Second); got != "w-ticker" {
+		t.Errorf("disconnect callback = %q, want w-ticker", got)
+	}
+
+	if err := server.Stop(); err != nil {
+		t.Errorf("Stop() error = %v", err)
+	}
+}
+
+func TestHandleRegisterAckMarshalError(t *testing.T) {
+	server, ts := newFlowTestServer(t, newChannelHandler(), nil)
+	url := "ws" + ts.URL[len("http"):]
+
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	registerFlowWorker(t, conn, "w-marshal")
+
+	server.mu.Lock()
+	state := server.workers["w-marshal"]
+	server.mu.Unlock()
+	if state == nil {
+		t.Fatal("worker w-marshal not registered")
+	}
+
+	orig := jsonMarshal
+	jsonMarshal = func(v any) ([]byte, error) { return nil, errors.New("boom") }
+	defer func() { jsonMarshal = orig }()
+
+	// Nothing is written on the wire during the override window: the client
+	// sits idle and the register is driven synchronously from this goroutine.
+	err = server.handleRegister(state, &protocol.RegisterMessage{WorkerID: "w-marshal", Platform: "linux"})
+	if err == nil {
+		t.Fatal("handleRegister with failing marshal should fail")
+	}
+	if !strings.Contains(err.Error(), "failed to marshal ack") {
+		t.Errorf("error = %v, want wrapped ack marshal failure", err)
+	}
+}
+
+// slowAckHandler blocks inside OnTaskAck so the test can close the server-side
+// conn while handleConnection is parked in the handler.
+type slowAckHandler struct {
+	mockHandler
+	started chan struct{}
+	release chan struct{}
+}
+
+func (h *slowAckHandler) OnTaskAck(taskID string, success bool, errMsg string) error {
+	select {
+	case h.started <- struct{}{}:
+	default:
+	}
+	<-h.release
+	return nil
+}
+
+// wsTextFrame encodes payload as a masked client-to-server websocket text
+// frame. A zero mask key is a valid key whose XOR leaves the payload bytes
+// unchanged.
+func wsTextFrame(payload []byte) []byte {
+	if len(payload) >= 126 {
+		panic("helper only supports short payloads")
+	}
+	out := make([]byte, 0, len(payload)+6)
+	out = append(out, 0x81)                    // FIN + text opcode
+	out = append(out, 0x80|byte(len(payload))) // MASK bit + payload length
+	out = append(out, 0x00, 0x00, 0x00, 0x00)  // zero mask key
+	return append(out, payload...)
+}
+
+func TestHandleConnectionResetReadDeadlineFailure(t *testing.T) {
+	h := &slowAckHandler{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	// newFlowTestServer never calls Start(), so the server's wait group
+	// tracks exactly the one handleConnection goroutine.
+	server, ts := newFlowTestServer(t, h, nil)
+	conn := dialFlowWS(t, ts)
+	registerFlowWorker(t, conn, "w-deadline")
+
+	// Push two ack frames in ONE underlying write. The server's read loop
+	// drains both frames into gorilla's bufio reader with a single network
+	// read (the blob is fully queued before the reader can wake), hands the
+	// first to handleMessage, and keeps the second buffered in userspace.
+	ackPayload, err := protocol.MarshalMessage(&protocol.AckMessage{TaskID: "t-1", Success: true})
+	if err != nil {
+		t.Fatalf("marshal ack: %v", err)
+	}
+	blob := append(wsTextFrame(ackPayload), wsTextFrame(ackPayload)...)
+	if _, err := conn.UnderlyingConn().Write(blob); err != nil {
+		t.Fatalf("write raw frames: %v", err)
+	}
+
+	// Wait until the read loop is parked in OnTaskAck holding ack #2 in its
+	// bufio buffer.
+	select {
+	case <-h.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnTaskAck never invoked")
+	}
+
+	// Close the server-side conn now. gorilla's SetReadDeadline delegates to
+	// the (now closed) net.Conn while the buffered frame keeps the next
+	// ReadMessage successful, so the loop lands on the deadline-reset error
+	// branch instead of the ReadMessage error branch.
+	server.mu.RLock()
+	state := server.workers["w-deadline"]
+	server.mu.RUnlock()
+	if state == nil {
+		t.Fatal("worker w-deadline not registered")
+	}
+	_ = state.conn.Close()
+
+	close(h.release)
+
+	// Returns once the read loop ran the failing deadline reset and exited
+	// (this path returns without a disconnect callback).
+	server.wg.Wait()
 }

@@ -19,6 +19,10 @@ type Claims struct {
 	Iat      int64  `json:"iat"`
 }
 
+// JSONMarshal is the JSON encoder used to sign claims; a package variable so
+// tests (here and in dependent packages) can inject marshal failures.
+var JSONMarshal = json.Marshal
+
 // Manager manages JWT tokens
 type Manager struct {
 	secretKey string
@@ -48,7 +52,7 @@ func (m *Manager) Generate(userID, username, role string) (string, error) {
 	}
 
 	// Encode claims
-	claimsJSON, err := json.Marshal(claims)
+	claimsJSON, err := JSONMarshal(claims)
 	if err != nil {
 		return "", err
 	}

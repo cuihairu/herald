@@ -54,6 +54,10 @@ func isLocalhost(origin string) bool {
 		origin == "http://[::1]" || origin == "https://[::1]"
 }
 
+// jsonMarshal is the JSON encoder used to build register acks; a package
+// variable so tests can inject failures.
+var jsonMarshal = json.Marshal
+
 // ConnectionState represents a worker connection state
 type ConnectionState struct {
 	WorkerID      string
@@ -355,7 +359,7 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 		Timestamp: time.Now().Unix(),
 	}
 
-	data, err := json.Marshal(ack)
+	data, err := jsonMarshal(ack)
 	if err != nil {
 		return fmt.Errorf("failed to marshal ack: %w", err)
 	}
@@ -484,11 +488,15 @@ func (s *Server) pruneStaleWorkers(now time.Time) {
 	}
 }
 
+// staleCheckInterval is the period between stale-worker prunes; a package
+// variable so tests can shorten it.
+var staleCheckInterval = 30 * time.Second
+
 // checkStaleWorkers periodically checks for stale workers
 func (s *Server) checkStaleWorkers() {
 	defer s.wg.Done()
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(staleCheckInterval)
 	defer ticker.Stop()
 
 	for {

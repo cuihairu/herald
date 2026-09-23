@@ -24,6 +24,9 @@ const (
 	defaultAction   = "SendSms"
 )
 
+// jsonMarshal is the JSON encoder used to build request bodies; a package variable so tests can inject failures.
+var jsonMarshal = json.Marshal
+
 // Provider is the Tencent SMS provider
 type Provider struct {
 	secretID  string
@@ -221,7 +224,7 @@ func (p *Provider) sendRequest(ctx context.Context, reqBody SendSmsRequest) erro
 	params.Set("SecretId", p.secretID)
 
 	// Build body
-	bodyBytes, err := json.Marshal(reqBody)
+	bodyBytes, err := jsonMarshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}

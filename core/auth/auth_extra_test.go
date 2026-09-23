@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/cuihairu/herald/core/jwt"
 )
 
 func TestAuth_MiddlewareJWTAuthentication(t *testing.T) {
@@ -121,6 +124,34 @@ func TestAuth_HandleMeUserNotFound(t *testing.T) {
 	}
 }
 
-// Exemption note: the `if err != nil` branch after jwtManager.Generate in
-// HandleLogin (auth.go:156) is unreachable — Generate only marshals a fixed
-// struct of strings and int64s, which json.Marshal cannot fail on.
+// Note: the `if err != nil` branch after jwtManager.Generate in HandleLogin
+// (auth.go:156) is only reachable by injecting a marshal failure — see
+// TestAuth_HandleLoginGenerateError, which overrides jwt.JSONMarshal.
+
+// TestAuth_HandleLoginGenerateError drives the jwtManager.Generate failure
+// branch in HandleLogin by injecting a failing claims marshaler. The override
+// window is kept minimal and the package uses no t.Parallel, so no other test
+// in this binary runs a JWT call concurrently.
+func TestAuth_HandleLoginGenerateError(t *testing.T) {
+	a := New(&Config{
+		AdminUser: map[string]string{"admin": "password123"},
+	})
+
+	orig := jwt.JSONMarshal
+	jwt.JSONMarshal = func(v any) ([]byte, error) { return nil, errors.New("boom") }
+	defer func() { jwt.JSONMarshal = orig }()
+
+	body := `{"username": "admin", "password": "password123"}`
+	req := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	a.HandleLogin(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "failed to generate token") {
+		t.Errorf("expected 'failed to generate token' message, got %q", w.Body.String())
+	}
+}

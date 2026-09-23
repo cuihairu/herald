@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -46,5 +47,26 @@ func TestManager_ValidateExpiredToken(t *testing.T) {
 	_, err := m.Validate(token)
 	if err == nil || !strings.Contains(err.Error(), "token expired") {
 		t.Errorf("Validate() error = %v, want token expired", err)
+	}
+}
+
+// The JSONMarshal override must not run concurrently with any other test in
+// this package, so this file deliberately uses no t.Parallel.
+func TestManager_GenerateMarshalError(t *testing.T) {
+	m := NewManager("test-secret-key")
+
+	orig := JSONMarshal
+	JSONMarshal = func(v any) ([]byte, error) { return nil, errors.New("boom") }
+	defer func() { JSONMarshal = orig }()
+
+	token, err := m.Generate("u1", "alice", "admin")
+	if err == nil {
+		t.Fatal("Generate() with failing marshal should fail")
+	}
+	if token != "" {
+		t.Errorf("Generate() token = %q, want empty on failure", token)
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("Generate() error = %v, want injected marshal failure", err)
 	}
 }

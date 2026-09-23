@@ -94,10 +94,14 @@ func (p *Pool) workerLoop(ctx context.Context, workerID string) {
 	}
 }
 
+// staleCheckInterval is the period between stale-worker sweeps; a package
+// variable so tests can shorten it.
+var staleCheckInterval = 30 * time.Second
+
 func (p *Pool) checkStaleWorkers(ctx context.Context) {
 	defer p.wg.Done()
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(staleCheckInterval)
 	defer ticker.Stop()
 
 	for {

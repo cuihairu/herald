@@ -3,6 +3,7 @@ package websocket
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/protocol"
 	"github.com/gorilla/websocket"
@@ -31,6 +32,22 @@ func TestHandleRegisterOnClosedServerConn(t *testing.T) {
 	// decoupled from the write path), so the failure surfaces at
 	// WriteMessage as a wrapped "failed to send ack" error.
 	_ = state.conn.Close()
+	// Wait for the read loop to observe the close and deregister the worker;
+	// calling handleRegister concurrently with the read loop's exit path
+	// would race on state.WorkerID (the read path reads it without s.mu).
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		server.mu.Lock()
+		_, stillThere := server.workers["w-regfail"]
+		server.mu.Unlock()
+		if !stillThere {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("read loop did not deregister w-regfail after conn close")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	err = server.handleRegister(state, &protocol.RegisterMessage{WorkerID: "w-regfail", Platform: "linux"})
 	if err == nil {
 		t.Fatal("handleRegister on closed conn should fail")

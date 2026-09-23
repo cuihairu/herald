@@ -35,6 +35,14 @@ type fakeRedis struct {
 	failXAck   bool
 	emptyXRead bool
 	closed     bool
+
+	// holdXRead, when non-nil, makes the fake delay its XREADGROUP reply
+	// until the channel is closed, so a test can cancel the caller's context
+	// while the command is in flight.
+	holdXRead chan struct{}
+	// xreadArrived is closed once an XREADGROUP command has been parsed.
+	xreadArrived chan struct{}
+	arriveOnce   sync.Once
 }
 
 func newFakeRedis(t *testing.T) *fakeRedis {
@@ -258,6 +266,15 @@ func (f *fakeRedis) handleXAdd(w *bufio.Writer, args []string) error {
 	return nil
 }
 
+// noteXReadArrived signals waiting tests that an XREADGROUP command reached
+// the fake and is about to be answered.
+func (f *fakeRedis) noteXReadArrived() {
+	if f.xreadArrived == nil {
+		return
+	}
+	f.arriveOnce.Do(func() { close(f.xreadArrived) })
+}
+
 func (f *fakeRedis) handleXReadGroup(w *bufio.Writer, args []string) error {
 	streamsIdx := -1
 	group := ""
@@ -281,6 +298,11 @@ func (f *fakeRedis) handleXReadGroup(w *bufio.Writer, args []string) error {
 	if streamsIdx < 0 || streamsIdx+2 >= len(args) {
 		writeError(w, "ERR bad XREADGROUP")
 		return nil
+	}
+
+	f.noteXReadArrived()
+	if f.holdXRead != nil {
+		<-f.holdXRead
 	}
 
 	f.mu.Lock()

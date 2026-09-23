@@ -109,3 +109,93 @@ func TestPoolWorkerLoopPaths(t *testing.T) {
 		t.Fatal("pool did not stop after cancel")
 	}
 }
+
+func TestPoolAckError(t *testing.T) {
+	mgr := runtime.NewManager(10)
+	if err := mgr.RegisterProvider("stub", poolStubProvider{}); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+
+	// A task that delivers fine but whose Ack fails exercises the
+	// ack-failure logging path in workerLoop.
+	q := &fakePoolQueue{events: make(chan string, 16), ackErr: errors.New("ack boom")}
+	q.script = []popStep{
+		{&core.DeliveryTask{ID: "t-ack", Provider: "stub"}, nil},
+	}
+
+	pool := NewPool(q, mgr, NewRegistry(), 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { pool.Run(ctx); close(done) }()
+
+	select {
+	case got := <-q.events:
+		if got != "ack:t-ack" {
+			t.Errorf("event = %q, want %q", got, "ack:t-ack")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout waiting for %q", "ack:t-ack")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("pool did not stop after cancel")
+	}
+}
+
+func TestPoolStaleWorkerSweep(t *testing.T) {
+	orig := staleCheckInterval
+	staleCheckInterval = 5 * time.Millisecond
+	defer func() { staleCheckInterval = orig }()
+
+	mgr := runtime.NewManager(10)
+	if err := mgr.RegisterProvider("stub", poolStubProvider{}); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+
+	registry := NewRegistry()
+	stale := &Info{ID: "remote-stale", Mode: Remote}
+	if err := registry.Register(stale); err != nil {
+		t.Fatalf("register stale worker: %v", err)
+	}
+	// Register stamps a fresh heartbeat, so backdate the entry afterwards.
+	// The registry stores this same pointer, so the map entry ages with it.
+	stale.LastHeartbeat = time.Now().Add(-5 * time.Minute)
+
+	fresh := &Info{ID: "remote-fresh", Mode: Remote}
+	if err := registry.Register(fresh); err != nil {
+		t.Fatalf("register fresh worker: %v", err)
+	}
+
+	q := &fakePoolQueue{events: make(chan string, 8)}
+	pool := NewPool(q, mgr, registry, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { pool.Run(ctx); close(done) }()
+
+	// The 5ms ticker must sweep the aged remote worker away.
+	swept := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := registry.Get("remote-stale"); err != nil {
+			swept = true
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !swept {
+		t.Error("expected stale remote worker to be swept")
+	}
+	if _, err := registry.Get("remote-fresh"); err != nil {
+		t.Error("expected fresh remote worker to survive the sweep")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("pool did not stop after cancel")
+	}
+}
