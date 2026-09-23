@@ -118,6 +118,10 @@ type compiledRule struct {
 	groupBy []string
 	// groupInterval is the quiet period that closes a group round.
 	groupInterval time.Duration
+	// inhibit is the parsed suppression spec; nil = rule is not suppressed.
+	inhibit *InhibitSpec
+	// inhibitTTL is the parsed inhibit.ttl (DefaultInhibitTTL when unset).
+	inhibitTTL time.Duration
 }
 
 // EvalError is one rule's evaluation failure, kept structured so callers
@@ -153,6 +157,11 @@ type Decision struct {
 	// caller delivers it as a summary notification together with this
 	// event. It is only set when the event itself is being routed.
 	Summary *GroupSummary
+	// Inhibited reports that the governing active rule matched but a
+	// root-cause rule (its inhibit.source) is currently present for the
+	// same equal-field values: the event is suppressed like ForPending,
+	// not discarded forever — the presence entry expires with its TTL.
+	Inhibited bool
 	// EvalErrors lists rules whose expressions failed to evaluate; these
 	// rules were skipped and never contribute a match.
 	EvalErrors []EvalError
@@ -166,34 +175,41 @@ type ShadowHit struct {
 
 // Engine owns the compiled rule table. Rules are compiled once at save
 // time; evaluation only executes compiled programs. Stateful semantics
-// (for-windows and group aggregation) go through trackers backed by a
-// StateStore — in-memory by default, Redis via SetStateStore.
+// (for-windows, group aggregation, inhibit presence) go through trackers
+// backed by a StateStore — in-memory by default, Redis via SetStateStore.
 type Engine struct {
-	mu         sync.RWMutex
-	store      Store
-	rules      []*compiledRule
-	forState   *ForTracker
-	groupState *GroupTracker
-	stateStore StateStore
+	mu           sync.RWMutex
+	store        Store
+	rules        []*compiledRule
+	forState     *ForTracker
+	groupState   *GroupTracker
+	inhibitState *InhibitTracker
+	stateStore   StateStore
+	// inhibitIndex maps a source rule id to the compiled rules that
+	// declare inhibit.source = that id. Rebuilt under mu whenever the
+	// rule table changes; read under RLock.
+	inhibitIndex map[string][]*compiledRule
 }
 
 // NewEngine creates an Engine backed by store. Call Reload once after
 // creation to load and compile the stored rules. Rule state (for windows,
-// group rounds) is kept in memory by default; see SetStateStore.
+// group rounds, inhibit presence) is kept in memory by default; see
+// SetStateStore.
 func NewEngine(store Store) *Engine {
 	ss := NewMemoryStateStore()
 	return &Engine{
-		store:      store,
-		forState:   NewForTracker(ss),
-		groupState: NewGroupTracker(ss),
-		stateStore: ss,
+		store:        store,
+		forState:     NewForTracker(ss),
+		groupState:   NewGroupTracker(ss),
+		inhibitState: NewInhibitTracker(ss),
+		stateStore:   ss,
 	}
 }
 
-// SetStateStore moves rule state (for windows, group rounds) into the
-// given store, e.g. RedisStateStore for multi-instance deployments. Call
-// it during setup, before the engine serves traffic; in-flight state does
-// not migrate.
+// SetStateStore moves rule state (for windows, group rounds, inhibit
+// presence) into the given store, e.g. RedisStateStore for multi-instance
+// deployments. Call it during setup, before the engine serves traffic;
+// in-flight state does not migrate.
 func (e *Engine) SetStateStore(ss StateStore) {
 	if ss == nil {
 		ss = NewMemoryStateStore()
@@ -203,6 +219,7 @@ func (e *Engine) SetStateStore(ss StateStore) {
 	e.stateStore = ss
 	e.forState = NewForTracker(ss)
 	e.groupState = NewGroupTracker(ss)
+	e.inhibitState = NewInhibitTracker(ss)
 }
 
 // Validate normalizes and checks r, then compiles every expression in it —
@@ -252,10 +269,12 @@ func (e *Engine) Put(ctx context.Context, r *Rule) error {
 			// start fresh.
 			_ = e.forState.ResetRule(ctx, r.ID)
 			_ = e.groupState.ResetRule(ctx, r.ID)
+			e.rebuildInhibitIndexLocked()
 			return nil
 		}
 	}
 	e.rules = append(e.rules, compiled)
+	e.rebuildInhibitIndexLocked()
 	return nil
 }
 
@@ -271,6 +290,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 			e.rules = append(e.rules[:i], e.rules[i+1:]...)
 			_ = e.forState.ResetRule(ctx, id)
 			_ = e.groupState.ResetRule(ctx, id)
+			e.rebuildInhibitIndexLocked()
 			return nil
 		}
 	}
@@ -305,8 +325,25 @@ func (e *Engine) Reload(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	e.rules = compiled
+	e.rebuildInhibitIndexLocked()
 	e.mu.Unlock()
 	return nil
+}
+
+// rebuildInhibitIndexLocked maps each inhibit source rule id to the
+// compiled rules that reference it. Callers must hold e.mu for writing.
+// Forward references are allowed: a target may name a source that does not
+// exist (yet) — the index entry simply stays inert until such a rule is
+// added, and presence is only ever written by an existing source rule.
+func (e *Engine) rebuildInhibitIndexLocked() {
+	index := make(map[string][]*compiledRule)
+	for _, cr := range e.rules {
+		if cr.inhibit == nil {
+			continue
+		}
+		index[cr.inhibit.Source] = append(index[cr.inhibit.Source], cr)
+	}
+	e.inhibitIndex = index
 }
 
 func compileRule(r Rule) (*compiledRule, error) {
@@ -344,7 +381,19 @@ func compileRule(r Rule) (*compiledRule, error) {
 			}
 		}
 	}
-	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval}, nil
+	var inhibit *InhibitSpec
+	inhibitTTL := time.Duration(0)
+	if r.Inhibit != nil {
+		inhibit = r.Inhibit
+		inhibitTTL = DefaultInhibitTTL
+		if r.Inhibit.TTL != nil {
+			inhibitTTL, err = parseDurationField("inhibit ttl", *r.Inhibit.TTL)
+			if err != nil {
+				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+			}
+		}
+	}
+	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL}, nil
 }
 
 // Evaluate runs the notification environment against the rule table in
@@ -390,6 +439,27 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 		// for and group aggregation share the group key: with group_by the
 		// identity is the field values, without it the content hash.
 		groupKey, groupLabel := RuleGroupKey(cr.groupBy, env)
+
+		// Step 0: inhibition. While the root-cause rule (inhibit.source)
+		// is delivering for the same equal-field values, this rule's
+		// events are withheld — before any for/group state is touched, a
+		// suppressed event must not open windows or rounds. Only active
+		// rules check: shadow observation is about condition hits.
+		if cr.inhibit != nil && cr.rule.Mode == ModeActive {
+			hash := EqualFieldsHash(cr.inhibit.Equal, env)
+			present, err := e.inhibitState.Present(ctx, cr.rule.ID, hash)
+			if err != nil {
+				// State failure fails open: the rule is skipped like any
+				// other evaluation error and routing survives.
+				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
+				continue
+			}
+			if present {
+				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Inhibited: true}
+				governing.EvalErrors = evalErrs
+				return governing, joinEvalErrors(evalErrs)
+			}
+		}
 
 		// Step 1: the "for" window gates everything else. While it runs
 		// the event is suppressed; after it fired once, further hits stay
@@ -454,6 +524,22 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary}
 			if decision != nil {
 				governing.Shadow = decision.Shadow
+			}
+			// The delivery is happening: mark presence for every rule that
+			// inhibits on this one, so their equal-matching events are
+			// withheld while the root cause keeps firing. A write failure
+			// must not block the delivery (fail open toward delivery);
+			// it surfaces as an eval error for visibility.
+			e.mu.RLock()
+			targets := e.inhibitIndex[cr.rule.ID]
+			targetsCopy := make([]*compiledRule, len(targets))
+			copy(targetsCopy, targets)
+			e.mu.RUnlock()
+			for _, target := range targetsCopy {
+				hash := EqualFieldsHash(target.inhibit.Equal, env)
+				if err := e.inhibitState.Record(ctx, target.rule.ID, hash, target.inhibitTTL); err != nil {
+					evalErrs = append(evalErrs, EvalError{RuleID: target.rule.ID, Err: err})
+				}
 			}
 			governing.EvalErrors = evalErrs
 			return governing, joinEvalErrors(evalErrs)

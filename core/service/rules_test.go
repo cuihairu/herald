@@ -29,6 +29,7 @@ type recordingObserver struct {
 	evalErrors  []string
 	forPendings []string
 	groupFolded []string
+	inhibited   []string
 }
 
 func (r *recordingObserver) RecordShadow(ruleID string, channels []string, n *core.Notification) {
@@ -45,6 +46,10 @@ func (r *recordingObserver) RecordForPending(ruleID string, n *core.Notification
 
 func (r *recordingObserver) RecordGroupFolded(ruleID string, n *core.Notification) {
 	r.groupFolded = append(r.groupFolded, ruleID)
+}
+
+func (r *recordingObserver) RecordInhibited(ruleID string, n *core.Notification) {
+	r.inhibited = append(r.inhibited, ruleID)
 }
 
 func newRuleTestService(t *testing.T) (*NotificationService, *mockQueue, *route.Router, *mockProviderRuntime) {
@@ -270,6 +275,49 @@ func TestProcessWithRules(t *testing.T) {
 		}
 		if !strings.Contains(body, "r-hash") {
 			t.Fatalf("summary body must name the rule, got %q", body)
+		}
+	})
+
+	t.Run("inhibited suppresses delivery and is observed", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		observer := &recordingObserver{}
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:    "leaf",
+			Mode:      rules.ModeActive,
+			Inhibited: true,
+		}})
+		svc.SetRuleObserver(observer)
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 || len(res.Accepted) != 0 {
+			t.Fatalf("inhibited event must suppress delivery, got %+v", res)
+		}
+		if len(queue.tasks) != 0 {
+			t.Fatalf("expected no queued tasks, got %d", len(queue.tasks))
+		}
+		if len(observer.inhibited) != 1 || observer.inhibited[0] != "leaf" {
+			t.Fatalf("expected inhibited observation, got %v", observer.inhibited)
+		}
+	})
+
+	t.Run("inhibited does not suppress explicit channels", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:    "leaf",
+			Mode:      rules.ModeActive,
+			Inhibited: true,
+		}})
+
+		n := alertNotification()
+		n.Channels = []string{"static-provider"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
+			t.Fatalf("explicit channels must go out despite inhibition, got %v", queue.tasks)
 		}
 	})
 

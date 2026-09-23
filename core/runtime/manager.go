@@ -138,6 +138,26 @@ func (m *Manager) RecordGroupFolded(ruleID string, n *core.Notification) {
 	})
 }
 
+// RecordInhibited implements the rule observer contract: it records an
+// event withheld because the rule's inhibit.source root cause is currently
+// present for the same equal-field values. Sampled per rule like shadow
+// hits — a storm of sub-alerts under one root cause is exactly the
+// high-volume scenario inhibition exists for.
+func (m *Manager) RecordInhibited(ruleID string, n *core.Notification) {
+	if !m.shadowSampler.ShouldRecord(ruleID) {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "inhibited:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "inhibited",
+		CreatedAt: now,
+		RuleID:    ruleID,
+		MatchedAt: now,
+	})
+}
+
 // ShadowRuleCount returns how many times a rule has matched during shadow
 // evaluation so far — the exact total behind the sampled log entries.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {

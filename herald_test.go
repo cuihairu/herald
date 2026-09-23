@@ -641,6 +641,81 @@ func TestDispatchWithGroupByRuleFoldsAndSummarizes(t *testing.T) {
 	}
 }
 
+func TestDispatchWithInhibitRuleSuppressesLeafAlerts(t *testing.T) {
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{
+		{
+			ID:    "root-down",
+			Match: `level == "critical"`,
+			Mode:  rules.ModeActive,
+			Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+		},
+		{
+			ID:    "leaf-error",
+			Match: `level == "error"`,
+			Mode:  rules.ModeActive,
+			Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+			Inhibit: &rules.InhibitSpec{
+				Source: "root-down",
+				Equal:  []string{"env"},
+				// Tiny TTL so the test can outlive it with real time.
+				TTL: strPtr("5ms"),
+			},
+		},
+	}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	notif := func(level, env, body string) *core.Notification {
+		return &core.Notification{
+			Type:    "alert",
+			Level:   level,
+			Params:  map[string]any{"env": env},
+			Content: &core.DirectContent{Title: "t", Body: body},
+		}
+	}
+
+	// Root cause fires for env=prod: its delivery marks presence.
+	if _, err := app.DispatchSync(context.Background(), notif("critical", "prod", "root")); err != nil {
+		t.Fatalf("DispatchSync(root) error = %v", err)
+	}
+	if got := prov.count(); got != 1 {
+		t.Fatalf("expected root delivery, got %d", got)
+	}
+
+	// The leaf alert for the same env is withheld. Bodies differ so dedup
+	// stays out of the way — inhibition is what suppresses this one.
+	res, err := app.DispatchSync(context.Background(), notif("error", "prod", "leaf during outage"))
+	if err != nil {
+		t.Fatalf("DispatchSync(leaf) error = %v", err)
+	}
+	if len(res.Accepted) != 0 {
+		t.Fatalf("inhibited leaf must suppress delivery, accepted = %v", res.Accepted)
+	}
+	logs := app.Runtime().GetLogs(0, 10, &logstore.Filter{Status: "inhibited"})
+	if len(logs) != 1 || logs[0].RuleID != "leaf-error" {
+		t.Fatalf("expected one inhibited log for leaf-error, got %+v", logs)
+	}
+
+	// After the TTL the same leaf alert goes out again.
+	time.Sleep(20 * time.Millisecond)
+	if _, err := app.DispatchSync(context.Background(), notif("error", "prod", "leaf after recovery")); err != nil {
+		t.Fatalf("DispatchSync(leaf after ttl) error = %v", err)
+	}
+	if got := prov.count(); got != 2 {
+		t.Fatalf("expected leaf delivery after presence expiry, got %d", got)
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
 func TestDispatchWithActiveRuleRoutes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Rules = []rules.Rule{{

@@ -151,8 +151,9 @@ func TestEngineForPutAndDropState(t *testing.T) {
 // failingStateStore wraps a store and fails selected operations, so tests
 // can pin the fail-open behavior of stateful evaluation.
 type failingStateStore struct {
-	inner  StateStore
-	failOb bool
+	inner   StateStore
+	failOb  bool // fail reads and writes (full outage)
+	failPut bool // fail writes only
 }
 
 func (f *failingStateStore) Get(ctx context.Context, key string) (*RuleState, error) {
@@ -163,7 +164,7 @@ func (f *failingStateStore) Get(ctx context.Context, key string) (*RuleState, er
 }
 
 func (f *failingStateStore) Put(ctx context.Context, key string, s *RuleState, ttl time.Duration) error {
-	if f.failOb {
+	if f.failOb || f.failPut {
 		return errors.New("state store down")
 	}
 	return f.inner.Put(ctx, key, s, ttl)

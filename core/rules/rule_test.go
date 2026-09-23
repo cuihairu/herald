@@ -168,9 +168,59 @@ func TestRuleValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("inhibit validated", func(t *testing.T) {
+		// A well-formed inhibit spec is accepted since P2 enforces
+		// suppression; the source rule may be a forward reference.
+		r := validRule()
+		r.ID = "leaf-alert"
+		ttl := "10m"
+		r.Inhibit = &InhibitSpec{Source: "root-cause", Equal: []string{"env", "cluster"}, TTL: &ttl}
+		if err := r.Validate(); err != nil {
+			t.Errorf("inhibit: expected acceptance, got %v", err)
+		}
+
+		// Missing or malformed source id is rejected; self-reference too.
+		r = validRule()
+		r.Inhibit = &InhibitSpec{Equal: []string{"env"}}
+		if err := r.Validate(); err == nil {
+			t.Error("inhibit without source: expected rejection")
+		}
+		r = validRule()
+		r.Inhibit = &InhibitSpec{Source: "bad id!", Equal: []string{"env"}}
+		if err := r.Validate(); err == nil {
+			t.Error("malformed inhibit source: expected rejection")
+		}
+		r = validRule()
+		r.Inhibit = &InhibitSpec{Source: r.ID, Equal: []string{"env"}}
+		if err := r.Validate(); err == nil {
+			t.Error("self-inhibiting rule: expected rejection")
+		}
+
+		// equal field hygiene reuses the label-field rules.
+		r = validRule()
+		r.Inhibit = &InhibitSpec{Source: "root"}
+		if err := r.Validate(); err == nil {
+			t.Error("inhibit without equal fields: expected rejection")
+		}
+		r = validRule()
+		r.Inhibit = &InhibitSpec{Source: "root", Equal: []string{"env", "env"}}
+		if err := r.Validate(); err == nil {
+			t.Error("duplicate equal fields: expected rejection")
+		}
+
+		// Malformed ttl values are rejected.
+		r = validRule()
+		for _, bad := range []string{"", "abc", "0s", "-5m", "25h"} {
+			badTTL := bad
+			r.Inhibit = &InhibitSpec{Source: "root", Equal: []string{"env"}, TTL: &badTTL}
+			if err := r.Validate(); err == nil {
+				t.Errorf("inhibit ttl %q: expected rejection", bad)
+			}
+		}
+	})
+
 	t.Run("not-yet-effective fields rejected", func(t *testing.T) {
 		cases := map[string]func(*Rule){
-			"inhibit":    func(r *Rule) { r.Inhibit = &InhibitSpec{Equal: []string{"env"}} },
 			"escalation": func(r *Rule) { r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{"boss"}} },
 			"silence":    func(r *Rule) { r.Silence = &SilenceSpec{Start: "03:00", End: "07:00"} },
 		}

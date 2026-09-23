@@ -26,10 +26,21 @@ type RouteStep struct {
 	Channels []string `json:"channels" yaml:"channels"`
 }
 
-// InhibitSpec suppresses lesser alerts while a root cause is active.
-// Modeled in P1; enforcement lands in P2.
+// InhibitSpec suppresses lesser alerts while a root cause is active:
+// while the source rule delivers, this rule's events whose equal-field
+// values match a recorded presence entry are withheld (P2, event-driven
+// TTL — refreshed on every source hit).
 type InhibitSpec struct {
-	Equal []string `json:"equal,omitempty" yaml:"equal,omitempty"`
+	// Source is the id of the root-cause rule whose deliveries mark
+	// presence. It may be defined after this rule (forward reference).
+	Source string `json:"source" yaml:"source"`
+	// Equal lists the params fields whose values must match between the
+	// source notification and this rule's notification for suppression to
+	// apply (e.g. [env, cluster]).
+	Equal []string `json:"equal" yaml:"equal"`
+	// TTL is how long a presence entry suppresses after the last source
+	// hit. Defaults to 30m; capped like other durations at 24h.
+	TTL *string `json:"ttl,omitempty" yaml:"ttl,omitempty"`
 }
 
 // EscalationSpec re-notifies a wider channel when no ack arrives in time.
@@ -47,10 +58,11 @@ type SilenceSpec struct {
 }
 
 // Rule is the storage model of a notification rule. Enforced semantics:
-// Match/Mode/Route in P1; For and GroupBy/GroupInterval in P2 (event-driven
-// duration judgement and group aggregation). Inhibit/Escalation/Silence are
-// modeled but still rejected by Validate until implemented — accepting them
-// silently would promise behavior that never happens.
+// Match/Mode/Route in P1; For, GroupBy/GroupInterval and Inhibit in P2
+// (event-driven duration judgement, group aggregation and root-cause
+// suppression). Escalation/Silence are modeled but still rejected by
+// Validate until implemented — accepting them silently would promise
+// behavior that never happens.
 type Rule struct {
 	ID    string      `json:"id" yaml:"id"`
 	Match string      `json:"match" yaml:"match"`
@@ -75,29 +87,61 @@ var ruleIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 // that almost always means the rule wanted a different match expression.
 const maxGroupByFields = 8
 
-// validateGroupBy checks the group aggregation fields: names must be non-
-// empty, bounded and unique (they address Notification.Params keys), and
-// group_interval is only meaningful together with group_by.
+// validateLabelFields checks a list of params field names (group_by /
+// inhibit.equal): non-empty, bounded and unique.
+func validateLabelFields(r *Rule, fields []string, what string) error {
+	if len(fields) == 0 {
+		return fmt.Errorf("rules: rule %q: %s requires at least one field", r.ID, what)
+	}
+	if len(fields) > maxGroupByFields {
+		return fmt.Errorf("rules: rule %q: %s has %d fields, max is %d", r.ID, what, len(fields), maxGroupByFields)
+	}
+	seen := make(map[string]bool, len(fields))
+	for i, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" || len(f) > 64 {
+			return fmt.Errorf("rules: rule %q: %s field %d must be 1-64 chars", r.ID, what, i)
+		}
+		if seen[f] {
+			return fmt.Errorf("rules: rule %q: duplicate %s field %q", r.ID, what, f)
+		}
+		seen[f] = true
+	}
+	return nil
+}
+
+// validateGroupBy checks the group aggregation fields and the group
+// interval; group_interval is only meaningful together with group_by.
 func validateGroupBy(r *Rule) error {
 	if len(r.GroupBy) == 0 {
 		return fmt.Errorf("rules: rule %q: group_interval requires group_by", r.ID)
 	}
-	if len(r.GroupBy) > maxGroupByFields {
-		return fmt.Errorf("rules: rule %q: group_by has %d fields, max is %d", r.ID, len(r.GroupBy), maxGroupByFields)
-	}
-	seen := make(map[string]bool, len(r.GroupBy))
-	for i, f := range r.GroupBy {
-		f = strings.TrimSpace(f)
-		if f == "" || len(f) > 64 {
-			return fmt.Errorf("rules: rule %q: group_by field %d must be 1-64 chars", r.ID, i)
-		}
-		if seen[f] {
-			return fmt.Errorf("rules: rule %q: duplicate group_by field %q", r.ID, f)
-		}
-		seen[f] = true
+	if err := validateLabelFields(r, r.GroupBy, "group_by"); err != nil {
+		return err
 	}
 	if r.GroupInterval != nil {
 		if _, err := ParseGroupInterval(*r.GroupInterval); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateInhibit checks the suppression spec: the source rule id must be
+// well-formed (the rule itself may not exist yet), the equal fields must be
+// hygienic, and the ttl, if set, must parse.
+func validateInhibit(r *Rule) error {
+	if !ruleIDPattern.MatchString(r.Inhibit.Source) {
+		return fmt.Errorf("rules: rule %q: inhibit.source %q is not a valid rule id", r.ID, r.Inhibit.Source)
+	}
+	if r.Inhibit.Source == r.ID {
+		return fmt.Errorf("rules: rule %q: a rule cannot inhibit itself", r.ID)
+	}
+	if err := validateLabelFields(r, r.Inhibit.Equal, "inhibit.equal"); err != nil {
+		return err
+	}
+	if r.Inhibit.TTL != nil {
+		if _, err := parseDurationField("inhibit ttl", *r.Inhibit.TTL); err != nil {
 			return err
 		}
 	}
@@ -141,8 +185,8 @@ func (r Rule) Validate() error {
 	}
 	// Fields below are modeled for forward compatibility but not enforced
 	// yet; reject them so users never rely on behavior that does not exist.
-	// For and GroupBy/GroupInterval are enforced (P2): only their format is
-	// validated here.
+	// For, GroupBy/GroupInterval and Inhibit are enforced (P2): only their
+	// format is validated here.
 	if r.For != nil {
 		if _, err := ParseFor(*r.For); err != nil {
 			return err
@@ -154,7 +198,9 @@ func (r Rule) Validate() error {
 		}
 	}
 	if r.Inhibit != nil {
-		return fmt.Errorf("rules: rule %q: inhibit is not effective until P2 (drop it or wait)", r.ID)
+		if err := validateInhibit(&r); err != nil {
+			return err
+		}
 	}
 	if r.Escalation != nil {
 		return fmt.Errorf("rules: rule %q: escalation is not effective until P3 (drop it or wait)", r.ID)

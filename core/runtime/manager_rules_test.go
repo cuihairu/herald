@@ -142,3 +142,35 @@ func TestManagerRecordGroupFolded(t *testing.T) {
 		t.Errorf("counter must track every folded event, got %d", m.ShadowRuleCount("r-group"))
 	}
 }
+
+func TestManagerRecordInhibited(t *testing.T) {
+	m := NewManager(100)
+	n := &core.Notification{ID: "notif-1", Level: "error"}
+
+	m.RecordInhibited("leaf", n)
+
+	logs := m.GetLogs(0, 10, &logstore.Filter{Status: "inhibited"})
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 inhibited log, got %d", len(logs))
+	}
+	entry := logs[0]
+	if entry.RuleID != "leaf" || entry.Status != "inhibited" {
+		t.Fatalf("unexpected inhibited entry: %+v", entry)
+	}
+	if entry.WouldFire {
+		t.Error("an inhibited event must not be marked would_fire")
+	}
+	if entry.MatchedAt.IsZero() {
+		t.Error("expected matched_at to be set")
+	}
+
+	// Inhibited events are sampled per rule like shadow hits: the counter
+	// tracks every occurrence but the second entry is not recorded.
+	m.RecordInhibited("leaf", &core.Notification{ID: "notif-2", Level: "error"})
+	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "inhibited"})); got != 1 {
+		t.Errorf("expected sampling to keep 1 entry, got %d", got)
+	}
+	if m.ShadowRuleCount("leaf") != 2 {
+		t.Errorf("counter must track every inhibited event, got %d", m.ShadowRuleCount("leaf"))
+	}
+}

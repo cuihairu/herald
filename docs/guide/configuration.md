@@ -187,6 +187,15 @@ rules:
       - match: 'level == "error"'
         channels: [oncall]
       - channels: [devops]        # match 留空 = 恒命中的兜底 step
+  - id: leaf-service-unreachable
+    match: 'type == "alert" && params.service == "api"'
+    mode: active
+    inhibit:                      # 可选：根因在场时抑制本规则，见「inhibit 抑制（P2）」
+      source: prod-fail-rate      #   根因规则的 id
+      equal: [env]                #   这些字段值相同才抑制
+      # ttl: 30m                  #   在场条目存活期，默认 30m
+    route:
+      - channels: [devops]
 
 # 规则持久化文件（可选）
 # 设置后通过 API 对规则的新增/修改/删除会落盘到该 JSON 文件，重启自动恢复；
@@ -367,9 +376,19 @@ providers:
 - 与 `for` 组合时 for 判定在前：窗口未满事件被拦且不开组轮；触发一次后进入静默的事件转入组折叠计数，摘要计数包含触发首条
 - 组状态与 for 窗口同库存放（key 形如 `rule:{id}:group:{group}`，带 TTL 自动回收），存储故障同样按「求值失败」fail-open
 
+### inhibit 抑制（P2）
+
+- 集群挂了会带出几十条「服务不可达」子告警——都是真的，但根因在场时没有行动价值。被抑制规则配置 `inhibit: {source: <根因规则id>, equal: [字段...]}`：**source 规则真实投递时**，把该通知的 equal 字段值组合记为「在场」（key 形如 `rule:{id}:inhibit:{值哈希}`，存 `rules_state`），本规则后续命中且 equal 字段值相同的事件被拦下（不入队，按规则采样记入投递日志，状态 `inhibited`）
+- 在场条目按 `ttl`（默认 30m，上限 24h）过期，source 每次投递都续期——事件驱动无定时器：根因停止投递后条目自然过期、抑制解除；「根因恢复后补发摘要」依赖 P3 的恢复感知，本批次不包含
+- 判定顺序在 for / group_by 之前：被抑制事件不开组轮、不计时——根因在场时子告警的持续判定与折叠没有意义
+- 归组粒度：equal 字段值组合精确匹配（缺字段视为空值）；不同字段值组合互不影响
+- source 允许前向引用（先建被抑制规则、后建根因规则，索引自动接上）；禁止自己抑制自己
+- 显式 `channels` 的通知不受抑制（显式意图优先）；shadow 规则不检查抑制（影子只观察条件命中）
+- 在场读取故障按「求值失败」fail-open（跳过该规则）；写入故障不阻断 source 自己的投递（宁可多投不漏投，错误计入观测）
+
 ### P2/P3 未生效字段
 
-`inhibit` / `silence` 已在规则模型中建模但尚未实现（P2 后续批次），`escalation` 依赖 P3 的 ACK 闭环——配置了这些字段会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
+`silence` 已在规则模型中建模但尚未实现（P2 最后一批），`escalation` 依赖 P3 的 ACK 闭环——配置了这些字段会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
 
 ### 规则存储与 API（热加载）
 
