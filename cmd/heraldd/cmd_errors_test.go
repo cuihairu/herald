@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core/worker"
-	"github.com/cuihairu/herald/internal/config"
+	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/protocol"
 	gws "github.com/gorilla/websocket"
 )

@@ -22,7 +22,7 @@ import (
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/core/worker"
-	"github.com/cuihairu/herald/internal/config"
+	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/internal/logger"
 	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
