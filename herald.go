@@ -393,7 +393,14 @@ func (q *awaitingQueue) resolve(taskID string, err error) {
 }
 
 // wait blocks until the task is acknowledged (nil) or nacked (its reason).
+// A dead context fails deterministically here, before the outcome lookup:
+// when the task has already been delivered and the context is cancelled,
+// both select cases below would be ready and Go would pick one at random,
+// so the cancellation must be checked first.
 func (q *awaitingQueue) wait(ctx context.Context, taskID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	q.mu.Lock()
 	if err, ok := q.resolved[taskID]; ok {
 		delete(q.resolved, taskID)
