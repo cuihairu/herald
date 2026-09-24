@@ -30,6 +30,7 @@ type recordingObserver struct {
 	forPendings []string
 	groupFolded []string
 	inhibited   []string
+	silenced    []string
 }
 
 func (r *recordingObserver) RecordShadow(ruleID string, channels []string, n *core.Notification) {
@@ -50,6 +51,10 @@ func (r *recordingObserver) RecordGroupFolded(ruleID string, n *core.Notificatio
 
 func (r *recordingObserver) RecordInhibited(ruleID string, n *core.Notification) {
 	r.inhibited = append(r.inhibited, ruleID)
+}
+
+func (r *recordingObserver) RecordSilenced(ruleID string, n *core.Notification) {
+	r.silenced = append(r.silenced, ruleID)
 }
 
 func newRuleTestService(t *testing.T) (*NotificationService, *mockQueue, *route.Router, *mockProviderRuntime) {
@@ -318,6 +323,49 @@ func TestProcessWithRules(t *testing.T) {
 		}
 		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
 			t.Fatalf("explicit channels must go out despite inhibition, got %v", queue.tasks)
+		}
+	})
+
+	t.Run("silenced suppresses delivery and is observed", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		observer := &recordingObserver{}
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:   "r-quiet",
+			Mode:     rules.ModeActive,
+			Silenced: true,
+		}})
+		svc.SetRuleObserver(observer)
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 || len(res.Accepted) != 0 {
+			t.Fatalf("silenced event must suppress delivery, got %+v", res)
+		}
+		if len(queue.tasks) != 0 {
+			t.Fatalf("expected no queued tasks, got %d", len(queue.tasks))
+		}
+		if len(observer.silenced) != 1 || observer.silenced[0] != "r-quiet" {
+			t.Fatalf("expected silenced observation, got %v", observer.silenced)
+		}
+	})
+
+	t.Run("silenced does not suppress explicit channels", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:   "r-quiet",
+			Mode:     rules.ModeActive,
+			Silenced: true,
+		}})
+
+		n := alertNotification()
+		n.Channels = []string{"static-provider"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
+			t.Fatalf("explicit channels must go out despite the silence window, got %v", queue.tasks)
 		}
 	})
 

@@ -40,7 +40,9 @@ func TestEngineForPendingSuppressesActive(t *testing.T) {
 
 	// First hit: pending, and a later rule must not take over routing.
 	late := forTestRule("r-late", "")
-	engine.Put(ctx, &late)
+	if err := engine.Put(ctx, &late); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
 	d, err := engine.Evaluate(ctx, env)
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)

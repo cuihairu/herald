@@ -219,10 +219,46 @@ func TestRuleValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("silence validated", func(t *testing.T) {
+		// A well-formed window is accepted since P2 enforces quiet windows,
+		// with or without the optional match expression.
+		r := validRule()
+		r.Silence = &SilenceSpec{Start: "00:00", End: "06:00"}
+		if err := r.Validate(); err != nil {
+			t.Errorf("silence window: expected acceptance, got %v", err)
+		}
+		match := `level != "critical"`
+		r.Silence = &SilenceSpec{Start: "22:00", End: "06:00", Match: &match}
+		if err := r.Validate(); err != nil {
+			t.Errorf("silence window + match: expected acceptance, got %v", err)
+		}
+
+		// Malformed bounds and zero-length windows are rejected.
+		r = validRule()
+		r.Silence = &SilenceSpec{Start: "24:00", End: "06:00"}
+		if err := r.Validate(); err == nil {
+			t.Error("invalid hour: expected rejection")
+		}
+		r = validRule()
+		r.Silence = &SilenceSpec{Start: "02:60", End: "06:00"}
+		if err := r.Validate(); err == nil {
+			t.Error("invalid minute: expected rejection")
+		}
+		r = validRule()
+		r.Silence = &SilenceSpec{Start: "6am", End: "06:00"}
+		if err := r.Validate(); err == nil {
+			t.Error("malformed time: expected rejection")
+		}
+		r = validRule()
+		r.Silence = &SilenceSpec{Start: "06:00", End: "06:00"}
+		if err := r.Validate(); err == nil {
+			t.Error("zero-length window: expected rejection")
+		}
+	})
+
 	t.Run("not-yet-effective fields rejected", func(t *testing.T) {
 		cases := map[string]func(*Rule){
 			"escalation": func(r *Rule) { r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{"boss"}} },
-			"silence":    func(r *Rule) { r.Silence = &SilenceSpec{Start: "03:00", End: "07:00"} },
 		}
 		for name, mutate := range cases {
 			r := validRule()

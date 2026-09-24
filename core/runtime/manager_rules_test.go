@@ -174,3 +174,35 @@ func TestManagerRecordInhibited(t *testing.T) {
 		t.Errorf("counter must track every inhibited event, got %d", m.ShadowRuleCount("leaf"))
 	}
 }
+
+func TestManagerRecordSilenced(t *testing.T) {
+	m := NewManager(100)
+	n := &core.Notification{ID: "notif-1", Level: "error"}
+
+	m.RecordSilenced("quiet", n)
+
+	logs := m.GetLogs(0, 10, &logstore.Filter{Status: "silenced"})
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 silenced log, got %d", len(logs))
+	}
+	entry := logs[0]
+	if entry.RuleID != "quiet" || entry.Status != "silenced" {
+		t.Fatalf("unexpected silenced entry: %+v", entry)
+	}
+	if entry.WouldFire {
+		t.Error("a silenced event must not be marked would_fire")
+	}
+	if entry.MatchedAt.IsZero() {
+		t.Error("expected matched_at to be set")
+	}
+
+	// Silenced events are sampled per rule like shadow hits: the counter
+	// tracks every occurrence but the second entry is not recorded.
+	m.RecordSilenced("quiet", &core.Notification{ID: "notif-2", Level: "error"})
+	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "silenced"})); got != 1 {
+		t.Errorf("expected sampling to keep 1 entry, got %d", got)
+	}
+	if m.ShadowRuleCount("quiet") != 2 {
+		t.Errorf("counter must track every silenced event, got %d", m.ShadowRuleCount("quiet"))
+	}
+}

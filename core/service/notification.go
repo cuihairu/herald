@@ -45,7 +45,8 @@ type RuleEvaluator interface {
 // RuleObserver receives rule evaluation observations: shadow-mode hits
 // (dry-run evidence), per-rule evaluation failures, active-rule events
 // suppressed by a still-running "for" window, events folded into an open
-// group-aggregation round, and events withheld by root-cause inhibition.
+// group-aggregation round, events withheld by root-cause inhibition, and
+// events withheld by a rule's daily silence window.
 // Implementations must be safe for concurrent use.
 type RuleObserver interface {
 	RecordShadow(ruleID string, channels []string, n *core.Notification)
@@ -53,6 +54,7 @@ type RuleObserver interface {
 	RecordForPending(ruleID string, n *core.Notification)
 	RecordGroupFolded(ruleID string, n *core.Notification)
 	RecordInhibited(ruleID string, n *core.Notification)
+	RecordSilenced(ruleID string, n *core.Notification)
 }
 
 // NotificationService orchestrates the notification processing pipeline
@@ -137,12 +139,18 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		}
 		// Explicit channels win for ROUTING: rules are an incremental
 		// capability over static routing, never an override of caller
-		// intent. The active-rule outcomes that suppress delivery — a "for"
-		// window still running, a group round open for folding, root-cause
-		// inhibition — only apply to the traffic the rule would route
-		// anyway; explicit-channel calls are deliberate and go out
-		// regardless.
+		// intent. The active-rule outcomes that suppress delivery — a
+		// silence window in effect, a "for" window still running, a group
+		// round open for folding, root-cause inhibition — only apply to the
+		// traffic the rule would route anyway; explicit-channel calls are
+		// deliberate and go out regardless.
 		if decision != nil && decision.Mode == rules.ModeActive && len(n.Channels) == 0 {
+			if decision.Silenced {
+				if s.observer != nil {
+					s.observer.RecordSilenced(decision.RuleID, n)
+				}
+				return &ProcessResult{NotificationID: n.ID}, nil
+			}
 			if decision.ForPending {
 				if s.observer != nil {
 					s.observer.RecordForPending(decision.RuleID, n)

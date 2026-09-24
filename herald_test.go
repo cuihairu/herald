@@ -716,6 +716,105 @@ func TestDispatchWithInhibitRuleSuppressesLeafAlerts(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
+// TestDispatchWithSilenceRuleWithholdsInsideWindow builds a rule whose
+// silence window is centered on the current wall clock (now-2h to now+2h
+// covers the current minute at every time of day, including across
+// midnight) and verifies the event is withheld and observed.
+func TestDispatchWithSilenceRuleWithholdsInsideWindow(t *testing.T) {
+	now := time.Now()
+	window := func(offset time.Duration) string {
+		return now.Add(offset).Format("15:04")
+	}
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{
+		{
+			ID:    "quiet-hours",
+			Match: `type == "alert"`,
+			Mode:  rules.ModeActive,
+			Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+			Silence: &rules.SilenceSpec{
+				Start: window(-2 * time.Hour),
+				End:   window(2 * time.Hour),
+			},
+		},
+	}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	res, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "error",
+		Content: &core.DirectContent{Title: "t", Body: "inside the window"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 0 {
+		t.Fatalf("event inside the silence window must be withheld, accepted = %v", res.Accepted)
+	}
+	if got := prov.count(); got != 0 {
+		t.Fatalf("expected no deliveries inside the window, got %d", got)
+	}
+	logs := app.Runtime().GetLogs(0, 10, &logstore.Filter{Status: "silenced"})
+	if len(logs) != 1 || logs[0].RuleID != "quiet-hours" {
+		t.Fatalf("expected one silenced log for quiet-hours, got %+v", logs)
+	}
+}
+
+// TestDispatchWithSilenceRuleDeliversOutsideWindow places the window two
+// hours ahead of the current wall clock (now+2h to now+3h never covers the
+// current minute) and verifies delivery is unaffected.
+func TestDispatchWithSilenceRuleDeliversOutsideWindow(t *testing.T) {
+	now := time.Now()
+	window := func(offset time.Duration) string {
+		return now.Add(offset).Format("15:04")
+	}
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{
+		{
+			ID:    "future-quiet",
+			Match: `type == "alert"`,
+			Mode:  rules.ModeActive,
+			Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+			Silence: &rules.SilenceSpec{
+				Start: window(2 * time.Hour),
+				End:   window(3 * time.Hour),
+			},
+		},
+	}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+
+	res, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "error",
+		Content: &core.DirectContent{Title: "t", Body: "outside the window"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 {
+		t.Fatalf("event outside the window must be delivered, accepted = %v", res.Accepted)
+	}
+	if got := prov.count(); got != 1 {
+		t.Fatalf("expected one delivery outside the window, got %d", got)
+	}
+}
+
 func TestDispatchWithActiveRuleRoutes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Rules = []rules.Rule{{

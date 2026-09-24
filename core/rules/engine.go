@@ -122,6 +122,15 @@ type compiledRule struct {
 	inhibit *InhibitSpec
 	// inhibitTTL is the parsed inhibit.ttl (DefaultInhibitTTL when unset).
 	inhibitTTL time.Duration
+	// silence is the parsed daily quiet window; nil = rule is never silenced.
+	silence *compiledSilence
+}
+
+// compiledSilence pairs the parsed daily window with the optional
+// expression limiting which in-window events are silenced.
+type compiledSilence struct {
+	window *SilenceWindow
+	match  *vm.Program // nil = everything in the window is silenced
 }
 
 // EvalError is one rule's evaluation failure, kept structured so callers
@@ -162,6 +171,10 @@ type Decision struct {
 	// same equal-field values: the event is suppressed like ForPending,
 	// not discarded forever — the presence entry expires with its TTL.
 	Inhibited bool
+	// Silenced reports that the governing active rule matched inside its
+	// daily silence window: the event is withheld for as long as the
+	// window lasts (pure schedule-driven, no state involved).
+	Silenced bool
 	// EvalErrors lists rules whose expressions failed to evaluate; these
 	// rules were skipped and never contribute a match.
 	EvalErrors []EvalError
@@ -185,6 +198,9 @@ type Engine struct {
 	groupState   *GroupTracker
 	inhibitState *InhibitTracker
 	stateStore   StateStore
+	// now is the clock for schedule-driven judgements (silence windows);
+	// swapped in tests.
+	now func() time.Time
 	// inhibitIndex maps a source rule id to the compiled rules that
 	// declare inhibit.source = that id. Rebuilt under mu whenever the
 	// rule table changes; read under RLock.
@@ -203,6 +219,7 @@ func NewEngine(store Store) *Engine {
 		groupState:   NewGroupTracker(ss),
 		inhibitState: NewInhibitTracker(ss),
 		stateStore:   ss,
+		now:          time.Now,
 	}
 }
 
@@ -238,6 +255,11 @@ func (e *Engine) Validate(r *Rule) error {
 		}
 		if _, err := compileExpr(step.Match); err != nil {
 			return fmt.Errorf("rules: rule %q: route step %d: %w", r.ID, i, err)
+		}
+	}
+	if r.Silence != nil && r.Silence.Match != nil && *r.Silence.Match != "" {
+		if _, err := compileExpr(*r.Silence.Match); err != nil {
+			return fmt.Errorf("rules: rule %q: silence match: %w", r.ID, err)
 		}
 	}
 	return nil
@@ -393,7 +415,21 @@ func compileRule(r Rule) (*compiledRule, error) {
 			}
 		}
 	}
-	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL}, nil
+	var silence *compiledSilence
+	if r.Silence != nil {
+		window, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End)
+		if err != nil {
+			return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+		}
+		silence = &compiledSilence{window: window}
+		if r.Silence.Match != nil && *r.Silence.Match != "" {
+			silence.match, err = compileExpr(*r.Silence.Match)
+			if err != nil {
+				return nil, fmt.Errorf("rules: rule %q: silence match: %w", r.ID, err)
+			}
+		}
+	}
+	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL, silence: silence}, nil
 }
 
 // Evaluate runs the notification environment against the rule table in
@@ -439,6 +475,29 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 		// for and group aggregation share the group key: with group_by the
 		// identity is the field values, without it the content hash.
 		groupKey, groupLabel := RuleGroupKey(cr.groupBy, env)
+
+		// Step -1: the daily silence window. Schedule-driven and stateless:
+		// inside the window (and, when the silence match is set, for
+		// matching events only) the rule is frozen — the event is withheld
+		// and no for/group state advances. Only active rules check: shadow
+		// observation is about condition hits.
+		if cr.silence != nil && cr.rule.Mode == ModeActive && cr.silence.window.Contains(e.now()) {
+			if cr.silence.match == nil {
+				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Silenced: true}
+				governing.EvalErrors = evalErrs
+				return governing, joinEvalErrors(evalErrs)
+			}
+			inWindow, err := e.runProgram(ctx, cr.silence.match, env)
+			if err != nil {
+				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
+				continue
+			}
+			if inWindow {
+				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Silenced: true}
+				governing.EvalErrors = evalErrs
+				return governing, joinEvalErrors(evalErrs)
+			}
+		}
 
 		// Step 0: inhibition. While the root-cause rule (inhibit.source)
 		// is delivering for the same equal-field values, this rule's

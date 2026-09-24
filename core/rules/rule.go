@@ -50,19 +50,23 @@ type EscalationSpec struct {
 	To         []string `json:"to,omitempty" yaml:"to,omitempty"`
 }
 
-// SilenceSpec keeps a rule quiet during a daily window (HH:MM local time).
-// Modeled in P1; enforcement lands in P2.
+// SilenceSpec keeps a rule quiet during a daily window (HH:MM, process
+// local time). Within the window the rule is frozen: its events are
+// withheld and no for/group state advances. The optional match limits the
+// silencing to matching events (e.g. `level != "critical"` silences
+// everything but criticals during the window). Enforced in P2.
 type SilenceSpec struct {
-	Start string `json:"start,omitempty" yaml:"start,omitempty"`
-	End   string `json:"end,omitempty" yaml:"end,omitempty"`
+	Start string  `json:"start" yaml:"start"`
+	End   string  `json:"end" yaml:"end"`
+	Match *string `json:"match,omitempty" yaml:"match,omitempty"`
 }
 
 // Rule is the storage model of a notification rule. Enforced semantics:
-// Match/Mode/Route in P1; For, GroupBy/GroupInterval and Inhibit in P2
-// (event-driven duration judgement, group aggregation and root-cause
-// suppression). Escalation/Silence are modeled but still rejected by
-// Validate until implemented — accepting them silently would promise
-// behavior that never happens.
+// Match/Mode/Route in P1; For, GroupBy/GroupInterval, Inhibit and Silence
+// in P2 (event-driven duration judgement, group aggregation, root-cause
+// suppression and daily quiet windows). Escalation is modeled but still
+// rejected by Validate until implemented — accepting it silently would
+// promise behavior that never happens.
 type Rule struct {
 	ID    string      `json:"id" yaml:"id"`
 	Match string      `json:"match" yaml:"match"`
@@ -148,6 +152,15 @@ func validateInhibit(r *Rule) error {
 	return nil
 }
 
+// validateSilence checks the daily window: both bounds must parse as
+// HH:MM and the window must be non-zero length.
+func validateSilence(r *Rule) error {
+	if _, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End); err != nil {
+		return fmt.Errorf("rules: rule %q: %w", r.ID, err)
+	}
+	return nil
+}
+
 // Normalize fills in defaults (empty mode becomes shadow) and trims the id.
 func (r *Rule) Normalize() {
 	r.ID = strings.TrimSpace(r.ID)
@@ -202,11 +215,13 @@ func (r Rule) Validate() error {
 			return err
 		}
 	}
+	if r.Silence != nil {
+		if err := validateSilence(&r); err != nil {
+			return err
+		}
+	}
 	if r.Escalation != nil {
 		return fmt.Errorf("rules: rule %q: escalation is not effective until P3 (drop it or wait)", r.ID)
-	}
-	if r.Silence != nil {
-		return fmt.Errorf("rules: rule %q: silence is not effective until P2 (drop it or wait)", r.ID)
 	}
 	return nil
 }

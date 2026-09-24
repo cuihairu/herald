@@ -158,6 +158,24 @@ func (m *Manager) RecordInhibited(ruleID string, n *core.Notification) {
 	})
 }
 
+// RecordSilenced implements the rule observer contract: it records an
+// event withheld because the rule's daily silence window covers the
+// current time. Sampled per rule like shadow hits.
+func (m *Manager) RecordSilenced(ruleID string, n *core.Notification) {
+	if !m.shadowSampler.ShouldRecord(ruleID) {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "silenced:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "silenced",
+		CreatedAt: now,
+		RuleID:    ruleID,
+		MatchedAt: now,
+	})
+}
+
 // ShadowRuleCount returns how many times a rule has matched during shadow
 // evaluation so far — the exact total behind the sampled log entries.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {
