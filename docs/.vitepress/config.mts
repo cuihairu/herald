@@ -44,6 +44,7 @@ export default defineConfig({
             { text: '模板系统', link: '/architecture/templates' },
             { text: '目录结构', link: '/architecture/directory' },
             { text: '测试覆盖率口径', link: '/architecture/coverage' },
+            { text: '覆盖率收官报告', link: '/coverage-final-report-2026-09' },
           ]
         }
       ],
