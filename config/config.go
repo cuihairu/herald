@@ -32,6 +32,10 @@ type Config struct {
 	// RulesState configures the external store for stateful rule semantics
 	// (the "for" duration). Nil keeps state in-process (single instance).
 	RulesState *RulesStateConfig `yaml:"rules_state"`
+	// EscalationStore points at the persistent pending-upgrade file for
+	// ack-gated escalation. Empty keeps pending upgrades in memory only
+	// (a restart then silently drops them instead of escalating).
+	EscalationStore string `yaml:"escalation_store"`
 }
 
 // RulesStateConfig selects where rule evaluation state (for windows) lives.

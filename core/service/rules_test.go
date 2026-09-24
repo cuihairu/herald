@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
@@ -55,6 +56,22 @@ func (r *recordingObserver) RecordInhibited(ruleID string, n *core.Notification)
 
 func (r *recordingObserver) RecordSilenced(ruleID string, n *core.Notification) {
 	r.silenced = append(r.silenced, ruleID)
+}
+
+// stubScheduler captures escalation scheduling without timers.
+type stubScheduler struct {
+	scheduled []escalation.Pending
+	canceled  []string
+}
+
+func (s *stubScheduler) Schedule(_ context.Context, p escalation.Pending) error {
+	s.scheduled = append(s.scheduled, p)
+	return nil
+}
+
+func (s *stubScheduler) Cancel(_ context.Context, alertID string) error {
+	s.canceled = append(s.canceled, alertID)
+	return nil
 }
 
 func newRuleTestService(t *testing.T) (*NotificationService, *mockQueue, *route.Router, *mockProviderRuntime) {
@@ -366,6 +383,235 @@ func TestProcessWithRules(t *testing.T) {
 		}
 		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "static-provider" {
 			t.Fatalf("explicit channels must go out despite the silence window, got %v", queue.tasks)
+		}
+	})
+
+	t.Run("escalation arms after rule-routed delivery", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		sched := &stubScheduler{}
+		svc.SetEscalationScheduler(sched)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:   "r-up",
+			Mode:     rules.ModeActive,
+			Channels: []string{"rule-provider"},
+			Escalation: &rules.EscalationPlan{
+				Timeout: 5 * time.Minute,
+				To:      []string{"phone-bridge"},
+			},
+		}})
+
+		n := alertNotification()
+		n.Params = map[string]any{"alert_id": "incident-9"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(queue.tasks) == 0 {
+			t.Fatalf("expected delivery before escalation arms")
+		}
+		if len(sched.scheduled) != 1 {
+			t.Fatalf("expected one scheduled upgrade, got %d", len(sched.scheduled))
+		}
+		p := sched.scheduled[0]
+		if p.RuleID != "r-up" || p.AlertID != "incident-9" || p.Timeout != 5*time.Minute {
+			t.Fatalf("unexpected pending: %+v", p)
+		}
+		if len(p.To) != 1 || p.To[0] != "phone-bridge" || p.Title != "Test Alert" {
+			t.Fatalf("pending must carry the plan and the alert context: %+v", p)
+		}
+	})
+
+	t.Run("escalation falls back to the dedup key without alert_id", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		sched := &stubScheduler{}
+		svc.SetEscalationScheduler(sched)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-up",
+			Mode:       rules.ModeActive,
+			Channels:   []string{"rule-provider"},
+			Escalation: &rules.EscalationPlan{Timeout: time.Minute, To: []string{"phone"}},
+		}})
+
+		if _, err := svc.Process(ctx, alertNotification()); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(sched.scheduled) != 1 || sched.scheduled[0].AlertID == "" {
+			t.Fatalf("expected a non-empty fallback alert id, got %+v", sched.scheduled)
+		}
+	})
+
+	t.Run("escalation tolerates notifications without inline content", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		sched := &stubScheduler{}
+		svc.SetEscalationScheduler(sched)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-up",
+			Mode:       rules.ModeActive,
+			Channels:   []string{"rule-provider"},
+			Escalation: &rules.EscalationPlan{Timeout: time.Minute, To: []string{"phone"}},
+		}})
+
+		// No Content: the identity falls back to the dedup key over the
+		// remaining fields and the pending carries no title.
+		n := alertNotification()
+		n.Content = nil
+		n.Level = "critical"
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(sched.scheduled) != 1 {
+			t.Fatalf("expected one scheduled upgrade, got %+v", sched.scheduled)
+		}
+		if sched.scheduled[0].AlertID == "" || sched.scheduled[0].Title != "" {
+			t.Fatalf("unexpected pending identity: %+v", sched.scheduled[0])
+		}
+	})
+
+	t.Run("escalation does not arm for explicit channels", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		sched := &stubScheduler{}
+		svc.SetEscalationScheduler(sched)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-up",
+			Mode:       rules.ModeActive,
+			Channels:   []string{"rule-provider"},
+			Escalation: &rules.EscalationPlan{Timeout: time.Minute, To: []string{"phone"}},
+		}})
+
+		n := alertNotification()
+		n.Channels = []string{"static-provider"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(sched.scheduled) != 0 {
+			t.Fatalf("explicit-channel calls must not arm rule escalations, got %+v", sched.scheduled)
+		}
+	})
+
+	t.Run("suppressed deliveries do not arm escalation", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		sched := &stubScheduler{}
+		svc.SetEscalationScheduler(sched)
+		// ForPending suppresses the delivery; no escalation may arm.
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-up",
+			Mode:       rules.ModeActive,
+			ForPending: true,
+			Escalation: &rules.EscalationPlan{Timeout: time.Minute, To: []string{"phone"}},
+		}})
+
+		if _, err := svc.Process(ctx, alertNotification()); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(sched.scheduled) != 0 {
+			t.Fatalf("suppressed event must not arm escalation, got %+v", sched.scheduled)
+		}
+	})
+
+	t.Run("DeliverEscalation repeats the alert on the plan channels", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+
+		err := svc.DeliverEscalation(ctx, escalation.Pending{
+			RuleID:  "r-up",
+			AlertID: "incident-9",
+			To:      []string{"rule-provider"},
+			Timeout: 5 * time.Minute,
+			Title:   "disk full",
+		})
+		if err != nil {
+			t.Fatalf("DeliverEscalation: %v", err)
+		}
+		if len(queue.tasks) != 1 {
+			t.Fatalf("expected one queued escalation, got %d", len(queue.tasks))
+		}
+		content := queue.tasks[0].Payload.Content
+		if content == nil || !strings.Contains(content.Title, "[Escalation]") || !strings.Contains(content.Title, "disk full") {
+			t.Fatalf("unexpected escalation title: %+v", content)
+		}
+		if !strings.Contains(content.Body, "r-up") || !strings.Contains(content.Body, "incident-9") {
+			t.Fatalf("escalation body must name the rule and alert, got %q", content.Body)
+		}
+	})
+
+	t.Run("DeliverEscalation fails without channels", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		if err := svc.DeliverEscalation(ctx, escalation.Pending{AlertID: "a1"}); err == nil {
+			t.Fatal("expected error for empty channel list")
+		}
+	})
+
+	t.Run("escalation alert id falls back to scalar params", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		sched := &stubScheduler{}
+		svc.SetEscalationScheduler(sched)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-up",
+			Mode:       rules.ModeActive,
+			Channels:   []string{"rule-provider"},
+			Escalation: &rules.EscalationPlan{Timeout: time.Minute, To: []string{"phone"}},
+		}})
+
+		n := alertNotification()
+		n.Params = map[string]any{"alert_id": 42}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(sched.scheduled) != 1 || sched.scheduled[0].AlertID != "42" {
+			t.Fatalf("non-string alert_id must stringify, got %+v", sched.scheduled)
+		}
+	})
+
+	t.Run("DeliverEscalation fails when every channel errors", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		err := svc.DeliverEscalation(ctx, escalation.Pending{
+			AlertID: "a1",
+			To:      []string{"ghost-channel"},
+		})
+		if err == nil {
+			t.Fatal("expected error when no escalation channel accepts the delivery")
+		}
+		if !strings.Contains(err.Error(), "all channels failed") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("Escalate delivers in the background", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		// Background delivery: no error surfaces, the upgrade simply lands
+		// on the queue shortly after Escalate returns.
+		svc.Escalate(escalation.Pending{
+			RuleID:  "r-up",
+			AlertID: "a1",
+			To:      []string{"rule-provider"},
+			Timeout: 5 * time.Minute,
+			Title:   "disk full",
+		})
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(queue.tasks) == 1 {
+				content := queue.tasks[0].Payload.Content
+				if content == nil || !strings.Contains(content.Title, "[Escalation]") {
+					t.Fatalf("unexpected escalation content: %+v", content)
+				}
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		t.Fatal("background escalation never reached the queue")
+	})
+
+	t.Run("escalation without a title names the alert id", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		if err := svc.DeliverEscalation(ctx, escalation.Pending{
+			RuleID:  "r-up",
+			AlertID: "incident-7",
+			To:      []string{"rule-provider"},
+			Timeout: time.Minute,
+		}); err != nil {
+			t.Fatalf("DeliverEscalation: %v", err)
+		}
+		content := queue.tasks[0].Payload.Content
+		if content == nil || !strings.Contains(content.Title, "[Escalation]") || !strings.Contains(content.Title, "incident-7") {
+			t.Fatalf("titleless escalation must fall back to the alert id, got %+v", content)
 		}
 	})
 

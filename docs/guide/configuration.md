@@ -197,6 +197,14 @@ rules:
       # ttl: 30m                  #   在场条目存活期，默认 30m
     route:
       - channels: [devops]
+  - id: prod-disk-down            # 带升级链的规则，见「escalation 升级链（P3）」
+    match: 'type == "alert" && params.check == "disk"'
+    mode: active
+    escalation:                   # ack_timeout 内无确认 → 升级到 to 渠道
+      ack_timeout: 5m             #   可选，默认 5m，上限 24h
+      to: [phone-bridge]          #   升级渠道（如 webhook 桥接的电话网关）
+    route:
+      - channels: [oncall]
 
 # 规则持久化文件（可选）
 # 设置后通过 API 对规则的新增/修改/删除会落盘到该 JSON 文件，重启自动恢复；
@@ -211,6 +219,12 @@ rules:
 #   addr: "localhost:6379"
 #   # password: "..."
 #   # db: 0
+
+# 升级链待决记录持久化（可选）
+# 设置后 escalation 的待决升级落盘到该 JSON 文件，重启时恢复：
+# 已过期的补发升级（停机期间的 ack 仍会被尊重），未到期的按剩余时间重建定时器。
+# 不设置时待决升级仅保存在内存中（重启即丢，等于放弃升级）。
+# escalation_store: ./data/escalations.json
 
 # Provider 限流（可选，token bucket）
 # 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
@@ -396,10 +410,6 @@ providers:
 - 判定顺序在最前（先于 inhibit / for / group_by）：静默是「整段日程不吵」，与根因在场、持续判定都是不同层面的语义
 - 显式 `channels` 的通知不受静默（显式意图优先）；shadow 规则不检查静默（影子只观察条件命中）
 
-### P2/P3 未生效字段
-
-`escalation` 依赖 P3 的 ACK 闭环（ACK 记录/查询 API 已就位，升级链在后续批次接线）——配置了它会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
-
 ### 规则存储与 API（热加载）
 
 - 默认规则只存在内存中（来自 `rules` 种子）；设置 `rules_store: <path>` 后，通过 API 的增删改会原子落盘到该 JSON 文件（tmp + rename），重启自动恢复
@@ -441,7 +451,17 @@ curl http://localhost:8080/api/v1/alerts/incident-123
 
 - `{id}` 是调用方的告警身份——调用方在通知 params 里带的业务告警 id，同一告警的多次通知用同一 id 确认一次即可
 - 确认是幂等的：同一 id 重复确认保留首次记录（确认时间是事实，不是计数器）
-- 当前 ACK 状态仅记录与查询；`escalation` 升级链（P3 后续批次）消费它——ack_timeout 内未确认才升级
+
+### escalation 升级链（P3）
+
+规则可带 `escalation: {ack_timeout: 5m, to: [phone-bridge]}`：ack_timeout 内无人确认时把告警重投到更宽的 to 渠道（电话渠道以 webhook 桥接外部电话网关实现，herald 不内置运营商集成）。
+
+- 告警身份取通知 `params.alert_id`（调用方的业务 id，与 ack API 同一身份空间）；未提供时退回内容指纹（同内容告警身份一致，但显式提供 alert_id 才好确认）
+- 规则路由的投递出去后开一个 ack_timeout 窗口；同一告警再次投递会重置窗口（升级看的是「最新一条也没人看」）；窗口内通过 ack API 确认则升级取消
+- 到点未确认 → 合成升级通知投递到 to 渠道（标题 `[Escalation]` + 原标题，正文含规则、告警 id 与超时时长）；升级通知不过规则求值也不过去重——升级的本意就是重复一条已发出的告警
+- **超时判定是定时器语义**（P2 全部语义都是事件驱动，唯独升级必须在没有后续事件时也能动作）：待决升级持久化到 `escalation_store`，重启时恢复——已过期的补发升级（停机期间的 ack 仍被尊重），未到期的按剩余时间重建定时器；不配置 `escalation_store` 时重启即放弃待决升级
+- 双重保险：ack 请求若与升级触发同时刻竞争，即使升级定时器已经触发，触发时的 ack 复查仍会让它放弃投递
+- 显式 `channels` 的调用不挂升级链（规则的升级只作用于规则自己的路由）；被 for/组折叠/抑制/静默拦下的事件本来就没投递，自然不挂
 
 
 ### 投递限流与重试

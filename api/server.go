@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
@@ -39,8 +40,9 @@ type Config struct {
 	Auth            *auth.Auth
 	TemplateManager *template.Manager
 	WorkerRegistry  *worker.Registry
-	Rules           *rules.Engine // optional; nil keeps static routing only
-	AckStore        ack.Store     // optional; nil keeps alert endpoints off
+	Rules           *rules.Engine       // optional; nil keeps static routing only
+	AckStore        ack.Store           // optional; nil keeps alert endpoints off
+	Escalation      *escalation.Manager // optional; enables ack-cancel of upgrades
 }
 
 // NewServer creates a new server
@@ -70,6 +72,14 @@ func NewServer(config *Config) *Server {
 	}
 	if config.AckStore != nil {
 		handler.SetAckStore(config.AckStore)
+	}
+	if config.Escalation != nil {
+		handler.SetEscalationManager(config.Escalation)
+		// The manager arms upgrades for routed rule events; the service
+		// delivers them when one fires. An ack arriving through the API
+		// cancels via the handler's reference to the same manager.
+		notificationSvc.SetEscalationScheduler(config.Escalation)
+		config.Escalation.SetNotifier(notificationSvc)
 	}
 
 	s := &Server{

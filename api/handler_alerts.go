@@ -67,5 +67,11 @@ func (h *Handler) HandleAlertAck(w http.ResponseWriter, r *http.Request) {
 		h.respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// An ack in time cancels every pending upgrade for this alert. A
+	// failure here is not fatal: a pending upgrade that misses the cancel
+	// re-checks the ack store when its timer fires and stands down then.
+	if h.escalation != nil {
+		_ = h.escalation.Cancel(r.Context(), id)
+	}
 	h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: rec})
 }

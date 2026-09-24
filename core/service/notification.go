@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
@@ -57,16 +59,24 @@ type RuleObserver interface {
 	RecordSilenced(ruleID string, n *core.Notification)
 }
 
+// EscalationScheduler arms and cancels ack-gated upgrade deliveries for
+// routed rule events (nil by default: no escalation).
+type EscalationScheduler interface {
+	Schedule(ctx context.Context, p escalation.Pending) error
+	Cancel(ctx context.Context, alertID string) error
+}
+
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
-	templates *template.Manager
-	router    *route.Router
-	runtime   ProviderRuntime
-	dedup     *dedup.Dedup
-	queue     core.Queue
-	planner   *DeliveryPlanner
-	rules     RuleEvaluator
-	observer  RuleObserver
+	templates  *template.Manager
+	router     *route.Router
+	runtime    ProviderRuntime
+	dedup      *dedup.Dedup
+	queue      core.Queue
+	planner    *DeliveryPlanner
+	rules      RuleEvaluator
+	observer   RuleObserver
+	escalation EscalationScheduler
 }
 
 // NewNotificationService creates a new NotificationService
@@ -99,6 +109,12 @@ func (s *NotificationService) SetRuleObserver(ro RuleObserver) {
 	s.observer = ro
 }
 
+// SetEscalationScheduler attaches the ack-gated upgrade scheduler. nil
+// (the default) keeps escalation declarations inert.
+func (s *NotificationService) SetEscalationScheduler(es EscalationScheduler) {
+	s.escalation = es
+}
+
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
 func (s *NotificationService) Process(ctx context.Context, n *core.Notification) (*ProcessResult, error) {
 	if s.queue == nil {
@@ -120,6 +136,8 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 	// too; only routing is conditional on it.
 	channels := n.Channels
 	var summary *rules.GroupSummary
+	var plan *rules.EscalationPlan
+	var planRule string
 	if s.rules != nil {
 		decision, evalErr := s.rules.Evaluate(ctx, rules.NewEnv(
 			n.Type, n.Level, directTitle(n), directBody(n), n.Params,
@@ -171,6 +189,8 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 			}
 			channels = decision.Channels
 			summary = decision.Summary
+			plan = decision.Escalation
+			planRule = decision.RuleID
 		}
 	}
 	if len(channels) == 0 {
@@ -206,6 +226,23 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 	// dedup hit here would silently lose folded events).
 	if summary != nil {
 		s.enqueue(ctx, summaryNotification(n, summary), channels, nil, result)
+	}
+
+	// The delivery went out on the rule's routing: arm (or re-arm) the
+	// ack-gated upgrade. A persistence failure of the scheduler is not a
+	// delivery failure — the in-memory timer still fires, only a restart
+	// would lose the pending upgrade — so it does not fail the Process.
+	if plan != nil && s.escalation != nil {
+		_ = s.escalation.Schedule(ctx, escalation.Pending{
+			RuleID:    planRule,
+			AlertID:   alertIDOf(n),
+			To:        plan.To,
+			Timeout:   plan.Timeout,
+			CreatedAt: time.Now(),
+			Type:      n.Type,
+			Level:     n.Level,
+			Title:     directTitle(n),
+		})
 	}
 
 	// If zero tasks created, return error
@@ -248,6 +285,80 @@ func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification,
 
 		result.TaskIDs = append(result.TaskIDs, task.ID)
 		result.Accepted = append(result.Accepted, channel)
+	}
+}
+
+// alertIDOf derives the acknowledgement identity of a notification: the
+// caller's business alert id from params when present, otherwise the
+// content dedup key — a stable identity for the same alert content (the
+// caller can then ack that key, though supplying an alert_id is the
+// intended usage).
+func alertIDOf(n *core.Notification) string {
+	if v, ok := n.Params["alert_id"]; ok && v != nil {
+		switch v := v.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(v); trimmed != "" {
+				return trimmed
+			}
+		default:
+			if s := strings.TrimSpace(fmt.Sprint(v)); s != "" && s != "<nil>" {
+				return s
+			}
+		}
+	}
+	return dedupKey(n)
+}
+
+// DeliverEscalation delivers the synthetic upgrade notification for a
+// fired escalation: it repeats the alert on the plan's "to" channels so
+// the wider audience sees what timed out without an ack. Like group
+// summaries it bypasses rule evaluation and dedup — escalation exists
+// exactly to repeat an alert that already went out.
+func (s *NotificationService) DeliverEscalation(ctx context.Context, p escalation.Pending) error {
+	if len(p.To) == 0 {
+		return fmt.Errorf("escalation: no channels to escalate to")
+	}
+	n := escalationNotification(p)
+	result := &ProcessResult{NotificationID: n.ID}
+	s.enqueue(ctx, n, p.To, nil, result)
+	if len(result.TaskIDs) == 0 && len(result.Failed) > 0 {
+		return fmt.Errorf("escalation: all channels failed: %s", formatChannelErrors(result.Failed))
+	}
+	return nil
+}
+
+// Escalate implements escalation.Notifier: it delivers the upgrade in the
+// background context of a timer callback. Delivery failures are currently
+// silent — the incident ledger (P3) will make fired upgrades and their
+// failures visible; here the process has no observer channel for them yet.
+func (s *NotificationService) Escalate(p escalation.Pending) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = s.DeliverEscalation(ctx, p)
+}
+
+// escalationNotification builds the synthetic upgrade notification for a
+// fired escalation, carrying the original alert's context and the
+// escalation facts in both the body and params.
+func escalationNotification(p escalation.Pending) *core.Notification {
+	title := p.Title
+	if title == "" {
+		title = p.AlertID
+	}
+	return &core.Notification{
+		ID:    uuid.New().String(),
+		Type:  p.Type,
+		Level: p.Level,
+		Params: map[string]any{
+			"escalation_rule": p.RuleID,
+			"alert_id":        p.AlertID,
+		},
+		Content: &core.DirectContent{
+			Title: fmt.Sprintf("[Escalation] %s", title),
+			Body: fmt.Sprintf("Rule %s re-delivers alert %q: no acknowledgement arrived within %s.",
+				p.RuleID, p.AlertID, p.Timeout),
+		},
+		CreatedAt: time.Now(),
 	}
 }
 

@@ -256,18 +256,40 @@ func TestRuleValidate(t *testing.T) {
 		}
 	})
 
-	t.Run("not-yet-effective fields rejected", func(t *testing.T) {
-		cases := map[string]func(*Rule){
-			"escalation": func(r *Rule) { r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{"boss"}} },
+	t.Run("escalation validated", func(t *testing.T) {
+		// A well-formed escalation spec is accepted since P3 enforces the
+		// ack-gated upgrade.
+		r := validRule()
+		r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{"phone-bridge"}}
+		if err := r.Validate(); err != nil {
+			t.Errorf("escalation: expected acceptance, got %v", err)
 		}
-		for name, mutate := range cases {
-			r := validRule()
-			mutate(&r)
+		// ack_timeout is optional (default applies), to is not.
+		r = validRule()
+		r.Escalation = &EscalationSpec{To: []string{"phone-bridge"}}
+		if err := r.Validate(); err != nil {
+			t.Errorf("escalation without ack_timeout: expected acceptance, got %v", err)
+		}
+
+		// Malformed ack_timeout values are rejected.
+		r = validRule()
+		for _, bad := range []string{"abc", "0s", "-5m", "25h", "9999h"} {
+			r.Escalation = &EscalationSpec{AckTimeout: bad, To: []string{"phone-bridge"}}
 			if err := r.Validate(); err == nil {
-				t.Errorf("%s: expected rejection for P1-inert field", name)
-			} else if !strings.Contains(err.Error(), "not effective") {
-				t.Errorf("%s: error should explain the field is not effective, got %v", name, err)
+				t.Errorf("ack_timeout %q: expected rejection", bad)
 			}
+		}
+
+		// to must name at least one non-blank channel.
+		r = validRule()
+		r.Escalation = &EscalationSpec{AckTimeout: "5m"}
+		if err := r.Validate(); err == nil {
+			t.Error("escalation without to channels: expected rejection")
+		}
+		r = validRule()
+		r.Escalation = &EscalationSpec{AckTimeout: "5m", To: []string{" "}}
+		if err := r.Validate(); err == nil {
+			t.Error("blank escalation channel: expected rejection")
 		}
 	})
 }

@@ -124,6 +124,8 @@ type compiledRule struct {
 	inhibitTTL time.Duration
 	// silence is the parsed daily quiet window; nil = rule is never silenced.
 	silence *compiledSilence
+	// escalation is the parsed ack-gated upgrade plan; nil = no escalation.
+	escalation *EscalationPlan
 }
 
 // compiledSilence pairs the parsed daily window with the optional
@@ -175,6 +177,11 @@ type Decision struct {
 	// daily silence window: the event is withheld for as long as the
 	// window lasts (pure schedule-driven, no state involved).
 	Silenced bool
+	// Escalation is the governing active rule's ack-gated upgrade plan;
+	// non-nil only when the event itself is routed and the rule declares
+	// an escalation spec. The caller schedules the upgrade after delivery
+	// and cancels it when an ack for the alert arrives in time.
+	Escalation *EscalationPlan
 	// EvalErrors lists rules whose expressions failed to evaluate; these
 	// rules were skipped and never contribute a match.
 	EvalErrors []EvalError
@@ -429,7 +436,18 @@ func compileRule(r Rule) (*compiledRule, error) {
 			}
 		}
 	}
-	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL, silence: silence}, nil
+	var escalation *EscalationPlan
+	if r.Escalation != nil {
+		timeout := DefaultAckTimeout
+		if r.Escalation.AckTimeout != "" {
+			timeout, err = parseDurationField("ack_timeout", r.Escalation.AckTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+			}
+		}
+		escalation = &EscalationPlan{Timeout: timeout, To: r.Escalation.To}
+	}
+	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL, silence: silence, escalation: escalation}, nil
 }
 
 // Evaluate runs the notification environment against the rule table in
@@ -580,7 +598,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 				continue
 			}
 			// First matching active rule governs; shadow observations ride along.
-			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary}
+			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary, Escalation: cr.escalation}
 			if decision != nil {
 				governing.Shadow = decision.Shadow
 			}

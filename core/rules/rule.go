@@ -44,10 +44,12 @@ type InhibitSpec struct {
 }
 
 // EscalationSpec re-notifies a wider channel when no ack arrives in time.
-// Modeled in P1; enforcement lands in P3 (needs ACK tracking).
+// The alert id used for acknowledgement is the notification's params
+// "alert_id" (the caller's business identity); after ack_timeout without
+// one, the delivery escalates to the "to" channels.
 type EscalationSpec struct {
 	AckTimeout string   `json:"ack_timeout,omitempty" yaml:"ack_timeout,omitempty"`
-	To         []string `json:"to,omitempty" yaml:"to,omitempty"`
+	To         []string `json:"to" yaml:"to"`
 }
 
 // SilenceSpec keeps a rule quiet during a daily window (HH:MM, process
@@ -61,12 +63,11 @@ type SilenceSpec struct {
 	Match *string `json:"match,omitempty" yaml:"match,omitempty"`
 }
 
-// Rule is the storage model of a notification rule. Enforced semantics:
-// Match/Mode/Route in P1; For, GroupBy/GroupInterval, Inhibit and Silence
-// in P2 (event-driven duration judgement, group aggregation, root-cause
-// suppression and daily quiet windows). Escalation is modeled but still
-// rejected by Validate until implemented — accepting it silently would
-// promise behavior that never happens.
+// Rule is the storage model of a notification rule. Every field is
+// enforced: Match/Mode/Route (routing), For/GroupBy/GroupInterval
+// (event-driven duration judgement and group aggregation), Inhibit and
+// Silence (root-cause suppression and daily quiet windows), Escalation
+// (ack-gated upgrade delivery).
 type Rule struct {
 	ID    string      `json:"id" yaml:"id"`
 	Match string      `json:"match" yaml:"match"`
@@ -161,6 +162,25 @@ func validateSilence(r *Rule) error {
 	return nil
 }
 
+// validateEscalation checks the upgrade spec: ack_timeout parses when set
+// (default otherwise), and to names at least one non-blank channel.
+func validateEscalation(r *Rule) error {
+	if r.Escalation.AckTimeout != "" {
+		if _, err := parseDurationField("ack_timeout", r.Escalation.AckTimeout); err != nil {
+			return err
+		}
+	}
+	if len(r.Escalation.To) == 0 {
+		return fmt.Errorf("rules: rule %q: escalation.to must list at least one channel", r.ID)
+	}
+	for i, ch := range r.Escalation.To {
+		if strings.TrimSpace(ch) == "" {
+			return fmt.Errorf("rules: rule %q: escalation.to channel %d is empty", r.ID, i)
+		}
+	}
+	return nil
+}
+
 // Normalize fills in defaults (empty mode becomes shadow) and trims the id.
 func (r *Rule) Normalize() {
 	r.ID = strings.TrimSpace(r.ID)
@@ -196,10 +216,8 @@ func (r Rule) Validate() error {
 			}
 		}
 	}
-	// Fields below are modeled for forward compatibility but not enforced
-	// yet; reject them so users never rely on behavior that does not exist.
-	// For, GroupBy/GroupInterval and Inhibit are enforced (P2): only their
-	// format is validated here.
+	// All modeled fields are enforced; validation only checks their format
+	// (compilation of match/silence.match happens in Engine.Validate).
 	if r.For != nil {
 		if _, err := ParseFor(*r.For); err != nil {
 			return err
@@ -221,7 +239,9 @@ func (r Rule) Validate() error {
 		}
 	}
 	if r.Escalation != nil {
-		return fmt.Errorf("rules: rule %q: escalation is not effective until P3 (drop it or wait)", r.ID)
+		if err := validateEscalation(&r); err != nil {
+			return err
+		}
 	}
 	return nil
 }

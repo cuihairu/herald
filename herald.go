@@ -26,7 +26,9 @@ import (
 
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
@@ -42,14 +44,16 @@ import (
 // notification pipeline bound together. Create one with New and stop it with
 // Close; an App is safe for concurrent Dispatch calls.
 type App struct {
-	cfg     *config.Config
-	queue   *awaitingQueue
-	backend core.Queue
-	manager *coreruntime.Manager
-	svc     *service.NotificationService
-	rules   *rules.Engine
-	cancel  context.CancelFunc
-	done    chan struct{}
+	cfg        *config.Config
+	queue      *awaitingQueue
+	backend    core.Queue
+	manager    *coreruntime.Manager
+	svc        *service.NotificationService
+	rules      *rules.Engine
+	acks       *ack.MemoryStore
+	escalation *escalation.Manager
+	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 // New builds an App from cfg and starts its delivery pool in the background.
@@ -155,6 +159,13 @@ func New(cfg *config.Config) (*App, error) {
 	svc.SetRuleEngine(rulesEngine)
 	svc.SetRuleObserver(manager)
 
+	// Ack-gated escalation: the ack store and the pending-upgrade manager
+	// share the alert identity space; the service both arms upgrades on
+	// routed deliveries and delivers them when one fires.
+	acks := ack.NewMemoryStore()
+	escalations := escalation.NewManager(acks, svc, cfg.EscalationStore)
+	svc.SetEscalationScheduler(escalations)
+
 	pool := worker.NewPool(aq, manager, worker.NewRegistry(), cfg.Queue.Workers)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -164,15 +175,26 @@ func New(cfg *config.Config) (*App, error) {
 		pool.Run(ctx)
 	}()
 
+	// Restore pending upgrades from a previous run (no-op without
+	// escalation_store); a corrupt file is a construction failure — the
+	// library caller decides what to do with the data on disk.
+	if err := escalations.Restore(context.Background()); err != nil {
+		_ = backend.Close()
+		cancel()
+		return nil, fmt.Errorf("restore escalations: %w", err)
+	}
+
 	return &App{
-		cfg:     cfg,
-		queue:   aq,
-		backend: backend,
-		manager: manager,
-		svc:     svc,
-		rules:   rulesEngine,
-		cancel:  cancel,
-		done:    done,
+		cfg:        cfg,
+		queue:      aq,
+		backend:    backend,
+		manager:    manager,
+		svc:        svc,
+		rules:      rulesEngine,
+		acks:       acks,
+		escalation: escalations,
+		cancel:     cancel,
+		done:       done,
 	}, nil
 }
 
@@ -228,9 +250,21 @@ func (a *App) Close() error {
 	<-a.done
 	// The pool has fully exited, so closing the backend cannot race an
 	// in-flight Pop (the memory queue returns zero-value tasks once closed).
+	_ = a.escalation.Close()
 	err := a.backend.Close()
 	_ = a.manager.Close(context.Background())
 	return err
+}
+
+// Acks returns the app's alert acknowledgement store — the same store the
+// escalation timers consult before firing.
+func (a *App) Acks() *ack.MemoryStore {
+	return a.acks
+}
+
+// Escalation returns the app's pending-upgrade manager.
+func (a *App) Escalation() *escalation.Manager {
+	return a.escalation
 }
 
 // applyDefaults returns a copy of cfg with the library-relevant zero values

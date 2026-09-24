@@ -1,10 +1,16 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/escalation"
 )
 
 func withAckStore(s ack.Store) func(*Config) {
@@ -102,6 +108,38 @@ func TestHandleAlertAckMalformedBody(t *testing.T) {
 	code, _ := env.do(t, http.MethodPost, "/api/v1/alerts/a1/ack", `{broken`, nil)
 	if code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", code)
+	}
+}
+
+func TestHandleAlertAckCancelsPendingUpgrade(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pendings.json")
+	esc := escalation.NewManager(ack.NewMemoryStore(), nil, path)
+	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()), func(c *Config) { c.Escalation = esc })
+
+	// Arm a pending upgrade (persisted), then ack through the API.
+	err := esc.Schedule(context.Background(), escalation.Pending{
+		RuleID: "r-up", AlertID: "inc-1", To: []string{"phone"},
+		Timeout: time.Minute, CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/alerts/inc-1/ack", `{"acked_by":"alice"}`, nil); code != http.StatusOK {
+		t.Fatalf("ack failed with status %d", code)
+	}
+	// The ack cancelled the pending upgrade: the persisted table is empty.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pendings: %v", err)
+	}
+	var f struct {
+		Pendings []escalation.Pending `json:"pendings"`
+	}
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("parse pendings: %v", err)
+	}
+	if len(f.Pendings) != 0 {
+		t.Fatalf("ack must cancel the pending upgrade, got %+v", f.Pendings)
 	}
 }
 

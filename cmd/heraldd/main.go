@@ -17,6 +17,7 @@ import (
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
@@ -188,6 +189,11 @@ func serveCmd(args []string) int {
 	registry := worker.NewRegistry()
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
 
+	// Ack store and escalation manager share the alert identity space:
+	// the ack arriving in time cancels the pending upgrade.
+	ackStore := ack.NewMemoryStore()
+	escalations := escalation.NewManager(ackStore, nil, cfg.EscalationStore)
+
 	// Create API server
 	srv := api.NewServer(&api.Config{
 		Addr:            cfg.Server.Addr,
@@ -200,8 +206,16 @@ func serveCmd(args []string) int {
 		TemplateManager: templateMgr,
 		WorkerRegistry:  registry,
 		Rules:           rulesEngine,
-		AckStore:        ack.NewMemoryStore(),
+		AckStore:        ackStore,
+		Escalation:      escalations,
 	})
+
+	// Re-arm pending upgrades from the previous run. A failure here must
+	// not keep the alert system down — pending upgrades are an add-on —
+	// so it is logged and the in-memory table starts empty.
+	if err := escalations.Restore(context.Background()); err != nil {
+		logger.Error("failed to restore pending escalations", "error", err)
+	}
 
 	// Create WebSocket server (management channel)
 	wsServer := websocket.NewServer(&websocket.Config{
@@ -251,6 +265,9 @@ func serveCmd(args []string) int {
 	_ = srv.Shutdown(shutdownCtx)
 	_ = manager.Close(shutdownCtx)
 	_ = wsServer.Stop()
+	// Stops upgrade timers; pending records stay persisted for the next
+	// run to restore and judge.
+	_ = escalations.Close()
 
 	logger.Info("shutdown complete")
 	return 0

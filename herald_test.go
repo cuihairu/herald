@@ -48,6 +48,15 @@ func (p *recordingProvider) count() int {
 	return len(p.tasks)
 }
 
+func (p *recordingProvider) lastTask() *core.DeliveryTask {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.tasks) == 0 {
+		return nil
+	}
+	return p.tasks[len(p.tasks)-1]
+}
+
 func newTestApp(t *testing.T) (*App, *recordingProvider) {
 	t.Helper()
 	app, err := New(nil)
@@ -454,6 +463,26 @@ func TestNewRejectsInvalidRule(t *testing.T) {
 	}
 }
 
+func TestNewRejectsCorruptEscalationStore(t *testing.T) {
+	// A corrupt escalation_store is a construction failure for the library
+	// caller (the daemon logs and continues): a silent restore failure
+	// would drop armed upgrades without anyone knowing.
+	path := filepath.Join(t.TempDir(), "pendings.json")
+	if err := os.WriteFile(path, []byte("{broken"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cfg := config.Default()
+	cfg.EscalationStore = path
+	app, err := New(cfg)
+	if err == nil {
+		_ = app.Close()
+		t.Fatal("New() with a corrupt escalation store should fail")
+	}
+	if !strings.Contains(err.Error(), "restore escalations") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestNewBadRuleExpression(t *testing.T) {
 	cfg := config.Default()
 	cfg.Rules = []rules.Rule{{
@@ -715,6 +744,141 @@ func TestDispatchWithInhibitRuleSuppressesLeafAlerts(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// escalationApp builds an app with an active rule whose escalation plan
+// re-delivers to the "phone" provider after the given timeout.
+func escalationApp(t *testing.T, ackTimeout string) (*App, *recordingProvider, *recordingProvider) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{{
+		ID:    "disk-down",
+		Match: `type == "alert"`,
+		Mode:  rules.ModeActive,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+		Escalation: &rules.EscalationSpec{
+			AckTimeout: ackTimeout,
+			To:         []string{"phone"},
+		},
+	}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if app.Escalation() == nil || app.Acks() == nil {
+		t.Fatal("New() must expose the escalation manager and the ack store")
+	}
+	t.Cleanup(func() { _ = app.Close() })
+	rec := &recordingProvider{}
+	phone := &recordingProvider{}
+	for name, prov := range map[string]*recordingProvider{"rec": rec, "phone": phone} {
+		if err := app.Runtime().RegisterProvider(name, prov, true); err != nil {
+			t.Fatalf("RegisterProvider(%s) error = %v", name, err)
+		}
+	}
+	return app, rec, phone
+}
+
+// TestDispatchWithEscalationFiresUpgradeWithoutAck delivers a rule-routed
+// alert and verifies the upgrade reaches the escalation channel after the
+// (tiny) ack_timeout.
+func TestDispatchWithEscalationFiresUpgradeWithoutAck(t *testing.T) {
+	app, rec, phone := escalationApp(t, "30ms")
+
+	res, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "critical",
+		Params:  map[string]any{"alert_id": "inc-1"},
+		Content: &core.DirectContent{Title: "disk full", Body: "b"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 {
+		t.Fatalf("expected the original delivery, accepted = %v", res.Accepted)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if phone.count() == 1 {
+			task := phone.lastTask()
+			if task == nil || task.Payload.Content == nil ||
+				!strings.Contains(task.Payload.Content.Title, "[Escalation]") ||
+				!strings.Contains(task.Payload.Content.Title, "disk full") {
+				t.Fatalf("unexpected escalation payload: %+v", task)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("upgrade never fired; rec=%d phone=%d", rec.count(), phone.count())
+}
+
+// TestDispatchWithEscalationAckCancelsUpgrade acknowledges the alert right
+// after delivery and verifies the upgrade never fires.
+func TestDispatchWithEscalationAckCancelsUpgrade(t *testing.T) {
+	app, rec, phone := escalationApp(t, "30ms")
+
+	_, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "critical",
+		Params:  map[string]any{"alert_id": "inc-1"},
+		Content: &core.DirectContent{Title: "disk full", Body: "b"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if _, err := app.Acks().Ack(context.Background(), "inc-1", "alice", "test"); err != nil {
+		t.Fatalf("Ack() error = %v", err)
+	}
+
+	time.Sleep(80 * time.Millisecond)
+	if phone.count() != 0 {
+		t.Fatalf("acknowledged alert must not escalate")
+	}
+	if rec.count() != 1 {
+		t.Fatalf("expected exactly the original delivery, got %d", rec.count())
+	}
+}
+
+// TestDispatchWithEscalationRepeatsReArm verifies that a repeated delivery
+// of the same alert id resets the escalation window.
+func TestDispatchWithEscalationRepeatsReArm(t *testing.T) {
+	app, _, phone := escalationApp(t, "60ms")
+
+	notif := &core.Notification{
+		Type:    "alert",
+		Level:   "critical",
+		Params:  map[string]any{"alert_id": "inc-1"},
+		Content: &core.DirectContent{Title: "disk full", Body: "b"},
+	}
+	if _, err := app.DispatchSync(context.Background(), notif); err != nil {
+		t.Fatalf("DispatchSync(1) error = %v", err)
+	}
+	time.Sleep(35 * time.Millisecond)
+	notif2 := &core.Notification{
+		Type:    "alert",
+		Level:   "critical",
+		Params:  map[string]any{"alert_id": "inc-1"},
+		Content: &core.DirectContent{Title: "disk full", Body: "still full"},
+	}
+	if _, err := app.DispatchSync(context.Background(), notif2); err != nil {
+		t.Fatalf("DispatchSync(2) error = %v", err)
+	}
+	// 35ms after the second delivery the re-armed window (60ms) is still
+	// open; the first window would have expired by now.
+	time.Sleep(35 * time.Millisecond)
+	if phone.count() != 0 {
+		t.Fatalf("upgrade fired before the re-armed window closed")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if phone.count() == 1 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("re-armed upgrade never fired")
+}
 
 // TestDispatchWithSilenceRuleWithholdsInsideWindow builds a rule whose
 // silence window is centered on the current wall clock (now-2h to now+2h
