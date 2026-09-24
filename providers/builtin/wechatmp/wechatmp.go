@@ -82,6 +82,8 @@ type templateMessageResponse struct {
 func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	cfg, err := parseConfig(config)
 	if err != nil {
+		// Defensive: parseConfig only type-asserts each field and never
+		// fails; the error keeps the constructor signature uniform.
 		return nil, err
 	}
 

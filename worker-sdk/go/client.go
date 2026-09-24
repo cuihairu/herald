@@ -162,10 +162,15 @@ func (c *Client) register(ctx context.Context) error {
 		Capabilities: c.config.Capabilities,
 	}
 	if err := writeControl(conn, msg); err != nil {
+		// Defensive in practice: a peer reset is only surfaced by the next
+		// write after the first one succeeds, and register writes exactly
+		// once — read-side failures surface at ReadMessage below.
 		_ = conn.Close()
 		return err
 	}
 
+	// Defensive: the connection is freshly dialed and nothing has closed
+	// it, so the read deadline is always settable here.
 	if err := conn.SetReadDeadline(time.Now().Add(controlTimeout)); err != nil {
 		_ = conn.Close()
 		return err
@@ -185,6 +190,7 @@ func (c *Client) register(ctx context.Context) error {
 		return fmt.Errorf("register rejected: %s", ack.Error)
 	}
 	// Clear the ack deadline; the read loop runs without one.
+	// Defensive: the live connection makes this deadline always settable.
 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
 		_ = conn.Close()
 		return err
@@ -257,6 +263,8 @@ func writeControl(conn *gws.Conn, msg protocol.Message) error {
 	if err != nil {
 		return err
 	}
+	// Defensive: gorilla's SetWriteDeadline only records the timestamp and
+	// never touches the network, so it cannot fail.
 	if err := conn.SetWriteDeadline(time.Now().Add(controlTimeout)); err != nil {
 		return err
 	}
