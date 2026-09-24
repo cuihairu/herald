@@ -337,3 +337,20 @@ func TestServerSetCardCallbackKey(t *testing.T) {
 		t.Fatalf("the late-wired key must accept callbacks, got %+v", rec)
 	}
 }
+
+// TestPkcs7UnpadRejectsBadInput drives the length guard directly. It is
+// unreachable from decryptFeishuCallback — that caller rejects empty or
+// non-block-aligned ciphertexts first — but pkcs7Unpad is a package-level
+// helper any caller may invoke, so the guard is exercised here.
+func TestPkcs7UnpadRejectsBadInput(t *testing.T) {
+	for name, in := range map[string][]byte{
+		"nil":          nil,
+		"empty":        {},
+		"unaligned":    make([]byte, 15),
+		"zero padding": make([]byte, 16),
+	} {
+		if _, err := pkcs7Unpad(in, 16); err == nil {
+			t.Fatalf("pkcs7Unpad(%s) must be rejected", name)
+		}
+	}
+}
