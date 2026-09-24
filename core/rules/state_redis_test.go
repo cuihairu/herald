@@ -144,7 +144,9 @@ func TestNewRedisStateStoreEmptyAddressUsesDefault(t *testing.T) {
 // state.
 func TestRedisStateStoreGetRejectsCorruptValue(t *testing.T) {
 	s, mr := newTestRedisStore(t)
-	mr.Set(stateKey("r1", "g1"), "not-json")
+	if err := mr.Set(stateKey("r1", "g1"), "not-json"); err != nil {
+		t.Fatalf("seed miniredis: %v", err)
+	}
 	if _, err := s.Get(context.Background(), stateKey("r1", "g1")); err == nil {
 		t.Fatal("a corrupt value must surface as a decode error")
 	}

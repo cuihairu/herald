@@ -100,7 +100,9 @@ func TestWebSocketConnectionLifecycle(t *testing.T) {
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(reg)); err != nil {
 		t.Fatalf("send register: %v", err)
 	}
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
 	var ack protocol.RegisterAckMessage
 	if err := conn.ReadJSON(&ack); err != nil {
 		t.Fatalf("read ack: %v", err)
