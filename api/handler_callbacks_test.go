@@ -275,15 +275,17 @@ func TestFeishuCallbackDecryptedGarbage(t *testing.T) {
 	}
 }
 
-// failingAckStore always errors, exercising the handler's failure path.
+// failingAckStore always errors, exercising the handlers' failure paths.
 type failingAckStore struct{}
 
 func (failingAckStore) Ack(context.Context, string, string, string) (*ack.Record, error) {
 	return nil, errors.New("store down")
 }
-func (failingAckStore) Get(context.Context, string) (*ack.Record, error) { return nil, nil }
-func (failingAckStore) Delete(context.Context, string) error             { return nil }
-func (failingAckStore) Close() error                                     { return nil }
+func (failingAckStore) Get(context.Context, string) (*ack.Record, error) {
+	return nil, errors.New("store down")
+}
+func (failingAckStore) Delete(context.Context, string) error { return nil }
+func (failingAckStore) Close() error                         { return nil }
 
 func TestFeishuCallbackAckStoreFailure(t *testing.T) {
 	env := newTestEnv(t, withAckStore(failingAckStore{}))

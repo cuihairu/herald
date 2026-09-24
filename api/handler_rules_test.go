@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/cuihairu/herald/core/rules"
@@ -267,5 +270,55 @@ func TestRuleCRUDPersistsThroughFileStore(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected empty persisted list, got %d rules", len(got))
+	}
+}
+
+// failingRulesStore errors on every operation, exercising the handlers'
+// store-failure paths.
+type failingRulesStore struct{}
+
+func (failingRulesStore) List(context.Context) ([]rules.Rule, error) {
+	return nil, errors.New("store down")
+}
+func (failingRulesStore) Get(context.Context, string) (rules.Rule, error) {
+	return rules.Rule{}, errors.New("store down")
+}
+func (failingRulesStore) Put(context.Context, rules.Rule) error { return errors.New("store down") }
+func (failingRulesStore) Delete(context.Context, string) error {
+	return errors.New("store down")
+}
+
+func TestHandleRulesStoreFailures(t *testing.T) {
+	env := newTestEnv(t, withRulesEngine(rules.NewEngine(failingRulesStore{})))
+
+	// Listing against a dead store is a 500.
+	if code, _ := env.do(t, http.MethodGet, "/api/v1/rules", "", nil); code != http.StatusInternalServerError {
+		t.Fatalf("list on a failing store must be 500, got %d", code)
+	}
+	// Get failing with something other than ErrNotFound must surface as
+	// 500 — both on the direct read and on the create-time existence check.
+	if code, _ := env.do(t, http.MethodGet, "/api/v1/rules/p1", "", nil); code != http.StatusInternalServerError {
+		t.Fatalf("get on a failing store must be 500, got %d", code)
+	}
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/rules", validRuleBody, nil); code != http.StatusInternalServerError {
+		t.Fatalf("create's existence check on a failing store must be 500, got %d", code)
+	}
+	// Same for delete.
+	if code, _ := env.do(t, http.MethodDelete, "/api/v1/rules/p1", "", nil); code != http.StatusInternalServerError {
+		t.Fatalf("delete on a failing store must be 500, got %d", code)
+	}
+}
+
+// The mux never routes an empty {id}, so the empty-id guard is exercised
+// by invoking the handler directly with an empty path value.
+func TestHandleRuleByIDEmptyID(t *testing.T) {
+	env := newTestEnv(t, withRulesEngine(rules.NewEngine(rules.NewMemoryStore())))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/rules/x", nil)
+	req.SetPathValue("id", "")
+	rec := httptest.NewRecorder()
+	env.server.handler.HandleRuleByID(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty rule id must be 400, got %d", rec.Code)
 	}
 }

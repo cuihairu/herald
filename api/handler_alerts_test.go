@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,5 +162,45 @@ func TestHandleAlertAckMethodNotAllowed(t *testing.T) {
 				t.Fatalf("expected status 405, got %d", code)
 			}
 		})
+	}
+}
+
+func TestHandleAlertStoreFailures(t *testing.T) {
+	env := newTestEnv(t, withAckStore(failingAckStore{}))
+
+	// Reading the ack status of a dead store is a 500.
+	if code, _ := env.do(t, http.MethodGet, "/api/v1/alerts/inc-1", "", nil); code != http.StatusInternalServerError {
+		t.Fatalf("get on a failing store must be 500, got %d", code)
+	}
+	// So is recording an acknowledgement.
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/alerts/inc-1/ack", `{"acked_by":"on-call"}`, nil); code != http.StatusInternalServerError {
+		t.Fatalf("ack on a failing store must be 500, got %d", code)
+	}
+}
+
+// The mux never routes an empty {id} (it matches a non-empty segment), so
+// the empty-id guards are exercised by invoking the handlers directly with
+// an empty path value.
+func TestHandleAlertByIDEmptyID(t *testing.T) {
+	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/alerts/x", nil)
+	req.SetPathValue("id", "")
+	rec := httptest.NewRecorder()
+	env.server.handler.HandleAlertByID(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty alert id must be 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleAlertAckEmptyID(t *testing.T) {
+	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/alerts/x/ack", strings.NewReader(`{}`))
+	req.SetPathValue("id", "")
+	rec := httptest.NewRecorder()
+	env.server.handler.HandleAlertAck(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty alert id must be 400, got %d", rec.Code)
 	}
 }

@@ -156,6 +156,9 @@ func decryptFeishuCallback(encryptKey, encoded string) ([]byte, error) {
 	if len(ciphertext) == 0 || len(ciphertext)%aes.BlockSize != 0 {
 		return nil, fmt.Errorf("ciphertext has invalid length")
 	}
+	// aes.NewCipher only fails on key lengths other than 16/24/32 bytes;
+	// the key here is always a SHA-256 digest (32 bytes), so this error
+	// branch is unreachable in practice and exists to satisfy the API.
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, fmt.Errorf("cipher: %w", err)
@@ -169,7 +172,11 @@ func decryptFeishuCallback(encryptKey, encoded string) ([]byte, error) {
 	return plain, nil
 }
 
-// pkcs7Unpad removes the padding of a PKCS7-padded block.
+// pkcs7Unpad removes the padding of a PKCS7-padded block. The length
+// guard below is unreachable from decryptFeishuCallback — that caller
+// already rejects empty or non-block-aligned ciphertexts, and CBC output
+// preserves input length — but the check keeps this helper self-contained
+// should it ever gain another caller.
 func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
 	if len(data) == 0 || len(data)%blockSize != 0 {
 		return nil, fmt.Errorf("invalid padded length")
