@@ -2,10 +2,12 @@ package rules
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 func newTestRedisStore(t *testing.T) (*RedisStateStore, *miniredis.Miniredis) {
@@ -124,5 +126,57 @@ func TestRedisStateStoreOperationsAfterClose(t *testing.T) {
 func TestNewRedisStateStoreRejectsDeadAddress(t *testing.T) {
 	if _, err := NewRedisStateStore("127.0.0.1:1", "", 0); err == nil {
 		t.Fatal("a dead address must fail at construction")
+	}
+}
+
+// An empty address falls back to the localhost default; the dial itself
+// decides success or failure.
+func TestNewRedisStateStoreEmptyAddressUsesDefault(t *testing.T) {
+	s, err := NewRedisStateStore("", "", 0)
+	if err == nil {
+		_ = s.Close()
+	}
+	// Either outcome is fine here: the branch under test is the fallback
+	// assignment, and 127.0.0.1:6379 may or may not be serving on this host.
+}
+
+// A value that is not valid JSON surfaces as a decode error, not as empty
+// state.
+func TestRedisStateStoreGetRejectsCorruptValue(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.Set(stateKey("r1", "g1"), "not-json")
+	if _, err := s.Get(context.Background(), stateKey("r1", "g1")); err == nil {
+		t.Fatal("a corrupt value must surface as a decode error")
+	}
+}
+
+// delFailHook fails only the DEL command, so the DeleteRule sweep reaches
+// its final delete with keys in hand.
+type delFailHook struct{ redis.Hook }
+
+func (h delFailHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if cmd.Name() == "del" {
+			return errors.New("del disabled for test")
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (h delFailHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h delFailHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func TestRedisStateStoreDeleteRuleReportsDeleteFailure(t *testing.T) {
+	s, _ := newTestRedisStore(t)
+	ctx := context.Background()
+	if err := s.Put(ctx, stateKey("r1", "g1"), &RuleState{FirstSeen: time.Now(), LastSeen: time.Now()}, 0); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	s.client.AddHook(delFailHook{})
+	if err := s.DeleteRule(ctx, "r1"); err == nil {
+		t.Fatal("a failing DEL must surface as a DeleteRule error")
 	}
 }

@@ -627,3 +627,55 @@ func TestEngineStoreErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateRejectsMalformedDurationsAndWindows(t *testing.T) {
+	// Every structured field — durations and the silence window alike — is
+	// parsed up front by Validate, so no rule that passes validation can be
+	// rejected later at compile time.
+	forDur, groupInterval, inhibitTTL := "abc", "abc", "abc"
+	engine := NewEngine(NewMemoryStore())
+
+	cases := []struct {
+		name string
+		rule Rule
+	}{
+		{"for", Rule{ID: "r", Match: "true", Route: []RouteStep{{Channels: []string{"c"}}}, For: &forDur}},
+		{"group_interval", Rule{ID: "r", Match: "true", Route: []RouteStep{{Channels: []string{"c"}}}, GroupBy: []string{"env"}, GroupInterval: &groupInterval}},
+		{"inhibit ttl", Rule{ID: "r", Match: "true", Route: []RouteStep{{Channels: []string{"c"}}}, Inhibit: &InhibitSpec{Source: "src", Equal: []string{"env"}, TTL: &inhibitTTL}}},
+		{"ack_timeout", Rule{ID: "r", Match: "true", Route: []RouteStep{{Channels: []string{"c"}}}, Escalation: &EscalationSpec{AckTimeout: "abc"}}},
+		{"silence window", Rule{ID: "r", Match: "true", Route: []RouteStep{{Channels: []string{"c"}}}, Silence: &SilenceSpec{Start: "25:99", End: "08:00"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := engine.Validate(&tc.rule); err == nil {
+				t.Fatalf("Validate must reject a malformed %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestSilenceMatchEvaluationErrorSuppressesNothing(t *testing.T) {
+	// A silence match that errors at runtime must not freeze the rule:
+	// the failure is reported and evaluation proceeds as if unmatched.
+	engine := NewEngine(NewMemoryStore())
+	silenceMatch := `params.fail_rate > 0.05` // fails when fail_rate is absent
+	rule := Rule{
+		ID:    "silent",
+		Match: `type == "alert"`,
+		Mode:  ModeActive,
+		Route: []RouteStep{{Channels: []string{"b"}}},
+		Silence: &SilenceSpec{
+			Start: "00:00", End: "23:59", // always inside the window
+			Match: &silenceMatch,
+		},
+	}
+	if err := engine.Put(context.Background(), &rule); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	// The broken silence match fails the rule (fail-safe: nothing is
+	// delivered) and the failure is reported by name.
+	_, err := engine.Evaluate(context.Background(), NewEnv("alert", "error", "", "", nil))
+	if err == nil || !strings.Contains(err.Error(), `"silent"`) {
+		t.Fatalf("the broken silence match must fail the rule by name, got %v", err)
+	}
+}

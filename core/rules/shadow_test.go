@@ -42,3 +42,13 @@ func TestShadowSamplerPerRule(t *testing.T) {
 		t.Fatalf("unknown rule expected count 0, got %d", got)
 	}
 }
+
+func TestShadowSamplerZeroIntervalRecordsEverything(t *testing.T) {
+	// A zero interval disables sampling: every hit is a full log entry.
+	s := NewShadowSampler(0)
+	for i := 1; i <= 5; i++ {
+		if !s.ShouldRecord("r") {
+			t.Fatalf("hit %d must be recorded with no sampling", i)
+		}
+	}
+}

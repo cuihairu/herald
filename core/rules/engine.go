@@ -423,6 +423,9 @@ func compileRule(r Rule) (*compiledRule, error) {
 	if r.For != nil {
 		forDur, err = ParseFor(*r.For)
 		if err != nil {
+			// Defensive: Validate already parsed this same field, so this
+			// cannot trigger from Put; kept so a future Validate change
+			// fails loudly instead of storing an uncompilable rule.
 			return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
 		}
 	}
@@ -433,6 +436,7 @@ func compileRule(r Rule) (*compiledRule, error) {
 		if r.GroupInterval != nil {
 			groupInterval, err = ParseGroupInterval(*r.GroupInterval)
 			if err != nil {
+				// Defensive: Validate already parsed this same field.
 				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
 			}
 		}
@@ -445,6 +449,7 @@ func compileRule(r Rule) (*compiledRule, error) {
 		if r.Inhibit.TTL != nil {
 			inhibitTTL, err = parseDurationField("inhibit ttl", *r.Inhibit.TTL)
 			if err != nil {
+				// Defensive: Validate already parsed this same field.
 				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
 			}
 		}
@@ -453,12 +458,15 @@ func compileRule(r Rule) (*compiledRule, error) {
 	if r.Silence != nil {
 		window, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End)
 		if err != nil {
+			// Defensive: Validate runs this same parse (rule.go Validate),
+			// so this cannot trigger from Put.
 			return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
 		}
 		silence = &compiledSilence{window: window}
 		if r.Silence.Match != nil && *r.Silence.Match != "" {
 			silence.match, err = compileExpr(*r.Silence.Match)
 			if err != nil {
+				// Defensive: Validate already compiled this same expression.
 				return nil, fmt.Errorf("rules: rule %q: silence match: %w", r.ID, err)
 			}
 		}
@@ -469,6 +477,7 @@ func compileRule(r Rule) (*compiledRule, error) {
 		if r.Escalation.AckTimeout != "" {
 			timeout, err = parseDurationField("ack_timeout", r.Escalation.AckTimeout)
 			if err != nil {
+				// Defensive: Validate already parsed this same field.
 				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
 			}
 		}

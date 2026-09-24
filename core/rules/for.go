@@ -55,7 +55,9 @@ func parseDurationField(name, s string) (time.Duration, error) {
 func ForGroupKey(env Env) string {
 	data, err := json.Marshal(env)
 	if err != nil {
-		// Defensive: Env holds only JSON-marshalable fields.
+		// Defensive: params arrive from decoded JSON, so they are always
+		// marshalable in practice; a hand-built Env carrying an arbitrary
+		// Go value still gets a stable group key instead of a panic.
 		return "unmarshalable"
 	}
 	sum := sha256.Sum256(data)

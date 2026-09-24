@@ -67,7 +67,7 @@ func (s *FileStore) save(rulesList []Rule) error {
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("rules: write %s: %w", tmp, err)
 	}
-	if err := os.Rename(tmp, s.path); err != nil { // coverage: same directory, so never cross-device
+	if err := os.Rename(tmp, s.path); err != nil { // a directory target (or cross-device rename) surfaces here
 		return fmt.Errorf("rules: replace %s: %w", s.path, err)
 	}
 	return nil
