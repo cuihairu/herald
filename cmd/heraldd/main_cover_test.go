@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -189,4 +191,181 @@ func TestReadRemoteWorkerMessagesCancel(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("readRemoteWorkerMessages did not return after cancel")
 	}
+}
+
+// TestMainProcessSuccessPath builds the daemon with `go build -cover`, runs
+// it as a real child process under GOCOVERDIR, and asserts after a clean
+// SIGTERM shutdown that main's success-path statements were executed. The
+// process exits via return (not os.Exit) on success, so the coverage data
+// reaches the dump directory.
+func TestMainProcessSuccessPath(t *testing.T) {
+	httpPort := freePort(t)
+	wsPort := freePort(t)
+	cfg := writeTestConfig(t, fmt.Sprintf(`
+server:
+  addr: 127.0.0.1:%d
+websocket:
+  addr: 127.0.0.1:%d
+queue:
+  type: memory
+  workers: 1
+`, httpPort, wsPort))
+
+	bin := filepath.Join(t.TempDir(), "heraldd-under-cover")
+	build := exec.Command("go", "build", "-cover", "-coverpkg=./...", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build -cover: %v\n%s", err, out)
+	}
+
+	covdir := t.TempDir()
+	cmd := exec.Command(bin, "serve", "--config", cfg)
+	cmd.Env = append(os.Environ(), "GOCOVERDIR="+covdir)
+	var logs strings.Builder
+	cmd.Stdout = &logs
+	cmd.Stderr = &logs
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// Inline readiness polling (instead of waitHTTPReady) so a timeout can
+	// dump the child output — the only way to see why it never came up.
+	url := fmt.Sprintf("http://127.0.0.1:%d/", httpPort)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err := http.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+			_ = cmd.Wait()
+			t.Fatalf("server never became ready; child output: %q", logs.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := syscall.Kill(cmd.Process.Pid, syscall.SIGTERM); err != nil {
+		t.Fatalf("SIGTERM: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("child did not exit cleanly: %v; output: %q", err, logs.String())
+	}
+
+	// The os.Exit(error-code) line cannot flush a profile dump, so it is
+	// the only allowed uncovered statement in main.
+	assertMainCovered(t, covdir, "main.go", "github.com/cuihairu/herald/cmd/heraldd/main.go", mainExitAllow)
+}
+
+// mainExitAllow lists main's os.Exit line: exiting skips the profile dump
+// by design, so that statement is unmeasurable by the Go toolchain.
+var mainExitAllow = map[int]string{}
+
+func init() {
+	src, err := os.ReadFile("main.go")
+	if err == nil {
+		if n := findLine(string(src), "os.Exit(code)"); n > 0 {
+			mainExitAllow[n] = "os.Exit skips the GOCOVERDIR dump"
+		}
+	}
+}
+
+func findLine(src, needle string) int {
+	for i, l := range strings.Split(src, "\n") {
+		if strings.Contains(l, needle) {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// assertMainCovered converts the GOCOVERDIR dump to a text profile and
+// asserts that every statement of main() is covered, except lines listed in
+// allow (the os.Exit error path cannot flush a profile).
+func assertMainCovered(t *testing.T, covdir, mainFile, importPath string, allow map[int]string) {
+	t.Helper()
+
+	prof := filepath.Join(t.TempDir(), "main.cov")
+	conv := exec.Command("go", "tool", "covdata", "textfmt", "-i", covdir, "-o", prof)
+	if out, err := conv.CombinedOutput(); err != nil {
+		t.Fatalf("covdata textfmt: %v\n%s", err, out)
+	}
+
+	src, err := os.ReadFile(mainFile)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	start, end := mainFuncRange(string(src))
+
+	data, err := os.ReadFile(prof)
+	if err != nil {
+		t.Fatalf("read profile: %v", err)
+	}
+
+	re := regexp.MustCompile(regexp.QuoteMeta(importPath) + `:(\d+)\.\d+,(\d+)\.\d+ (\d+) (\d+)`)
+	seen := false
+	for _, line := range strings.Split(string(data), "\n") {
+		m := re.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		ln, endLn, cnt := atoi(t, m[1]), atoi(t, m[2]), atoi(t, m[4])
+		if ln < start || ln > end {
+			continue
+		}
+		if cnt == 0 {
+			// A block whose span covers an allowed line (the os.Exit
+			// statement) is exempt as a whole.
+			exempt := false
+			for allowLn := range allow {
+				if ln <= allowLn && allowLn <= endLn {
+					exempt = true
+					break
+				}
+			}
+			if exempt {
+				continue
+			}
+			t.Errorf("main:%d was not covered by the child run", ln)
+		}
+		seen = true
+	}
+	if !seen {
+		data, _ := os.ReadFile(prof)
+		var mainLines []string
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(line, "cmd/heraldd/main.go") {
+				mainLines = append(mainLines, line)
+			}
+		}
+		t.Fatalf("no coverage blocks inside main() [%d,%d]; all main.go blocks: %v", start, end, mainLines)
+	}
+}
+
+// mainFuncRange returns the [start, end] line numbers of func main.
+func mainFuncRange(src string) (int, int) {
+	lines := strings.Split(src, "\n")
+	start, depth := 0, 0
+	for i, l := range lines {
+		if start == 0 && strings.HasPrefix(l, "func main()") {
+			start = i + 1
+			depth = 1
+			continue
+		}
+		if start != 0 {
+			depth += strings.Count(l, "{") - strings.Count(l, "}")
+			if depth == 0 {
+				return start, i + 1
+			}
+		}
+	}
+	return start, start
+}
+
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+	n := 0
+	for _, c := range s {
+		n = n*10 + int(c-'0')
+	}
+	return n
 }

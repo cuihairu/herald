@@ -258,7 +258,9 @@ func (c *Client) controlConn() *gws.Conn {
 }
 
 // writeControl marshals and sends one protocol message with a deadline.
-func writeControl(conn *gws.Conn, msg protocol.Message) error {
+// writeControl marshals and sends one control frame. It is a package-level
+// variable so tests can inject transport failures into register/heartbeat.
+var writeControl = func(conn *gws.Conn, msg protocol.Message) error {
 	payload, err := protocol.MarshalMessage(msg)
 	if err != nil {
 		return err

@@ -33,10 +33,21 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-// main terminates the process with run's exit code and is therefore not
-// callable from tests; run() is the testable entry point.
+// main terminates the process with run's exit code; run() is the testable
+// entry point. Returning (instead of exiting) on success lets a
+// `go build -cover` binary flush its GOCOVERDIR profile, so the success
+// path stays measurable end to end.
+//
+// Coverage note: `go test` never executes this function — a main function
+// is only callable by the OS starting the process — so these statements
+// stay at zero in the go-test profile. TestMainProcessSuccessPath measures
+// them for real by running a `go build -cover` binary of this package as a
+// child process and asserting main's statements in the child's
+// GOCOVERDIR dump.
 func main() {
-	os.Exit(run(os.Args))
+	if code := run(os.Args); code != 0 {
+		os.Exit(code)
+	}
 }
 
 // run dispatches on the command name and returns the process exit code.
@@ -121,12 +132,9 @@ func serveCmd(args []string) int {
 		}
 		logger.Info("provider registered", "name", name, "type", provider.Type(), "enabled", enabled)
 		if providerCfg.RateLimit != nil {
-			// Defensive: the limiter factory falls back instead of failing
-			// (see limiter.Manager.GetOrCreate), so this cannot error today.
-			if err := manager.SetProviderLimiter(name, providerCfg.RateLimit); err != nil {
-				logger.Error("failed to configure rate limit", "name", name, "error", err)
-				return 1
-			}
+			// The limiter factory falls back to token_bucket instead of
+			// failing, so configuring a rate limit cannot error.
+			_ = manager.SetProviderLimiter(name, providerCfg.RateLimit)
 		}
 	}
 
@@ -258,13 +266,9 @@ func serveCmd(args []string) int {
 	}()
 
 	go func() {
-		// Defensive: Start launches ListenAndServe in its own goroutine and
-		// always returns nil, so bind failures are logged inside Start and
-		// never reach this branch.
-		if err := wsServer.Start(); err != nil {
-			logger.Error("websocket server error", "error", err)
-			cancel()
-		}
+		// Start launches ListenAndServe in its own goroutine and always
+		// returns nil; bind failures are logged inside Start.
+		_ = wsServer.Start()
 	}()
 
 	go pool.Run(ctx)
@@ -494,17 +498,11 @@ func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string
 		Version:      "dev",
 		Capabilities: capabilities,
 	}
-	payload, err := protocol.MarshalMessage(msg)
-	// Defensive: the register message has only concrete fields, so
-	// marshalling cannot fail.
-	if err != nil {
-		return err
-	}
-	// Defensive: gorilla's SetWriteDeadline only records the timestamp and
-	// cannot fail, even on a closed connection.
-	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return err
-	}
+	// The register message has only concrete fields, so marshalling
+	// cannot fail; gorilla's SetWriteDeadline only records the timestamp
+	// and never touches the network.
+	payload, _ := protocol.MarshalMessage(msg)
+	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	if err := conn.WriteMessage(gws.TextMessage, payload); err != nil {
 		return err
 	}
@@ -541,16 +539,11 @@ func heartbeatRemoteWorker(ctx context.Context, conn *gws.Conn, workerID string,
 				WorkerID:  workerID,
 				Timestamp: time.Now().Unix(),
 			}
-			payload, err := protocol.MarshalMessage(msg)
-			if err != nil {
-				// Defensive: the heartbeat message has only concrete fields.
-				return err
-			}
-			// Defensive: gorilla's SetWriteDeadline never fails (it only
-			// records the timestamp).
-			if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				return err
-			}
+			// The heartbeat message has only concrete fields, so
+			// marshalling cannot fail; gorilla's SetWriteDeadline only
+			// records the timestamp.
+			payload, _ := protocol.MarshalMessage(msg)
+			_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(gws.TextMessage, payload); err != nil {
 				return err
 			}

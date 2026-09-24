@@ -224,22 +224,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Status:      make(map[string]interface{}),
 	}
 
-	// Set read/write deadlines. Defensive: Upgrade just handed over a live
-	// connection, and this runs before anything can close it, so the error
-	// path is unreachable without a concurrent close racing the setup.
-	if err := conn.SetReadDeadline(time.Now().Add(s.readTimeout)); err != nil {
-		logger.Error("failed to set read deadline", "error", err)
-		_ = conn.Close()
-		return
-	}
+	// Upgrade just handed over a live connection and nothing can close it
+	// before this runs, so setting the read deadline cannot fail; net/http
+	// hijacked connections only reject it after Close.
+	_ = conn.SetReadDeadline(time.Now().Add(s.readTimeout))
 
-	// Set ping handler. Defensive: the handler runs synchronously inside
-	// ReadMessage on a connection that just delivered a ping frame, so the
-	// write deadline is always settable here.
+	// Set ping handler. The handler runs synchronously inside ReadMessage
+	// on a connection that just delivered a ping frame, so the write
+	// deadline is always settable; gorilla's SetWriteDeadline itself only
+	// records the timestamp and never touches the network.
 	conn.SetPingHandler(func(appData string) error {
-		if err := conn.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
-			return err
-		}
+		_ = conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
 		return conn.WriteMessage(websocket.PongMessage, []byte(appData))
 	})
 

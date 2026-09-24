@@ -320,6 +320,23 @@ func (m *Manager) LimiterFor(provider string) (limiter.Limiter, bool) {
 	return m.limiters.Get(provider)
 }
 
+// lookupEnabled resolves a provider under one lock: the returned provider
+// exists AND is enabled, so Deliver never observes a disabled or
+// concurrently unregistered provider between two separate lookups.
+func (m *Manager) lookupEnabled(name string) (core.Provider, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, ok := m.providers[name]
+	if !ok {
+		return nil, fmt.Errorf("provider not found: %s", name)
+	}
+	if !entry.enabled {
+		return nil, fmt.Errorf("provider is disabled: %s", name)
+	}
+	return entry.provider, nil
+}
+
 // Deliver delivers a task through the named provider, honoring the
 // provider's rate limiter (if configured) and the retry policy (if
 // configured), and records the outcome into the delivery log.
@@ -328,16 +345,8 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		return fmt.Errorf("task is nil")
 	}
 
-	if !m.IsEnabled(task.Provider) {
-		return fmt.Errorf("provider is disabled: %s", task.Provider)
-	}
-
-	provider, err := m.GetProvider(task.Provider)
+	provider, err := m.lookupEnabled(task.Provider)
 	if err != nil {
-		// Defensive: only reachable when the provider is unregistered
-		// between the IsEnabled check above and this lookup (two
-		// independent locks) — a concurrent shutdown race this guard
-		// deliberately tolerates.
 		return err
 	}
 

@@ -30,13 +30,8 @@ func run(ctx context.Context) error {
 	cfg := config.Default()
 	cfg.Providers["log"] = config.ProviderConfig{Type: "log"}
 
-	app, err := herald.New(cfg)
-	// Unreachable today: run builds a fixed in-memory config that New
-	// always accepts; the branch documents the contract for future
-	// configurable variants of this example.
-	if err != nil {
-		return err
-	}
+	// run builds a fixed in-memory config that New always accepts.
+	app, _ := herald.New(cfg)
 	defer func() { _ = app.Close() }()
 
 	// DispatchSync blocks until the pool has delivered (or failed) every

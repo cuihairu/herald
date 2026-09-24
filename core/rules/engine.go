@@ -50,8 +50,10 @@ const (
 	// range operator rejected and AST nodes capped, expressions are bounded
 	// pure comparisons that finish in microseconds; the timeout is a last
 	// resort so the caller never waits on a runaway program (the evaluating
-	// goroutine itself cannot be interrupted by expr and finishes on its own).
-	evalTimeout = 50 * time.Millisecond
+	// goroutine itself cannot be interrupted by expr and finishes on its
+	// own). Half a second still kills any runaway long before it matters,
+	// while leaving generous headroom for scheduler stalls under load.
+	evalTimeout = 500 * time.Millisecond
 )
 
 // safetyGuard rejects AST constructs that expr's compile options cannot:
@@ -302,18 +304,18 @@ func (e *Engine) Validate(r *Rule) error {
 // Put validates then persists a rule and refreshes the live table in place
 // (existing id keeps its priority position, new ids go last).
 func (e *Engine) Put(ctx context.Context, r *Rule) error {
+	// Compile first: a malformed rule is rejected here, where the
+	// compilation error is exact, instead of by the broader Validate
+	// (which re-runs the same compilation downstream).
+	compiled, err := compileRule(*r)
+	if err != nil {
+		return fmt.Errorf("rules: rule %q: %w", r.ID, err)
+	}
 	if err := e.Validate(r); err != nil {
 		return err
 	}
 	if err := e.store.Put(ctx, *r); err != nil {
 		return fmt.Errorf("rules: store put: %w", err)
-	}
-	compiled, err := compileRule(*r)
-	if err != nil {
-		// Defensive: Validate just compiled the same expressions, so this
-		// cannot trigger today; kept so a future refactor of Validate fails
-		// loudly instead of silently skipping the live-table update.
-		return err
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -707,10 +709,21 @@ func (e *Engine) resolveSteps(ctx context.Context, cr *compiledRule, env Env) ([
 	return nil, nil
 }
 
+// evalProgram runs one compiled program. It is a package-level variable so
+// tests can stall evaluation to exercise the timeout guard below — the
+// safety guard makes real expressions unable to run long enough to time out.
+var evalProgram = expr.Run
+
 // runProgram executes a compiled expression under the eval timeout.
 // program is never nil here: resolveSteps filters catch-all steps before
 // calling, and compileExpr only returns non-nil programs.
 func (e *Engine) runProgram(ctx context.Context, program *vm.Program, env Env) (bool, error) {
+	// A dead parent context fails deterministically here: expr.Run can
+	// finish before the select below observes the cancellation, and when
+	// both select cases are ready Go picks one at random.
+	if err := ctx.Err(); err != nil {
+		return false, fmt.Errorf("evaluation canceled: %w", err)
+	}
 	runCtx, cancel := context.WithTimeout(ctx, evalTimeout)
 	defer cancel()
 
@@ -720,7 +733,7 @@ func (e *Engine) runProgram(ctx context.Context, program *vm.Program, env Env) (
 	}
 	done := make(chan evalResult, 1)
 	go func() {
-		out, err := expr.Run(program, env)
+		out, err := evalProgram(program, env)
 		done <- evalResult{out, err}
 	}()
 	select {
@@ -728,13 +741,9 @@ func (e *Engine) runProgram(ctx context.Context, program *vm.Program, env Env) (
 		if r.err != nil {
 			return false, r.err
 		}
-		matched, ok := r.out.(bool)
-		if !ok {
-			// Defensive: AsBool rejects non-boolean expressions at compile
-			// time; kept so an unexpected expr runtime change fails loudly.
-			return false, fmt.Errorf("expression returned %T, want bool", r.out)
-		}
-		return matched, nil
+		// AsBool rejects non-boolean expressions at compile time, so a
+		// non-bool result would be an invariant break and must panic.
+		return r.out.(bool), nil
 	case <-runCtx.Done():
 		return false, fmt.Errorf("evaluation exceeded %v (or context canceled): %w", evalTimeout, runCtx.Err())
 	}

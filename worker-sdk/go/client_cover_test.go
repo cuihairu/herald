@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -489,4 +490,22 @@ func newDeadWSConn(t *testing.T) *websocket.Conn {
 	}
 	_ = ws.Close()
 	return ws
+}
+
+// A failing transport under the seam must fail register right after the
+// dial instead of waiting for the ack read to notice.
+func TestRegisterWriteControlFailure(t *testing.T) {
+	srv := echoAckServer(t, []byte(`{"type":"register_ack"}`))
+	defer srv.Close()
+
+	orig := writeControl
+	writeControl = func(conn *websocket.Conn, msg protocol.Message) error {
+		return errors.New("transport boom")
+	}
+	defer func() { writeControl = orig }()
+
+	c := newControlClient(t, wsURL(srv))
+	if err := c.register(context.Background()); err == nil || !strings.Contains(err.Error(), "transport boom") {
+		t.Fatalf("expected the injected write failure, got %v", err)
+	}
 }

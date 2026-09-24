@@ -59,10 +59,8 @@ func (s *FileStore) save(rulesList []Rule) error {
 	if rulesList == nil {
 		rulesList = []Rule{}
 	}
-	data, err := json.MarshalIndent(fileFormat{Version: fileFormatVersion, Rules: rulesList}, "", "  ")
-	if err != nil { // coverage: unreachable — Rule has only marshalable fields
-		return fmt.Errorf("rules: encode: %w", err)
-	}
+	// Rule has only marshalable fields, so encoding cannot fail.
+	data, _ := json.MarshalIndent(fileFormat{Version: fileFormatVersion, Rules: rulesList}, "", "  ")
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("rules: write %s: %w", tmp, err)

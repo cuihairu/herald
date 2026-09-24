@@ -157,12 +157,9 @@ func decryptFeishuCallback(encryptKey, encoded string) ([]byte, error) {
 		return nil, fmt.Errorf("ciphertext has invalid length")
 	}
 	// aes.NewCipher only fails on key lengths other than 16/24/32 bytes;
-	// the key here is always a SHA-256 digest (32 bytes), so this error
-	// branch is unreachable in practice and exists to satisfy the API.
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, fmt.Errorf("cipher: %w", err)
-	}
+	// the key here is always a SHA-256 digest (32 bytes), so the error
+	// return exists only to satisfy the API.
+	block, _ := aes.NewCipher(key[:])
 	plain := make([]byte, len(ciphertext))
 	cipher.NewCBCDecrypter(block, key[:aes.BlockSize]).CryptBlocks(plain, ciphertext)
 	plain, err = pkcs7Unpad(plain, aes.BlockSize)

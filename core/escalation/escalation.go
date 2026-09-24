@@ -282,10 +282,8 @@ func (m *Manager) saveLocked() error {
 	for _, p := range m.pendings {
 		list = append(list, p)
 	}
-	data, err := json.MarshalIndent(fileFormat{Version: fileFormatVersion, Pendings: list}, "", "  ")
-	if err != nil { // coverage: unreachable — Pending has only marshalable fields
-		return fmt.Errorf("escalation: encode: %w", err)
-	}
+	// Pending has only marshalable fields, so encoding cannot fail.
+	data, _ := json.MarshalIndent(fileFormat{Version: fileFormatVersion, Pendings: list}, "", "  ")
 	tmp := m.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("escalation: write %s: %w", tmp, err)

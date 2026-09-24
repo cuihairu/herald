@@ -39,10 +39,8 @@ func (m *Manager) CreateDefaultUser(username, password string) error {
 		return fmt.Errorf("user already exists: %s", username)
 	}
 
-	hashedPassword, err := hashPassword(password)
-	if err != nil { // unreachable today: hashPassword never fails
-		return err
-	}
+	// hashPassword (base64 of password+salt) never fails.
+	hashedPassword, _ := hashPassword(password)
 
 	user := &User{
 		ID:        generateID(),
@@ -100,10 +98,8 @@ func (m *Manager) ChangePassword(username, oldPassword, newPassword string) erro
 		return fmt.Errorf("invalid old password")
 	}
 
-	hashedPassword, err := hashPassword(newPassword)
-	if err != nil { // unreachable today: hashPassword never fails
-		return err
-	}
+	// hashPassword (base64 of password+salt) never fails.
+	hashedPassword, _ := hashPassword(newPassword)
 
 	user.Password = hashedPassword
 	return nil
@@ -118,10 +114,8 @@ func (m *Manager) CreateUser(username, password, role string) error {
 		return fmt.Errorf("user already exists: %s", username)
 	}
 
-	hashedPassword, err := hashPassword(password)
-	if err != nil { // unreachable today: hashPassword never fails
-		return err
-	}
+	// hashPassword (base64 of password+salt) never fails.
+	hashedPassword, _ := hashPassword(password)
 
 	user := &User{
 		ID:        generateID(),

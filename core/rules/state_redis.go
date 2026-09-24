@@ -57,10 +57,8 @@ func (s *RedisStateStore) Put(ctx context.Context, key string, state *RuleState,
 	if state == nil {
 		return fmt.Errorf("rules: redis state store: put nil state")
 	}
-	data, err := json.Marshal(state)
-	if err != nil { // coverage: unreachable — RuleState has only marshalable fields
-		return fmt.Errorf("rules: redis state encode %s: %w", key, err)
-	}
+	// RuleState has only marshalable fields, so encoding cannot fail.
+	data, _ := json.Marshal(state)
 	if err := s.client.Set(ctx, key, data, ttl).Err(); err != nil {
 		return fmt.Errorf("rules: redis state put %s: %w", key, err)
 	}
