@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const api = axios.create({
+// 导出实例作为测试 seam：单测通过自定义 adapter 走真实的拦截器链路，
+// 而不是 mock 掉 axios 本身（externalized CJS 模块的 vi.mock 不可靠）。
+export const api = axios.create({
   baseURL: '/api/v1',
   timeout: 10000,
 })

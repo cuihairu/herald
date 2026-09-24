@@ -46,6 +46,27 @@
 
 注解关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note` 在源码中检索即可定位每一处说明。
 
+## Dashboard 前端：vitest + RTL，行覆盖 100% 门禁
+
+前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job）——**行覆盖低于 100% 直接失败**。测试共 13 个文件 84 个用例，覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 7 个页面组件与应用入口。
+
+测试搭建过程中顺带修掉两个真实生产缺陷：
+
+1. **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法依赖 `ReactDOM.render`（React 19 已移除），必须调用 `unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx` + `src/test/setup.ts` 双处）。
+2. **SendPage 渲染期副作用死循环**：`if (providers.length === 0) fetchProviders()` 写在渲染体内，zustand 每次 `set` 都换 state 引用，形成「set → 重渲染 → 再 fetch」无限循环；已移入 `useEffect` 空依赖数组。
+
+### 前端残余的未覆盖分支定性
+
+行覆盖 100%（门禁）；分支覆盖 86.6%，未达满的分支逐类定性如下——均为「兜底文案/环境性分支」，不是未测的业务路径：
+
+| 位置 | 分支 | 未覆盖侧 | 原因 |
+| --- | --- | --- | --- |
+| `src/hooks/useWebSocket.ts:18` | `https:` → `wss:` | wss 支 | jsdom 页面协议恒为 `http://localhost/`，环境性不可达；生产 HTTPS 下自然走 wss |
+| `src/pages/LoginPage.tsx:20` | `values.remember && res.user` | 假支 | 已测两真支（记住登录）；「不记住/无 user」组合是同一 setItem 调用的否路径 |
+| `src/pages/SendPage.tsx:26-27` | `err.message \|\| '发送失败'` | `\|\|` 右支 | 兜底文案：err 无 message 时显示默认提示；已有用例覆盖带 message 的错误路径 |
+| `src/pages/ProvidersPage.tsx:37` | 卡片标题/Tag 同行多个三元 | 个别半支 | 名称映射（feishu→飞书）与原名回退、builtin/plugin 两色、available/down 徽标均各有用例；v8 按行报告，一行多个短路/三元表达式时无法指认残余的具体半支 |
+| `src/pages/LogsPage.tsx` 及 `ProviderConfigPage.tsx` 其余 | `allowClear` 清除、`message.error(x \|\| '默认')` 兜底 | `\|\|` 右支等 | 兜底文案与「清除到空」路径；主路径（选值、带 message 的错误）均有确定性触发 |
+
 ## 如何维护这份水位
 
 1. 给新代码写测试时以「触发每个分支」为目标，而不是「跑过函数」。

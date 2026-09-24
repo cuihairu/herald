@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Form, Input, Select, Button, Card, message, Typography } from 'antd'
 import { SendOutlined } from '@ant-design/icons'
 import { useHeraldStore } from '../stores/herald'
@@ -8,8 +8,12 @@ export default function SendPage() {
   const [form] = Form.useForm()
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
 
-  // Fetch providers if not loaded
-  if (providers.length === 0) fetchProviders()
+  // 拉取渠道列表。必须在 effect 里做：渲染期调用会形成
+  // 「set → 重渲染 → 再 fetch」的循环（zustand 每次 set 都换引用）。
+  useEffect(() => {
+    if (providers.length === 0) fetchProviders()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleSubmit(values: any) {
     setResult(null)

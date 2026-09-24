@@ -1,0 +1,226 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import LogsPage from './LogsPage'
+
+// 数据形状刻意覆盖所有 render 分支：
+// - status 'weird'（未知颜色 → default）
+// - level 缺失（→ '-'）与 'critical'（已知色）
+// - error 缺失（→ '-'）
+// - duration null（→ '-'）
+// - created_at 缺失（→ '-'）
+const logRows = [
+  {
+    id: 'l1', provider: 'feishu', status: 'success', title: '正常一行',
+    body: '', error: '', level: 'info', duration: 123,
+    created_at: '2026-09-24T10:00:00Z',
+  },
+  {
+    id: 'l2', provider: 'weird-provider', status: 'weird', title: '分支覆盖',
+    body: '', error: 'boom', level: 'critical', duration: null,
+    created_at: '',
+  },
+]
+
+function jsonResponse(body: unknown) {
+  return { ok: true, json: async () => body }
+}
+
+function stubFetch(routes: Record<string, unknown>) {
+  const fetchMock = vi.fn((url: string) => {
+    const path = url.split('?')[0]
+    const body = routes[path] ?? { code: 1, message: 'no route stubbed' }
+    return Promise.resolve(jsonResponse(body))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+const user = userEvent.setup()
+
+describe('LogsPage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  beforeEach(() => {
+    localStorage.setItem('herald_token', 't')
+    stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': {
+        code: 0,
+        data: { total: 9, by_status: { success: 5, failed: 3, pending: 1 } },
+      },
+      '/api/v1/providers': {
+        code: 0,
+        data: { providers: [{ name: 'feishu' }, { name: 'log' }, { name: 'feishu' }] },
+      },
+    })
+  })
+
+  it('loads logs, stats and the provider filter list on mount', async () => {
+    render(<LogsPage />)
+    expect(await screen.findByText('正常一行')).toBeInTheDocument()
+    expect(screen.getByText('分支覆盖')).toBeInTheDocument()
+    // 统计卡
+    expect(screen.getByText('总数')).toBeInTheDocument()
+    expect(screen.getByText('进行中')).toBeInTheDocument()
+  })
+
+  it('renders every column fallback branch', async () => {
+    render(<LogsPage />)
+    await screen.findByText('分支覆盖')
+    // status 'weird' 原样显示；level 缺失 → '-'；duration null → '-'；created_at 空 → '-'
+    expect(screen.getByText('weird')).toBeInTheDocument()
+    expect(screen.getByText('critical')).toBeInTheDocument()
+    expect(screen.getByText('boom')).toBeInTheDocument()
+    // 三个 '-'：l1 的空 error、l2 的 null duration、l2 的空 created_at
+    const dashes = screen.getAllByText('-')
+    expect(dashes.length).toBe(3)
+  })
+
+  it('keeps the table empty when the API answers with a non-zero code', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 1, message: 'denied' },
+      '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    // code != 0：logs 未写入，统计卡也不出现
+    expect(screen.queryByText('正常一行')).not.toBeInTheDocument()
+    expect(screen.queryByText('总数')).not.toBeInTheDocument()
+  })
+
+  it('survives network failures', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('offline')))
+    )
+    render(<LogsPage />)
+    await vi.waitFor(() => expect(errSpy).toHaveBeenCalled())
+    errSpy.mockRestore()
+  })
+
+  it('refetches with the status filter applied and cleared', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+    const callsAfterMount = fetchMock.mock.calls.length
+
+    // 打开「状态」下拉并选择「成功」。表格列头也叫「状态」，须限定 placeholder；
+    // placeholder 自身 pointer-events: none，点击落在 selector 容器上。
+    // 选中后 placeholder 节点会被移除，先抓取外层 select 根节点备用。
+    const statusPlaceholder = screen.getByText('状态', { selector: '.ant-select-selection-placeholder' })
+    const selectNode = statusPlaceholder.closest('.ant-select')!
+    await user.click(selectNode.querySelector('.ant-select-selector')!)
+    // 统计卡标题也有「成功」，须限定在下拉 option 内容里。
+    await user.click(await screen.findByText('成功', { selector: '.ant-select-item-option-content' }))
+
+    const logsWithFilter = fetchMock.mock.calls
+      .slice(callsAfterMount)
+      .filter(([u]) => String(u).startsWith('/api/v1/logs?'))
+    expect(logsWithFilter.length).toBeGreaterThan(0)
+    expect(String(logsWithFilter[logsWithFilter.length - 1][0])).toContain('status=success')
+
+    // 清空过滤器（allowClear 的清除按钮 hover 时才挂载）→ status 参数消失
+    await user.hover(selectNode)
+    const clear = await waitFor(() => {
+      const el = selectNode.querySelector('.ant-select-clear')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    await user.click(clear)
+    await vi.waitFor(() => {
+      const recent = fetchMock.mock.calls.filter(([u]) => String(u).startsWith('/api/v1/logs?'))
+      expect(String(recent[recent.length - 1][0])).not.toContain('status=')
+    })
+  })
+
+  it('filters by provider and level', async () => {
+    // beforeEach 的 providers 列表有重复名字；这里给下拉一个去重的列表
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
+      '/api/v1/providers': {
+        code: 0,
+        data: { providers: [{ name: 'feishu' }, { name: 'smtp' }] },
+      },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+
+    // Provider 下拉：placeholder 在选择后会被移除，先抓外层根节点
+    const providerPlaceholder = screen.getByText('Provider', { selector: '.ant-select-selection-placeholder' })
+    const providerSelect = providerPlaceholder.closest('.ant-select')!
+    await user.click(providerSelect.querySelector('.ant-select-selector')!)
+    await user.click(await screen.findByText('feishu', { selector: '.ant-select-item-option-content' }))
+
+    // 级别下拉
+    const levelPlaceholder = screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })
+    const levelSelect = levelPlaceholder.closest('.ant-select')!
+    await user.click(levelSelect.querySelector('.ant-select-selector')!)
+    await user.click(await screen.findByText('信息', { selector: '.ant-select-item-option-content' }))
+
+    await vi.waitFor(() => {
+      const logs = fetchMock.mock.calls
+        .map(c => String(c[0]))
+        .filter(u => u.includes('/api/v1/logs?'))
+      expect(logs[logs.length - 1]).toContain('provider=feishu')
+      expect(logs[logs.length - 1]).toContain('level=info')
+    })
+  })
+
+  it('paginates to page 2 with the right offset', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 120 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 120 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+
+    await user.click(screen.getByText('2'))
+    await vi.waitFor(() => {
+      const logs = fetchMock.mock.calls
+        .map(c => String(c[0]))
+        .filter(u => u.includes('/api/v1/logs?'))
+      expect(logs[logs.length - 1]).toContain('offset=50')
+      expect(logs[logs.length - 1]).toContain('limit=50')
+    })
+  })
+
+  it('refetches from the refresh button', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+    const before = fetchMock.mock.calls.length
+    await user.click(screen.getByRole('button', { name: /刷\s*新/ }))
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(before))
+  })
+
+  it('sends the bearer token with every request', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: [], total: 0 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(0)
+    })
+    for (const call of fetchMock.mock.calls as unknown as [string, RequestInit][]) {
+      expect((call[1].headers as Record<string, string>).Authorization).toBe('Bearer t')
+    }
+  })
+})

@@ -69,6 +69,41 @@ jobs:
           install-mode: goinstall
           args: --timeout=5m
 
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # vitest coverage thresholds enforce 100% line coverage in
+      # vitest.config.ts — the frontend gate mirrors the Go one.
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+
+      # tsc -b type-checks the test files too, then vite bundles.
+      - name: Build
+        run: pnpm build
+
   build:
     name: Build
     runs-on: ubuntu-latest
