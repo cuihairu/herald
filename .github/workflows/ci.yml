@@ -25,8 +25,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      # -coverpkg counts every package's statements, so a new package with
+      # no tests drags the gate down instead of silently missing the profile.
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverpkg=./... -coverprofile=coverage.out ./...
 
       # Coverage gate: the measured high-water mark. Every uncovered
       # statement block is an unreachable/defensive branch documented in
