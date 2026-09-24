@@ -27,26 +27,42 @@ jobs:
 
       # -coverpkg counts every package's statements, so a new package with
       # no tests drags the gate down instead of silently missing the profile.
+      # HERALD_MAIN_COVERDIR makes each main() guard test persist its
+      # subprocess GOCOVERDIR dump for the merge step below.
       - name: Run tests
         run: go test -v -race -coverpkg=./... -coverprofile=coverage.out ./...
+        env:
+          HERALD_MAIN_COVERDIR: build/maincover
 
-      # Coverage gate: the measured high-water mark. Every uncovered
-      # statement block is an unreachable/defensive branch documented in
-      # place — see docs/architecture/coverage.md.
+      # main() is only reachable by launching a process: the guard tests run
+      # every entry point as a real child under `go build -cover` + GOCOVERDIR.
+      # covermerge folds those measured counts into the gate profile and
+      # hard-fails when a dump is empty, absent, never reached its main.go
+      # (basename-checked), or contains blocks unknown to the main profile.
+      - name: Merge main() subprocess coverage
+        run: |
+          python3 tools/covermerge.py coverage.out build/maincover/*.cov \
+            --expect github.com/cuihairu/herald/cmd/heraldd/main.go \
+            --expect github.com/cuihairu/herald/examples/quickstart/main.go \
+            --expect github.com/cuihairu/herald/worker-sdk/go/example/main.go \
+            -o coverage.merged.out
+
+      # Coverage gate: 100% of statements on the merged profile, with only the
+      # blocks registered in KNOWN_UNCOVERABLE.md (os.Exit lines the Go
+      # toolchain cannot measure) excluded from the computation. zero_check
+      # also fails on any zero block that is neither registered nor annotated
+      # in place.
       - name: Enforce coverage gate
         run: |
-          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $NF); print $NF}')
-          echo "statement coverage: ${total}%"
-          if ! awk -v t="$total" 'BEGIN { exit !(t+0 >= 99.5) }'; then
-            echo "::error::coverage ${total}% is below the 99.5% gate"
-            exit 1
-          fi
+          python3 tools/zero_check.py coverage.merged.out --gate 100
+          total=$(go tool cover -func=coverage.merged.out | awk '/^total:/ {gsub("%", "", $NF); print $NF}')
+          echo "merged statement coverage: ${total}%"
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.out
+          files: ./coverage.merged.out
           fail_ci_if_error: false
 
   lint:

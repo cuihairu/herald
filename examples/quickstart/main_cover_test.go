@@ -70,6 +70,22 @@ func assertMainCovered(t *testing.T, covdir, mainFile, importPath string, allow 
 	if out, err := conv.CombinedOutput(); err != nil {
 		t.Fatalf("covdata textfmt: %v\n%s", err, out)
 	}
+
+	// HERALD_MAIN_COVERDIR (CI coverage-merge flow): keep the converted dump
+	// outside t.TempDir() so tools/covermerge.py can fold these subprocess
+	// counts into the gate profile.
+	if dir := os.Getenv("HERALD_MAIN_COVERDIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("HERALD_MAIN_COVERDIR mkdir: %v", err)
+		}
+		pkg := strings.TrimSuffix(importPath, "/main.go")
+		out := filepath.Join(dir, pkg[strings.LastIndex(pkg, "/")+1:]+".cov")
+		if data, err := os.ReadFile(prof); err != nil {
+			t.Fatalf("read converted profile: %v", err)
+		} else if err := os.WriteFile(out, data, 0o644); err != nil {
+			t.Fatalf("persist converted profile: %v", err)
+		}
+	}
 	data, err := os.ReadFile(prof)
 	if err != nil {
 		t.Fatalf("read profile: %v", err)

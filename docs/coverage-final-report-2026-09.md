@@ -8,17 +8,18 @@
 
 | 项目 | 值 |
 | --- | --- |
-| Go 语句覆盖率（`go test -coverpkg=./... -coverprofile` 全仓口径） | **99.5%** |
-| Go CI 门禁 | 99.5%，生效且通过 |
-| Go 残余零块 | **仅 6 块** = 三个入口包的 `main()` 函数块 |
-| Go 残余零块状态 | 全部就地注释定性，且经 `go build -cover` + GOCOVERDIR 子进程守卫测试**真实运行并断言** |
+| Go 语句覆盖率（go-test 口径原始值） | 99.5% |
+| Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.7%** |
+| Go CI 门禁 | `tools/zero_check.py --gate 100`：排除台账登记块后等效语句覆盖率 **100%**，且无未定性零块；生效且通过 |
+| Go 残余零块 | **仅 3 块** = 三个入口包 `main()` 的 `os.Exit` 失败分支 |
+| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记原因：`os.Exit` 跳过 GOCOVERDIR 转储，Go 工具链原理性不可测 |
 | Dashboard 行覆盖率（vitest + `@vitest/coverage-v8`） | **100%**（13 个测试文件 84 个用例） |
 | Dashboard CI 门禁 | `thresholds: { lines: 100 }`，生效且通过（ci.yml dashboard job） |
 | Dashboard 分支覆盖率 | 86.6%，残余为兜底文案与环境性分支，逐类登记于[口径文档](./architecture/coverage.md) |
 | CI | main 最新提交全部 job 全绿（Lint / Test / Dashboard / Docker Build / Build） |
 | 发版动作 | 无（未打 tag、未发 release、未改版本号） |
 
-为什么 Go 侧不是字面上的 100%：`main()` 只能由 OS 启动进程调用，`go test` 永远测不到；`main` 里的 `os.Exit(n)` 会跳过 GOCOVERDIR 转储，是 Go 工具链的原理性限制。三个入口的 main 成功路径全部改为 `return` 退出并被子进程口径实测，失败路径 `os.Exit(n)` 就地注释定性——这是工具链允许的实测下限，不是"测不到就算了"。
+为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；唯一残余是各 `main()` 的 `os.Exit(n)` 失败分支——exit 会跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都留不下覆盖数据，这是 Go 工具链的原理性限制。三块全部在 KNOWN_UNCOVERABLE.md 登记原因，门禁强制"排除登记块后等效覆盖率 100%"。
 
 ## 提交链
 
@@ -31,6 +32,7 @@
 | `89dd2e5` | 修复 vitepress 死链（docs 内不能链接站点根之外的文件） |
 | `ffa237a` | 零块 KNOWN_UNCOVERABLE 登记机制与两处 flake 修复（Go 侧收尾） |
 | `acbe735` | 期 4：dashboard 前端测试从 0 建到行覆盖 100%，CI 门禁同步（含两个生产缺陷修复） |
+| 本次提交 | 期 5：`main()` 子进程覆盖合并进门禁（`tools/covermerge.py` + `zero_check --gate 100`），残余零块 6 → 3（仅剩 os.Exit 原理性不可测） |
 
 ## 三期冲刺内容
 
@@ -63,6 +65,18 @@
 3. **jsdom 环境补齐**：`matchMedia` / `ResizeObserver` / `scrollTo` / `requestAnimationFrame` polyfill；antd message 的 portal 容器是全局单例，跨用例只清内容不删容器（删了会往 detached 节点渲染）。
 4. **残余分支的定性**：行覆盖 100% 是门禁；分支覆盖 86.6% 的缺口全部是 `|| '默认文案'` 兜底支、`allowClear` 清除到空路径与 jsdom 环境性分支（如 `https:` → `wss:`），逐类登记于口径文档，无一是未测的业务路径。
 
+### 期 5 —— Go 侧收满：`main()` 子进程覆盖合并进门禁
+
+期 3 结束时，三个入口的 `main()` 入口块在 go-test 口径下仍是零块，以"登记豁免"存在。本期把子进程口径的**实测计数**真正合并进门禁 profile，让入口块不再靠豁免：
+
+1. 三个 `main_cover_test.go` 在设了 `HERALD_MAIN_COVERDIR` 时持久化 textfmt 转储（不设时行为不变）；
+2. 新增 `tools/covermerge.py`：主 profile 与子进程 dump 按块键同键取 max 合并（同工具链下块集逐字节一致，已实证）；四条防假绿硬失败——空 dump 拒并、dump 含主 profile 未知块（工具链/代码漂移）拒并、`--expect` 入口必须 basename 为 `main.go`（按文件名识别入口，不按行号硬编码）、入口在 dump 中必须有非零块（子进程真的执行到了）；
+3. `tools/zero_check.py` 新增 `--gate N`：等效覆盖率 =（总语句 − 全部零块语句）/（总语句 − 台账登记块语句），登记块从分子分母同时剔除，与台账"排除登记项后 100%"声明同一口径；只做就地注释不进台账的零块会拉低等效值、打红门禁；
+4. CI Test job 串起 `HERALD_MAIN_COVERDIR` → covermerge → `--gate 100`，替换原 99.5% 裸阈值，codecov 上传合并后 profile；
+5. KNOWN_UNCOVERABLE.md 删去 3 个 `main()` 入口块登记（合并后实测非零，不再是"不可覆盖"），只保留 3 个 `os.Exit` 失败分支。
+
+效果：合并口径 99.5% → 99.7%，残余零块 6 → 3；门禁从裸数字阈值升级为"无未定性零块 + 排除台账后等效 100%"的结构化断言——绕过合并流程（不做子进程合并）会直接被 `--gate 100` 打红。
+
 ## 顺带消灭的真问题
 
 冲刺过程中暴露并修复了五处与覆盖率无关的缺陷（Go 三处、前端两处）：
@@ -79,11 +93,11 @@
 
 - `gofmt -l .` 无输出，`go vet ./...`、`golangci-lint run` 干净
 - `go test -race -count=1 ./...` 至少两遍全绿（flake 修复类提交对目标包额外 -race 重复 3-5 遍）
-- 零块核对器 `python3 tools/zero_check.py coverage.out` GREEN（全仓 `-coverpkg=./...` 口径）
+- 零块核对器 `python3 tools/zero_check.py coverage.merged.out --gate 100` GREEN（`HERALD_MAIN_COVERDIR` 下跑全仓 `-coverpkg=./...`，covermerge 合并三个 `main()` 转储后验证）
 - 涉及文档站时 `pnpm run build` 通过（无死链）
 - 前端批次：`pnpm test:coverage`（含 lines:100 阈值）与 `pnpm build` 全绿后才 push
 - CI 全部 job（Lint / Test / Dashboard / Docker Build / Build）全绿确认
 
 ## 维护
 
-新代码以"触发每个分支"为测试目标；新增 `main()` 或常驻进程入口时同步补 GOCOVERDIR 子进程守卫测试；前端新增组件/页面同步补组件测试并维持行覆盖 100%（达不到的分支在测试文件或口径文档登记原因）；门禁只随实测水位上调，不预留缓冲。
+新代码以"触发每个分支"为测试目标；新增 `main()` 或常驻进程入口时同步补 GOCOVERDIR 子进程守卫测试，并把它加进 ci.yml 中 covermerge 的 `--expect` 清单；前端新增组件/页面同步补组件测试并维持行覆盖 100%（达不到的分支在测试文件或口径文档登记原因）；门禁只随实测水位上调，不预留缓冲。

@@ -10,18 +10,20 @@
 - CI 口径带 `-coverpkg=./...`：所有包的语句都计入 profile，新增一个没有测试的包会直接拉低门禁，而不是被静默排除在统计之外。
 - 禁止用无断言的"路过式"测试或伪造调用路径制造覆盖数字。
 - **子进程口径（补充）**：`main()` 不在 `go test` 语句内执行，go-test 口径永远是零。这类入口用 `go build -cover` 把包编译成带插桩的二进制，作为子进程在 `GOCOVERDIR` 下真实运行，断言 `go tool covdata textfmt` 转储中 `main()` 区间内所有块非零。`os.Exit` 会跳过 profile 转储，因此成功路径必须经 `return` 退出（三个入口的 `main` 均已如此改写），失败路径 `os.Exit(n)` 属于 Go 工具链原理性不可测，见下文。
+- **门禁 profile 是合并口径**：子进程守卫测试在 `HERALD_MAIN_COVERDIR` 下持久化各自的 textfmt 转储，[`tools/covermerge.py`](https://github.com/cuihairu/herald/blob/main/tools/covermerge.py) 把这些**实测计数**合并回 go-test profile——入口块从"登记豁免"升级为真实非零。合并器对假数据硬失败：空 dump、dump 中入口文件（按 basename == `main.go` 识别）无任何非零块、dump 出现主 profile 没有的块（工具链/代码漂移），任一命中即拒绝合并退出。
 
 ## 实测水位与门禁
 
 | 项目 | 值 |
 | --- | --- |
-| 语句覆盖率（CI 口径，`go test -coverpkg=./... -coverprofile` ./...） | **99.5%** |
-| CI 门禁 | `.github/workflows/ci.yml` 的 `Enforce coverage gate`，低于 99.5% 直接失败 |
-| 残余零块 | **仅 6 块**：三个入口包的 `main()` 函数块（见下节），全部经子进程口径实测覆盖，并就地注释定性 |
+| 语句覆盖率（go-test 口径原始值） | 99.5% |
+| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.7%** |
+| CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
+| 残余零块 | **仅 3 块**：三个入口包 `main()` 的 `os.Exit` 失败分支（见下节），全部经台账登记豁免 |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
-零块核对器已入库为 [`tools/zero_check.py`](https://github.com/cuihairu/herald/blob/main/tools/zero_check.py)：跑完覆盖率测试后执行 `python3 tools/zero_check.py coverage.out`，零块按"就地注释或 KNOWN_UNCOVERABLE 登记"豁免，存在未定性零块时以非零码退出，可作为本地验收闸门。当前全部残余零块（三个 `main()` 入口）均已双通道登记。
+零块核对器已入库为 [`tools/zero_check.py`](https://github.com/cuihairu/herald/blob/main/tools/zero_check.py)：跑完覆盖率测试后执行 `python3 tools/zero_check.py coverage.out --gate 100`，零块按"就地注释或 KNOWN_UNCOVERABLE 登记"豁免，未定性零块以非零码退出；`--gate 100` 进一步要求"排除台账登记块后的等效语句覆盖率 ≥ 100%"——只做就地注释而不进台账的零块会拉低等效值、打红门禁，因此**每个豁免都必须走台账、留下书面原因**。
 
 ## 进程入口 main()：双口径实测
 
@@ -29,9 +31,10 @@
 
 1. `main` 改写为成功路径 `return`（`cmd/heraldd` 是 `if code := run(os.Args); code != 0 { os.Exit(code) }`），只有失败才退出进程；
 2. 各包 `main_cover_test.go` 用 `go build -cover -coverpkg=./...` 编译子进程，真实运行（heraldd 起 HTTP 服务后 SIGTERM 优雅退出；quickstart 同步派发后自然退出；worker-sdk 示例对 `ws://localhost:8081` 完成注册握手后 SIGTERM）；
-3. 断言 GOCOVERDIR 转储中 `main()` 区间内除 `os.Exit` 行（`mainExitAllow`，工具链原理性不可测）之外每个块计数非零。
+3. 断言 GOCOVERDIR 转储中 `main()` 区间内除 `os.Exit` 行（`mainExitAllow`，工具链原理性不可测）之外每个块计数非零；
+4. 设了 `HERALD_MAIN_COVERDIR` 时，把 textfmt 转储持久化出来，由 `tools/covermerge.py` 合并进门禁 profile——入口块因此以**实测非零**进入门禁统计，不再依赖登记豁免。
 
-因此这三个包的 `main()` 在 go-test 口径下仍显示为零块（就地 `Coverage note` / `not callable` 注释定性），但**成功路径已被子进程口径真实测过**——不是"测不到所以算了"。
+因此这三个包的 `main()` 在 go-test 口径下仍是零块，但合并口径下成功路径全部实测非零；唯一残余是各 `main()` 的 `os.Exit` 失败分支——exit 跳过 GOCOVERDIR 转储，无法留下任何覆盖数据，已在台账登记。
 
 ## 原防御分支的归处
 

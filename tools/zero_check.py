@@ -9,11 +9,17 @@
    跨行注释规范化后匹配）；
 2. KNOWN_UNCOVERABLE.md 登记：条目格式 `- <import路径>:<行> — 原因`（路径与行写在反引号内）。
 
-两者皆无的零块为未定性，退出码 1。用法（仓库根目录）：
+两者皆无的零块为未定性，退出码 1。
+
+--gate N：在 GREEN 之上追加门禁——「排除 KNOWN_UNCOVERABLE 登记块后的等效
+语句覆盖率 ≥ N」。等效覆盖率 = (总语句 − 全部零块语句) / (总语句 − 登记零块
+语句)，即登记块从分子分母同时剔除（与台账「排除登记项后 100%」的声明同一
+口径）；就地注释块不剔除，想维持 --gate 100 必须补测或进台账。用法（仓库根目录）：
 
     go test -count=1 -coverpkg=./... -coverprofile=coverage.out ./...
-    python3 tools/zero_check.py coverage.out
+    python3 tools/zero_check.py coverage.out --gate 100
 """
+import argparse
 import collections
 import re
 import sys
@@ -38,10 +44,12 @@ def load_ledger(root: Path) -> set[tuple[str, int]]:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(__doc__)
-        return 2
-    prof = Path(sys.argv[1])
+    ap = argparse.ArgumentParser(add_help=False)
+    ap.add_argument("profile")
+    ap.add_argument("--gate", type=float, default=None, metavar="N",
+                    help="等效语句覆盖率门禁（排除台账登记块后），如 --gate 100")
+    args = ap.parse_args()
+    prof = Path(args.profile)
     root = Path.cwd()
 
     mod = "github.com/cuihairu/herald"
@@ -52,7 +60,8 @@ def main() -> int:
                 mod = line.split()[1]
                 break
 
-    blocks: dict[tuple[str, int], int] = collections.defaultdict(int)
+    # (文件, 起始行) -> [max count, numStmts]
+    blocks: dict[tuple[str, int], list[int]] = collections.defaultdict(lambda: [0, 0])
     pat = re.compile(r"^(.+?):(\d+)\.\d+,(\d+)\.\d+ (\d+) (\d+)$")
     for line in prof.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -62,10 +71,11 @@ def main() -> int:
         if not m:
             continue
         key = (m.group(1), int(m.group(2)))
-        blocks[key] = max(blocks[key], int(m.group(5)))
+        blocks[key][0] = max(blocks[key][0], int(m.group(5)))
+        blocks[key][1] = max(blocks[key][1], int(m.group(4)))
 
     ledger = load_ledger(root)
-    zero = sorted(k for k, c in blocks.items() if c == 0)
+    zero = sorted(k for k, (c, _) in blocks.items() if c == 0)
     unknown, exempted = [], []
     for fn, sln in zero:
         if (fn, sln) in ledger:
@@ -86,12 +96,31 @@ def main() -> int:
 
     print(f"blocks: {len(blocks)}, zero blocks: {len(zero)} "
           f"(annotated: {len(zero) - len(exempted) - len(unknown)}, ledger-exempted: {len(exempted)})")
+
     if unknown:
         print("--- UNANNOTATED zero blocks (cover with a test, annotate in place, or register in "
               f"{LEDGER}) ---")
         for fn, sln, note in unknown:
             print(f"{fn}:{sln}  [{note}]")
         return 1
+
+    if args.gate is not None:
+        total = sum(s for _, s in blocks.values())
+        zero_stmts = sum(blocks[k][1] for k in zero)
+        excluded = sum(blocks[k][1] for k in exempted)
+        denominator = total - excluded
+        equivalent = 100.0 * (denominator - (zero_stmts - excluded)) / denominator if denominator else 100.0
+        print(f"equivalent stmt coverage (ledger blocks excluded): "
+              f"{equivalent:.2f}%  (gate: >= {args.gate:g}%)")
+        # 浮点安全：99.99999 与 100 的比较误差收敛到 0.005 个百分点内。
+        if equivalent + 0.005 < args.gate:
+            print("--- GATE FAILED: equivalent coverage below gate. Test the gap, or register "
+                  f"justified blocks in {LEDGER} (in-place annotation alone does not count "
+                  "toward the gate) ---")
+            for fn, sln in exempted:
+                print(f"excluded: {fn}:{sln}")
+            return 1
+
     print("GREEN")
     return 0
 
