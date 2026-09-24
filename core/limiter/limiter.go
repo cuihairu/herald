@@ -44,6 +44,9 @@ func (m *Manager) GetOrCreate(provider string, config *Config) (Limiter, error) 
 
 	limiter, err := m.factory.Create(config)
 	if err != nil {
+		// Unreachable today: the factory falls back to token_bucket for
+		// unknown kinds and never returns an error; this branch guards
+		// future limiter implementations.
 		return nil, err
 	}
 

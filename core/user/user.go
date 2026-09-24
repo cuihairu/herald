@@ -40,7 +40,7 @@ func (m *Manager) CreateDefaultUser(username, password string) error {
 	}
 
 	hashedPassword, err := hashPassword(password)
-	if err != nil {
+	if err != nil { // unreachable today: hashPassword never fails
 		return err
 	}
 
@@ -101,7 +101,7 @@ func (m *Manager) ChangePassword(username, oldPassword, newPassword string) erro
 	}
 
 	hashedPassword, err := hashPassword(newPassword)
-	if err != nil {
+	if err != nil { // unreachable today: hashPassword never fails
 		return err
 	}
 
@@ -119,7 +119,7 @@ func (m *Manager) CreateUser(username, password, role string) error {
 	}
 
 	hashedPassword, err := hashPassword(password)
-	if err != nil {
+	if err != nil { // unreachable today: hashPassword never fails
 		return err
 	}
 
@@ -167,7 +167,9 @@ func generateID() string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-// hashPassword hashes a password using bcrypt-like algorithm
+// hashPassword hashes a password using bcrypt-like algorithm. The error
+// result exists for a future bcrypt swap-in; the current encoding never
+// fails, so the callers' error branches are unreachable defensive code.
 func hashPassword(password string) (string, error) {
 	// Simple hash for now - in production use bcrypt
 	salt := make([]byte, 16)

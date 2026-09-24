@@ -92,11 +92,16 @@ func New(cfg *config.Config) (*App, error) {
 		}
 		enabled := providerCfg.Enabled == nil || *providerCfg.Enabled
 		if err := manager.RegisterProvider(name, provider, enabled); err != nil {
+			// Unreachable today: the manager is fresh and the names come
+			// from one map, so "already registered" cannot happen; the
+			// branch guards future registration paths.
 			_ = backend.Close()
 			return nil, fmt.Errorf("register provider %s: %w", name, err)
 		}
 		if providerCfg.RateLimit != nil {
 			if err := manager.SetProviderLimiter(name, providerCfg.RateLimit); err != nil {
+				// Unreachable today: the limiter factory never fails
+				// (unknown kinds fall back to token_bucket).
 				_ = backend.Close()
 				return nil, fmt.Errorf("rate limit for %s: %w", name, err)
 			}

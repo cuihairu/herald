@@ -334,6 +334,9 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 
 	provider, err := m.GetProvider(task.Provider)
 	if err != nil {
+		// Only reachable when the provider is unregistered between the
+		// IsEnabled check above and this lookup (two independent locks):
+		// a concurrent shutdown race this guard deliberately tolerates.
 		return err
 	}
 

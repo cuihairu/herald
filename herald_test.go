@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/incident"
@@ -1271,4 +1273,31 @@ func (p *recordingProvider) hasTitle(substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestNewWiresRedisRulesState(t *testing.T) {
+	mr := miniredis.RunT(t)
+	cfg := config.Default()
+	cfg.RulesState = &config.RulesStateConfig{Type: "redis", Addr: mr.Addr()}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() with a live redis state store: %v", err)
+	}
+	defer func() { _ = app.Close() }()
+}
+
+func TestNewRejectsUnwritableRulesStore(t *testing.T) {
+	// The rule must pass validation; the failure comes from persisting it
+	// into a directory that does not exist.
+	cfg := config.Default()
+	cfg.Rules = []rules.Rule{{
+		ID:    "ok",
+		Match: `level == "error"`,
+		Mode:  rules.ModeActive,
+		Route: []rules.RouteStep{{Channels: []string{"rec"}}},
+	}}
+	cfg.RulesStore = filepath.Join(t.TempDir(), "missing-dir", "rules.json")
+	if _, err := New(cfg); err == nil {
+		t.Fatal("New() with an unwritable rules store must fail")
+	}
 }

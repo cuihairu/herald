@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -298,4 +299,126 @@ func TestManagerPersistenceFailureDoesNotBlock(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatal("upgrade never fired despite the persistence failure")
+}
+
+func TestArmClampsElapsedDeadline(t *testing.T) {
+	notify := &recordingNotifier{}
+	m := NewManager(ack.NewMemoryStore(), notify, "")
+	p := pending("a-past", time.Minute)
+	p.CreatedAt = time.Now().Add(-2 * time.Hour) // deadline already passed
+	if err := m.Schedule(context.Background(), p); err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	// A negative remaining must clamp to an immediate fire, not a
+	// multi-hour timer.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if notify.count() == 1 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("an elapsed deadline must fire immediately")
+}
+
+func TestCancelReportsSaveFailure(t *testing.T) {
+	m := NewManager(ack.NewMemoryStore(), &recordingNotifier{},
+		filepath.Join(t.TempDir(), "pendings.json"))
+	if err := m.Schedule(context.Background(), pending("a-c", time.Minute)); err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	// Break the persistence line after the pending was stored.
+	m.mu.Lock()
+	m.path = filepath.Join(t.TempDir(), "missing-dir", "pendings.json")
+	m.mu.Unlock()
+	if err := m.Cancel(context.Background(), "a-c"); err == nil {
+		t.Fatal("cancel must surface the save failure")
+	}
+}
+
+func TestFireToleratesSaveFailure(t *testing.T) {
+	notify := &recordingNotifier{}
+	m := NewManager(ack.NewMemoryStore(), notify,
+		filepath.Join(t.TempDir(), "pendings.json"))
+	// The pending is stored first; the persistence line breaks before the
+	// timer fires.
+	if err := m.Schedule(context.Background(), pending("a-f", 20*time.Millisecond)); err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	m.mu.Lock()
+	m.path = filepath.Join(t.TempDir(), "missing-dir", "pendings.json")
+	m.mu.Unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if notify.count() == 1 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("the upgrade must still fire when persistence fails")
+}
+
+func TestLoadRejectsUnreadablePath(t *testing.T) {
+	// Reading a directory fails with something other than NotExist.
+	m := NewManager(ack.NewMemoryStore(), nil, t.TempDir())
+	if _, err := m.load(); err == nil {
+		t.Fatal("reading a directory must fail")
+	}
+}
+
+func TestEmptyPathSkipsPersistence(t *testing.T) {
+	// An empty path means in-memory only: Schedule succeeds without
+	// touching the filesystem.
+	m := NewManager(ack.NewMemoryStore(), &recordingNotifier{}, "")
+	if err := m.Schedule(context.Background(), pending("a-nofile", time.Minute)); err != nil {
+		t.Fatalf("Schedule with no persistence path must succeed: %v", err)
+	}
+}
+
+func TestCancelSkipsOtherAlerts(t *testing.T) {
+	notify := &recordingNotifier{}
+	m := NewManager(ack.NewMemoryStore(), notify, "")
+	if err := m.Schedule(context.Background(), pending("a-keep", 20*time.Millisecond)); err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if err := m.Schedule(context.Background(), pending("a-drop", 20*time.Millisecond)); err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if err := m.Cancel(context.Background(), "a-drop"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	// Only a-drop was removed; a-keep stays armed and still fires.
+	deadline := time.Now().Add(2 * time.Second)
+	kept := false
+	for time.Now().Before(deadline) {
+		if notify.count() > 0 {
+			if got := notify.fired[0]; got.AlertID == "a-keep" {
+				kept = true
+			}
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !kept {
+		t.Fatal("the untouched alert must still fire after cancelling another")
+	}
+}
+
+func TestFireIgnoresUnknownKey(t *testing.T) {
+	// A timer for a key that was cancelled (or never existed) must stand
+	// down quietly.
+	m := NewManager(ack.NewMemoryStore(), nil, "")
+	m.fire("no-such-key")
+}
+
+func TestSaveLockInitializesNilTable(t *testing.T) {
+	// The zero-value Manager (no NewManager) must survive a save: the nil
+	// pending table gets initialized instead of panicking.
+	m := &Manager{path: filepath.Join(t.TempDir(), "pendings.json")}
+	if err := m.saveLocked(); err != nil {
+		t.Fatalf("saving an empty table must succeed: %v", err)
+	}
+	if m.pendings == nil {
+		t.Fatal("save must leave a usable pending table behind")
+	}
 }
