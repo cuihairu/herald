@@ -21,6 +21,8 @@
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
+零块核对器已入库为 [`tools/zero_check.py`](../../tools/zero_check.py)：跑完覆盖率测试后执行 `python3 tools/zero_check.py coverage.out`，存在未定性零块时以非零码退出，可作为本地验收闸门。
+
 ## 进程入口 main()：双口径实测
 
 `main()` 只能由 OS 启动进程调用，`go test` 永远测不到；而 `main` 里的 `os.Exit(n)` 会跳过 GOCOVERDIR 转储。三个入口做了同样的处理：
