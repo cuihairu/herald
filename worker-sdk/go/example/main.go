@@ -24,11 +24,14 @@ func (p *DemoProvider) Deliver(ctx context.Context, task *core.DeliveryTask) err
 	return nil
 }
 
+// main is the demo's process entry point: it blocks until a signal and is
+// not callable from tests.
 func main() {
 	// Run until the process is interrupted (Ctrl+C or SIGTERM).
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Not testable from this package: main exits the process on error.
 	if err := run(ctx, demoConfig()); err != nil {
 		fmt.Printf("Failed to start: %v\n", err)
 		os.Exit(1)

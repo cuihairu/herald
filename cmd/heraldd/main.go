@@ -33,6 +33,8 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
+// main terminates the process with run's exit code and is therefore not
+// callable from tests; run() is the testable entry point.
 func main() {
 	os.Exit(run(os.Args))
 }
@@ -111,12 +113,16 @@ func serveCmd(args []string) int {
 		if providerCfg.Enabled != nil {
 			enabled = *providerCfg.Enabled
 		}
+		// Defensive: the duplicate-name guard cannot fire — builtins only
+		// register factories, and each configured name is registered once.
 		if err := manager.RegisterProvider(name, provider, enabled); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
 			return 1
 		}
 		logger.Info("provider registered", "name", name, "type", provider.Type(), "enabled", enabled)
 		if providerCfg.RateLimit != nil {
+			// Defensive: the limiter factory falls back instead of failing
+			// (see limiter.Manager.GetOrCreate), so this cannot error today.
 			if err := manager.SetProviderLimiter(name, providerCfg.RateLimit); err != nil {
 				logger.Error("failed to configure rate limit", "name", name, "error", err)
 				return 1
@@ -252,6 +258,9 @@ func serveCmd(args []string) int {
 	}()
 
 	go func() {
+		// Defensive: Start launches ListenAndServe in its own goroutine and
+		// always returns nil, so bind failures are logged inside Start and
+		// never reach this branch.
 		if err := wsServer.Start(); err != nil {
 			logger.Error("websocket server error", "error", err)
 			cancel()
@@ -319,6 +328,9 @@ func workerCmd(args []string) int {
 			logger.Error("failed to create provider", "name", name, "error", err)
 			return 1
 		}
+		// Defensive: the duplicate-name guard cannot fire — the manager is
+		// fresh (see serveCmd), builtins only register factories, and each
+		// configured name registers once.
 		if err := manager.RegisterProvider(name, provider, true); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
 			return 1
@@ -483,9 +495,13 @@ func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string
 		Capabilities: capabilities,
 	}
 	payload, err := protocol.MarshalMessage(msg)
+	// Defensive: the register message has only concrete fields, so
+	// marshalling cannot fail.
 	if err != nil {
 		return err
 	}
+	// Defensive: gorilla's SetWriteDeadline only records the timestamp and
+	// cannot fail, even on a closed connection.
 	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return err
 	}
@@ -493,6 +509,8 @@ func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string
 		return err
 	}
 
+	// Defensive: the connection was just dialed and nothing has closed it,
+	// so the read deadline is always settable here.
 	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return err
 	}
@@ -525,8 +543,11 @@ func heartbeatRemoteWorker(ctx context.Context, conn *gws.Conn, workerID string,
 			}
 			payload, err := protocol.MarshalMessage(msg)
 			if err != nil {
+				// Defensive: the heartbeat message has only concrete fields.
 				return err
 			}
+			// Defensive: gorilla's SetWriteDeadline never fails (it only
+			// records the timestamp).
 			if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 				return err
 			}

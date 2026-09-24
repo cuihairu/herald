@@ -28,6 +28,18 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
 
+      # Coverage gate: the measured high-water mark. Every uncovered
+      # statement block is an unreachable/defensive branch documented in
+      # place — see docs/architecture/coverage.md.
+      - name: Enforce coverage gate
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $NF); print $NF}')
+          echo "statement coverage: ${total}%"
+          if ! awk -v t="$total" 'BEGIN { exit !(t+0 >= 98.7) }'; then
+            echo "::error::coverage ${total}% is below the 98.7% gate"
+            exit 1
+          fi
+
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:

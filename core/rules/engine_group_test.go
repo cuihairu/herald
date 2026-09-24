@@ -228,3 +228,34 @@ func mustGroupKey(t *testing.T, groupBy []string, env Env) string {
 	key, _ := RuleGroupKey(groupBy, env)
 	return key
 }
+
+func TestCompileRuleGroupInterval(t *testing.T) {
+	interval := 3 * time.Minute
+	cases := []struct {
+		name     string
+		interval *string
+		want     time.Duration
+	}{
+		// A rule with GroupBy but no GroupInterval compiles to the
+		// default quiet period.
+		{"default", nil, DefaultGroupInterval},
+		// An explicit GroupInterval compiles to its parsed value.
+		{"explicit", strPtr("3m"), interval},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := validRule()
+			r.Match = "true"
+			r.Route = []RouteStep{{Channels: []string{"c"}}}
+			r.GroupBy = []string{"env"}
+			r.GroupInterval = tc.interval
+			compiled, err := compileRule(r)
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+			if compiled.groupInterval != tc.want {
+				t.Fatalf("groupInterval = %v, want %v", compiled.groupInterval, tc.want)
+			}
+		})
+	}
+}

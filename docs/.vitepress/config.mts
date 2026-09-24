@@ -43,6 +43,7 @@ export default defineConfig({
             { text: '协议设计', link: '/architecture/protocols' },
             { text: '模板系统', link: '/architecture/templates' },
             { text: '目录结构', link: '/architecture/directory' },
+            { text: '测试覆盖率口径', link: '/architecture/coverage' },
           ]
         }
       ],

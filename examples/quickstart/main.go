@@ -15,6 +15,8 @@ import (
 	"github.com/cuihairu/herald/core"
 )
 
+// main terminates the process on failure and is not callable from tests;
+// run() is the testable entry point.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -29,6 +31,9 @@ func run(ctx context.Context) error {
 	cfg.Providers["log"] = config.ProviderConfig{Type: "log"}
 
 	app, err := herald.New(cfg)
+	// Unreachable today: run builds a fixed in-memory config that New
+	// always accepts; the branch documents the contract for future
+	// configurable variants of this example.
 	if err != nil {
 		return err
 	}
