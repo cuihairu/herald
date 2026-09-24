@@ -14,6 +14,7 @@ import (
 
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/config"
+	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/queue"
@@ -199,6 +200,7 @@ func serveCmd(args []string) int {
 		TemplateManager: templateMgr,
 		WorkerRegistry:  registry,
 		Rules:           rulesEngine,
+		AckStore:        ack.NewMemoryStore(),
 	})
 
 	// Create WebSocket server (management channel)

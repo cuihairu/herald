@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
@@ -39,6 +40,7 @@ type Config struct {
 	TemplateManager *template.Manager
 	WorkerRegistry  *worker.Registry
 	Rules           *rules.Engine // optional; nil keeps static routing only
+	AckStore        ack.Store     // optional; nil keeps alert endpoints off
 }
 
 // NewServer creates a new server
@@ -65,6 +67,9 @@ func NewServer(config *Config) *Server {
 	handler.SetWorkerRegistry(config.WorkerRegistry)
 	if config.Rules != nil {
 		handler.SetRuleEngine(config.Rules)
+	}
+	if config.AckStore != nil {
+		handler.SetAckStore(config.AckStore)
 	}
 
 	s := &Server{
@@ -101,6 +106,8 @@ func NewServer(config *Config) *Server {
 	// Rule management
 	mux.HandleFunc("/api/v1/rules", s.withAuth(s.handleRules))
 	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
+	mux.HandleFunc("/api/v1/alerts/{id}", s.withAuth(s.handleAlertByID))
+	mux.HandleFunc("/api/v1/alerts/{id}/ack", s.withAuth(s.handleAlertAck))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -271,4 +278,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleRuleByID(w, r)
+}
+
+// Alert acknowledgement handlers
+
+func (s *Server) handleAlertByID(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleAlertByID(w, r)
+}
+
+func (s *Server) handleAlertAck(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleAlertAck(w, r)
 }

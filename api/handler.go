@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
@@ -22,6 +23,7 @@ type Handler struct {
 	_wsServer       *websocket.Server
 	queue           core.Queue
 	rulesEngine     *rules.Engine
+	ackStore        ack.Store
 }
 
 // NewHandler creates a new handler
@@ -64,6 +66,11 @@ func (h *Handler) SetQueue(q core.Queue) {
 // SetRuleEngine attaches the rule engine for rule CRUD endpoints.
 func (h *Handler) SetRuleEngine(engine *rules.Engine) {
 	h.rulesEngine = engine
+}
+
+// SetAckStore attaches the alert acknowledgement store for alert endpoints.
+func (h *Handler) SetAckStore(s ack.Store) {
+	h.ackStore = s
 }
 
 // Response is a response

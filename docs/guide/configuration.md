@@ -398,7 +398,7 @@ providers:
 
 ### P2/P3 未生效字段
 
-`escalation` 依赖 P3 的 ACK 闭环——配置了它会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
+`escalation` 依赖 P3 的 ACK 闭环（ACK 记录/查询 API 已就位，升级链在后续批次接线）——配置了它会被校验拒绝（而不是静默忽略），避免给出假承诺；后续版本实装后放开。
 
 ### 规则存储与 API（热加载）
 
@@ -424,6 +424,25 @@ curl -X DELETE http://localhost:8080/api/v1/rules/p1
 ```
 
 **实现偏离说明**：设计文档原定持久化以 SQLite 起步；P1 实际采用 JSON 文件存储（实现同一 `Store` 接口）。理由：规则规模 <100 条、单写者进程、无查询需求，SQLite 的 15MB cgo 依赖不成比例；待 P2 ACK 状态需要真实查询能力时再引入 SQLite，届时接口不变、只换实现。
+
+### ACK 告警确认（P3）
+
+`POST /api/v1/alerts/{id}/ack` 记录告警确认（把「通知已送达」和「事故有人负责」区分开——前者是投递系统的职责，后者是告警系统的职责）：
+
+```bash
+# 确认告警（acked_by 可选，记录确认人）
+curl -X POST http://localhost:8080/api/v1/alerts/incident-123/ack \
+  -H 'Content-Type: application/json' \
+  -d '{"acked_by": "alice"}'
+
+# 查询确认状态
+curl http://localhost:8080/api/v1/alerts/incident-123
+```
+
+- `{id}` 是调用方的告警身份——调用方在通知 params 里带的业务告警 id，同一告警的多次通知用同一 id 确认一次即可
+- 确认是幂等的：同一 id 重复确认保留首次记录（确认时间是事实，不是计数器）
+- 当前 ACK 状态仅记录与查询；`escalation` 升级链（P3 后续批次）消费它——ack_timeout 内未确认才升级
+
 
 ### 投递限流与重试
 
