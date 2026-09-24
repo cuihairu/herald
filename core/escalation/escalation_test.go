@@ -104,16 +104,19 @@ func TestManagerScheduleReArmsWindow(t *testing.T) {
 	notify := &recordingNotifier{}
 	m := NewManager(ack.NewMemoryStore(), notify, "")
 	ctx := context.Background()
-	// First delivery arms a 30ms window; a second delivery 20ms later
-	// resets it, so at 35ms nothing has fired yet.
-	if err := m.Schedule(ctx, pending("a1", 30*time.Millisecond)); err != nil {
+	// First delivery arms a 100ms window; a second delivery 40ms later
+	// resets it, so at ~60ms nothing has fired yet. The margins are wide
+	// on purpose: the assertion is wall-clock, and under load Sleep can
+	// overshoot — a narrow window let the first timer fire before the
+	// second Schedule ran and made this test flaky.
+	if err := m.Schedule(ctx, pending("a1", 100*time.Millisecond)); err != nil {
 		t.Fatalf("Schedule: %v", err)
 	}
-	time.Sleep(20 * time.Millisecond)
-	if err := m.Schedule(ctx, pending("a1", 30*time.Millisecond)); err != nil {
+	time.Sleep(40 * time.Millisecond)
+	if err := m.Schedule(ctx, pending("a1", 100*time.Millisecond)); err != nil {
 		t.Fatalf("re-Schedule: %v", err)
 	}
-	time.Sleep(15 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	if notify.count() != 0 {
 		t.Fatalf("re-armed window fired too early")
 	}

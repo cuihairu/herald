@@ -3,21 +3,16 @@
 
 解析 Go coverprofile，按 (文件, 块) 聚合取各测试二进制报告的 max count
 （同一块会被多个包的测试各报告一次，不聚合就会误判），列出真实的零计数块，
-并按源码就地注释分类：带定性关键词的零块视为"已记录原因"，其余列为
-未定性（必须补测试或补注释）。
+并按两种豁免通道分类：
+1. 源码就地注释：块起始行上方 7 行加块体内 2 行含定性关键词
+   （Defensive / Unreachable / not callable / Coverage note，大小写不敏感，
+   跨行注释规范化后匹配）；
+2. KNOWN_UNCOVERABLE.md 登记：条目格式 `- <import路径>:<行> — 原因`（路径与行写在反引号内）。
 
-用法（仓库根目录）：
+两者皆无的零块为未定性，退出码 1。用法（仓库根目录）：
 
     go test -count=1 -coverpkg=./... -coverprofile=coverage.out ./...
     python3 tools/zero_check.py coverage.out
-
-退出码：存在未定性零块时为 1，否则 0。
-
-定性关键词（与 docs/architecture/coverage.md 约定一致）：
-Defensive / Unreachable / not callable / Coverage note（大小写不敏感）。
-
-判定窗口为块起始行上方 7 行加块体内 2 行，跨行注释会被规范化后再匹配，
-防止关键词被断行躲过检查。
 """
 import collections
 import re
@@ -25,6 +20,21 @@ import sys
 from pathlib import Path
 
 KEYS = ("defensive", "unreachable", "not callable", "coverage note")
+LEDGER = "KNOWN_UNCOVERABLE.md"
+
+
+def load_ledger(root: Path) -> set[tuple[str, int]]:
+    """Parse `- `import/path.go:LINE` — reason` entries into a set."""
+    entries = set()
+    path = root / LEDGER
+    if not path.exists():
+        return entries
+    pat = re.compile(r"^\s*-\s+`([^`:]+):(\d+)`")
+    for line in path.read_text(encoding="utf-8").splitlines():
+        m = pat.match(line)
+        if m:
+            entries.add((m.group(1), int(m.group(2))))
+    return entries
 
 
 def main() -> int:
@@ -54,9 +64,13 @@ def main() -> int:
         key = (m.group(1), int(m.group(2)))
         blocks[key] = max(blocks[key], int(m.group(5)))
 
+    ledger = load_ledger(root)
     zero = sorted(k for k, c in blocks.items() if c == 0)
-    unknown = []
+    unknown, exempted = [], []
     for fn, sln in zero:
+        if (fn, sln) in ledger:
+            exempted.append((fn, sln))
+            continue
         rel = fn[len(mod) + 1:] if fn.startswith(mod + "/") else fn
         try:
             src = (root / rel).read_text(encoding="utf-8").splitlines()
@@ -70,9 +84,11 @@ def main() -> int:
         if not any(key in window for key in KEYS):
             unknown.append((fn, sln, src[sln - 1].strip() if sln - 1 < len(src) else "?"))
 
-    print(f"blocks: {len(blocks)}, zero blocks: {len(zero)} (annotated: {len(zero) - len(unknown)})")
+    print(f"blocks: {len(blocks)}, zero blocks: {len(zero)} "
+          f"(annotated: {len(zero) - len(exempted) - len(unknown)}, ledger-exempted: {len(exempted)})")
     if unknown:
-        print("--- UNANNOTATED zero blocks ---")
+        print("--- UNANNOTATED zero blocks (cover with a test, annotate in place, or register in "
+              f"{LEDGER}) ---")
         for fn, sln, note in unknown:
             print(f"{fn}:{sln}  [{note}]")
         return 1

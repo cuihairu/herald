@@ -352,6 +352,24 @@ func TestAwaitingQueueWaitContextCanceled(t *testing.T) {
 	}
 }
 
+// TestAwaitingQueueWaitTimeoutWhileBlocked covers the select's ctx.Done arm:
+// the context dies while wait is blocked on its listener — not before it
+// registers — so the timeout must release the waiter from the select itself.
+func TestAwaitingQueueWaitTimeoutWhileBlocked(t *testing.T) {
+	backend, err := queue.NewMemoryQueue(&queue.QueueConfig{Type: "memory", Size: 10})
+	if err != nil {
+		t.Fatalf("NewMemoryQueue() error = %v", err)
+	}
+	aq := newAwaitingQueue(backend)
+	defer func() { _ = backend.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := aq.wait(ctx, "never-delivered"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("wait() that outlives its ctx = %v, want context.DeadlineExceeded", err)
+	}
+}
+
 func TestNewUnknownQueueType(t *testing.T) {
 	cfg := config.Default()
 	cfg.Queue.Type = "bogus"

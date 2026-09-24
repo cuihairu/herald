@@ -6,7 +6,7 @@
 
 - 统计工具为 `go test -coverprofile`，以 Go coverprofile 的**基本块（statement block）**为最小单位，而不是行。
 - Go 编译器把 `if`/`for`/`select` 的每个出口、每个 `case` 都切成独立的基本块，每块记录执行次数。**所有块的计数非零等价于分支覆盖已满**：一个条件分支只要两侧都真实执行过，两个块都会非零；任一侧没走到，就会留下一个计数为零的块。
-- 因此我们的验收标准是：**profile 中每一个计数为零的块，要么补上确定性触发它的测试，要么在源码就地注释说明它为什么不可达**。没有第三种处理。
+- 因此我们的验收标准是：**profile 中每一个计数为零的块，要么补上确定性触发它的测试，要么按两条通道之一如实登记原因**——源码就地定性注释（`Defensive` / `Unreachable` / `not callable` / `Coverage note`），或仓库根 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记表。没有第三种处理。排除已登记不可达项后，语句覆盖率为 100%。
 - CI 口径带 `-coverpkg=./...`：所有包的语句都计入 profile，新增一个没有测试的包会直接拉低门禁，而不是被静默排除在统计之外。
 - 禁止用无断言的"路过式"测试或伪造调用路径制造覆盖数字。
 - **子进程口径（补充）**：`main()` 不在 `go test` 语句内执行，go-test 口径永远是零。这类入口用 `go build -cover` 把包编译成带插桩的二进制，作为子进程在 `GOCOVERDIR` 下真实运行，断言 `go tool covdata textfmt` 转储中 `main()` 区间内所有块非零。`os.Exit` 会跳过 profile 转储，因此成功路径必须经 `return` 退出（三个入口的 `main` 均已如此改写），失败路径 `os.Exit(n)` 属于 Go 工具链原理性不可测，见下文。
@@ -21,7 +21,7 @@
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
-零块核对器已入库为 [`tools/zero_check.py`](https://github.com/cuihairu/herald/blob/main/tools/zero_check.py)：跑完覆盖率测试后执行 `python3 tools/zero_check.py coverage.out`，存在未定性零块时以非零码退出，可作为本地验收闸门。
+零块核对器已入库为 [`tools/zero_check.py`](https://github.com/cuihairu/herald/blob/main/tools/zero_check.py)：跑完覆盖率测试后执行 `python3 tools/zero_check.py coverage.out`，零块按"就地注释或 KNOWN_UNCOVERABLE 登记"豁免，存在未定性零块时以非零码退出，可作为本地验收闸门。当前全部残余零块（三个 `main()` 入口）均已双通道登记。
 
 ## 进程入口 main()：双口径实测
 
