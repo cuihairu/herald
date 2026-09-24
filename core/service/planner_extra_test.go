@@ -132,3 +132,32 @@ func TestPlanWithNonCapableProvider(t *testing.T) {
 		t.Errorf("unexpected content: %+v", task.Payload.Content)
 	}
 }
+
+func TestPlanCarriesTheAlertIdentity(t *testing.T) {
+	planner := NewDeliveryPlanner(template.NewManager())
+
+	// The caller's business alert id rides through delivery so card
+	// buttons can acknowledge the right alert.
+	n := &core.Notification{
+		Content: &core.DirectContent{Title: "disk full", Body: "b"},
+		Params:  map[string]any{"alert_id": "inc-7"},
+	}
+	task, err := planner.Plan(context.Background(), &plainProvider{name: "p"}, n, nil, nil, "p")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if task.AlertID != "inc-7" {
+		t.Fatalf("task must carry the caller's alert id, got %q", task.AlertID)
+	}
+
+	// Without one, the content fingerprint is the identity — the same
+	// fallback the ack API, escalation and the ledger use.
+	plain := &core.Notification{Content: &core.DirectContent{Title: "t", Body: "b"}}
+	task, err = planner.Plan(context.Background(), &plainProvider{name: "p"}, plain, nil, nil, "p")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if task.AlertID == "" || task.AlertID != alertIDOf(plain) {
+		t.Fatalf("task must fall back to the content identity, got %q", task.AlertID)
+	}
+}

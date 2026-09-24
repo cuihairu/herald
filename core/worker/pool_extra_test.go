@@ -200,6 +200,26 @@ func TestPoolStaleWorkerSweep(t *testing.T) {
 	}
 }
 
+// retireQueue hands the worker exactly one nil task — a closed queue's
+// zero value — and signals when that Pop happened, so the test can assert
+// on the worker's retirement without racing its microsecond-long lifecycle.
+type retireQueue struct {
+	once   sync.Once
+	popped chan struct{}
+}
+
+func (q *retireQueue) Push(_ context.Context, _ *core.DeliveryTask) error { return nil }
+
+func (q *retireQueue) Pop(context.Context) (*core.DeliveryTask, error) {
+	q.once.Do(func() { close(q.popped) })
+	return nil, nil
+}
+
+func (q *retireQueue) Ack(_ context.Context, _ string) error           { return nil }
+func (q *retireQueue) Nack(_ context.Context, _ string, _ error) error { return nil }
+func (q *retireQueue) Size() int                                       { return 0 }
+func (q *retireQueue) Close() error                                    { return nil }
+
 // TestPoolWorkerRetiresOnClosedQueue pins the shutdown semantics of a
 // closed queue: memory queues pop their zero value once closed, and a
 // worker must retire quietly instead of dereferencing the nil task.
@@ -210,10 +230,7 @@ func TestPoolWorkerRetiresOnClosedQueue(t *testing.T) {
 	}
 
 	registry := NewRegistry()
-	q := &fakePoolQueue{events: make(chan string, 8)}
-	q.script = []popStep{
-		{nil, nil}, // closed queue: no task will ever come again
-	}
+	q := &retireQueue{popped: make(chan struct{})}
 
 	pool := NewPool(q, mgr, registry, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -221,7 +238,15 @@ func TestPoolWorkerRetiresOnClosedQueue(t *testing.T) {
 	done := make(chan struct{})
 	go func() { pool.Run(ctx); close(done) }()
 
-	// The worker must deregister itself, not crash on the nil task.
+	// Wait until the worker actually popped the nil task.
+	select {
+	case <-q.popped:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker never popped the closed queue's zero value")
+	}
+
+	// The context is still live here, so the only way the worker can leave
+	// the registry is the nil-task retirement itself.
 	retired := false
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

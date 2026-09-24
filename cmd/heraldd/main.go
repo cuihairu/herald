@@ -213,6 +213,12 @@ func serveCmd(args []string) int {
 		Escalation:      escalations,
 		Incidents:       incidents,
 	})
+	// Feishu card-callback encryption key (optional): acknowledge buttons
+	// on interactive cards ack alerts through the same stores the ack API
+	// uses.
+	if cfg.CardCallback != nil && cfg.CardCallback.EncryptKey != "" {
+		srv.SetCardCallbackKey(cfg.CardCallback.EncryptKey)
+	}
 
 	// Re-arm pending upgrades from the previous run. A failure here must
 	// not keep the alert system down — pending upgrades are an add-on —

@@ -39,6 +39,17 @@ type Config struct {
 	// IncidentLimit caps the in-memory incident ledger. Zero picks the
 	// default (1000); open incidents are never evicted.
 	IncidentLimit int `yaml:"incident_limit"`
+	// CardCallback configures the Feishu interactive-card acknowledge
+	// button callback (POST /api/v1/callbacks/feishu).
+	CardCallback *CardCallbackConfig `yaml:"card_callback"`
+}
+
+// CardCallbackConfig holds the provider-side secrets of card button
+// callbacks. EncryptKey is the Feishu console's "Encrypt Key": callbacks
+// that arrive encrypted are decrypted with it; empty keeps encrypted
+// callbacks rejected (plaintext and the URL challenge still work).
+type CardCallbackConfig struct {
+	EncryptKey string `yaml:"encrypt_key"`
 }
 
 // RulesStateConfig selects where rule evaluation state (for windows) lives.

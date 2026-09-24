@@ -35,13 +35,17 @@ type DirectContent struct {
 
 // DeliveryTask is a single provider-bound delivery task
 type DeliveryTask struct {
-	ID         string          `json:"id"`
-	Provider   string          `json:"provider"`
-	Targets    []string        `json:"targets"`
-	Payload    DeliveryPayload `json:"payload"`
-	Level      string          `json:"level,omitempty"`
-	RetryCount int             `json:"retry_count"`
-	CreatedAt  time.Time       `json:"created_at"`
+	ID       string          `json:"id"`
+	Provider string          `json:"provider"`
+	Targets  []string        `json:"targets"`
+	Payload  DeliveryPayload `json:"payload"`
+	Level    string          `json:"level,omitempty"`
+	// AlertID carries the acknowledgement identity through delivery:
+	// providers that render interactive cards embed it in the card button
+	// so the provider's callback can acknowledge the right alert.
+	AlertID    string    `json:"alert_id,omitempty"`
+	RetryCount int       `json:"retry_count"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider

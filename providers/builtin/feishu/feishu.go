@@ -13,20 +13,27 @@ import (
 type Provider struct {
 	webhookURL string
 	signSecret string
-	status     *core.ProviderStatus
-	client     *httpclient.Client
+	// interactive renders alert tasks as cards with an acknowledge button
+	// instead of plain text; the button carries the task's alert_id so the
+	// card callback can acknowledge the alert.
+	interactive bool
+	status      *core.ProviderStatus
+	client      *httpclient.Client
 }
 
 // Config is the Feishu provider configuration
 type Config struct {
-	WebhookURL string `yaml:"webhook_url"`
-	SignSecret string `yaml:"sign_secret"`
+	WebhookURL  string `yaml:"webhook_url"`
+	SignSecret  string `yaml:"sign_secret"`
+	Interactive bool   `yaml:"interactive_cards"`
 }
 
-// Message is a Feishu message
+// Message is a Feishu message. Text and post messages use content;
+// interactive cards use card.
 type Message struct {
 	MsgType string      `json:"msg_type"`
-	Content interface{} `json:"content"`
+	Content interface{} `json:"content,omitempty"`
+	Card    interface{} `json:"card,omitempty"`
 }
 
 // TextContent is text content
@@ -56,10 +63,12 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}
 
 	signSecret, _ := config["sign_secret"].(string)
+	interactive, _ := config["interactive_cards"].(bool)
 
 	return &Provider{
-		webhookURL: webhookURL,
-		signSecret: signSecret,
+		webhookURL:  webhookURL,
+		signSecret:  signSecret,
+		interactive: interactive,
 		status: &core.ProviderStatus{
 			Name:   "feishu",
 			Type:   "feishu",
@@ -73,8 +82,9 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 // GetConfig returns the provider configuration
 func (p *Provider) GetConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"webhook_url": p.webhookURL,
-		"sign_secret": p.signSecret,
+		"webhook_url":       p.webhookURL,
+		"sign_secret":       p.signSecret,
+		"interactive_cards": p.interactive,
 	}
 }
 
@@ -95,17 +105,94 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	return p.sendMessage(ctx, message)
 }
 
-// buildMessage builds a Feishu message from a task
+// buildMessage builds a Feishu message from a task: a card with an
+// acknowledge button when interactive cards are on and the task carries
+// an alert id, plain text otherwise.
 func (p *Provider) buildMessage(task *core.DeliveryTask) *Message {
-	// Build content
+	if p.interactive && task.AlertID != "" {
+		return &Message{MsgType: "interactive", Card: p.buildCard(task)}
+	}
 	content := p.formatMessage(task)
-
 	return &Message{
 		MsgType: "text",
 		Content: TextContent{
 			Text: content,
 		},
 	}
+}
+
+// cardButtonValue is the payload the acknowledge button sends back to the
+// card callback endpoint; alert_id is the acknowledgement identity shared
+// with the ack API, escalation and the incident ledger.
+type cardButtonValue struct {
+	AlertID string `json:"alert_id"`
+}
+
+// buildCard renders the task as an interactive card: a level-colored
+// header, the body text, and one acknowledge button carrying the alert id.
+func (p *Provider) buildCard(task *core.DeliveryTask) map[string]interface{} {
+	title, body := extractContent(task)
+	if title == "" {
+		title = task.AlertID
+	}
+
+	header := map[string]interface{}{
+		"title": map[string]interface{}{
+			"tag":     "plain_text",
+			"content": levelPrefix(task.Level) + title,
+		},
+	}
+	switch task.Level {
+	case "error", "critical":
+		header["template"] = "red"
+	case "warning":
+		header["template"] = "orange"
+	default:
+		header["template"] = "blue"
+	}
+
+	elements := make([]interface{}, 0, 2)
+	if body != "" {
+		elements = append(elements, map[string]interface{}{
+			"tag": "div",
+			"text": map[string]interface{}{
+				"tag":     "lark_md",
+				"content": body,
+			},
+		})
+	}
+	elements = append(elements, map[string]interface{}{
+		"tag": "action",
+		"actions": []interface{}{
+			map[string]interface{}{
+				"tag":  "button",
+				"text": map[string]interface{}{"tag": "plain_text", "content": "确认告警"},
+				"type": "primary",
+				"value": cardButtonValue{
+					AlertID: task.AlertID,
+				},
+			},
+		},
+	})
+
+	return map[string]interface{}{
+		"config":   map[string]interface{}{"wide_screen_mode": true},
+		"header":   header,
+		"elements": elements,
+	}
+}
+
+// levelPrefix returns the same level indicator the text format uses.
+func levelPrefix(level string) string {
+	switch level {
+	case "error":
+		return "[错误] "
+	case "warning":
+		return "[警告] "
+	case "info":
+		return "[信息] "
+	}
+	return ""
 }
 
 // formatMessage formats the task as a Feishu message
@@ -115,14 +202,7 @@ func (p *Provider) formatMessage(task *core.DeliveryTask) string {
 	message := ""
 
 	// Add level indicator
-	switch task.Level {
-	case "error":
-		message += "[错误] "
-	case "warning":
-		message += "[警告] "
-	case "info":
-		message += "[信息] "
-	}
+	message += levelPrefix(task.Level)
 
 	// Add title
 	message += title + "\n\n"

@@ -28,6 +28,7 @@ type Handler struct {
 	ackStore        ack.Store
 	escalation      *escalation.Manager
 	incidents       *incident.Store
+	cardEncryptKey  string
 }
 
 // NewHandler creates a new handler
@@ -50,6 +51,13 @@ func (h *Handler) SetWebSocketServer(wsServer *websocket.Server) {
 // SetWorkerRegistry sets the shared worker registry for worker status endpoints.
 func (h *Handler) SetWorkerRegistry(registry *worker.Registry) {
 	h.workerRegistry = registry
+}
+
+// SetCardCallbackKey sets the Feishu card-callback encryption key. Empty
+// (the default) keeps encrypted callbacks rejected with 501; plaintext
+// callbacks and the URL verification challenge work either way.
+func (h *Handler) SetCardCallbackKey(key string) {
+	h.cardEncryptKey = key
 }
 
 // GetTemplateManager returns the template manager

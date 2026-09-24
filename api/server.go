@@ -45,6 +45,10 @@ type Config struct {
 	AckStore        ack.Store           // optional; nil keeps alert endpoints off
 	Escalation      *escalation.Manager // optional; enables ack-cancel of upgrades
 	Incidents       *incident.Store     // optional; nil keeps incident endpoints off
+	// CardCallbackEncryptKey verifies Feishu interactive-card callbacks
+	// (POST /api/v1/callbacks/feishu). Empty keeps encrypted callbacks
+	// rejected; the endpoint itself needs an AckStore to be useful.
+	CardCallbackEncryptKey string
 }
 
 // NewServer creates a new server
@@ -93,6 +97,9 @@ func NewServer(config *Config) *Server {
 			config.Rules.SetResolvedFunc(notificationSvc.HandleResolved)
 		}
 	}
+	if config.CardCallbackEncryptKey != "" {
+		handler.SetCardCallbackKey(config.CardCallbackEncryptKey)
+	}
 
 	s := &Server{
 		addr:    config.Addr,
@@ -130,6 +137,9 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
 	mux.HandleFunc("/api/v1/alerts/{id}", s.withAuth(s.handleAlertByID))
 	mux.HandleFunc("/api/v1/alerts/{id}/ack", s.withAuth(s.handleAlertAck))
+	// Feishu's servers call this endpoint — it authenticates with the
+	// card-callback encryption key, not with the API token.
+	mux.HandleFunc("/api/v1/callbacks/feishu", s.handler.HandleFeishuCallback)
 
 	// Incident ledger
 	mux.HandleFunc("/api/v1/incidents", s.withAuth(s.handleIncidents))
@@ -318,6 +328,12 @@ func (s *Server) handleAlertAck(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleIncidents(w, r)
+}
+
+// SetCardCallbackKey sets the Feishu card-callback encryption key on the
+// underlying handler.
+func (s *Server) SetCardCallbackKey(key string) {
+	s.handler.SetCardCallbackKey(key)
 }
 
 func (s *Server) handleIncidentByID(w http.ResponseWriter, r *http.Request) {

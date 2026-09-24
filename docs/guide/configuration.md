@@ -51,6 +51,9 @@ providers:
     enabled: false
     config:
       webhook_url: "${FEISHU_WEBHOOK_URL}"
+      # 可选：卡片模式（投递告警时发带「确认告警」按钮的交互卡片，
+      # 需配合 card_callback 回调端点，见「飞书卡片按钮回调（P3）」）
+      # interactive_cards: true
 
   # 企业微信
   wecom:
@@ -230,6 +233,14 @@ rules:
 # 规则路由投递开事故、ack/恢复关事故，见「事故台账与恢复摘要（P3）」。
 # 超限只淘汰已关闭的旧事故，open 的事故永不淘汰。
 # incident_limit: 1000
+
+# 飞书卡片按钮回调（可选）
+# 交互卡片的「确认告警」按钮回调到 POST /api/v1/callbacks/feishu，
+# 走与 ack API 相同的身份与存储（ack 记录、升级取消、事故台账）。
+# encrypt_key 是飞书开放平台配置回调时生成的「Encrypt Key」：
+# 加密回调用它解密；不配置时加密回调被拒（明文回调与 URL 验证挑战不受影响）。
+# card_callback:
+#   encrypt_key: "${FEISHU_ENCRYPT_KEY}"
 
 # Provider 限流（可选，token bucket）
 # 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
@@ -456,6 +467,16 @@ curl http://localhost:8080/api/v1/alerts/incident-123
 
 - `{id}` 是调用方的告警身份——调用方在通知 params 里带的业务告警 id，同一告警的多次通知用同一 id 确认一次即可
 - 确认是幂等的：同一 id 重复确认保留首次记录（确认时间是事实，不是计数器）
+
+### 飞书卡片按钮回调（P3）
+
+飞书 provider 配置 `interactive_cards: true` 后，**带告警身份的投递**改为交互卡片：级别着色标题 + 正文 + 「确认告警」按钮（按钮 payload 携带投递任务里的 alert_id）。点击按钮，飞书把动作回调到 `POST /api/v1/callbacks/feishu`：
+
+- 回调端点**不在 API token 鉴权之后**（调用方是飞书服务器，凭据是回调加密密钥）；未配置 ack store 时返回 503
+- 首次在飞书开放平台配置回调地址时的 URL 验证挑战（`url_verification`）自动应答
+- 回调体支持加密模式（`encrypt` 字段，用 `card_callback.encrypt_key` 的 SHA-256 做 AES-256-CBC 解密）与明文模式；加密回调在未配置密钥时返回 501
+- 按钮确认与 ack API 走完全相同的链路：同一条 ack 记录（幂等，首认获胜）、取消待决升级、标记事故台账；`acked_by` 记录点击人的 open_id，来源标记 `feishu_card`
+- 没有 alert_id 的投递（或交互开关关闭）保持纯文本消息不变——卡片只为确认按钮而生
 
 ### escalation 升级链（P3）
 

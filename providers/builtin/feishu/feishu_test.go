@@ -446,3 +446,138 @@ func TestFactory(t *testing.T) {
 		t.Errorf("expected provider name feishu, got %s", provider.Name())
 	}
 }
+
+func TestBuildMessageInteractiveCard(t *testing.T) {
+	provider, _ := NewProvider(map[string]interface{}{
+		"webhook_url":       "http://example.com/webhook",
+		"interactive_cards": true,
+	})
+	p := provider.(*Provider)
+
+	task := &core.DeliveryTask{
+		Level:   "error",
+		AlertID: "inc-7",
+		Payload: core.DeliveryPayload{
+			Content: &core.RenderedContent{Title: "disk full", Body: "usage 95%"},
+		},
+	}
+
+	message := p.buildMessage(task)
+	if message.MsgType != "interactive" {
+		t.Fatalf("expected msg type interactive, got %s", message.MsgType)
+	}
+	card, ok := message.Card.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected a card map, got %T", message.Card)
+	}
+	header := card["header"].(map[string]interface{})
+	if header["template"] != "red" {
+		t.Errorf("error level must render the red header, got %v", header["template"])
+	}
+	if title := header["title"].(map[string]interface{})["content"]; title != "[错误] disk full" {
+		t.Errorf("unexpected header title: %v", title)
+	}
+
+	elements := card["elements"].([]interface{})
+	div := elements[0].(map[string]interface{})
+	if body := div["text"].(map[string]interface{})["content"]; body != "usage 95%" {
+		t.Errorf("unexpected card body: %v", body)
+	}
+	action := elements[1].(map[string]interface{})
+	button := action["actions"].([]interface{})[0].(map[string]interface{})
+	value, ok := button["value"].(cardButtonValue)
+	if !ok || value.AlertID != "inc-7" {
+		t.Fatalf("button must carry the alert id, got %+v", button["value"])
+	}
+}
+
+func TestBuildMessageInteractiveWithoutAlertIDFallsBackToText(t *testing.T) {
+	// Cards exist to carry the acknowledge button: without an alert id
+	// there is nothing to acknowledge, so the delivery stays plain text.
+	provider, _ := NewProvider(map[string]interface{}{
+		"webhook_url":       "http://example.com/webhook",
+		"interactive_cards": true,
+	})
+	p := provider.(*Provider)
+
+	task := &core.DeliveryTask{
+		Level: "error",
+		Payload: core.DeliveryPayload{
+			Content: &core.RenderedContent{Title: "deploy done", Body: "ok"},
+		},
+	}
+	message := p.buildMessage(task)
+	if message.MsgType != "text" {
+		t.Fatalf("a cardless task must stay text, got %s", message.MsgType)
+	}
+}
+
+func TestBuildMessageInteractiveDisabledKeepsText(t *testing.T) {
+	provider, _ := NewProvider(map[string]interface{}{
+		"webhook_url": "http://example.com/webhook",
+	})
+	p := provider.(*Provider)
+
+	task := &core.DeliveryTask{
+		Level:   "error",
+		AlertID: "inc-7",
+		Payload: core.DeliveryPayload{
+			Content: &core.RenderedContent{Title: "disk full", Body: "b"},
+		},
+	}
+	message := p.buildMessage(task)
+	if message.MsgType != "text" {
+		t.Fatalf("interactive cards must stay opt-in, got %s", message.MsgType)
+	}
+}
+
+func TestBuildCardHeaderColors(t *testing.T) {
+	provider, _ := NewProvider(map[string]interface{}{"webhook_url": "http://example.com/webhook"})
+	p := provider.(*Provider)
+
+	for level, want := range map[string]string{
+		"critical": "red",
+		"error":    "red",
+		"warning":  "orange",
+		"info":     "blue",
+	} {
+		task := &core.DeliveryTask{
+			Level:   level,
+			AlertID: "a1",
+			Payload: core.DeliveryPayload{Content: &core.RenderedContent{Title: "t"}},
+		}
+		card := p.buildCard(task)
+		if got := card["header"].(map[string]interface{})["template"]; got != want {
+			t.Errorf("level %s: expected header %s, got %v", level, want, got)
+		}
+	}
+}
+
+func TestBuildCardFallsBackToAlertIDTitle(t *testing.T) {
+	// A task without rendered content still renders as a card: the header
+	// falls back to the alert id so the receiver can tell what to ack.
+	provider, _ := NewProvider(map[string]interface{}{
+		"webhook_url":       "http://example.com/webhook",
+		"interactive_cards": true,
+	})
+	p := provider.(*Provider)
+
+	task := &core.DeliveryTask{Level: "warning", AlertID: "inc-bare"}
+	message := p.buildMessage(task)
+	if message.MsgType != "interactive" {
+		t.Fatalf("expected msg type interactive, got %s", message.MsgType)
+	}
+	card := message.Card.(map[string]interface{})
+	header := card["header"].(map[string]interface{})
+	if got := header["title"].(map[string]interface{})["content"]; got != "[警告] inc-bare" {
+		t.Fatalf("header must fall back to the alert id, got %v", got)
+	}
+	// No body means no div: the action button is the only element.
+	elements := card["elements"].([]interface{})
+	if len(elements) != 1 {
+		t.Fatalf("a body-less card carries only the button, got %d elements", len(elements))
+	}
+	if _, ok := elements[0].(map[string]interface{})["actions"]; !ok {
+		t.Fatalf("the only element must be the action button, got %+v", elements[0])
+	}
+}
