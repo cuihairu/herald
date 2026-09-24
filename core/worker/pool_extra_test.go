@@ -199,3 +199,46 @@ func TestPoolStaleWorkerSweep(t *testing.T) {
 		t.Fatal("pool did not stop after cancel")
 	}
 }
+
+// TestPoolWorkerRetiresOnClosedQueue pins the shutdown semantics of a
+// closed queue: memory queues pop their zero value once closed, and a
+// worker must retire quietly instead of dereferencing the nil task.
+func TestPoolWorkerRetiresOnClosedQueue(t *testing.T) {
+	mgr := runtime.NewManager(10)
+	if err := mgr.RegisterProvider("stub", poolStubProvider{}); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+
+	registry := NewRegistry()
+	q := &fakePoolQueue{events: make(chan string, 8)}
+	q.script = []popStep{
+		{nil, nil}, // closed queue: no task will ever come again
+	}
+
+	pool := NewPool(q, mgr, registry, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { pool.Run(ctx); close(done) }()
+
+	// The worker must deregister itself, not crash on the nil task.
+	retired := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := registry.Get("local-0"); err != nil {
+			retired = true
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !retired {
+		t.Fatal("worker must retire after the queue closed")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("pool did not stop after cancel")
+	}
+}

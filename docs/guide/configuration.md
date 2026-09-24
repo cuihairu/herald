@@ -226,6 +226,11 @@ rules:
 # 不设置时待决升级仅保存在内存中（重启即丢，等于放弃升级）。
 # escalation_store: ./data/escalations.json
 
+# 事故台账容量（可选，默认 1000）
+# 规则路由投递开事故、ack/恢复关事故，见「事故台账与恢复摘要（P3）」。
+# 超限只淘汰已关闭的旧事故，open 的事故永不淘汰。
+# incident_limit: 1000
+
 # Provider 限流（可选，token bucket）
 # 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
 # 限流是渠道风暴的最后安全阀。不配置 = 不限流。
@@ -462,6 +467,25 @@ curl http://localhost:8080/api/v1/alerts/incident-123
 - **超时判定是定时器语义**（P2 全部语义都是事件驱动，唯独升级必须在没有后续事件时也能动作）：待决升级持久化到 `escalation_store`，重启时恢复——已过期的补发升级（停机期间的 ack 仍被尊重），未到期的按剩余时间重建定时器；不配置 `escalation_store` 时重启即放弃待决升级
 - 双重保险：ack 请求若与升级触发同时刻竞争，即使升级定时器已经触发，触发时的 ack 复查仍会让它放弃投递
 - 显式 `channels` 的调用不挂升级链（规则的升级只作用于规则自己的路由）；被 for/组折叠/抑制/静默拦下的事件本来就没投递，自然不挂
+
+### 事故台账与恢复摘要（P3）
+
+规则路由的每笔投递都会在内存台账里开一个事故（incident）：`GET /api/v1/incidents` 列出全部事故（新→旧），`GET /api/v1/incidents/{id}` 返回单条完整时间线。
+
+```bash
+# 全部事故（可过滤 status=open|acked|resolved、rule_id、alert_id，limit 1-1000 默认 100）
+curl 'http://localhost:8080/api/v1/incidents?status=open&limit=50'
+
+# 单条事故（含 ack、升级、恢复时间线）
+curl http://localhost:8080/api/v1/incidents/6f1c...
+```
+
+- **身份**：台账同时记 `rule_id` + 组键（引擎定位事故组）与 `alert_id`（业务告警 id，与 ack API 同一身份空间）；`alert_id` 未提供时退回内容指纹
+- **生命周期**：规则路由投递时开（同告警重复投递刷新上下文不重开；恢复后复发是**新事故**）→ ack API 确认时标记（首认获胜）→ 组恢复时关闭（记录事件数与持续时长）。open 的事务永不因容量淘汰；容量上限 `incident_limit`（默认 1000，0=默认）只淘汰已关闭的旧事故
+- **恢复是事件驱动的**：对 group_by 规则，同一组的后续事件级别回落到不再匹配规则（如 prod 从 error 变 info）时，引擎视为该组恢复——组键按 group_by 字段值计算，资源还在上报就有恢复信号；**无 group_by 的规则组键是内容指纹，恢复事件永远组不上，其 for 窗口到期后靠 TTL 静默回收、不发恢复摘要**
+- 恢复摘要投递到事故原渠道（标题 `[Resolved]` + 原标题，正文含告警 id、期间事件数与持续时长）；摘要投递失败记入时间线（`resolve_delivery_failed`）但不影响事故关闭
+- **恢复事件本身仍是普通通知**：不匹配规则的事件走静态路由投递，调用方需为该类型配好路由；升级触发与投递失败也记入时间线（`escalation_fired` / `escalation_failed`）
+- 与 dedup 的次序：规则求值（含恢复观测）在前、dedup 在投递前最后把关——重复投递被去重，但告警的 for 窗口、组计数与恢复信号不会被 dedup 中断
 
 
 ### 投递限流与重试

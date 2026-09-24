@@ -182,6 +182,11 @@ type Decision struct {
 	// an escalation spec. The caller schedules the upgrade after delivery
 	// and cancels it when an ack for the alert arrives in time.
 	Escalation *EscalationPlan
+	// GroupKey is the engine's identity of the alert group this event
+	// belongs to (content hash, or the group_by field values). The ledger
+	// and the recovery summary use it to correlate an alert episode with
+	// its later recovery.
+	GroupKey string
 	// EvalErrors lists rules whose expressions failed to evaluate; these
 	// rules were skipped and never contribute a match.
 	EvalErrors []EvalError
@@ -208,10 +213,32 @@ type Engine struct {
 	// now is the clock for schedule-driven judgements (silence windows);
 	// swapped in tests.
 	now func() time.Time
+	// onResolved, when set, fires when a delivered alert recovers: a
+	// fired "for" group whose match stopped holding. Called outside the
+	// engine lock; the receiver owns delivery of the recovery summary.
+	onResolved func(ResolvedEvent)
 	// inhibitIndex maps a source rule id to the compiled rules that
 	// declare inhibit.source = that id. Rebuilt under mu whenever the
 	// rule table changes; read under RLock.
 	inhibitIndex map[string][]*compiledRule
+}
+
+// ResolvedEvent reports the recovery of an alert a rule had delivered: the
+// group's window fired (the alert went out) and the rule's match has now
+// stopped holding.
+type ResolvedEvent struct {
+	RuleID   string
+	GroupKey string
+	// State is the removed window state: Count events over
+	// FirstSeen..LastSeen.
+	State *RuleState
+}
+
+// SetResolvedFunc attaches the recovery callback (nil disables reporting).
+func (e *Engine) SetResolvedFunc(fn func(ResolvedEvent)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.onResolved = fn
 }
 
 // NewEngine creates an Engine backed by store. Call Reload once after
@@ -485,7 +512,15 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			// turn into an evaluation error.
 			if cr.forDur > 0 {
 				groupKey, _ := RuleGroupKey(cr.groupBy, env)
-				_ = e.forState.Reset(ctx, cr.rule.ID, groupKey)
+				if state, err := e.forState.Take(ctx, cr.rule.ID, groupKey); err == nil && state != nil && state.Fired {
+					// The alert this rule delivered has recovered.
+					e.mu.RLock()
+					fn := e.onResolved
+					e.mu.RUnlock()
+					if fn != nil {
+						fn(ResolvedEvent{RuleID: cr.rule.ID, GroupKey: groupKey, State: state})
+					}
+				}
 			}
 			continue
 		}
@@ -598,7 +633,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 				continue
 			}
 			// First matching active rule governs; shadow observations ride along.
-			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary, Escalation: cr.escalation}
+			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary, Escalation: cr.escalation, GroupKey: groupKey}
 			if decision != nil {
 				governing.Shadow = decision.Shadow
 			}

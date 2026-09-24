@@ -7,6 +7,7 @@ import (
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
@@ -26,6 +27,7 @@ type Handler struct {
 	rulesEngine     *rules.Engine
 	ackStore        ack.Store
 	escalation      *escalation.Manager
+	incidents       *incident.Store
 }
 
 // NewHandler creates a new handler
@@ -79,6 +81,11 @@ func (h *Handler) SetAckStore(s ack.Store) {
 // in time cancels the pending upgrade for the alert.
 func (h *Handler) SetEscalationManager(m *escalation.Manager) {
 	h.escalation = m
+}
+
+// SetIncidentStore attaches the incident ledger for the query endpoints.
+func (h *Handler) SetIncidentStore(store *incident.Store) {
+	h.incidents = store
 }
 
 // Response is a response

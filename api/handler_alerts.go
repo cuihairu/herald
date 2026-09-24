@@ -73,5 +73,10 @@ func (h *Handler) HandleAlertAck(w http.ResponseWriter, r *http.Request) {
 	if h.escalation != nil {
 		_ = h.escalation.Cancel(r.Context(), id)
 	}
+	// The ack also lands on the incident ledger (unknown alerts are fine:
+	// the caller may acknowledge something herald never routed).
+	if h.incidents != nil {
+		h.incidents.Ack(id, body.AckedBy)
+	}
 	h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: rec})
 }

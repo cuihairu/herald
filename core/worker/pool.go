@@ -79,6 +79,13 @@ func (p *Pool) workerLoop(ctx context.Context, workerID string) {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
+		if task == nil {
+			// A closed queue pops its zero value (memory queue semantics):
+			// no task will ever come again, so this worker retires the
+			// same way it would on context cancellation.
+			p.registry.Deregister(workerID)
+			return
+		}
 
 		if err := p.runtime.Deliver(ctx, task); err != nil {
 			logger.Error("task failed", "task_id", task.ID, "worker", workerID, "error", err)

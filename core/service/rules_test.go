@@ -8,6 +8,7 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
@@ -505,6 +506,180 @@ func TestProcessWithRules(t *testing.T) {
 		if len(sched.scheduled) != 0 {
 			t.Fatalf("suppressed event must not arm escalation, got %+v", sched.scheduled)
 		}
+	})
+
+	t.Run("rule-routed delivery opens an incident", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:     "r-up",
+			Mode:       rules.ModeActive,
+			Channels:   []string{"rule-provider"},
+			GroupKey:   "group-1",
+			Escalation: &rules.EscalationPlan{Timeout: time.Minute, To: []string{"phone"}},
+		}})
+
+		n := alertNotification()
+		n.Params = map[string]any{"alert_id": "incident-9"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		inc := ledger.List(&incident.Filter{AlertID: "incident-9"})
+		if len(inc) != 1 {
+			t.Fatalf("expected one incident, got %+v", inc)
+		}
+		got := inc[0]
+		if got.RuleID != "r-up" || got.GroupKey != "group-1" || got.Status() != incident.StatusOpen {
+			t.Fatalf("unexpected incident identity: %+v", got)
+		}
+		if got.Title != "Test Alert" || got.Level != "error" {
+			t.Fatalf("incident must carry the alert context: %+v", got)
+		}
+		if len(got.Channels) != 1 || got.Channels[0] != "rule-provider" {
+			t.Fatalf("incident must record the delivery channels: %+v", got.Channels)
+		}
+	})
+
+	t.Run("explicit-channel deliveries do not open incidents", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID:   "r-up",
+			Mode:     rules.ModeActive,
+			Channels: []string{"rule-provider"},
+			GroupKey: "group-1",
+		}})
+
+		n := alertNotification()
+		n.Channels = []string{"static-provider"}
+		if _, err := svc.Process(ctx, n); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if got := ledger.List(nil); len(got) != 0 {
+			t.Fatalf("caller-intent deliveries are not rule incidents, got %+v", got)
+		}
+	})
+
+	t.Run("HandleResolved closes the episode and delivers the summary", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		ledger.Open(incident.Opening{
+			RuleID:   "r-up",
+			GroupKey: "group-1",
+			AlertID:  "incident-9",
+			Title:    "disk full",
+			Level:    "critical",
+			Channels: []string{"rule-provider"},
+		})
+
+		svc.HandleResolved(rules.ResolvedEvent{
+			RuleID:   "r-up",
+			GroupKey: "group-1",
+			State:    &rules.RuleState{FirstSeen: time.Now().Add(-time.Minute), LastSeen: time.Now(), Count: 7, Fired: true},
+		})
+
+		inc := ledger.List(&incident.Filter{AlertID: "incident-9"})[0]
+		if inc.Status() != incident.StatusResolved || inc.Events != 7 {
+			t.Fatalf("expected resolved episode with 7 events, got %+v", inc)
+		}
+		if len(queue.tasks) != 1 {
+			t.Fatalf("expected one recovery summary, got %d", len(queue.tasks))
+		}
+		task := queue.tasks[0]
+		if task.Provider != "rule-provider" {
+			t.Fatalf("summary must ride the episode's channels, got %s", task.Provider)
+		}
+		content := task.Payload.Content
+		if content == nil || !strings.Contains(content.Title, "[Resolved]") || !strings.Contains(content.Title, "disk full") {
+			t.Fatalf("unexpected summary title: %+v", content)
+		}
+		if !strings.Contains(content.Body, "incident-9") || !strings.Contains(content.Body, "7 events") {
+			t.Fatalf("summary must carry the recovery facts, got %q", content.Body)
+		}
+	})
+
+	t.Run("HandleResolved without a ledger or episode is a no-op", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		// No incident store attached at all.
+		svc.HandleResolved(rules.ResolvedEvent{RuleID: "r", GroupKey: "g", State: &rules.RuleState{Count: 1}})
+		// Ledger attached, but the episode is unknown.
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		svc.HandleResolved(rules.ResolvedEvent{RuleID: "r", GroupKey: "g", State: &rules.RuleState{Count: 1}})
+		if len(queue.tasks) != 0 {
+			t.Fatalf("no summary may go out, got %+v", queue.tasks)
+		}
+	})
+
+	t.Run("a failing recovery summary lands on the timeline", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		// The episode's channel has no provider: the summary cannot go out.
+		ledger.Open(incident.Opening{RuleID: "r-up", GroupKey: "g1", AlertID: "a1", Title: "t", Channels: []string{"ghost-channel"}})
+
+		svc.HandleResolved(rules.ResolvedEvent{
+			RuleID:   "r-up",
+			GroupKey: "g1",
+			State:    &rules.RuleState{FirstSeen: time.Now(), LastSeen: time.Now(), Count: 3, Fired: true},
+		})
+
+		inc := ledger.List(&incident.Filter{AlertID: "a1"})[0]
+		if inc.Status() != incident.StatusResolved {
+			t.Fatalf("the episode still resolves, got %+v", inc)
+		}
+		if len(inc.Timeline) != 1 || inc.Timeline[0].Kind != "resolve_delivery_failed" {
+			t.Fatalf("the failed summary must be visible on the timeline, got %+v", inc.Timeline)
+		}
+	})
+
+	t.Run("a title-less episode falls back to the alert id in the summary", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		ledger.Open(incident.Opening{RuleID: "r-up", GroupKey: "g1", AlertID: "bare-9", Channels: []string{"rule-provider"}})
+
+		svc.HandleResolved(rules.ResolvedEvent{
+			RuleID:   "r-up",
+			GroupKey: "g1",
+			State:    &rules.RuleState{FirstSeen: time.Now(), LastSeen: time.Now(), Count: 2, Fired: true},
+		})
+
+		if len(queue.tasks) != 1 {
+			t.Fatalf("expected one summary, got %+v", queue.tasks)
+		}
+		content := queue.tasks[0].Payload.Content
+		if content == nil || content.Title != "[Resolved] bare-9" {
+			t.Fatalf("summary must fall back to the alert id, got %+v", content)
+		}
+	})
+
+	t.Run("Escalation attempts land on the incident timeline", func(t *testing.T) {
+		svc, _, _, _ := newRuleTestService(t)
+		ledger := incident.New(0)
+		svc.SetIncidentStore(ledger)
+		ledger.Open(incident.Opening{RuleID: "r-up", GroupKey: "g1", AlertID: "a1", Title: "t"})
+
+		// A failing escalation: fired, then failed — both on the timeline.
+		svc.Escalate(escalation.Pending{
+			RuleID: "r-up", AlertID: "a1", To: []string{"ghost-channel"},
+			Timeout: time.Minute,
+		})
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			inc := ledger.List(&incident.Filter{AlertID: "a1"})[0]
+			if len(inc.Timeline) >= 2 {
+				if inc.Timeline[0].Kind != "escalation_fired" || inc.Timeline[1].Kind != "escalation_failed" {
+					t.Fatalf("unexpected timeline: %+v", inc.Timeline)
+				}
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		t.Fatalf("escalation never reached the timeline: %+v", ledger.List(&incident.Filter{AlertID: "a1"})[0].Timeline)
 	})
 
 	t.Run("DeliverEscalation repeats the alert on the plan channels", func(t *testing.T) {

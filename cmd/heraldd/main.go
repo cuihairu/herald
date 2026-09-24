@@ -18,6 +18,7 @@ import (
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
@@ -190,9 +191,11 @@ func serveCmd(args []string) int {
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
 
 	// Ack store and escalation manager share the alert identity space:
-	// the ack arriving in time cancels the pending upgrade.
+	// the ack arriving in time cancels the pending upgrade. The incident
+	// ledger records the episodes those alerts live through.
 	ackStore := ack.NewMemoryStore()
 	escalations := escalation.NewManager(ackStore, nil, cfg.EscalationStore)
+	incidents := incident.New(cfg.IncidentLimit)
 
 	// Create API server
 	srv := api.NewServer(&api.Config{
@@ -208,6 +211,7 @@ func serveCmd(args []string) int {
 		Rules:           rulesEngine,
 		AckStore:        ackStore,
 		Escalation:      escalations,
+		Incidents:       incidents,
 	})
 
 	// Re-arm pending upgrades from the previous run. A failure here must

@@ -125,6 +125,19 @@ func (t *ForTracker) Reset(ctx context.Context, ruleID, groupKey string) error {
 	return t.store.Delete(ctx, stateKey(ruleID, groupKey))
 }
 
+// Take drops the window for one rule group like Reset, but returns the
+// state it removed: the caller can tell a "window in progress" reset from
+// a RESOLVED alert (a fired group whose match stopped holding — the alert
+// the rule delivered has recovered).
+func (t *ForTracker) Take(ctx context.Context, ruleID, groupKey string) (*RuleState, error) {
+	key := stateKey(ruleID, groupKey)
+	state, err := t.store.Get(ctx, key)
+	if err != nil || state == nil {
+		return nil, err
+	}
+	return state, t.store.Delete(ctx, key)
+}
+
 // ResetRule drops every window of a rule; used when the rule is replaced or
 // deleted, so stale windows never survive a rule change.
 func (t *ForTracker) ResetRule(ctx context.Context, ruleID string) error {

@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/template"
@@ -77,6 +78,7 @@ type NotificationService struct {
 	rules      RuleEvaluator
 	observer   RuleObserver
 	escalation EscalationScheduler
+	incidents  *incident.Store
 }
 
 // NewNotificationService creates a new NotificationService
@@ -115,6 +117,13 @@ func (s *NotificationService) SetEscalationScheduler(es EscalationScheduler) {
 	s.escalation = es
 }
 
+// SetIncidentStore attaches the incident ledger. nil (the default) keeps
+// processing unchanged; with a store, rule-routed deliveries open
+// incidents and acks, escalations and recoveries mark them.
+func (s *NotificationService) SetIncidentStore(store *incident.Store) {
+	s.incidents = store
+}
+
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
 func (s *NotificationService) Process(ctx context.Context, n *core.Notification) (*ProcessResult, error) {
 	if s.queue == nil {
@@ -125,19 +134,17 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 	}
 	n.CreatedAt = time.Now()
 
-	// Dedup check — key derived from notification content, not auto-generated ID
-	if s.dedup != nil && s.dedup.Check(dedupKey(n)) {
-		return &ProcessResult{NotificationID: n.ID}, nil
-	}
-
-	// Rule evaluation — after dedup, before routing: intercepted events
-	// must not consume queue capacity. Evaluation runs for every
+	// Rule evaluation — before routing and before dedup: stateful rule
+	// semantics (for windows, group rounds, escalation re-arm, recovery)
+	// describe the alert's whole story and need EVERY event, while dedup
+	// decides whether a DELIVERY repeats. Evaluation runs for every
 	// notification so shadow observation covers explicit-channel traffic
 	// too; only routing is conditional on it.
 	channels := n.Channels
 	var summary *rules.GroupSummary
 	var plan *rules.EscalationPlan
 	var planRule string
+	var planGroupKey string
 	if s.rules != nil {
 		decision, evalErr := s.rules.Evaluate(ctx, rules.NewEnv(
 			n.Type, n.Level, directTitle(n), directBody(n), n.Params,
@@ -191,6 +198,7 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 			summary = decision.Summary
 			plan = decision.Escalation
 			planRule = decision.RuleID
+			planGroupKey = decision.GroupKey
 		}
 	}
 	if len(channels) == 0 {
@@ -212,6 +220,14 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		if n.Level == "" && renderedData.Level != "" {
 			n.Level = renderedData.Level
 		}
+	}
+
+	// Dedup — the last gate before delivery (key derived from notification
+	// content, not auto-generated ID). Rule state has already advanced for
+	// this event: a repeat delivery is suppressed, but the alert's story
+	// (for/group/recovery) is not interrupted by it.
+	if s.dedup != nil && s.dedup.Check(dedupKey(n)) {
+		return &ProcessResult{NotificationID: n.ID}, nil
 	}
 
 	// Generate DeliveryTasks for each channel, collecting errors
@@ -242,6 +258,20 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 			Type:      n.Type,
 			Level:     n.Level,
 			Title:     directTitle(n),
+		})
+	}
+
+	// The delivery also opens (or continues) the alert's incident in the
+	// ledger: the recovery side needs the episode's channels to deliver
+	// the summary, the ack side needs the alert id.
+	if s.incidents != nil {
+		s.incidents.Open(incident.Opening{
+			RuleID:   planRule,
+			GroupKey: planGroupKey,
+			AlertID:  alertIDOf(n),
+			Title:    directTitle(n),
+			Level:    n.Level,
+			Channels: channels,
 		})
 	}
 
@@ -328,13 +358,71 @@ func (s *NotificationService) DeliverEscalation(ctx context.Context, p escalatio
 }
 
 // Escalate implements escalation.Notifier: it delivers the upgrade in the
-// background context of a timer callback. Delivery failures are currently
-// silent — the incident ledger (P3) will make fired upgrades and their
-// failures visible; here the process has no observer channel for them yet.
+// background context of a timer callback. The attempt and its outcome land
+// on the incident's timeline — an escalation nobody can see fired is an
+// escalation that did not happen.
 func (s *NotificationService) Escalate(p escalation.Pending) {
+	if s.incidents != nil {
+		s.incidents.Append(p.RuleID, p.AlertID, "escalation_fired", strings.Join(p.To, ", "))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = s.DeliverEscalation(ctx, p)
+	if err := s.DeliverEscalation(ctx, p); err != nil && s.incidents != nil {
+		s.incidents.Append(p.RuleID, p.AlertID, "escalation_failed", err.Error())
+	}
+}
+
+// HandleResolved closes the episode the rule engine reports recovered
+// (a fired group whose match stopped holding) and delivers the recovery
+// summary on the episode's original channels. Delivery failures of the
+// summary are recorded on the timeline but do not surface: the alert
+// itself was already delivered, and resolution is a downgrade.
+func (s *NotificationService) HandleResolved(ev rules.ResolvedEvent) {
+	if s.incidents == nil {
+		return
+	}
+	inc := s.incidents.Resolve(ev.RuleID, ev.GroupKey, ev.State.Count)
+	if inc == nil {
+		return
+	}
+	n := resolvedNotification(inc, ev)
+	result := &ProcessResult{NotificationID: n.ID}
+	s.enqueue(context.Background(), n, inc.Channels, nil, result)
+	if len(result.TaskIDs) == 0 && len(result.Failed) > 0 {
+		s.incidents.AppendTo(inc.ID, "resolve_delivery_failed",
+			formatChannelErrors(result.Failed))
+	}
+}
+
+// resolvedNotification builds the recovery summary: title, original alert
+// identity and the recovery facts (events while open, episode length).
+func resolvedNotification(inc *incident.Incident, ev rules.ResolvedEvent) *core.Notification {
+	title := inc.Title
+	if title == "" {
+		title = inc.AlertID
+	}
+	events := ev.State.Count
+	span := ev.State.LastSeen.Sub(ev.State.FirstSeen).Truncate(time.Second)
+	return &core.Notification{
+		ID:    uuid.New().String(),
+		Type:  "resolve",
+		Level: inc.Level,
+		Content: &core.DirectContent{
+			Title: "[Resolved] " + title,
+			Body: fmt.Sprintf(
+				"Alert %q recovered: %d events over %s while open (episode opened %s ago).",
+				inc.AlertID, events, span, time.Since(inc.OpenedAt).Truncate(time.Second),
+			),
+		},
+		Params: map[string]any{
+			"alert_id":      inc.AlertID,
+			"rule_id":       inc.RuleID,
+			"incident_id":   inc.ID,
+			"resolved":      true,
+			"resolved_at":   time.Now().Format(time.RFC3339),
+			"episode_event": events,
+		},
+	}
 }
 
 // escalationNotification builds the synthetic upgrade notification for a

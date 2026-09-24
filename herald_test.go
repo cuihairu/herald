@@ -12,6 +12,7 @@ import (
 
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/queue"
@@ -603,7 +604,7 @@ func TestDispatchWithForRuleSuppressesFirstHit(t *testing.T) {
 
 func TestDispatchWithGroupByRuleFoldsAndSummarizes(t *testing.T) {
 	cfg := config.Default()
-	interval := "5ms" // tiny window so the test can outlive it with real time
+	interval := "100ms" // tiny window so the test can outlive it with real time
 	cfg.Rules = []rules.Rule{{
 		ID:            "alert-grouped",
 		Match:         `type == "alert"`,
@@ -657,7 +658,7 @@ func TestDispatchWithGroupByRuleFoldsAndSummarizes(t *testing.T) {
 	// Quiet past the interval: the next event is delivered and carries the
 	// finished round's summary, so this Process call accepts two deliveries
 	// (the event and the summary) and the provider sees three in total.
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	res, err = app.DispatchSync(context.Background(), env("third"))
 	if err != nil {
 		t.Fatalf("DispatchSync(third) error = %v", err)
@@ -688,7 +689,7 @@ func TestDispatchWithInhibitRuleSuppressesLeafAlerts(t *testing.T) {
 				Source: "root-down",
 				Equal:  []string{"env"},
 				// Tiny TTL so the test can outlive it with real time.
-				TTL: strPtr("5ms"),
+				TTL: strPtr("100ms"),
 			},
 		},
 	}
@@ -734,7 +735,7 @@ func TestDispatchWithInhibitRuleSuppressesLeafAlerts(t *testing.T) {
 	}
 
 	// After the TTL the same leaf alert goes out again.
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	if _, err := app.DispatchSync(context.Background(), notif("error", "prod", "leaf after recovery")); err != nil {
 		t.Fatalf("DispatchSync(leaf after ttl) error = %v", err)
 	}
@@ -1083,4 +1084,191 @@ func TestNewWiresProviderRateLimit(t *testing.T) {
 	if lm == nil {
 		t.Fatal("expected a non-nil limiter")
 	}
+}
+
+// forApp builds an app with a for-window rule grouped by "env": the
+// recovery (the same env reporting at a level that no longer matches) is
+// event-driven and delivers the resolved summary. "alert" also has a
+// static route: a recovered event no longer matches the rule and falls
+// back to plain routing like any notification.
+func forApp(t *testing.T, forDur string) (*App, *recordingProvider) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Routes = map[string][]string{"alert": {"rec"}}
+	cfg.Rules = []rules.Rule{{
+		ID:      "disk-down",
+		Match:   `type == "alert" && level == "error"`,
+		Mode:    rules.ModeActive,
+		Route:   []rules.RouteStep{{Channels: []string{"rec"}}},
+		For:     &forDur,
+		GroupBy: []string{"env"},
+	}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Close() })
+	rec := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", rec, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	return app, rec
+}
+
+// TestDispatchForEpisodeLifecycle walks the full incident lifecycle: a
+// for-window alert fires after the duration (episode opens), the same env
+// reporting at info resolves it (episode closes, recovery summary goes
+// out on the same channel).
+func TestDispatchForEpisodeLifecycle(t *testing.T) {
+	app, rec := forApp(t, "30ms")
+
+	alert := func(level string) *core.Notification {
+		return &core.Notification{
+			Type:    "alert",
+			Level:   level,
+			Content: &core.DirectContent{Title: "disk full", Body: "b"},
+			Params:  map[string]any{"env": "prod"},
+		}
+	}
+
+	// While the window runs the event is withheld.
+	if _, err := app.DispatchSync(context.Background(), alert("error")); err != nil {
+		t.Fatalf("DispatchSync(1) error = %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	// Window elapsed: the alert fires and the episode opens.
+	if _, err := app.DispatchSync(context.Background(), alert("error")); err != nil {
+		t.Fatalf("DispatchSync(2) error = %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := app.Incidents().List(nil); len(got) == 1 && got[0].Status() == incident.StatusOpen {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	// No alert_id in params: the ledger falls back to the content identity.
+	open := app.Incidents().List(nil)
+	if len(open) != 1 || open[0].AlertID == "" {
+		t.Fatalf("expected an open incident with a fallback identity, got %+v", open)
+	}
+
+	// prod recovers: info is still reported for the same env, so the
+	// engine sees the match stop holding for the fired group.
+	if _, err := app.DispatchSync(context.Background(), alert("info")); err != nil {
+		t.Fatalf("DispatchSync(resolve) error = %v", err)
+	}
+
+	// The recovery summary lands on the episode's channel, next to the
+	// recovered event's own plain delivery.
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if rec.count() >= 3 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if rec.count() != 3 {
+		t.Fatalf("expected alert + recovery summary + plain recovery delivery, got %d", rec.count())
+	}
+	if !rec.hasTitle("[Resolved]") {
+		t.Fatalf("expected a resolved summary among %+v", rec.count())
+	}
+
+	// The ledger shows the closed episode.
+	resolved := app.Incidents().List(&incident.Filter{Status: incident.StatusResolved})
+	if len(resolved) != 1 {
+		t.Fatalf("expected one resolved episode, got %+v", app.Incidents().List(nil))
+	}
+}
+
+// TestDispatchForAckThenRecover pins the mid-life of an episode: an ack
+// between fire and recovery leaves an acked-then-resolved ledger trail.
+func TestDispatchForAckThenRecover(t *testing.T) {
+	app, rec := forApp(t, "30ms")
+
+	alert := &core.Notification{
+		Type:    "alert",
+		Level:   "error",
+		Content: &core.DirectContent{Title: "disk full", Body: "b"},
+		Params:  map[string]any{"env": "prod", "alert_id": "inc-7"},
+	}
+	if _, err := app.DispatchSync(context.Background(), alert); err != nil {
+		t.Fatalf("DispatchSync(1) error = %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if _, err := app.DispatchSync(context.Background(), alert); err != nil {
+		t.Fatalf("DispatchSync(2) error = %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := app.Incidents().List(&incident.Filter{AlertID: "inc-7"}); len(got) == 1 && got[0].Status() == incident.StatusOpen {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if _, err := app.AckAlert(context.Background(), "inc-7", "alice", "test"); err != nil {
+		t.Fatalf("AckAlert() error = %v", err)
+	}
+	if _, err := app.DispatchSync(context.Background(), &core.Notification{
+		Type:    "alert",
+		Level:   "info",
+		Content: &core.DirectContent{Title: "disk full", Body: "b"},
+		Params:  map[string]any{"env": "prod", "alert_id": "inc-7"},
+	}); err != nil {
+		t.Fatalf("DispatchSync(resolve) error = %v", err)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := app.Incidents().List(&incident.Filter{AlertID: "inc-7"}); len(got) == 1 && got[0].Status() == incident.StatusResolved {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	inc := app.Incidents().List(&incident.Filter{AlertID: "inc-7"})
+	if len(inc) != 1 || inc[0].Status() != incident.StatusResolved || inc[0].AckedBy != "alice" {
+		t.Fatalf("expected an acked-then-resolved episode, got %+v", inc)
+	}
+	// The recovery summary plus the recovered event's own plain delivery.
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if rec.count() >= 3 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if rec.count() != 3 {
+		t.Fatalf("expected alert + recovery summary + plain recovery delivery, got %d", rec.count())
+	}
+	if !rec.hasTitle("[Resolved]") {
+		t.Fatalf("expected a resolved summary among the deliveries")
+	}
+}
+
+// TestAckAlertGuardsEmptyID pins the library-level ack pairing: an ack
+// without an identity is rejected by the ack store and must not touch the
+// ledger.
+func TestAckAlertGuardsEmptyID(t *testing.T) {
+	app, _ := forApp(t, "1h")
+	app.Incidents().Open(incident.Opening{RuleID: "disk-down", GroupKey: "prod", AlertID: "a1", Title: "t"})
+	if _, err := app.AckAlert(context.Background(), "", "alice", "test"); err == nil {
+		t.Fatal("an empty alert id must be rejected")
+	}
+	if got := app.Incidents().List(&incident.Filter{AlertID: "a1"})[0]; got.Status() != incident.StatusOpen {
+		t.Fatalf("the ledger must stay open, got %+v", got)
+	}
+}
+
+func (p *recordingProvider) hasTitle(substr string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, t := range p.tasks {
+		if t.Payload.Content != nil && strings.Contains(t.Payload.Content.Title, substr) {
+			return true
+		}
+	}
+	return false
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/route"
@@ -52,6 +53,7 @@ type App struct {
 	rules      *rules.Engine
 	acks       *ack.MemoryStore
 	escalation *escalation.Manager
+	incidents  *incident.Store
 	cancel     context.CancelFunc
 	done       chan struct{}
 }
@@ -165,6 +167,12 @@ func New(cfg *config.Config) (*App, error) {
 	acks := ack.NewMemoryStore()
 	escalations := escalation.NewManager(acks, svc, cfg.EscalationStore)
 	svc.SetEscalationScheduler(escalations)
+	incidents := incident.New(cfg.IncidentLimit)
+	svc.SetIncidentStore(incidents)
+	// The engine reports recovered alert groups (fired, match stopped
+	// holding); the service closes the episode and delivers the recovery
+	// summary on the episode's original channels.
+	rulesEngine.SetResolvedFunc(svc.HandleResolved)
 
 	pool := worker.NewPool(aq, manager, worker.NewRegistry(), cfg.Queue.Workers)
 
@@ -193,6 +201,7 @@ func New(cfg *config.Config) (*App, error) {
 		rules:      rulesEngine,
 		acks:       acks,
 		escalation: escalations,
+		incidents:  incidents,
 		cancel:     cancel,
 		done:       done,
 	}, nil
@@ -262,9 +271,29 @@ func (a *App) Acks() *ack.MemoryStore {
 	return a.acks
 }
 
+// AckAlert acknowledges an alert in the app's ack store and marks the open
+// incident episode acked on the ledger — the same pairing the HTTP ack API
+// performs, kept available to library callers.
+func (a *App) AckAlert(ctx context.Context, alertID, ackedBy, source string) (*ack.Record, error) {
+	rec, err := a.acks.Ack(ctx, alertID, ackedBy, source)
+	if err != nil {
+		return nil, err
+	}
+	if a.incidents != nil {
+		a.incidents.Ack(alertID, ackedBy)
+	}
+	return rec, nil
+}
+
 // Escalation returns the app's pending-upgrade manager.
 func (a *App) Escalation() *escalation.Manager {
 	return a.escalation
+}
+
+// Incidents returns the app's incident ledger: rule-routed deliveries open
+// episodes, acks and recoveries close them.
+func (a *App) Incidents() *incident.Store {
+	return a.incidents
 }
 
 // applyDefaults returns a copy of cfg with the library-relevant zero values

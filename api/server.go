@@ -10,6 +10,7 @@ import (
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
@@ -43,6 +44,7 @@ type Config struct {
 	Rules           *rules.Engine       // optional; nil keeps static routing only
 	AckStore        ack.Store           // optional; nil keeps alert endpoints off
 	Escalation      *escalation.Manager // optional; enables ack-cancel of upgrades
+	Incidents       *incident.Store     // optional; nil keeps incident endpoints off
 }
 
 // NewServer creates a new server
@@ -81,6 +83,16 @@ func NewServer(config *Config) *Server {
 		notificationSvc.SetEscalationScheduler(config.Escalation)
 		config.Escalation.SetNotifier(notificationSvc)
 	}
+	if config.Incidents != nil {
+		handler.SetIncidentStore(config.Incidents)
+		notificationSvc.SetIncidentStore(config.Incidents)
+		// The engine reports recovered alert groups (fired, match stopped
+		// holding); the service closes the episode and delivers the
+		// recovery summary on the episode's original channels.
+		if config.Rules != nil {
+			config.Rules.SetResolvedFunc(notificationSvc.HandleResolved)
+		}
+	}
 
 	s := &Server{
 		addr:    config.Addr,
@@ -118,6 +130,10 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
 	mux.HandleFunc("/api/v1/alerts/{id}", s.withAuth(s.handleAlertByID))
 	mux.HandleFunc("/api/v1/alerts/{id}/ack", s.withAuth(s.handleAlertAck))
+
+	// Incident ledger
+	mux.HandleFunc("/api/v1/incidents", s.withAuth(s.handleIncidents))
+	mux.HandleFunc("/api/v1/incidents/{id}", s.withAuth(s.handleIncidentByID))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
@@ -298,4 +314,12 @@ func (s *Server) handleAlertByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAlertAck(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleAlertAck(w, r)
+}
+
+func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleIncidents(w, r)
+}
+
+func (s *Server) handleIncidentByID(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleIncidentByID(w, r)
 }
