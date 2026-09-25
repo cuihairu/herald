@@ -209,6 +209,10 @@ rules:
     route:
       - channels: [oncall]
 
+# 默认策略（可选：allow | deny，默认 allow）
+# 无 active 规则命中时通知的去向：allow 保持静态路由，deny 直接扣下。
+# rules_default_policy: allow
+
 # 规则持久化文件（可选）
 # 设置后通过 API 对规则的新增/修改/删除会落盘到该 JSON 文件，重启自动恢复；
 # 不设置时规则仅保存在内存中（rules 种子仍然生效）。
@@ -222,6 +226,20 @@ rules:
 #   addr: "localhost:6379"
 #   # password: "..."
 #   # db: 0
+
+# 通知群组种子（可选）：命名受众，任何渠道位都可以写 "group:<id>" 引用
+# groups:
+#   - id: ops-oncall
+#     description: 值班花名册
+#     members:
+#       - channel: feishu            # 成员渠道（provider 名或静态路由渠道）
+#         recipients: ["@zhang"]     # 可选：钉选收件人，覆盖渠道默认目标
+#       - channel: sms-duty
+
+# 群组持久化文件（可选）
+# 设置后通过 API 对群组的增删改会落盘到该 JSON 文件，重启自动恢复；
+# 不设置时群组仅保存在内存中（groups 种子仍然生效）。
+# groups_store: ./data/groups.json
 
 # 升级链待决记录持久化（可选）
 # 设置后 escalation 的待决升级落盘到该 JSON 文件，重启时恢复：
@@ -388,6 +406,14 @@ providers:
 - 命中写入投递日志（状态 `shadow`，含 `rule_id`、`would_fire` 与本应走到的渠道），按规则采样（首条 + 每 100 条记录一条），命中总数计入日志统计
 - 观察真实命中量符合预期后切 `mode: active` 生效
 
+### 决策层：动作、优先级与默认策略
+
+- 规则的动作 `action` 决定命中后的去向：`route`（默认，改道到规则的路由渠道）、`allow`（放行，保持原渠道）、`suppress`（抑制，不入队不投递）
+- 非路由动作不与有状态语义组合（`for` / `group_by` / `inhibit` / `escalation` / `silence`）——持续判定与聚合都在改道路由上工作，组合只会造成歧义，保存时直接拒绝
+- `priority`（可选，默认 0，可为负）：数值大的先求值，同优先级按创建顺序（稳定排序）；第一条 active 命中即为裁决，后续规则不再看
+- 默认策略 `rules_default_policy`：一条 active 规则都没命中时，`allow`（默认）保持静态路由，`deny` 把通知扣下（按采样记入投递日志，状态 `suppressed`，无 `rule_id`——「默认策略扣下」与「规则抑制」在日志里可区分）
+- 抑制（规则的 `suppress` 或默认策略 `deny`）对显式 `channels` 的通知不生效——显式意图优先，与静默/for/抑制的既有语义一致
+
 ### for 持续判定（P2）
 
 - 规则可带 `for: <时长>`（如 `for: 3m`，Go duration 语法，上限 24h）：同一逻辑告警的条件**持续成立达到时长**才真正触发，过滤单点闪断噪声
@@ -450,6 +476,35 @@ curl -X DELETE http://localhost:8080/api/v1/rules/p1
 ```
 
 **实现偏离说明**：设计文档原定持久化以 SQLite 起步；P1 实际采用 JSON 文件存储（实现同一 `Store` 接口）。理由：规则规模 <100 条、单写者进程、无查询需求，SQLite 的 15MB cgo 依赖不成比例；待 P2 ACK 状态需要真实查询能力时再引入 SQLite，届时接口不变、只换实现。
+
+### 通知群组（`group:` 引用与受众管理）
+
+- 群组是**命名受众**：`id` + 成员列表；每个成员是一个渠道（provider 名或静态路由渠道）加可选的 `recipients` 钉选（投给该渠道时覆盖默认目标）
+- 任何渠道位都可以写 `group:<id>`：通知的显式 `channels`、规则路由渠道、escalation 升级渠道、静态路由目标——投递计划时统一展开成成员渠道列表（见上方完整示例）
+- 展开是**单点、扁平**的：成员渠道不允许再写 `group:`（不嵌套，保存时拒绝）；去重键保留 `group:` 引用本身，花名册变更不影响进行中的去重窗口
+- 未配置群组管理器（`groups`/`groups_store` 均未设置）时引用 `group:` 即报错——宁可快速失败也不静默丢目标；引用不存在的群组按渠道级失败处理（记入本次投递的 `failed`，不阻断其他目标）
+- 群组与规则解耦：规则照常路由到 `group:ops-oncall`，值班换人只改群组花名册，规则不动
+
+**API：**
+
+```bash
+# 列出群组
+curl http://localhost:8080/api/v1/groups
+
+# 创建群组（重复 id 返回 409；校验失败——空成员/嵌套引用/字段超限——返回 400）
+curl -X POST http://localhost:8080/api/v1/groups \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"ops-oncall","members":[{"channel":"feishu"}],"description":"值班花名册"}'
+
+# 查看 / 更新（整体替换花名册）/ 删除（URL 中的 id 优先于 body）
+curl http://localhost:8080/api/v1/groups/ops-oncall
+curl -X PUT http://localhost:8080/api/v1/groups/ops-oncall \
+  -H 'Content-Type: application/json' \
+  -d '{"members":[{"channel":"feishu","recipients":["@zhang"]},{"channel":"sms-duty"}]}'
+curl -X DELETE http://localhost:8080/api/v1/groups/ops-oncall
+```
+
+- 增删改即时生效（活表替换），下一条通知就用新花名册；持久化与热加载语义同规则存储（`groups_store` 落盘、文件损坏启动失败）
 
 ### ACK 告警确认（P3）
 
