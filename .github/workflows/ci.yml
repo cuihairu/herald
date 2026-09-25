@@ -28,11 +28,14 @@ jobs:
       # -coverpkg counts every package's statements, so a new package with
       # no tests drags the gate down instead of silently missing the profile.
       # HERALD_MAIN_COVERDIR makes each main() guard test persist its
-      # subprocess GOCOVERDIR dump for the merge step below.
+      # subprocess GOCOVERDIR dump for the merge step below. It must be an
+      # absolute path: go test runs every package's binary with that
+      # package's directory as cwd, so a relative path would scatter the
+      # dumps across per-package build/maincover/ copies.
       - name: Run tests
         run: go test -v -race -coverpkg=./... -coverprofile=coverage.out ./...
         env:
-          HERALD_MAIN_COVERDIR: build/maincover
+          HERALD_MAIN_COVERDIR: ${{ github.workspace }}/build/maincover
 
       # main() is only reachable by launching a process: the guard tests run
       # every entry point as a real child under `go build -cover` + GOCOVERDIR.
@@ -41,6 +44,7 @@ jobs:
       # (basename-checked), or contains blocks unknown to the main profile.
       - name: Merge main() subprocess coverage
         run: |
+          ls build/maincover/
           python3 tools/covermerge.py coverage.out build/maincover/*.cov \
             --expect github.com/cuihairu/herald/cmd/heraldd/main.go \
             --expect github.com/cuihairu/herald/examples/quickstart/main.go \

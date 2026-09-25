@@ -20,7 +20,9 @@ TestMainProcessSuccessPath 用 `go build -cover` 子进程真实运行了 main �
 
 用法（仓库根目录）：
 
-    export HERALD_MAIN_COVERDIR=build/maincover
+    # 路径必须绝对：go test 以各包源码目录为测试二进制的 cwd，
+    # 相对路径会把 dump 打散到各包目录下。
+    export HERALD_MAIN_COVERDIR="$PWD/build/maincover"
     go test -count=1 -coverpkg=./... -coverprofile=coverage.out ./...
     python3 tools/covermerge.py coverage.out build/maincover/*.cov \\
         --expect github.com/cuihairu/herald/cmd/heraldd/main.go \\
