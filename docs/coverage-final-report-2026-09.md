@@ -32,7 +32,9 @@
 | `89dd2e5` | 修复 vitepress 死链（docs 内不能链接站点根之外的文件） |
 | `ffa237a` | 零块 KNOWN_UNCOVERABLE 登记机制与两处 flake 修复（Go 侧收尾） |
 | `acbe735` | 期 4：dashboard 前端测试从 0 建到行覆盖 100%，CI 门禁同步（含两个生产缺陷修复） |
-| 本次提交 | 期 5：`main()` 子进程覆盖合并进门禁（`tools/covermerge.py` + `zero_check --gate 100`），残余零块 6 → 3（仅剩 os.Exit 原理性不可测） |
+| `fb11d07` | 期 5：`main()` 子进程覆盖合并进门禁（`tools/covermerge.py` + `zero_check --gate 100`），残余零块 6 → 3（仅剩 os.Exit 原理性不可测） |
+| `43b8154` | 修复 CI 合并步骤：`HERALD_MAIN_COVERDIR` 须用绝对路径——`go test` 以各包目录为测试二进制 cwd，相对路径让 dump 散落到各包目录下，glob 落空硬失败 |
+| `b81bb99` | escalation 重排窗口 100ms→250ms：高负载下 `Sleep(40ms)` 超调越过 100ms 窗口使「未提前触发」断言误报，容差加到 210ms |
 
 ## 三期冲刺内容
 
