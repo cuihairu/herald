@@ -18,6 +18,7 @@ import (
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
@@ -175,6 +176,17 @@ func serveCmd(args []string) int {
 		ruleStore = rules.NewMemoryStore()
 	}
 	rulesEngine := rules.NewEngine(ruleStore)
+	// The default policy decides the fate of notifications no active rule
+	// matched: allow (the default) keeps static routing, deny withholds.
+	switch cfg.RulesDefaultPolicy {
+	case "", string(rules.PolicyAllow):
+		rulesEngine.SetDefaultPolicy(rules.PolicyAllow)
+	case string(rules.PolicyDeny):
+		rulesEngine.SetDefaultPolicy(rules.PolicyDeny)
+	default:
+		logger.Error("unknown rules_default_policy", "policy", cfg.RulesDefaultPolicy)
+		return 1
+	}
 	// Rule state (for windows) defaults to in-process; redis shares it
 	// across restarts and instances.
 	if cfg.RulesState != nil && cfg.RulesState.Type != "" && cfg.RulesState.Type != "memory" {
@@ -200,6 +212,36 @@ func serveCmd(args []string) int {
 		logger.Info("rules loaded", "count", len(cfg.Rules))
 	}
 
+	// Create notification groups: named audiences that "group:" channel
+	// references expand to; persisted via groups_store, resolved from the
+	// in-memory live table.
+	var groupStore groups.Store
+	if cfg.GroupsStore != "" {
+		store, err := groups.NewFileStore(cfg.GroupsStore)
+		if err != nil {
+			logger.Error("failed to open groups store", "path", cfg.GroupsStore, "error", err)
+			return 1
+		}
+		groupStore = store
+	}
+	groupsManager := groups.NewManager(groupStore)
+	if groupStore != nil {
+		if err := groupsManager.Reload(context.Background()); err != nil {
+			logger.Error("failed to load groups", "error", err)
+			return 1
+		}
+	}
+	for i := range cfg.Groups {
+		group := cfg.Groups[i]
+		if err := groupsManager.Put(context.Background(), &group); err != nil {
+			logger.Error("failed to load group", "index", i, "error", err)
+			return 1
+		}
+	}
+	if len(cfg.Groups) > 0 {
+		logger.Info("groups loaded", "count", len(cfg.Groups))
+	}
+
 	// Create worker registry and pool
 	registry := worker.NewRegistry()
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
@@ -223,6 +265,7 @@ func serveCmd(args []string) int {
 		TemplateManager: templateMgr,
 		WorkerRegistry:  registry,
 		Rules:           rulesEngine,
+		Groups:          groupsManager,
 		AckStore:        ackStore,
 		Escalation:      escalations,
 		Incidents:       incidents,

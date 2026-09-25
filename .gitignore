@@ -40,3 +40,6 @@ go.work.sum
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Local build artifacts (coverage binaries, golangci-lint, maincover dumps)
+build/

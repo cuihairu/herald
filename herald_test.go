@@ -14,6 +14,7 @@ import (
 
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/logstore"
@@ -514,6 +515,106 @@ func TestNewBadRuleExpression(t *testing.T) {
 	if _, err := New(cfg); err == nil {
 		t.Error("New() with a range expression rule should fail")
 	}
+}
+
+func TestNewWithGroups(t *testing.T) {
+	t.Run("seeds groups and routes through them", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Groups = []groups.Group{{
+			ID:      "ops",
+			Members: []groups.Member{{Channel: "rec"}},
+		}}
+		app, err := New(cfg)
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = app.Close() }()
+
+		members, ok := app.Groups().Resolver().ExpandGroup("ops")
+		if !ok || len(members) != 1 || members[0].Channel != "rec" {
+			t.Fatalf("seeded group must resolve, got %v (%v)", members, ok)
+		}
+
+		prov := &recordingProvider{}
+		if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+			t.Fatalf("RegisterProvider: %v", err)
+		}
+		res, err := app.DispatchSync(context.Background(), &core.Notification{
+			Type:     "deploy",
+			Channels: []string{groups.Ref("ops")},
+			Content:  &core.DirectContent{Title: "v1"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSync: %v", err)
+		}
+		if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
+			t.Fatalf("group reference must reach the member channel, got %v", res.Accepted)
+		}
+		if got := prov.count(); got != 1 {
+			t.Fatalf("provider got %d tasks, want 1", got)
+		}
+	})
+
+	t.Run("seeds persist through the file store", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "groups.json")
+		cfg := config.Default()
+		cfg.GroupsStore = path
+		cfg.Groups = []groups.Group{{
+			ID:      "ops",
+			Members: []groups.Member{{Channel: "rec"}},
+		}}
+		app, err := New(cfg)
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = app.Close() }()
+
+		reopened, err := groups.NewFileStore(path)
+		if err != nil {
+			t.Fatalf("reopen store: %v", err)
+		}
+		got, err := reopened.List(context.Background())
+		if err != nil {
+			t.Fatalf("list persisted groups: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != "ops" {
+			t.Fatalf("expected seeded group persisted, got %v", got)
+		}
+	})
+
+	t.Run("store holding an invalid group aborts construction", func(t *testing.T) {
+		// The JSON parses, so the store opens; the invalid member list
+		// then fails the reload validation.
+		invalid := filepath.Join(t.TempDir(), "invalid-groups.json")
+		if err := os.WriteFile(invalid, []byte(`{"version":1,"groups":[{"id":"bad","members":[]}]}`), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		cfg := config.Default()
+		cfg.GroupsStore = invalid
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with a store holding an invalid group should fail")
+		}
+	})
+
+	t.Run("invalid seed aborts construction", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Groups = []groups.Group{{ID: "broken", Members: nil}}
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with an invalid group should fail")
+		}
+	})
+
+	t.Run("malformed store aborts construction", func(t *testing.T) {
+		malformed := filepath.Join(t.TempDir(), "bad-groups.json")
+		if err := os.WriteFile(malformed, []byte("{not json"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		cfg := config.Default()
+		cfg.GroupsStore = malformed
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with a malformed groups store should fail")
+		}
+	})
 }
 
 func TestNewWithRulesDefaultPolicy(t *testing.T) {

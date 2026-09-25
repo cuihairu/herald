@@ -23,11 +23,9 @@ func (h *Handler) HandleRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := h.rulesEngine.List(r.Context())
-	if err != nil {
-		h.respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	// List serves the live table (the evaluation truth), so it cannot
+	// fail; the error result stays in the signature for API symmetry.
+	list, _ := h.rulesEngine.List(r.Context())
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",

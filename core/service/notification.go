@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
@@ -70,6 +71,12 @@ type EscalationScheduler interface {
 	Cancel(ctx context.Context, alertID string) error
 }
 
+// GroupResolver expands group references (the "group:" prefix on channel
+// names) into their members. groups.Manager's Resolver implements it.
+type GroupResolver interface {
+	ExpandGroup(name string) ([]groups.Member, bool)
+}
+
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
 	templates  *template.Manager
@@ -82,6 +89,7 @@ type NotificationService struct {
 	observer   RuleObserver
 	escalation EscalationScheduler
 	incidents  *incident.Store
+	groups     GroupResolver
 }
 
 // NewNotificationService creates a new NotificationService
@@ -125,6 +133,14 @@ func (s *NotificationService) SetEscalationScheduler(es EscalationScheduler) {
 // incidents and acks, escalations and recoveries mark them.
 func (s *NotificationService) SetIncidentStore(store *incident.Store) {
 	s.incidents = store
+}
+
+// SetGroupResolver attaches the group reference expander. nil (the
+// default) keeps channel references literal; a "group:" reference with no
+// resolver fails that one channel at delivery time, not the whole
+// notification.
+func (s *NotificationService) SetGroupResolver(gr GroupResolver) {
+	s.groups = gr
 }
 
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
@@ -315,39 +331,90 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 	return result, nil
 }
 
-// enqueue delivers one notification to the given channels: resolve the
+// enqueue delivers one notification to the given channel references:
+// expand each reference (plain channel or "group:" reference), resolve the
 // provider, plan the task and push it to the queue, recording per-channel
-// failures into result. Shared by the live-event path and the synthetic
-// group-summary path.
+// failures into result. Shared by every delivery path — live events, rule
+// routes, static routes, group summaries, escalations, recoveries — so
+// group expansion semantics exist exactly once.
 func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification, channels []string, renderedData *template.RenderedData, result *ProcessResult) {
-	for _, channel := range channels {
-		provider, err := s.runtime.GetProvider(channel)
+	for _, ref := range channels {
+		targets, err := s.expandRef(ref)
 		if err != nil {
-			result.Failed = append(result.Failed, ChannelError{Channel: channel, Error: err.Error()})
+			// An unknown group (or a group reference with no resolver) is
+			// configuration drift: that reference fails, visibly, and the
+			// remaining channels still go out.
+			result.Failed = append(result.Failed, ChannelError{Channel: ref, Error: err.Error()})
 			continue
 		}
-
-		if !s.runtime.IsEnabled(channel) {
-			result.Failed = append(result.Failed, ChannelError{Channel: channel, Error: "provider is disabled"})
-			continue
+		for _, dt := range targets {
+			s.enqueueOne(ctx, n, dt, renderedData, result)
 		}
-
-		targets := resolveTargets(n, channel)
-
-		task, err := s.planner.Plan(ctx, provider, n, renderedData, targets, channel)
-		if err != nil {
-			result.Failed = append(result.Failed, ChannelError{Channel: channel, Error: err.Error()})
-			continue
-		}
-
-		if err := s.queue.Push(ctx, task); err != nil {
-			result.Failed = append(result.Failed, ChannelError{Channel: channel, Error: fmt.Sprintf("queue: %v", err)})
-			continue
-		}
-
-		result.TaskIDs = append(result.TaskIDs, task.ID)
-		result.Accepted = append(result.Accepted, channel)
 	}
+}
+
+// deliveryTarget is one concrete delivery after reference expansion: a
+// provider instance and optionally pinned recipients (group members may
+// pin them; nil falls back to the notification's own recipient list).
+type deliveryTarget struct {
+	channel string
+	targets []string
+}
+
+// expandRef resolves one channel reference. Plain names pass through as
+// themselves; "group:" references expand to the group's members (each
+// carrying its optional recipient pins).
+func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
+	if !groups.IsRef(ref) {
+		return []deliveryTarget{{channel: ref}}, nil
+	}
+	if s.groups == nil {
+		return nil, fmt.Errorf("group reference %q but no group resolver is configured", ref)
+	}
+	members, ok := s.groups.ExpandGroup(strings.TrimPrefix(ref, groups.RefPrefix))
+	if !ok {
+		return nil, fmt.Errorf("unknown group %q", strings.TrimPrefix(ref, groups.RefPrefix))
+	}
+	out := make([]deliveryTarget, 0, len(members))
+	for _, m := range members {
+		out = append(out, deliveryTarget{channel: m.Channel, targets: m.Recipients})
+	}
+	return out, nil
+}
+
+// enqueueOne plans and pushes the delivery to one concrete channel.
+func (s *NotificationService) enqueueOne(ctx context.Context, n *core.Notification, dt deliveryTarget, renderedData *template.RenderedData, result *ProcessResult) {
+	provider, err := s.runtime.GetProvider(dt.channel)
+	if err != nil {
+		result.Failed = append(result.Failed, ChannelError{Channel: dt.channel, Error: err.Error()})
+		return
+	}
+
+	if !s.runtime.IsEnabled(dt.channel) {
+		result.Failed = append(result.Failed, ChannelError{Channel: dt.channel, Error: "provider is disabled"})
+		return
+	}
+
+	// A pinned target list (group member recipients) overrides the
+	// notification's own; without one the notification decides.
+	targets := dt.targets
+	if len(targets) == 0 {
+		targets = resolveTargets(n, dt.channel)
+	}
+
+	task, err := s.planner.Plan(ctx, provider, n, renderedData, targets, dt.channel)
+	if err != nil {
+		result.Failed = append(result.Failed, ChannelError{Channel: dt.channel, Error: err.Error()})
+		return
+	}
+
+	if err := s.queue.Push(ctx, task); err != nil {
+		result.Failed = append(result.Failed, ChannelError{Channel: dt.channel, Error: fmt.Sprintf("queue: %v", err)})
+		return
+	}
+
+	result.TaskIDs = append(result.TaskIDs, task.ID)
+	result.Accepted = append(result.Accepted, dt.channel)
 }
 
 // alertIDOf derives the acknowledgement identity of a notification: the

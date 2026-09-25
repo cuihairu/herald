@@ -7,6 +7,7 @@ import (
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
@@ -25,6 +26,7 @@ type Handler struct {
 	_wsServer       *websocket.Server
 	queue           core.Queue
 	rulesEngine     *rules.Engine
+	groupsManager   *groups.Manager
 	ackStore        ack.Store
 	escalation      *escalation.Manager
 	incidents       *incident.Store
@@ -78,6 +80,12 @@ func (h *Handler) SetQueue(q core.Queue) {
 // SetRuleEngine attaches the rule engine for rule CRUD endpoints.
 func (h *Handler) SetRuleEngine(engine *rules.Engine) {
 	h.rulesEngine = engine
+}
+
+// SetGroupManager attaches the notification group manager for group CRUD
+// endpoints.
+func (h *Handler) SetGroupManager(m *groups.Manager) {
+	h.groupsManager = m
 }
 
 // SetAckStore attaches the alert acknowledgement store for alert endpoints.

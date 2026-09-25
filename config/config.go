@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/rules"
@@ -36,6 +37,12 @@ type Config struct {
 	// RulesState configures the external store for stateful rule semantics
 	// (the "for" duration). Nil keeps state in-process (single instance).
 	RulesState *RulesStateConfig `yaml:"rules_state"`
+	// Groups seeds notification groups (named delivery audiences that
+	// "group:" channel references expand to).
+	Groups []groups.Group `yaml:"groups"`
+	// GroupsStore points at the persistent groups file. Empty keeps groups
+	// in memory only (seeds from Groups are still honored).
+	GroupsStore string `yaml:"groups_store"`
 	// EscalationStore points at the persistent pending-upgrade file for
 	// ack-gated escalation. Empty keeps pending upgrades in memory only
 	// (a restart then silently drops them instead of escalating).

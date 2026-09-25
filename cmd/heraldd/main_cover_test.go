@@ -23,6 +23,12 @@ import (
 // minimal config: every case must exit with code 1 before binding anything.
 func TestServeCmdStartupFailures(t *testing.T) {
 	dir := t.TempDir()
+	// A store that parses but holds an invalid group trips the reload
+	// (validation), not the open.
+	badGroups := filepath.Join(dir, "groups-invalid.json")
+	if err := os.WriteFile(badGroups, []byte(`{"version":1,"groups":[{"id":"bad","members":[]}]}`), 0o600); err != nil {
+		t.Fatalf("write bad groups store: %v", err)
+	}
 	cases := map[string]string{
 		// A rules store pointing at a directory cannot be opened.
 		"rules store is a dir": fmt.Sprintf("rules_store: %s\n", dir),
@@ -32,6 +38,17 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"dead redis state": "rules_state:\n  type: redis\n  addr: 127.0.0.1:1\n",
 		// A rule that does not compile is rejected at load time.
 		"invalid rule": "rules:\n  - id: bad\n    match: \"&&&\"\n    route:\n      - channels: [log]\n",
+		// The default policy must name a known value.
+		"unknown rules policy": "rules_default_policy: sometimes\n",
+		// deny is a valid policy (the switch arm must run); the broken
+		// state store fails the startup right after it.
+		"deny rules policy": "rules_default_policy: deny\nrules_state:\n  type: etcd\n",
+		// A groups store pointing at a directory cannot be opened.
+		"groups store is a dir": fmt.Sprintf("groups_store: %s\n", dir),
+		// A groups store that opens but fails validation aborts the load.
+		"groups reload failure": fmt.Sprintf("groups_store: %s\n", badGroups),
+		// A group that does not validate is rejected at load time.
+		"invalid group": "groups:\n  - id: bad\n    members: []\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -44,14 +61,16 @@ func TestServeCmdStartupFailures(t *testing.T) {
 }
 
 // TestServeCmdFullFeaturedLifecycle starts the server with every optional
-// subsystem enabled — persistent rules, redis rule state, card-callback
-// encryption, a rate limit, and a broken escalation store (which must only
-// be logged) — and shuts it down via SIGTERM.
+// subsystem enabled — persistent rules, redis rule state, persistent
+// notification groups, card-callback encryption, a rate limit, and a broken
+// escalation store (which must only be logged) — and shuts it down via
+// SIGTERM.
 func TestServeCmdFullFeaturedLifecycle(t *testing.T) {
 	httpPort := freePort(t)
 	wsPort := freePort(t)
 	mr := miniredis.RunT(t)
 	rulesPath := filepath.Join(t.TempDir(), "rules.json")
+	groupsPath := filepath.Join(t.TempDir(), "groups.json")
 	// A directory as escalation store makes Restore fail; the server must
 	// come up anyway.
 	escStore := t.TempDir()
@@ -68,6 +87,7 @@ rules_store: %s
 rules_state:
   type: redis
   addr: %s
+groups_store: %s
 escalation_store: %s
 card_callback:
   encrypt_key: test-encrypt-key
@@ -85,7 +105,12 @@ rules:
     match: "type == 'quickstart'"
     route:
       - channels: [hook]
-`, httpPort, wsPort, rulesPath, mr.Addr(), escStore)
+groups:
+  - id: ops-oncall
+    description: the webhook audience
+    members:
+      - channel: hook
+`, httpPort, wsPort, rulesPath, mr.Addr(), groupsPath, escStore)
 	path := writeTestConfig(t, cfgYAML)
 
 	done := make(chan int, 1)
@@ -109,6 +134,11 @@ rules:
 	data, err := os.ReadFile(rulesPath)
 	if err != nil || !strings.Contains(string(data), "r-hook") {
 		t.Fatalf("rules store not persisted: %q / %v", data, err)
+	}
+	// The persistent groups store must hold the configured group.
+	gdata, err := os.ReadFile(groupsPath)
+	if err != nil || !strings.Contains(string(gdata), "ops-oncall") {
+		t.Fatalf("groups store not persisted: %q / %v", gdata, err)
 	}
 }
 

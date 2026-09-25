@@ -10,6 +10,7 @@ import (
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
@@ -42,6 +43,7 @@ type Config struct {
 	TemplateManager *template.Manager
 	WorkerRegistry  *worker.Registry
 	Rules           *rules.Engine       // optional; nil keeps static routing only
+	Groups          *groups.Manager     // optional; nil keeps group endpoints off
 	AckStore        ack.Store           // optional; nil keeps alert endpoints off
 	Escalation      *escalation.Manager // optional; enables ack-cancel of upgrades
 	Incidents       *incident.Store     // optional; nil keeps incident endpoints off
@@ -75,6 +77,12 @@ func NewServer(config *Config) *Server {
 	handler.SetWorkerRegistry(config.WorkerRegistry)
 	if config.Rules != nil {
 		handler.SetRuleEngine(config.Rules)
+	}
+	if config.Groups != nil {
+		handler.SetGroupManager(config.Groups)
+		// Group references in any channel list resolve through the
+		// manager's live table.
+		notificationSvc.SetGroupResolver(config.Groups.Resolver())
 	}
 	if config.AckStore != nil {
 		handler.SetAckStore(config.AckStore)
@@ -135,6 +143,8 @@ func NewServer(config *Config) *Server {
 	// Rule management
 	mux.HandleFunc("/api/v1/rules", s.withAuth(s.handleRules))
 	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
+	mux.HandleFunc("/api/v1/groups", s.withAuth(s.handleGroups))
+	mux.HandleFunc("/api/v1/groups/{id}", s.withAuth(s.handleGroupByID))
 	mux.HandleFunc("/api/v1/alerts/{id}", s.withAuth(s.handleAlertByID))
 	mux.HandleFunc("/api/v1/alerts/{id}/ack", s.withAuth(s.handleAlertAck))
 	// Feishu's servers call this endpoint — it authenticates with the
@@ -314,6 +324,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleRuleByID(w, r)
+}
+
+func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleGroups(w, r)
+}
+
+func (s *Server) handleGroupByID(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleGroupByID(w, r)
 }
 
 // Alert acknowledgement handlers

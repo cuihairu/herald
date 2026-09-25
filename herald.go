@@ -29,6 +29,7 @@ import (
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
@@ -51,6 +52,7 @@ type App struct {
 	manager    *coreruntime.Manager
 	svc        *service.NotificationService
 	rules      *rules.Engine
+	groups     *groups.Manager
 	acks       *ack.MemoryStore
 	escalation *escalation.Manager
 	incidents  *incident.Store
@@ -171,6 +173,35 @@ func New(cfg *config.Config) (*App, error) {
 	svc.SetRuleEngine(rulesEngine)
 	svc.SetRuleObserver(manager)
 
+	// Notification groups: named audiences that "group:" channel
+	// references (rule routes, explicit channels, escalation targets)
+	// expand to at delivery planning. Seeded from cfg.Groups, persisted
+	// via groups_store, resolved from the in-memory live table.
+	var groupStore groups.Store
+	if cfg.GroupsStore != "" {
+		fs, err := groups.NewFileStore(cfg.GroupsStore)
+		if err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("open groups store: %w", err)
+		}
+		groupStore = fs
+	}
+	groupsManager := groups.NewManager(groupStore)
+	if groupStore != nil {
+		if err := groupsManager.Reload(context.Background()); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("load groups: %w", err)
+		}
+	}
+	for i := range cfg.Groups {
+		g := cfg.Groups[i]
+		if err := groupsManager.Put(context.Background(), &g); err != nil {
+			_ = backend.Close()
+			return nil, fmt.Errorf("group %d: %w", i, err)
+		}
+	}
+	svc.SetGroupResolver(groupsManager.Resolver())
+
 	// Ack-gated escalation: the ack store and the pending-upgrade manager
 	// share the alert identity space; the service both arms upgrades on
 	// routed deliveries and delivers them when one fires.
@@ -209,6 +240,7 @@ func New(cfg *config.Config) (*App, error) {
 		manager:    manager,
 		svc:        svc,
 		rules:      rulesEngine,
+		groups:     groupsManager,
 		acks:       acks,
 		escalation: escalations,
 		incidents:  incidents,
@@ -247,6 +279,13 @@ func (a *App) DispatchSync(ctx context.Context, n *core.Notification) (*service.
 // providers beyond those created from cfg.Providers.
 func (a *App) Runtime() *coreruntime.Manager {
 	return a.manager
+}
+
+// Groups exposes the notification group manager so embedders can manage
+// audiences at runtime (CRUD via Put/Delete; delivery resolves through the
+// same live table).
+func (a *App) Groups() *groups.Manager {
+	return a.groups
 }
 
 // Rules exposes the rule engine so embedders can add or update rules at

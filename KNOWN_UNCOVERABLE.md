@@ -8,7 +8,7 @@
 
 ## cmd/heraldd/main.go
 
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:48` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:49` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
 
 ## examples/quickstart/main.go
 
