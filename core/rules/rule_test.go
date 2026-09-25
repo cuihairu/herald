@@ -24,11 +24,84 @@ func TestRuleNormalize(t *testing.T) {
 	if r.Mode != ModeShadow {
 		t.Errorf("expected default mode shadow, got %q", r.Mode)
 	}
+	if r.Action != ActionRoute {
+		t.Errorf("expected default action route, got %q", r.Action)
+	}
 
-	r2 := Rule{ID: "r2", Mode: ModeActive}
+	r2 := Rule{ID: "r2", Mode: ModeActive, Action: ActionSuppress}
 	r2.Normalize()
 	if r2.Mode != ModeActive {
 		t.Errorf("Normalize must not override explicit mode, got %q", r2.Mode)
+	}
+	if r2.Action != ActionSuppress {
+		t.Errorf("Normalize must not override explicit action, got %q", r2.Action)
+	}
+}
+
+func TestRuleValidateAction(t *testing.T) {
+	t.Run("empty action reads as route", func(t *testing.T) {
+		r := validRule() // no Action set
+		if err := r.Validate(); err != nil {
+			t.Fatalf("expected acceptance, got %v", err)
+		}
+	})
+
+	t.Run("route action requires steps", func(t *testing.T) {
+		r := validRule()
+		r.Action = ActionRoute
+		r.Route = nil
+		if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "at least one step") {
+			t.Fatalf("expected route-without-steps rejection, got %v", err)
+		}
+	})
+
+	t.Run("allow without route", func(t *testing.T) {
+		r := Rule{ID: "exempt", Match: `level == "info"`, Mode: ModeActive, Action: ActionAllow}
+		if err := r.Validate(); err != nil {
+			t.Fatalf("expected acceptance, got %v", err)
+		}
+	})
+
+	t.Run("suppress without route", func(t *testing.T) {
+		r := Rule{ID: "block", Match: `level == "info"`, Mode: ModeActive, Action: ActionSuppress}
+		if err := r.Validate(); err != nil {
+			t.Fatalf("expected acceptance, got %v", err)
+		}
+	})
+
+	t.Run("unknown action", func(t *testing.T) {
+		r := validRule()
+		r.Action = Action("reroute")
+		if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "unknown action") {
+			t.Fatalf("expected unknown action rejection, got %v", err)
+		}
+	})
+
+	t.Run("route steps on allow rejected", func(t *testing.T) {
+		r := Rule{ID: "mixed", Match: `level == "info"`, Mode: ModeActive, Action: ActionAllow,
+			Route: []RouteStep{{Channels: []string{"a"}}}}
+		if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "route steps require action") {
+			t.Fatalf("expected mixed-intent rejection, got %v", err)
+		}
+	})
+
+	stateful := map[string]func(*Rule){
+		"for":          func(r *Rule) { s := "3m"; r.For = &s },
+		"group_by":     func(r *Rule) { r.GroupBy = []string{"env"} },
+		"group_interval": func(r *Rule) { s := "1m"; r.GroupInterval = &s },
+		"inhibit":      func(r *Rule) { r.Inhibit = &InhibitSpec{Source: "root", Equal: []string{"env"}} },
+		"silence":      func(r *Rule) { r.Silence = &SilenceSpec{Start: "01:00", End: "05:00"} },
+		"escalation":   func(r *Rule) { r.Escalation = &EscalationSpec{To: []string{"phone"}} },
+	}
+	for name, mutate := range stateful {
+		t.Run("suppress cannot combine with "+name, func(t *testing.T) {
+			r := Rule{ID: "blocked", Match: `level == "info"`, Mode: ModeActive, Action: ActionSuppress}
+			mutate(&r)
+			err := r.Validate()
+			if err == nil || !strings.Contains(err.Error(), "cannot combine") {
+				t.Fatalf("expected cannot-combine rejection, got %v", err)
+			}
+		})
 	}
 }
 

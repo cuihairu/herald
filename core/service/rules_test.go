@@ -33,6 +33,7 @@ type recordingObserver struct {
 	groupFolded []string
 	inhibited   []string
 	silenced    []string
+	suppressed  []string
 }
 
 func (r *recordingObserver) RecordShadow(ruleID string, channels []string, n *core.Notification) {
@@ -57,6 +58,10 @@ func (r *recordingObserver) RecordInhibited(ruleID string, n *core.Notification)
 
 func (r *recordingObserver) RecordSilenced(ruleID string, n *core.Notification) {
 	r.silenced = append(r.silenced, ruleID)
+}
+
+func (r *recordingObserver) RecordSuppressed(ruleID string, n *core.Notification) {
+	r.suppressed = append(r.suppressed, ruleID)
 }
 
 // stubScheduler captures escalation scheduling without timers.
@@ -983,4 +988,108 @@ func TestProcessWithRealRuleEngineGroupBy(t *testing.T) {
 	if len(queue.tasks) != 1 {
 		t.Fatalf("expected exactly one queued task, got %d", len(queue.tasks))
 	}
+}
+
+func TestProcessActionDecisions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("suppress action withholds the notification", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		observer := &recordingObserver{}
+		svc.SetRuleObserver(observer)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID: "no-canary", Mode: rules.ModeActive, Action: rules.ActionSuppress,
+		}})
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 || len(res.Failed) != 0 {
+			t.Fatalf("suppressed notification must enqueue nothing, got %+v", res)
+		}
+		if len(queue.tasks) != 0 {
+			t.Fatalf("queue must stay empty, got %d tasks", len(queue.tasks))
+		}
+		if len(observer.suppressed) != 1 || observer.suppressed[0] != "no-canary" {
+			t.Fatalf("expected suppressed observation, got %v", observer.suppressed)
+		}
+	})
+
+	t.Run("allow action falls back to static routing", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			RuleID: "exempt", Mode: rules.ModeActive, Action: rules.ActionAllow,
+		}})
+
+		res, err := svc.Process(ctx, alertNotification()) // type "alert" → static-provider
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.Accepted) != 1 || res.Accepted[0] != "static-provider" {
+			t.Fatalf("allow must deliver via static routing, got %v", res.Accepted)
+		}
+		if queue.tasks[0].Provider != "static-provider" {
+			t.Fatalf("expected static route, got %s", queue.tasks[0].Provider)
+		}
+	})
+
+	t.Run("default deny withholds unmatched traffic", func(t *testing.T) {
+		svc, queue, _, _ := newRuleTestService(t)
+		observer := &recordingObserver{}
+		svc.SetRuleObserver(observer)
+		svc.SetRuleEngine(&stubEvaluator{decision: &rules.Decision{
+			Action: rules.ActionSuppress, Defaulted: true,
+		}})
+
+		res, err := svc.Process(ctx, alertNotification())
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 {
+			t.Fatalf("default deny must enqueue nothing, got %+v", res)
+		}
+		if len(queue.tasks) != 0 {
+			t.Fatalf("queue must stay empty, got %d tasks", len(queue.tasks))
+		}
+		// No rule decided — the observation names the configuration, not a rule.
+		if len(observer.suppressed) != 1 || observer.suppressed[0] != "" {
+			t.Fatalf("expected empty-rule-id suppressed observation, got %v", observer.suppressed)
+		}
+	})
+
+	t.Run("explicit channels bypass suppress and default deny", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			decision *rules.Decision
+		}{
+			{"suppress action", &rules.Decision{
+				RuleID: "no-canary", Mode: rules.ModeActive, Action: rules.ActionSuppress}},
+			{"default deny", &rules.Decision{
+				Action: rules.ActionSuppress, Defaulted: true}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				svc, queue, _, _ := newRuleTestService(t)
+				observer := &recordingObserver{}
+				svc.SetRuleObserver(observer)
+				svc.SetRuleEngine(&stubEvaluator{decision: tc.decision})
+
+				n := alertNotification()
+				n.Channels = []string{"static-provider"}
+				res, err := svc.Process(ctx, n)
+				if err != nil {
+					t.Fatalf("Process: %v", err)
+				}
+				if len(res.Accepted) != 1 || res.Accepted[0] != "static-provider" {
+					t.Fatalf("explicit channels are deliberate and go out, got %+v", res)
+				}
+				if len(queue.tasks) != 1 {
+					t.Fatalf("expected the explicit delivery queued, got %d", len(queue.tasks))
+				}
+				if len(observer.suppressed) != 0 {
+					t.Fatalf("no suppression observation for explicit traffic, got %v", observer.suppressed)
+				}
+			})
+		}
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -116,6 +117,11 @@ type compiledRule struct {
 	match  *vm.Program
 	steps  []compiledStep
 	forDur time.Duration // 0 = rule has no "for" window
+	// action is the decision on match (route/allow/suppress); set by
+	// compileRule from the normalized rule.
+	action Action
+	// priority orders evaluation: higher first, ties keep insertion order.
+	priority int32
 	// groupBy lists the group aggregation fields; empty = no aggregation.
 	groupBy []string
 	// groupInterval is the quiet period that closes a group round.
@@ -152,6 +158,15 @@ type Decision struct {
 	// matched, otherwise the first shadow hit (ModeShadow).
 	RuleID string
 	Mode   Mode
+	// Action is the governing rule's decision — ActionRoute with Channels,
+	// ActionAllow to pass through unchanged, ActionSuppress to withhold.
+	// Empty on a shadow-only decision (no active rule governed); when
+	// Defaulted is set it is ActionSuppress by the default policy.
+	Action Action
+	// Defaulted reports that no rule matched and the engine's default
+	// policy decided: deny turns the notification into a suppression with
+	// an empty RuleID (who suppressed it is the configuration, not a rule).
+	Defaulted bool
 	// Channels are the resolved channels of the governing active rule;
 	// empty unless Mode == ModeActive.
 	Channels []string
@@ -196,9 +211,23 @@ type Decision struct {
 
 // ShadowHit records one shadow rule match for dry-run observation.
 type ShadowHit struct {
-	RuleID   string
+	RuleID string
+	// Action is what the rule would have done had it been active.
+	Action   Action
 	Channels []string
 }
+
+// DefaultPolicy decides what happens when no rule matched. PolicyAllow
+// (the default) keeps the notification on its existing course — explicit
+// channels or static routing, byte-for-byte the pre-engine behavior.
+// PolicyDeny withholds it: the whitelist mode where only traffic an
+// active rule routed (or allowed) goes out.
+type DefaultPolicy string
+
+const (
+	PolicyAllow DefaultPolicy = "allow"
+	PolicyDeny  DefaultPolicy = "deny"
+)
 
 // Engine owns the compiled rule table. Rules are compiled once at save
 // time; evaluation only executes compiled programs. Stateful semantics
@@ -212,6 +241,10 @@ type Engine struct {
 	groupState   *GroupTracker
 	inhibitState *InhibitTracker
 	stateStore   StateStore
+	// defaultPolicy applies when no rule matched; anything other than
+	// PolicyDeny behaves as PolicyAllow (config validation is strict, the
+	// engine stays lenient).
+	defaultPolicy DefaultPolicy
 	// now is the clock for schedule-driven judgements (silence windows);
 	// swapped in tests.
 	now func() time.Time
@@ -275,6 +308,23 @@ func (e *Engine) SetStateStore(ss StateStore) {
 	e.inhibitState = NewInhibitTracker(ss)
 }
 
+// SetDefaultPolicy configures the no-rule-matched outcome. Call it during
+// setup, before the engine serves traffic.
+func (e *Engine) SetDefaultPolicy(p DefaultPolicy) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.defaultPolicy = p
+}
+
+// sortRulesLocked orders the live table by evaluation priority: higher
+// priority first, ties keep insertion order (stable). Callers must hold
+// e.mu for writing.
+func (e *Engine) sortRulesLocked() {
+	sort.SliceStable(e.rules, func(i, j int) bool {
+		return e.rules[i].priority > e.rules[j].priority
+	})
+}
+
 // Validate normalizes and checks r, then compiles every expression in it —
 // the full save-time contract. It does not touch the store or live table.
 func (e *Engine) Validate(r *Rule) error {
@@ -327,11 +377,13 @@ func (e *Engine) Put(ctx context.Context, r *Rule) error {
 			// start fresh.
 			_ = e.forState.ResetRule(ctx, r.ID)
 			_ = e.groupState.ResetRule(ctx, r.ID)
+			e.sortRulesLocked()
 			e.rebuildInhibitIndexLocked()
 			return nil
 		}
 	}
 	e.rules = append(e.rules, compiled)
+	e.sortRulesLocked()
 	e.rebuildInhibitIndexLocked()
 	return nil
 }
@@ -355,9 +407,16 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// List returns the stored rules in priority order.
+// List returns the rules in evaluation order (the live table: priority
+// descending, ties in insertion order) — what governs is what you see.
 func (e *Engine) List(ctx context.Context) ([]Rule, error) {
-	return e.store.List(ctx)
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]Rule, len(e.rules))
+	for i, cr := range e.rules {
+		out[i] = cr.rule
+	}
+	return out, nil
 }
 
 // Get returns a stored rule by id.
@@ -383,6 +442,7 @@ func (e *Engine) Reload(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	e.rules = compiled
+	e.sortRulesLocked()
 	e.rebuildInhibitIndexLocked()
 	e.mu.Unlock()
 	return nil
@@ -485,7 +545,7 @@ func compileRule(r Rule) (*compiledRule, error) {
 		}
 		escalation = &EscalationPlan{Timeout: timeout, To: r.Escalation.To}
 	}
-	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL, silence: silence, escalation: escalation}, nil
+	return &compiledRule{rule: r, match: match, steps: steps, forDur: forDur, action: r.Action, priority: r.Priority, groupBy: groupBy, groupInterval: groupInterval, inhibit: inhibit, inhibitTTL: inhibitTTL, silence: silence, escalation: escalation}, nil
 }
 
 // Evaluate runs the notification environment against the rule table in
@@ -503,6 +563,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	e.mu.RLock()
 	rules := make([]*compiledRule, len(e.rules))
 	copy(rules, e.rules)
+	defaultPolicy := e.defaultPolicy
 	e.mu.RUnlock()
 
 	var decision *Decision
@@ -539,6 +600,21 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 		// for and group aggregation share the group key: with group_by the
 		// identity is the field values, without it the content hash.
 		groupKey, groupLabel := RuleGroupKey(cr.groupBy, env)
+
+		// Non-route actions are immediate decisions on match: allow keeps
+		// the caller's course (explicit channels, else static routing) and
+		// stops the table; suppress withholds. The route-gated machinery
+		// below (silence/inhibit/for/group) is route semantics — validation
+		// forbids combining it with allow/suppress — and shadow rules only
+		// observe, which the tail switch below handles.
+		if cr.rule.Mode == ModeActive && cr.action != ActionRoute {
+			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Action: cr.action}
+			if decision != nil {
+				governing.Shadow = decision.Shadow
+			}
+			governing.EvalErrors = evalErrs
+			return governing, joinEvalErrors(evalErrs)
+		}
 
 		// Step -1: the daily silence window. Schedule-driven and stateless:
 		// inside the window (and, when the silence match is set, for
@@ -644,7 +720,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 				continue
 			}
 			// First matching active rule governs; shadow observations ride along.
-			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Channels: channels, Summary: summary, Escalation: cr.escalation, GroupKey: groupKey}
+			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Action: ActionRoute, Channels: channels, Summary: summary, Escalation: cr.escalation, GroupKey: groupKey}
 			if decision != nil {
 				governing.Shadow = decision.Shadow
 			}
@@ -670,7 +746,19 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			if decision == nil {
 				decision = &Decision{RuleID: cr.rule.ID, Mode: ModeShadow}
 			}
-			decision.Shadow = append(decision.Shadow, ShadowHit{RuleID: cr.rule.ID, Channels: channels})
+			decision.Shadow = append(decision.Shadow, ShadowHit{RuleID: cr.rule.ID, Action: cr.action, Channels: channels})
+		}
+	}
+	// The default policy applies when no active rule governed: deny turns
+	// the notification into a suppression with an empty rule id (the
+	// configuration decided, not a rule) — shadow observations still ride
+	// along so tightening the table does not blind observation.
+	if defaultPolicy == PolicyDeny {
+		if decision == nil {
+			decision = &Decision{Action: ActionSuppress, Defaulted: true}
+		} else {
+			decision.Action = ActionSuppress
+			decision.Defaulted = true
 		}
 	}
 	if decision != nil {

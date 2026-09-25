@@ -176,6 +176,26 @@ func (m *Manager) RecordSilenced(ruleID string, n *core.Notification) {
 	})
 }
 
+// RecordSuppressed implements the rule observer contract: it records an
+// event withheld by an explicit suppress action or by the default deny
+// policy (ruleID empty there — the configuration decided). Sampled per
+// rule like shadow hits: unconditional filters exist exactly for the
+// high-volume traffic nobody wants page through.
+func (m *Manager) RecordSuppressed(ruleID string, n *core.Notification) {
+	if !m.shadowSampler.ShouldRecord(ruleID) {
+		return
+	}
+	now := time.Now()
+	m.logStore.Add(&logstore.TaskLog{
+		ID:        "suppressed:" + ruleID + ":" + n.ID,
+		Level:     n.Level,
+		Status:    "suppressed",
+		CreatedAt: now,
+		RuleID:    ruleID,
+		MatchedAt: now,
+	})
+}
+
 // ShadowRuleCount returns how many times a rule has matched during shadow
 // evaluation so far — the exact total behind the sampled log entries.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {

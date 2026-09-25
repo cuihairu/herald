@@ -206,3 +206,54 @@ func TestManagerRecordSilenced(t *testing.T) {
 		t.Errorf("counter must track every silenced event, got %d", m.ShadowRuleCount("quiet"))
 	}
 }
+
+func TestManagerRecordSuppressed(t *testing.T) {
+	m := NewManager(100)
+	n := &core.Notification{ID: "notif-1", Level: "error"}
+
+	m.RecordSuppressed("blocker", n)
+
+	logs := m.GetLogs(0, 10, &logstore.Filter{Status: "suppressed"})
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 suppressed log, got %d", len(logs))
+	}
+	entry := logs[0]
+	if entry.RuleID != "blocker" || entry.Status != "suppressed" {
+		t.Fatalf("unexpected suppressed entry: %+v", entry)
+	}
+	if entry.WouldFire {
+		t.Error("a suppressed event must not be marked would_fire")
+	}
+	if entry.MatchedAt.IsZero() {
+		t.Error("expected matched_at to be set")
+	}
+
+	// Suppressed events are sampled per rule like shadow hits.
+	m.RecordSuppressed("blocker", &core.Notification{ID: "notif-2", Level: "error"})
+	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "suppressed"})); got != 1 {
+		t.Errorf("expected sampling to keep 1 entry, got %d", got)
+	}
+	if m.ShadowRuleCount("blocker") != 2 {
+		t.Errorf("counter must track every suppressed event, got %d", m.ShadowRuleCount("blocker"))
+	}
+}
+
+func TestManagerRecordSuppressedDefaultPolicy(t *testing.T) {
+	m := NewManager(100)
+	// The default deny policy reports an empty rule id — the sampler keys
+	// on it like any other, so even the configuration's suppression is
+	// observable without flooding the log.
+	m.RecordSuppressed("", &core.Notification{ID: "notif-1", Level: "warning"})
+	m.RecordSuppressed("", &core.Notification{ID: "notif-2", Level: "warning"})
+	m.RecordSuppressed("", &core.Notification{ID: "notif-3", Level: "warning"})
+
+	logs := m.GetLogs(0, 10, &logstore.Filter{Status: "suppressed"})
+	if len(logs) < 1 {
+		t.Fatal("default-policy suppression must be observable")
+	}
+	for _, entry := range logs {
+		if entry.RuleID != "" {
+			t.Errorf("default policy entries carry no rule id, got %q", entry.RuleID)
+		}
+	}
+}

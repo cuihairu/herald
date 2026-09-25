@@ -48,8 +48,10 @@ type RuleEvaluator interface {
 // RuleObserver receives rule evaluation observations: shadow-mode hits
 // (dry-run evidence), per-rule evaluation failures, active-rule events
 // suppressed by a still-running "for" window, events folded into an open
-// group-aggregation round, events withheld by root-cause inhibition, and
-// events withheld by a rule's daily silence window.
+// group-aggregation round, events withheld by root-cause inhibition,
+// events withheld by a rule's daily silence window, and events withheld
+// by an explicit suppress action or the default deny policy (empty rule
+// id there — the configuration decided, not a rule).
 // Implementations must be safe for concurrent use.
 type RuleObserver interface {
 	RecordShadow(ruleID string, channels []string, n *core.Notification)
@@ -58,6 +60,7 @@ type RuleObserver interface {
 	RecordGroupFolded(ruleID string, n *core.Notification)
 	RecordInhibited(ruleID string, n *core.Notification)
 	RecordSilenced(ruleID string, n *core.Notification)
+	RecordSuppressed(ruleID string, n *core.Notification)
 }
 
 // EscalationScheduler arms and cancels ack-gated upgrade deliveries for
@@ -164,12 +167,36 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		}
 		// Explicit channels win for ROUTING: rules are an incremental
 		// capability over static routing, never an override of caller
-		// intent. The active-rule outcomes that suppress delivery — a
-		// silence window in effect, a "for" window still running, a group
-		// round open for folding, root-cause inhibition — only apply to the
-		// traffic the rule would route anyway; explicit-channel calls are
+		// intent. The outcomes that withhold delivery — an explicit
+		// suppress action, the default deny policy, a silence window in
+		// effect, a "for" window still running, a group round open for
+		// folding, root-cause inhibition — only apply to the traffic the
+		// rule table would route anyway; explicit-channel calls are
 		// deliberate and go out regardless.
+		//
+		// The default policy suppresses whatever the table did not govern
+		// (deny), shadow hits included — check it before the mode: a
+		// defaulted decision may carry shadow observations with ModeShadow.
+		if decision != nil && decision.Defaulted && len(n.Channels) == 0 {
+			if s.observer != nil {
+				s.observer.RecordSuppressed(decision.RuleID, n)
+			}
+			return &ProcessResult{NotificationID: n.ID}, nil
+		}
 		if decision != nil && decision.Mode == rules.ModeActive && len(n.Channels) == 0 {
+			// An empty action reads as route — decisions predate the action
+			// field (embedded stub evaluators still produce them), and a
+			// decision carrying channels means routing.
+			action := decision.Action
+			if action == "" {
+				action = rules.ActionRoute
+			}
+			if action == rules.ActionSuppress {
+				if s.observer != nil {
+					s.observer.RecordSuppressed(decision.RuleID, n)
+				}
+				return &ProcessResult{NotificationID: n.ID}, nil
+			}
 			if decision.Silenced {
 				if s.observer != nil {
 					s.observer.RecordSilenced(decision.RuleID, n)
@@ -194,11 +221,16 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 				}
 				return &ProcessResult{NotificationID: n.ID}, nil
 			}
-			channels = decision.Channels
-			summary = decision.Summary
-			plan = decision.Escalation
-			planRule = decision.RuleID
-			planGroupKey = decision.GroupKey
+			if action == rules.ActionRoute {
+				channels = decision.Channels
+				summary = decision.Summary
+				plan = decision.Escalation
+				planRule = decision.RuleID
+				planGroupKey = decision.GroupKey
+			}
+			// ActionAllow: the caller's course stands — evaluation stopped
+			// at the allowing rule, and static routing below applies when
+			// the caller named no channels.
 		}
 	}
 	if len(channels) == 0 {

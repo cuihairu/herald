@@ -131,6 +131,18 @@ func New(cfg *config.Config) (*App, error) {
 		ruleStore = fs
 	}
 	rulesEngine := rules.NewEngine(ruleStore)
+	// The default policy decides the fate of notifications no active rule
+	// matched: allow (the default) keeps the pre-engine static routing,
+	// deny turns the table into a whitelist.
+	switch cfg.RulesDefaultPolicy {
+	case "", string(rules.PolicyAllow):
+		rulesEngine.SetDefaultPolicy(rules.PolicyAllow)
+	case string(rules.PolicyDeny):
+		rulesEngine.SetDefaultPolicy(rules.PolicyDeny)
+	default:
+		_ = backend.Close()
+		return nil, fmt.Errorf("unknown rules_default_policy %q (want allow or deny)", cfg.RulesDefaultPolicy)
+	}
 	// Rule state (for windows) defaults to in-process; redis shares it
 	// across restarts and instances.
 	if cfg.RulesState != nil && cfg.RulesState.Type != "" && cfg.RulesState.Type != "memory" {

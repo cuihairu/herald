@@ -291,9 +291,11 @@ func (failingRulesStore) Delete(context.Context, string) error {
 func TestHandleRulesStoreFailures(t *testing.T) {
 	env := newTestEnv(t, withRulesEngine(rules.NewEngine(failingRulesStore{})))
 
-	// Listing against a dead store is a 500.
-	if code, _ := env.do(t, http.MethodGet, "/api/v1/rules", "", nil); code != http.StatusInternalServerError {
-		t.Fatalf("list on a failing store must be 500, got %d", code)
+	// Listing reads the live table (the evaluation truth), not the store:
+	// a dead store must not take the read path with it — the table that
+	// routes traffic is exactly what the API should report.
+	if code, body := env.do(t, http.MethodGet, "/api/v1/rules", "", nil); code != http.StatusOK {
+		t.Fatalf("list must serve from the live table, got %d (%s)", code, body)
 	}
 	// Get failing with something other than ErrNotFound must surface as
 	// 500 — both on the direct read and on the create-time existence check.

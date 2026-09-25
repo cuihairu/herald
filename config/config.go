@@ -29,6 +29,10 @@ type Config struct {
 	// RulesStore points at the persistent rules file. Empty keeps rules
 	// in memory only (seeds from Rules are still honored).
 	RulesStore string `yaml:"rules_store"`
+	// RulesDefaultPolicy decides what happens to notifications no active
+	// rule matched: "allow" (default) falls back to static routing,
+	// "deny" withholds them (whitelist mode). Empty means "allow".
+	RulesDefaultPolicy string `yaml:"rules_default_policy"`
 	// RulesState configures the external store for stateful rule semantics
 	// (the "for" duration). Nil keeps state in-process (single instance).
 	RulesState *RulesStateConfig `yaml:"rules_state"`

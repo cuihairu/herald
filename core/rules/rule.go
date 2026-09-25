@@ -19,6 +19,25 @@ const (
 	ModeOff Mode = "off"
 )
 
+// Action is what a matched rule does to the notification.
+type Action string
+
+const (
+	// ActionRoute reroutes: the rule's Route steps resolve the channels
+	// (the default for backward compatibility — every rule predating the
+	// action field is a route rule).
+	ActionRoute Action = "route"
+	// ActionAllow passes the notification through unchanged: explicit
+	// channels win, otherwise static routing applies — but evaluation
+	// stops at this rule, so lower-priority rules cannot touch it. The
+	// exemption primitive of the policy table.
+	ActionAllow Action = "allow"
+	// ActionSuppress withholds the notification outright. The unconditional
+	// filter ("this traffic must never go out"), independent of the
+	// schedule-driven silence and event-driven inhibit mechanisms.
+	ActionSuppress Action = "suppress"
+)
+
 // RouteStep is one ordered routing candidate: the first step whose
 // Match evaluates to true (empty Match always matches) wins.
 type RouteStep struct {
@@ -64,15 +83,24 @@ type SilenceSpec struct {
 }
 
 // Rule is the storage model of a notification rule. Every field is
-// enforced: Match/Mode/Route (routing), For/GroupBy/GroupInterval
-// (event-driven duration judgement and group aggregation), Inhibit and
-// Silence (root-cause suppression and daily quiet windows), Escalation
-// (ack-gated upgrade delivery).
+// enforced: Match/Action/Mode/Route (the decision: what to match and
+// whether to route, allow or suppress), Priority (evaluation order),
+// For/GroupBy/GroupInterval (event-driven duration judgement and group
+// aggregation), Inhibit and Silence (root-cause suppression and daily
+// quiet windows), Escalation (ack-gated upgrade delivery).
 type Rule struct {
 	ID    string      `json:"id" yaml:"id"`
 	Match string      `json:"match" yaml:"match"`
 	Mode  Mode        `json:"mode,omitempty" yaml:"mode,omitempty"`
 	Route []RouteStep `json:"route" yaml:"route"`
+
+	// Action selects the decision on match: route (default), allow or
+	// suppress. Route steps belong to action=route only; the stateful
+	// fields below are route semantics too and rejected on allow/suppress.
+	Action Action `json:"action,omitempty" yaml:"action,omitempty"`
+	// Priority orders evaluation: higher first, ties keep insertion
+	// order. The first matching active rule governs and stops evaluation.
+	Priority int32 `json:"priority,omitempty" yaml:"priority,omitempty"`
 
 	For     *string  `json:"for,omitempty" yaml:"for,omitempty"`
 	GroupBy []string `json:"group_by,omitempty" yaml:"group_by,omitempty"`
@@ -181,11 +209,15 @@ func validateEscalation(r *Rule) error {
 	return nil
 }
 
-// Normalize fills in defaults (empty mode becomes shadow) and trims the id.
+// Normalize fills in defaults (empty mode becomes shadow, empty action
+// becomes route) and trims the id.
 func (r *Rule) Normalize() {
 	r.ID = strings.TrimSpace(r.ID)
 	if r.Mode == "" {
 		r.Mode = ModeShadow
+	}
+	if r.Action == "" {
+		r.Action = ActionRoute
 	}
 }
 
@@ -203,18 +235,42 @@ func (r Rule) Validate() error {
 	default:
 		return fmt.Errorf("rules: rule %q: unknown mode %q", r.ID, r.Mode)
 	}
-	if len(r.Route) == 0 {
-		return fmt.Errorf("rules: rule %q: route must list at least one step", r.ID)
+	// Validate stays usable without a prior Normalize: an empty action
+	// reads as the default route action (Normalize writes the same).
+	action := r.Action
+	if action == "" {
+		action = ActionRoute
 	}
-	for i, step := range r.Route {
-		if len(step.Channels) == 0 {
-			return fmt.Errorf("rules: rule %q: route step %d has no channels", r.ID, i)
+	switch action {
+	case ActionRoute, ActionAllow, ActionSuppress:
+	default:
+		return fmt.Errorf("rules: rule %q: unknown action %q", r.ID, r.Action)
+	}
+	if action == ActionRoute {
+		if len(r.Route) == 0 {
+			return fmt.Errorf("rules: rule %q: route must list at least one step", r.ID)
 		}
-		for _, ch := range step.Channels {
-			if strings.TrimSpace(ch) == "" {
-				return fmt.Errorf("rules: rule %q: route step %d has an empty channel name", r.ID, i)
+		for i, step := range r.Route {
+			if len(step.Channels) == 0 {
+				return fmt.Errorf("rules: rule %q: route step %d has no channels", r.ID, i)
+			}
+			for _, ch := range step.Channels {
+				if strings.TrimSpace(ch) == "" {
+					return fmt.Errorf("rules: rule %q: route step %d has an empty channel name", r.ID, i)
+				}
 			}
 		}
+	} else if len(r.Route) > 0 {
+		// A route table on an allow/suppress rule is a mixed intent — the
+		// action already decided the outcome — and rejecting it at save
+		// time beats silently ignoring it.
+		return fmt.Errorf("rules: rule %q: route steps require action %q (rule has %q)", r.ID, ActionRoute, action)
+	}
+	if action != ActionRoute && (r.For != nil || len(r.GroupBy) > 0 || r.GroupInterval != nil ||
+		r.Inhibit != nil || r.Escalation != nil || r.Silence != nil) {
+		// for/group_by/inhibit/silence/escalation gate WHEN a routed
+		// delivery happens; an allow/suppress rule has no delivery to gate.
+		return fmt.Errorf("rules: rule %q: action %q cannot combine for/group_by/inhibit/silence/escalation", r.ID, action)
 	}
 	// All modeled fields are enforced; validation only checks their format
 	// (compilation of match/silence.match happens in Engine.Validate).

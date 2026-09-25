@@ -516,6 +516,49 @@ func TestNewBadRuleExpression(t *testing.T) {
 	}
 }
 
+func TestNewWithRulesDefaultPolicy(t *testing.T) {
+	t.Run("empty policy stays allow", func(t *testing.T) {
+		cfg := config.Default()
+		app, err := New(cfg)
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = app.Close() }()
+		d, err := app.Rules().Evaluate(context.Background(), rules.NewEnv("deploy", "error", "", "", nil))
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if d != nil {
+			t.Fatalf("allow default must keep the nil decision, got %+v", d)
+		}
+	})
+
+	t.Run("deny withholds unmatched traffic", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.RulesDefaultPolicy = "deny"
+		app, err := New(cfg)
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = app.Close() }()
+		d, err := app.Rules().Evaluate(context.Background(), rules.NewEnv("deploy", "error", "", "", nil))
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if d == nil || !d.Defaulted || d.Action != rules.ActionSuppress {
+			t.Fatalf("expected defaulted suppression, got %+v", d)
+		}
+	})
+
+	t.Run("unknown policy aborts construction", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.RulesDefaultPolicy = "quarantine"
+		if _, err := New(cfg); err == nil {
+			t.Error("New() with unknown rules_default_policy should fail")
+		}
+	})
+}
+
 func TestNewWithRulesStore(t *testing.T) {
 	t.Run("seeds persist through the file store", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "rules.json")
