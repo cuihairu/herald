@@ -445,3 +445,61 @@ func TestRunControlPlaneFullCycle(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// Cancelling the context while the control plane sits in the post-disconnect
+// window (after deregister, before the reconnect sleep) must return straight
+// away instead of sleeping out the reconnect delay first. That early return
+// is the `ctx.Err() != nil` arm; a stub that holds the connection open until
+// the cancel lands makes the ordering deterministic rather than a race on
+// whether the heartbeat or the cancel wins the select.
+func TestRunControlPlaneCancelDuringReconnectWindow(t *testing.T) {
+	released := make(chan struct{})
+	stub := newWSStub(t, func(conn *gws.Conn) {
+		ack, _ := json.Marshal(&protocol.RegisterAckMessage{WorkerID: "w-window", Success: true})
+		_ = conn.WriteMessage(gws.TextMessage, ack)
+		// Hold the connection open so the loop is parked in the heartbeat
+		// select, not in a reconnect, when the cancel arrives.
+		<-released
+		_ = conn.Close()
+	})
+	t.Cleanup(func() { close(released) })
+
+	registry := worker.NewRegistry()
+	cfg := &config.Config{
+		Worker: config.WorkerConfig{
+			ServerURL:         stub.url(),
+			ID:                "w-window",
+			ReconnectDelay:    time.Hour, // a slept-out delay would hang the test
+			HeartbeatInterval: 15 * time.Millisecond,
+			Capabilities:      []string{"slack"},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		runRemoteWorkerControlPlane(ctx, cfg, registry)
+		close(done)
+	}()
+
+	// Wait for the first registration so we know the loop is past the dial.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := registry.Get("w-window"); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := registry.Get("w-window"); err != nil {
+		t.Fatal("worker was never registered")
+	}
+
+	cancel()
+	// The loop must notice the cancel and return without sleeping the
+	// one-hour reconnect delay first.
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("control plane slept the reconnect delay instead of returning on cancel")
+	}
+}

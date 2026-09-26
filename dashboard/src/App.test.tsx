@@ -14,6 +14,8 @@ vi.mock('./api', () => ({
     getLogs: vi.fn(),
     getLogsStats: vi.fn().mockResolvedValue({ data: { total: 0 } }),
     login: vi.fn(),
+    getRules: vi.fn().mockResolvedValue({ data: { rules: [] } }),
+    getGroups: vi.fn().mockResolvedValue({ data: { groups: [] } }),
   },
 }))
 
@@ -53,6 +55,13 @@ describe('App routing', () => {
     localStorage.setItem('herald_token', 't')
     renderAt('/providers')
     expect(await screen.findByText('Providers')).toBeInTheDocument()
+  })
+
+  it('mounts the rules and groups pages', async () => {
+    localStorage.setItem('herald_token', 't')
+    renderAt('/rules')
+    // 菜单项与页面标题都叫「通知规则」，findAllByText 返回数组。
+    expect((await screen.findAllByText('通知规则')).length).toBeGreaterThan(0)
   })
 
   it('always renders /login outside the private area', async () => {

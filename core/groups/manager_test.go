@@ -173,7 +173,7 @@ func (failingStore) List(context.Context) ([]Group, error) { return nil, errStor
 func (failingStore) Get(context.Context, string) (Group, error) {
 	return Group{}, errStoreDown
 }
-func (failingStore) Put(context.Context, Group) error    { return errStoreDown }
+func (failingStore) Put(context.Context, Group) error     { return errStoreDown }
 func (failingStore) Delete(context.Context, string) error { return errStoreDown }
 
 func TestManagerStoreFailures(t *testing.T) {

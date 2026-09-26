@@ -7,6 +7,8 @@ interface HeraldState {
   workers: any[]
   queue: { size: number }
   logStats: any
+  rules: any[]
+  groups: any[]
   loading: boolean
   error: string | null
 
@@ -15,6 +17,8 @@ interface HeraldState {
   fetchWorkers: () => Promise<void>
   fetchQueue: () => Promise<void>
   fetchLogStats: () => Promise<void>
+  fetchRules: () => Promise<void>
+  fetchGroups: () => Promise<void>
   sendNotify: (data: any) => Promise<any>
   enableProvider: (name: string) => Promise<void>
   disableProvider: (name: string) => Promise<void>
@@ -26,6 +30,8 @@ export const useHeraldStore = create<HeraldState>((set, get) => ({
   workers: [],
   queue: { size: 0 },
   logStats: null,
+  rules: [],
+  groups: [],
   loading: false,
   error: null,
 
@@ -82,6 +88,30 @@ export const useHeraldStore = create<HeraldState>((set, get) => ({
     try {
       const res = await heraldApi.getLogsStats()
       set({ logStats: res.data })
+    } catch (err: any) {
+      set({ error: err.message })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  fetchRules: async () => {
+    set({ loading: true, error: null })
+    try {
+      const res = await heraldApi.getRules()
+      set({ rules: res.data.rules || [] })
+    } catch (err: any) {
+      set({ error: err.message })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  fetchGroups: async () => {
+    set({ loading: true, error: null })
+    try {
+      const res = await heraldApi.getGroups()
+      set({ groups: res.data.groups || [] })
     } catch (err: any) {
       set({ error: err.message })
     } finally {

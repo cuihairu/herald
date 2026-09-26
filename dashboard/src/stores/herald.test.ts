@@ -7,6 +7,8 @@ vi.mock('../api', () => ({
     getWorkers: vi.fn(),
     getQueue: vi.fn(),
     getLogsStats: vi.fn(),
+    getRules: vi.fn(),
+    getGroups: vi.fn(),
     sendNotify: vi.fn(),
     enableProvider: vi.fn(),
     disableProvider: vi.fn(),
@@ -99,6 +101,34 @@ describe('herald store', () => {
     api.getLogsStats.mockRejectedValue({ message: 'stats down' })
     await state().fetchLogStats()
     expect(state().error).toBe('stats down')
+  })
+
+  it('fetchRules defaults to an empty list and reports errors', async () => {
+    api.getRules.mockResolvedValue({ data: {} } as any)
+    await state().fetchRules()
+    expect(state().rules).toEqual([])
+
+    api.getRules.mockResolvedValue({ data: { rules: [{ id: 'p1' }] } } as any)
+    await state().fetchRules()
+    expect(state().rules).toEqual([{ id: 'p1' }])
+
+    api.getRules.mockRejectedValue({ message: 'rules down' })
+    await state().fetchRules()
+    expect(state().error).toBe('rules down')
+  })
+
+  it('fetchGroups defaults to an empty list and reports errors', async () => {
+    api.getGroups.mockResolvedValue({ data: {} } as any)
+    await state().fetchGroups()
+    expect(state().groups).toEqual([])
+
+    api.getGroups.mockResolvedValue({ data: { groups: [{ id: 'ops' }] } } as any)
+    await state().fetchGroups()
+    expect(state().groups).toEqual([{ id: 'ops' }])
+
+    api.getGroups.mockRejectedValue({ message: 'groups down' })
+    await state().fetchGroups()
+    expect(state().error).toBe('groups down')
   })
 
   it('sendNotify resolves on success', async () => {

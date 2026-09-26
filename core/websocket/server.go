@@ -363,9 +363,10 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 		return fmt.Errorf("failed to marshal ack: %w", err)
 	}
 
-	// Defensive: gorilla's SetWriteDeadline only records the deadline and
-	// never touches the network, so it succeeds even on a closed connection
-	// — actual send failures surface at WriteMessage below.
+	// Defensive: in gorilla v1.5.3 SetWriteDeadline is a plain field
+	// assignment that always returns nil — kept as an explicit check so a
+	// future version that can fail fails loudly here. Actual send failures
+	// surface at WriteMessage below.
 	if err := state.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
 		return err
 	}

@@ -43,3 +43,6 @@ dist/
 
 # Local build artifacts (coverage binaries, golangci-lint, maincover dumps)
 build/
+
+# Python bytecode from tools/ scripts run ad hoc
+__pycache__/

@@ -550,8 +550,9 @@ func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string
 		return err
 	}
 
-	// Defensive: the connection was just dialed and nothing has closed it,
-	// so the read deadline is always settable here.
+	// Defensive: this runs only after WriteMessage succeeded, so the conn is
+	// still open and SetReadDeadline (which forwards to net.Conn) cannot
+	// fail. Kept explicit so a contract change fails loudly.
 	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return err
 	}

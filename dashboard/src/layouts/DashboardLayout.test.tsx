@@ -45,6 +45,8 @@ describe('DashboardLayout', () => {
     expect(screen.getByText('Herald')).toBeInTheDocument()
     expect(screen.getByText('仪表盘')).toBeInTheDocument()
     expect(screen.getByText('Providers')).toBeInTheDocument()
+    expect(screen.getByText('通知规则')).toBeInTheDocument()
+    expect(screen.getByText('通知群组')).toBeInTheDocument()
     expect(screen.getByText('Workers')).toBeInTheDocument()
     // antd 会给恰好两个汉字的文本插入排版空格。
     expect(screen.getByText(/日\s*志/)).toBeInTheDocument()

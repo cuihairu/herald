@@ -288,7 +288,11 @@ func (m *Manager) saveLocked() error {
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("escalation: write %s: %w", tmp, err)
 	}
-	if err := os.Rename(tmp, m.path); err != nil { // coverage: same directory, so never cross-device
+	if err := os.Rename(tmp, m.path); err != nil {
+		// Reachable beyond the cross-device case the sibling write arm
+		// guards against: rename onto a non-empty directory fails too,
+		// while the temp file next to it stays writable.
+		// TestScheduleReportsReplaceFailure.
 		return fmt.Errorf("escalation: replace %s: %w", m.path, err)
 	}
 	return nil

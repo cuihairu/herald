@@ -509,3 +509,32 @@ func TestRegisterWriteControlFailure(t *testing.T) {
 		t.Fatalf("expected the injected write failure, got %v", err)
 	}
 }
+
+// A transport that reports success while having already closed the
+// connection makes the next SetReadDeadline fail with gorilla's
+// errWriteClosed. The register path must surface that, not fall through to
+// reading the ack. This is the only way to reach the read-deadline arm:
+// gorilla's deadline setters never touch the network, so in a real run they
+// fail for exactly one reason — the conn is already closed.
+func TestRegisterReadDeadlineFailsOnClosedConn(t *testing.T) {
+	srv := echoAckServer(t, []byte(`{"type":"register_ack"}`))
+	defer srv.Close()
+
+	orig := writeControl
+	writeControl = func(conn *websocket.Conn, msg protocol.Message) error {
+		_ = conn.Close()
+		return nil // looks like a successful write
+	}
+	defer func() { writeControl = orig }()
+
+	c := newControlClient(t, wsURL(srv))
+	if err := c.register(context.Background()); err == nil {
+		t.Fatal("a closed connection must fail the read-deadline arm")
+	}
+}
+
+// The second read-deadline arm (clearing the ack deadline) stays
+// unreachable: gorilla's SetReadDeadline delegates to the net.Conn, which
+// only fails once the *client* conn is closed, and register closes nothing
+// between reading the ack and clearing the deadline. Reaching it would
+// need a new seam there. See KNOWN_UNCOVERABLE.md.

@@ -4,6 +4,8 @@ import { Layout, Menu, Button, theme } from 'antd'
 import {
   DashboardOutlined,
   ApiOutlined,
+  FilterOutlined,
+  UsergroupAddOutlined,
   TeamOutlined,
   FileTextOutlined,
   SendOutlined,
@@ -15,6 +17,8 @@ const { Header, Sider, Content } = Layout
 const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/providers', icon: <ApiOutlined />, label: 'Providers' },
+  { key: '/rules', icon: <FilterOutlined />, label: '通知规则' },
+  { key: '/groups', icon: <UsergroupAddOutlined />, label: '通知群组' },
   { key: '/workers', icon: <TeamOutlined />, label: 'Workers' },
   { key: '/logs', icon: <FileTextOutlined />, label: '日志' },
   { key: '/send', icon: <SendOutlined />, label: '发送消息' },

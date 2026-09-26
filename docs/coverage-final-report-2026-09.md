@@ -11,15 +11,15 @@
 | Go 语句覆盖率（go-test 口径原始值） | 99.5% |
 | Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.7%** |
 | Go CI 门禁 | `tools/zero_check.py --gate 100`：排除台账登记块后等效语句覆盖率 **100%**，且无未定性零块；生效且通过 |
-| Go 残余零块 | **仅 3 块** = 三个入口包 `main()` 的 `os.Exit` 失败分支 |
-| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记原因：`os.Exit` 跳过 GOCOVERDIR 转储，Go 工具链原理性不可测 |
+| Go 残余零块 | **11 块**（详见[台账](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)）：3 块 `os.Exit` 失败分支 + 3 块重复名守卫 + 4 块 gorilla deadline setter + 1 块清 ack 截止时间 |
+| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记原因，分三类：`os.Exit` 跳过 GOCOVERDIR 转储（工具链原理性不可测）、下游契约使其不可达（`Manager.Get` 只返 `ErrNotFound`、gorilla `SetWriteDeadline` 恒 nil）、缺少 seam 需改设计才能构造 |
 | Dashboard 行覆盖率（vitest + `@vitest/coverage-v8`） | **100%**（13 个测试文件 84 个用例） |
 | Dashboard CI 门禁 | `thresholds: { lines: 100 }`，生效且通过（ci.yml dashboard job） |
 | Dashboard 分支覆盖率 | 86.6%，残余为兜底文案与环境性分支，逐类登记于[口径文档](./architecture/coverage.md) |
 | CI | main 最新提交全部 job 全绿（Lint / Test / Dashboard / Docker Build / Build） |
 | 发版动作 | 无（未打 tag、未发 release、未改版本号） |
 
-为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；唯一残余是各 `main()` 的 `os.Exit(n)` 失败分支——exit 会跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都留不下覆盖数据，这是 Go 工具链的原理性限制。三块全部在 KNOWN_UNCOVERABLE.md 登记原因，门禁强制"排除登记块后等效覆盖率 100%"。
+为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；残余 11 块全部在 KNOWN_UNCOVERABLE.md 逐块登记原因——除 `os.Exit` 跳过 GOCOVERDIR 转储这一类工具链限制外，还有下游契约使其不可达的分支，以及需要先改设计加 seam 才能构造的分支。门禁强制"排除登记块后等效覆盖率 100%"。
 
 ## 提交链
 
@@ -103,3 +103,7 @@
 ## 维护
 
 新代码以"触发每个分支"为测试目标；新增 `main()` 或常驻进程入口时同步补 GOCOVERDIR 子进程守卫测试，并把它加进 ci.yml 中 covermerge 的 `--expect` 清单；前端新增组件/页面同步补组件测试并维持行覆盖 100%（达不到的分支在测试文件或口径文档登记原因）；门禁只随实测水位上调，不预留缓冲。
+
+## 后续
+
+本文是 2026-09 那一轮攻坚的收官记录，数字停留在当时的水位。此后 dashboard 又补了通知规则与通知群组两个页面及其组件测试（15 个文件 117 个用例），并修掉一类"行覆盖 100% 却 exit 1"的异步泄漏（未 `act` 收口的 React 调度在环境销毁后才冲刷）。**前端当前水位以[测试覆盖率口径](./architecture/coverage.md)为准**，本文的表格保留为该轮的历史快照。

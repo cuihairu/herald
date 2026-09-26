@@ -3,8 +3,10 @@ package escalation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -360,6 +362,37 @@ func TestFireToleratesSaveFailure(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatal("the upgrade must still fire when persistence fails")
+}
+
+// The temp write can succeed while the atomic replace fails: point the
+// persistence path at a non-empty directory. rename(file, dir) is refused
+// with ENOTEMPTY, but the sibling "<path>.tmp" is still an ordinary
+// writable path, so we land on the replace arm instead of the earlier
+// write arm (a missing parent directory fails at the write).
+func TestScheduleReportsReplaceFailure(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "pendings.json")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Non-empty, so the kernel refuses to overwrite it with the temp file.
+	if err := os.WriteFile(filepath.Join(dir, "occupied"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	m := NewManager(ack.NewMemoryStore(), &recordingNotifier{}, dir)
+	err := m.Schedule(context.Background(), pending("a-r", time.Minute))
+	if err == nil {
+		t.Fatal("Schedule must surface the atomic replace failure")
+	}
+	// errors.As on *os.LinkError proves the failure came from the rename
+	// rather than the preceding write, which is the distinction under test.
+	var linkErr *os.LinkError
+	if !errors.As(err, &linkErr) {
+		t.Fatalf("expected a wrapped *os.LinkError from rename, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "replace") {
+		t.Errorf("error must name the failing step, got %v", err)
+	}
 }
 
 func TestLoadRejectsUnreadablePath(t *testing.T) {

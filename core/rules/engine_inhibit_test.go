@@ -86,7 +86,13 @@ func TestEngineInhibitSuppressesWhileSourcePresent(t *testing.T) {
 }
 
 func TestEngineInhibitPresenceExpires(t *testing.T) {
-	ttl := "5ms"
+	// The TTL has to outlast the gap between the root delivery and the
+	// first leaf evaluation. 5ms was only ~1000x the work in between, which
+	// a loaded CI box (the coverage run has 16 packages in parallel) beats
+	// often enough to flake. 250ms keeps the same semantics — "still inside
+	// the window" versus "past it" — with room for scheduling delay; the
+	// test sleeps proportionally past it below.
+	ttl := "250ms"
 	engine, _ := inhibitEngine(t, &ttl)
 	ctx := context.Background()
 	prodErr := NewEnv("alert", "error", "t", "b", map[string]any{"env": "prod"})
@@ -99,7 +105,9 @@ func TestEngineInhibitPresenceExpires(t *testing.T) {
 		t.Fatalf("expected inhibition right after root delivery, got %+v", d)
 	}
 	// After the TTL the presence entry is gone and the leaf delivers again.
-	time.Sleep(20 * time.Millisecond)
+	// Sleep well past the 250ms TTL so scheduling jitter cannot pull the
+	// second evaluation back inside the window.
+	time.Sleep(400 * time.Millisecond)
 	d, err := engine.Evaluate(ctx, prodErr)
 	if err != nil {
 		t.Fatalf("Evaluate after ttl: %v", err)

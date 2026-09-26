@@ -1,12 +1,58 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/cuihairu/herald/core/groups"
 )
+
+// failingStore fails every operation with a non-ErrNotFound error, standing
+// in for a store outage. It exists so the HTTP layer can be checked for
+// reporting 500 instead of mistaking a backend failure for "not found".
+type failingStore struct{ err error }
+
+func (s failingStore) List(context.Context) ([]groups.Group, error) { return nil, s.err }
+func (s failingStore) Get(context.Context, string) (groups.Group, error) {
+	return groups.Group{}, s.err
+}
+func (s failingStore) Put(context.Context, groups.Group) error { return s.err }
+func (s failingStore) Delete(context.Context, string) error    { return s.err }
+
+// Manager.Delete forwards the store's error verbatim, so a store outage
+// reaches the handler as an ordinary error. It must become a 500, never a
+// 404: telling the caller the group is gone would invite it to drop the
+// reference and silently stop routing to that roster.
+func TestHandleGroupStoreFailureIs500(t *testing.T) {
+	env := newTestEnv(t, withGroupsManager(groups.NewManager(
+		failingStore{err: errors.New("group store offline")})))
+
+	code, resp := env.do(t, http.MethodDelete, "/api/v1/groups/ops", "", nil)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d (%v)", code, resp)
+	}
+	if resp["message"] != "group store offline" {
+		t.Errorf("the store error must reach the client, got %v", resp["message"])
+	}
+}
+
+// The live table is not updated when the store write fails, so a second
+// delete still hits the store and still reports 500 — the failure must not
+// be cached into a misleading 404.
+func TestHandleGroupStoreFailureStays500OnRetry(t *testing.T) {
+	env := newTestEnv(t, withGroupsManager(groups.NewManager(
+		failingStore{err: errors.New("group store offline")})))
+
+	for i := range 2 {
+		code, _ := env.do(t, http.MethodDelete, "/api/v1/groups/ops", "", nil)
+		if code != http.StatusInternalServerError {
+			t.Fatalf("attempt %d: expected 500, got %d", i+1, code)
+		}
+	}
+}
 
 func withGroupsManager(m *groups.Manager) func(*Config) {
 	return func(c *Config) { c.Groups = m }

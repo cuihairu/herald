@@ -86,12 +86,12 @@ func TestRuleValidateAction(t *testing.T) {
 	})
 
 	stateful := map[string]func(*Rule){
-		"for":          func(r *Rule) { s := "3m"; r.For = &s },
-		"group_by":     func(r *Rule) { r.GroupBy = []string{"env"} },
+		"for":            func(r *Rule) { s := "3m"; r.For = &s },
+		"group_by":       func(r *Rule) { r.GroupBy = []string{"env"} },
 		"group_interval": func(r *Rule) { s := "1m"; r.GroupInterval = &s },
-		"inhibit":      func(r *Rule) { r.Inhibit = &InhibitSpec{Source: "root", Equal: []string{"env"}} },
-		"silence":      func(r *Rule) { r.Silence = &SilenceSpec{Start: "01:00", End: "05:00"} },
-		"escalation":   func(r *Rule) { r.Escalation = &EscalationSpec{To: []string{"phone"}} },
+		"inhibit":        func(r *Rule) { r.Inhibit = &InhibitSpec{Source: "root", Equal: []string{"env"}} },
+		"silence":        func(r *Rule) { r.Silence = &SilenceSpec{Start: "01:00", End: "05:00"} },
+		"escalation":     func(r *Rule) { r.Escalation = &EscalationSpec{To: []string{"phone"}} },
 	}
 	for name, mutate := range stateful {
 		t.Run("suppress cannot combine with "+name, func(t *testing.T) {

@@ -170,7 +170,10 @@ func (c *Client) register(ctx context.Context) error {
 	}
 
 	// Defensive: the connection is freshly dialed and nothing has closed
-	// it, so the read deadline is always settable here.
+	// it. gorilla's SetReadDeadline never touches the network, so it fails
+	// for exactly one reason — the conn is already closed — which in this
+	// position only the transport above can arrange.
+	// TestRegisterReadDeadlineFailsOnClosedConn pins that arm.
 	if err := conn.SetReadDeadline(time.Now().Add(controlTimeout)); err != nil {
 		_ = conn.Close()
 		return err
@@ -265,8 +268,10 @@ var writeControl = func(conn *gws.Conn, msg protocol.Message) error {
 	if err != nil {
 		return err
 	}
-	// Defensive: gorilla's SetWriteDeadline only records the timestamp and
-	// never touches the network, so it cannot fail.
+	// Defensive: in gorilla v1.5.3 SetWriteDeadline is a plain field
+	// assignment that always returns nil — kept as an explicit check so a
+	// future version that can fail fails loudly here. Real transport
+	// failures surface at WriteMessage below.
 	if err := conn.SetWriteDeadline(time.Now().Add(controlTimeout)); err != nil {
 		return err
 	}

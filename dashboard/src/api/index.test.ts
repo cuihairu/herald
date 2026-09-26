@@ -110,5 +110,41 @@ describe('api', () => {
     expect(seen!.url).toBe('/config/feishu')
     expect(seen!.method).toBe('put')
     expect(seen!.data).toBe(JSON.stringify({ key: 'v' }))
+
+    await heraldApi.getRules()
+    expect(seen!.url).toBe('/rules')
+
+    await heraldApi.getRule('p1')
+    expect(seen!.url).toBe('/rules/p1')
+
+    await heraldApi.createRule({ id: 'p1' })
+    expect(seen!.url).toBe('/rules')
+    expect(seen!.method).toBe('post')
+
+    await heraldApi.updateRule('p1', { id: 'p1' })
+    expect(seen!.url).toBe('/rules/p1')
+    expect(seen!.method).toBe('put')
+
+    await heraldApi.deleteRule('p1')
+    expect(seen!.url).toBe('/rules/p1')
+    expect(seen!.method).toBe('delete')
+
+    await heraldApi.getGroups()
+    expect(seen!.url).toBe('/groups')
+
+    await heraldApi.getGroup('ops')
+    expect(seen!.url).toBe('/groups/ops')
+
+    await heraldApi.createGroup({ id: 'ops' })
+    expect(seen!.url).toBe('/groups')
+    expect(seen!.method).toBe('post')
+
+    await heraldApi.updateGroup('ops', { id: 'ops' })
+    expect(seen!.url).toBe('/groups/ops')
+    expect(seen!.method).toBe('put')
+
+    await heraldApi.deleteGroup('ops')
+    expect(seen!.url).toBe('/groups/ops')
+    expect(seen!.method).toBe('delete')
   })
 })

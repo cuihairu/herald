@@ -255,7 +255,7 @@ func TestEnginePutValidateFailure(t *testing.T) {
 	e := NewEngine(NewMemoryStore())
 	r := Rule{
 		ID: "compiles-but-invalid", Match: `level == "error"`, Mode: ModeActive,
-		Route:     []RouteStep{{Channels: []string{"oncall"}}},
+		Route:      []RouteStep{{Channels: []string{"oncall"}}},
 		Escalation: &EscalationSpec{},
 	}
 	if err := e.Put(context.Background(), &r); err == nil {
