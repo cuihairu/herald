@@ -91,7 +91,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
 - **心跳**：定期保活，超时自动注销
 - **状态上报**：Worker 上报自身状态变化（如 session 过期、需要扫码等）
 
-### 注册消息（Worker → Core）
+### 注册消息（Worker [Core]
 
 ```json
 {
@@ -104,7 +104,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
 }
 ```
 
-### 心跳消息（Worker → Core）
+### 心跳消息（Worker [Core]
 
 ```json
 {
@@ -120,7 +120,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
 
 ## 协议消息
 
-### 注册确认（Core → Worker）
+### 注册确认（Core [Worker]
 
 ```json
 {
@@ -132,7 +132,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
 }
 ```
 
-### 事件消息（Worker → Core）
+### 事件消息（Worker [Core]
 
 ```json
 {

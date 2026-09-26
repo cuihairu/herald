@@ -64,7 +64,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
 
 ## Delivery 抽象
 
-### Notification → DeliveryTask
+### Notification [DeliveryTask]
 
 ```mermaid
 graph TB
