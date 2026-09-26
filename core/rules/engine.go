@@ -52,9 +52,10 @@ const (
 	// pure comparisons that finish in microseconds; the timeout is a last
 	// resort so the caller never waits on a runaway program (the evaluating
 	// goroutine itself cannot be interrupted by expr and finishes on its
-	// own). Half a second still kills any runaway long before it matters,
-	// while leaving generous headroom for scheduler stalls under load.
-	evalTimeout = 500 * time.Millisecond
+	// own). Two seconds still kills any runaway long before it matters,
+	// while leaving headroom for scheduler stalls under a fully parallel
+	// -race test run (observed to blow a 500ms budget under such load).
+	evalTimeout = 2 * time.Second
 )
 
 // safetyGuard rejects AST constructs that expr's compile options cannot:

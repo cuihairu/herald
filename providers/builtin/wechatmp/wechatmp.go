@@ -302,7 +302,13 @@ func (c *TokenCache) GetToken(appID, appSecret string, client *httpclient.Client
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Double check after acquiring write lock
+	// Defensive double check after acquiring the write lock: reaching it
+	// requires another goroutine to have refreshed the token inside the
+	// microscopic window between this caller's read check and its lock
+	// acquisition — schedule-dependent by nature, so the branch is
+	// registered in KNOWN_UNCOVERABLE.md; the two concurrency stress
+	// tests assert its behavior (exactly one fetch, losers reuse the
+	// winner's token) on every run.
 	if time.Now().Before(c.expireTime) && c.token != "" {
 		return c.token, nil
 	}
