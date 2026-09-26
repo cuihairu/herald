@@ -223,4 +223,119 @@ describe('LogsPage', () => {
       expect((call[1].headers as Record<string, string>).Authorization).toBe('Bearer t')
     }
   })
+
+  // 未登录时三个 fetch 的 headers 走空对象支：不能因为没有 token 就
+  // 发出一个带 "Bearer null" 的头，那会让后端 401 的原因更难查。
+  it('omits the authorization header entirely when there is no token', async () => {
+    localStorage.removeItem('herald_token')
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 9 } },
+      '/api/v1/providers': { code: 0, data: { providers: ['feishu'] } },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3)
+    for (const call of fetchMock.mock.calls as unknown as [string, RequestInit][]) {
+      expect(call[1].headers).toEqual({})
+    }
+  })
+
+  // data.data 缺字段时回落空值：logs/total 缺失不能让表格崩掉。
+  it('falls back to an empty table when the payload omits logs and total', async () => {
+    stubFetch({
+      '/api/v1/logs': { code: 0, data: {} },
+      '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    // 表格没有数据行：既拿不到 fixture 的标题，也没有分页器。
+    await vi.waitFor(() => {
+      expect(screen.queryByText('正常一行')).not.toBeInTheDocument()
+    })
+    expect(screen.queryByText('分支覆盖')).not.toBeInTheDocument()
+    expect(document.querySelector('.ant-table-placeholder')).not.toBeNull()
+  })
+
+  // 已知 level 才有专属颜色；未知 level 回落 default 而不是渲染空白标签。
+  it('colors an unknown level with the default tag', async () => {
+    stubFetch({
+      '/api/v1/logs': {
+        code: 0,
+        data: {
+          logs: [
+            { id: 'lv', provider: 'feishu', status: 'success', title: '未知级别', level: 'nope', duration: 1, created_at: '2026-09-24T10:00:00Z' },
+          ],
+          total: 1,
+        },
+      },
+      '/api/v1/logs/stats': { code: 0, data: { total: 1 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    expect(await screen.findByText('未知级别')).toBeInTheDocument()
+    // 未知 level 走 antd 的 default 色类，而不是专属色。
+    expect(screen.getByText('nope').className).toContain('ant-tag-default')
+  })
+
+  // allowClear 清除到空：onChange 收到 undefined，必须回落成 '' 才能让
+  // URLSearchParams 不带上 "provider=undefined"。
+  it('clears the provider and level filters back to unset', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 9 } },
+      // 筛选器吃的是 provider 对象数组（取 .name 并去重），不是字符串。
+      '/api/v1/providers': { code: 0, data: { providers: [{ name: 'feishu' }, { name: 'wecom' }] } },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+
+    // 打开「Provider」下拉并选一个值。placeholder 自身 pointer-events: none，
+    // 点击要落在 selector 容器上（与状态筛选那条用例同一手法）。
+    const pickInFilter = async (placeholderText: string, optionText: string) => {
+      const ph = screen.getByText(placeholderText, { selector: '.ant-select-selection-placeholder' })
+      const node = ph.closest('.ant-select')!
+      await user.click(node.querySelector('.ant-select-selector')!)
+      await user.click(await screen.findByText(optionText, { selector: '.ant-select-item-option-content' }))
+      return node
+    }
+
+    const providerNode = await pickInFilter('Provider', 'feishu')
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('provider=feishu'))).toBe(true)
+    })
+
+    await pickInFilter('级别', '严重')
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('level=critical'))).toBe(true)
+    })
+
+    // allowClear 的清除按钮 hover 时才挂载。
+    await user.hover(providerNode)
+    const clear = await waitFor(() => {
+      const el = providerNode.querySelector('.ant-select-clear')
+      expect(el).not.toBeNull()
+      return el as Element
+    })
+    await user.click(clear)
+    await vi.waitFor(() => {
+      const logsCalls = fetchMock.mock.calls.filter(([u]) => String(u).startsWith('/api/v1/logs?'))
+      const last = String(logsCalls[logsCalls.length - 1][0])
+      expect(last).not.toContain('provider=')
+    })
+  })
+
+  // stats / providers 的非零 code 分支：页面必须留在可用状态，不崩。
+  it('keeps working when stats and providers fail with a non-zero code', async () => {
+    stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 1, message: 'stats unavailable' },
+      '/api/v1/providers': { code: 1, message: 'providers unavailable' },
+    })
+    render(<LogsPage />)
+    // 日志照常渲染，统计区与筛选器只是留空。
+    expect(await screen.findByText('正常一行')).toBeInTheDocument()
+    // 级别筛选器仍然在（providers 拿不到值时是空下拉，不是消失）。
+    expect(screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument()
+  })
 })
