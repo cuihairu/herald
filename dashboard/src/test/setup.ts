@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { afterEach } from 'vitest'
+import { afterAll, afterEach } from 'vitest'
 import { act, cleanup } from '@testing-library/react'
 import { unstableSetRender } from 'antd'
 import { createRoot } from 'react-dom/client'
@@ -9,8 +9,6 @@ import { createRoot } from 'react-dom/client'
 // setTimeout(16)。任何一项漏到环境销毁之后才触发，就会在 window 已经不存在
 // 的情况下进 React 渲染，抛 unhandled "window is not defined"：行覆盖仍然
 // 100%，vitest 却以 exit code 1 失败（覆盖门禁抓不到这种泄漏）。
-// 两轮就够：第一轮排空 immediate 与已就绪的 timer，第二轮跨过 rAF 兜底的
-// 16ms 窗口；再多只是白等。
 async function flushPendingWork() {
   for (const delay of [0, 20]) {
     await act(async () => {
@@ -31,16 +29,36 @@ afterEach(async () => {
   await flushPendingWork()
 })
 
+// antd 的 message/Modal 单例 root 不属于任何用例：RTL cleanup 卸不掉它，
+// 它的渲染也可能在用例结束后才被调度。光靠 afterEach 的定时排空是在赌
+// 帧时机——CI 上调度慢一点，immediate 就排在 flush 之后、环境销毁之后，
+// 照样抛 "window is not defined"。这里改为确定性收尾：登记注入渲染器创建
+// 的每个 root，文件结束时全部卸载。unmount 会同步冲刷并作废该 root 名下
+// 所有已排程工作，之后 scheduler 再无可为该 root 触发的回调。
+const liveRoots = new Set<ReturnType<typeof createRoot>>()
+
+afterAll(async () => {
+  for (const root of liveRoots) {
+    await act(async () => {
+      root.unmount()
+    })
+  }
+  liveRoots.clear()
+  await flushPendingWork()
+})
+
 // 与 main.tsx 相同：React 19 下 antd 静态方法需要注入 createRoot，
 // 否则 message.success/error 静默不弹（每个测试文件的模块图是独立的）。
 // render/unmount 都包在 act 里：否则这次 createRoot 的调度工作会漏到用例
 // 之外，由 scheduler 在环境销毁后才冲刷（见上方 flushPendingWork 的注释）。
 unstableSetRender((node, container) => {
   const root = createRoot(container)
+  liveRoots.add(root)
   act(() => {
     root.render(node)
   })
   return async () => {
+    liveRoots.delete(root)
     await act(async () => {
       root.unmount()
     })

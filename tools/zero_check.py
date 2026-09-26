@@ -60,9 +60,13 @@ def main() -> int:
                 mod = line.split()[1]
                 break
 
-    # (文件, 起始行) -> [max count, numStmts]
-    blocks: dict[tuple[str, int], list[int]] = collections.defaultdict(lambda: [0, 0])
-    pat = re.compile(r"^(.+?):(\d+)\.\d+,(\d+)\.\d+ (\d+) (\d+)$")
+    # (文件, 起.列, 止.列) -> [max count, numStmts]。key 必须是完整块区间：
+    # 单行 if 的条件块与分支体块起始行相同（`x.go:71.8,71.48` 条件与
+    # `x.go:71.48,74.3` 分支体），只按起始行聚合取 max，恒被走过的条件块
+    # 会把同起始行的零块掩盖成非零，把真缺口藏出门禁。
+    # 与 tools/covermerge.py 同口径。
+    blocks: dict[tuple[str, str, str, str, str], list[int]] = collections.defaultdict(lambda: [0, 0])
+    pat = re.compile(r"^(.+?):(\d+)\.(\d+),(\d+)\.(\d+) (\d+) (\d+)$")
     for line in prof.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("mode:"):
@@ -70,12 +74,13 @@ def main() -> int:
         m = pat.match(line)
         if not m:
             continue
-        key = (m.group(1), int(m.group(2)))
-        blocks[key][0] = max(blocks[key][0], int(m.group(5)))
-        blocks[key][1] = max(blocks[key][1], int(m.group(4)))
+        key = (m.group(1), m.group(2), m.group(3), m.group(4), m.group(5))
+        blocks[key][0] = max(blocks[key][0], int(m.group(7)))
+        blocks[key][1] = max(blocks[key][1], int(m.group(6)))
 
     ledger = load_ledger(root)
-    zero = sorted(k for k, (c, _) in blocks.items() if c == 0)
+    # 台账与就地注释窗口仍按 (文件, 起始行) 匹配；共享起始行的零块去重即可。
+    zero = sorted({(k[0], int(k[1])) for k, (c, _) in blocks.items() if c == 0})
     unknown, exempted = [], []
     for fn, sln in zero:
         if (fn, sln) in ledger:
