@@ -287,6 +287,117 @@ POST /api/v1/providers/telegram/disable
 
 更新 Provider 配置。
 
+## GET /api/v1/rules {#rules-list}
+
+查询规则列表。规则引擎未配置时返回 503。
+
+### rules-响应 {#rules-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "rules": [
+      {
+        "id": "prod-payment-failure",
+        "match": "level == \"error\" && params.fail_rate > 0.05",
+        "mode": "active",
+        "action": "route",
+        "priority": 10,
+        "route": [{ "channels": ["feishu-oncall", "group:ops"] }]
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+`mode` 是启停载体：`active` 生效、`shadow` 只观察不动作、`off` 停用（省略时按 `shadow` 处理）。`action` 是决策层动词：`route` 改道（默认）、`allow` 放行、`suppress` 抑制；`route` 步骤只属于 `action=route`，带上会被拒。`priority` 从高到低排序，同级保持写入顺序，第一条命中的生效规则决定结果并停止求值。
+
+## POST /api/v1/rules {#rule-create}
+
+创建规则。**保存即编译**：表达式在这里编译，非法表达式直接 400，不会进入求值路径。ID 已存在返回 409。
+
+### rule-create-请求 {#rule-create-request}
+
+```json
+{
+  "id": "prod-payment-failure",
+  "match": "level == \"error\" && params.fail_rate > 0.05",
+  "mode": "active",
+  "action": "route",
+  "priority": 10,
+  "route": [{ "channels": ["feishu-oncall", "group:ops"] }]
+}
+```
+
+## GET /api/v1/rules/{id} {#rule-get}
+
+查询指定规则，不存在返回 404。
+
+## PUT /api/v1/rules/{id} {#rule-update}
+
+整体替换该规则（PUT 语义，**URL 里的 id 优先于请求体**）。启停开关走的就是这条：带上原字段、只改 `mode` 即可。同样在写入前编译表达式。
+
+## DELETE /api/v1/rules/{id} {#rule-delete}
+
+删除规则，不存在返回 404。
+
+## GET /api/v1/groups {#groups-list}
+
+查询通知群组列表。群组管理器未配置时返回 503。
+
+### groups-响应 {#groups-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "groups": [
+      {
+        "id": "ops",
+        "description": "值班花名册",
+        "members": [
+          { "channel": "feishu-oncall", "recipients": ["@zhang"] },
+          { "channel": "sms-duty" }
+        ]
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+`recipients` 是可选的渠道内收件人钉选，省略表示该渠道的全部收件人。群组可以被规则的路由渠道以 `group:<id>` 形式引用（见 [rules-响应](#rules-response)），引用一个不存在的群组会在派发时显式失败，而不是静默丢弃。
+
+## POST /api/v1/groups {#group-create}
+
+创建群组。ID 已存在返回 409。
+
+### group-create-请求 {#group-create-request}
+
+```json
+{
+  "id": "ops",
+  "description": "值班花名册",
+  "members": [{ "channel": "feishu-oncall", "recipients": ["@zhang"] }]
+}
+```
+
+## GET /api/v1/groups/{id} {#group-get}
+
+查询指定群组，不存在返回 404。
+
+## PUT /api/v1/groups/{id} {#group-update}
+
+整体替换该群组（URL 里的 id 优先于请求体），替换立即对派发热路径生效。
+
+## DELETE /api/v1/groups/{id} {#group-delete}
+
+删除群组，不存在返回 404。删除**不会**清理规则里对它的引用——仍在引用它的规则会在派发时因未知群组显式失败，这胜过悄悄改写用户的规则。
+
 ## GET /api/v1/templates {#templates-list}
 
 查询模板列表。
