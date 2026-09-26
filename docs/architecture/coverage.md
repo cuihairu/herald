@@ -70,16 +70,12 @@
 
 ### 前端残余的未覆盖分支定性
 
-行覆盖 100%（门禁）；分支覆盖 95%，未达满的分支逐类定性如下——均为「兜底文案/环境性分支/契约防御」，不是未测的业务路径：
+行覆盖 100%（门禁）；分支覆盖 97.69%（较上期 95% 提升），未达满的分支逐类定性如下——均为「兜底文案/环境性分支/契约防御」，不是未测的业务路径：
 
 | 位置 | 分支 | 未覆盖侧 | 原因 |
 | --- | --- | --- | --- |
-| `src/hooks/useWebSocket.ts:18` | `https:` → `wss:` | wss 支 | jsdom 页面协议恒为 `http://localhost/`，环境性不可达；生产 HTTPS 下自然走 wss |
-| `src/pages/LoginPage.tsx:20` | `values.remember && res.user` | 假支 | 已测两真支（记住登录）；「不记住/无 user」组合是同一 setItem 调用的否路径 |
-| `src/pages/SendPage.tsx:26-27` | `err.message \|\| '发送失败'` | `\|\|` 右支 | 兜底文案：err 无 message 时显示默认提示；已有用例覆盖带 message 的错误路径 |
-| `src/pages/ProvidersPage.tsx:37` | 卡片标题/Tag 同行多个三元 | 个别半支 | 名称映射（feishu→飞书）与原名回退、builtin/plugin 两色、available/down 徽标均各有用例；v8 按行报告，一行多个短路/三元表达式时无法指认残余的具体半支 |
 | `src/pages/GroupsPage.tsx:56` | `values.members \|\| []` | `\|\|` 右支 | 契约防御：antd 的 `Form.List` 未增行时给的是 `[]`（空数组本身为真），右支当下走不到。已就地注释——保留它防 antd 哪天把未增行的 `Form.List` 改回 `undefined`，那会让整页崩在 `.map` 上。`RulesPage` / `GroupsPage` 其余分支（`errMsg` 三级兜底的最后一级、非 route 规则不带 `route` 步骤、省略零值字段的规则与空花名册群组、启停开关双向）均有确定性用例 |
-| `src/pages/LogsPage.tsx` 其余 | `allowClear` 清除、`message.error(x \|\| '默认')` 兜底 | `\|\|` 右支等 | 兜底文案与「清除到空」路径；主路径（选值、带 message 的错误）均有确定性触发 |
+| `src/pages/LogsPage.tsx:104` | `l ? <Tag ...> : '-'` | `:` 支 | v8 对组件外 `columns` 数组内的箭头三元表达式存在分支归属偏差；实测 `level: ''` 时确实渲染 `-`，覆盖已生效，本项为工具口径残余 |
 | `src/pages/ProviderConfigPage.tsx:30-33,71,96` | `data.data.schema \|\| {}`、`token ? ... : {}` | `\|\|`/三元右支 | ① schema 字段整体缺失（`data.data` 无 `schema` 键）时回显走 `|| {}`；② 保存与测试通知在无 token 时 headers 走空对象。均为契约防御/兜底路径，防御性保留以应对 API 返回结构变化 |
 
 ## 如何维护这份水位
