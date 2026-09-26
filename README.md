@@ -50,6 +50,8 @@ app.Dispatch(ctx, &core.Notification{
 - **HTTP First** - curl 友好，REST API，无 SDK 依赖
 - **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
 - **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
+- **Rule Engine** - 表达式规则决定放行/抑制/改道，优先级 + 默认策略，shadow 模式先观察后生效，支持 for 持续判定、group_by 聚合、inhibit 抑制、silence 静默与 escalation 升级
+- **Notification Groups** - 命名受众：任何渠道位可写 `group:<id>`，投递时展开成成员渠道（含收件人钉选），API 热更新花名册
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
 - **Multi-channel** - 统一接口对接 15+ 通知渠道
 - **Dashboard** - Web 管理界面
@@ -239,11 +241,32 @@ queue:
 
 routes:
   error: [telegram, email]
+
+# 规则引擎（可选）：按表达式决定 放行/抑制/改道，未命中回落静态路由
+# rules:
+#   - id: prod-payment-failure
+#     priority: 100
+#     match: 'params.fail_rate > 0.05 && env == "prod"'
+#     mode: active                # shadow 先观察，active 生效
+#     route:
+#       - channels: [feishu-oncall]
+# rules_default_policy: allow     # 无 active 规则命中时：allow 保留静态路由，deny 扣下
+
+# 通知群组（可选）：命名受众，任何渠道位都可写 "group:<id>"
+# groups:
+#   - id: ops-oncall
+#     members:
+#       - channel: feishu
+#         recipients: ["@zhang"]
+#       - channel: sms-duty
 ```
 
 ## 文档
 
 完整文档请访问 [docs/](./docs/)
+
+- [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、队列、Provider 全量配置项）
+- [规则引擎决策层设计](./docs/design-rule-engine.md) · [通知群组设计](./docs/design-notification-groups.md)
 
 ## 开发
 

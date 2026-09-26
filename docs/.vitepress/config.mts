@@ -84,6 +84,8 @@ export default defineConfig({
           items: [
             { text: '作为 Go 库使用', link: '/library-usage' },
             { text: '通知规则引擎（设计）', link: '/rule-engine-design' },
+            { text: '规则引擎决策层', link: '/design-rule-engine' },
+            { text: '通知群组', link: '/design-notification-groups' },
           ]
         }
       ],
