@@ -268,6 +268,37 @@ drain:
 	}
 }
 
+// TestRunPopFailureBackoff pins the pop-failure backoff branch: failNext
+// is set before Run starts, so the worker's very first Pop fails no matter
+// how the goroutine is scheduled (nothing can race the flag away or
+// pre-deliver a task). The loop must back off, retry, and then consume
+// the task delivered afterwards.
+func TestRunPopFailureBackoff(t *testing.T) {
+	q := newFakeQueue()
+	q.failNext.Store(true)
+	c := NewClient(testConfig("worker-popfail"), q)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	// The first Pop failed and the retry is now parked on the empty
+	// queue; delivering a task proves the loop recovered from the error.
+	q.push(t, &core.DeliveryTask{ID: "task-after-fail"})
+	waitForID(t, q.acks, "task-after-fail")
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("expected nil error from Run, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Run to return")
+	}
+}
+
 func TestRunAckNackErrors(t *testing.T) {
 	q := newFakeQueue()
 	q.ackErr = errors.New("ack error")
