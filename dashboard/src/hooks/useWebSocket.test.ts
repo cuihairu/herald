@@ -68,6 +68,23 @@ describe('useWebSocket', () => {
     expect(FakeWebSocket.instances[0].url).toBe('ws://localhost:3000/ws')
   })
 
+  // 生产环境 HTTPS → wss 分支。
+  it('uses wss when the page is served over https', () => {
+    const origDescriptor = Object.getOwnPropertyDescriptor(window, 'location')
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, protocol: 'https:' },
+      configurable: true,
+      writable: true,
+    })
+    try {
+      renderHook(() => useWebSocket())
+      expect(FakeWebSocket.instances).toHaveLength(1)
+      expect(FakeWebSocket.instances[0].url).toBe('wss://localhost:3000/ws')
+    } finally {
+      if (origDescriptor) Object.defineProperty(window, 'location', origDescriptor)
+    }
+  })
+
   it('notifies onConnect and resets attempts when the socket opens', () => {
     const onConnect = vi.fn()
     renderHook(() => useWebSocket({ onConnect }))

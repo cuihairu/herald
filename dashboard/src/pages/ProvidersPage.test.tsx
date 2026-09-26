@@ -104,4 +104,15 @@ describe('ProvidersPage', () => {
     await user.click(buttons[2])
     expect(await screen.findByText('config-route')).toBeInTheDocument()
   })
+
+  // displayNames 中未定义的 provider：|| 兜底直接用原名。
+  it('shows the raw name for a provider not in the display name map', async () => {
+    apiMocks.getProviders.mockResolvedValue({
+      data: { providers: [{ name: 'custom-provider', status: 'available', enabled: true, type: 'plugin' }] },
+    })
+    renderPage()
+    expect(await screen.findByText('custom-provider')).toBeInTheDocument()
+    const card = document.querySelector('.ant-card-head-title')
+    expect(card).toHaveTextContent('custom-provider')
+  })
 })

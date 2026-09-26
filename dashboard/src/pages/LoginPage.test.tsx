@@ -86,4 +86,17 @@ describe('LoginPage', () => {
     await submitForm('admin', 'x')
     expect(await screen.findByText('网络错误，请稍后重试')).toBeInTheDocument()
   })
+
+  // remember 为 false 时不落盘 user 信息（values.remember && res.user 的右支）。
+  it('does not persist user when remember is unchecked', async () => {
+    loginMock.mockResolvedValue({ token: 'tok-1', user: { name: 'admin' } })
+    renderLogin()
+    // 取消勾选「记住我」（默认 true）。
+    const checkbox = screen.getByRole('checkbox', { name: /记住我/ })
+    await user.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+    await submitForm('admin', 'admin')
+    expect(await screen.findByText('home-after-login')).toBeInTheDocument()
+    expect(localStorage.getItem('herald_user')).toBeNull()
+  })
 })

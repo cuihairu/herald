@@ -75,4 +75,18 @@ describe('SendPage', () => {
     expect(await screen.findByText('请输入标题')).toBeInTheDocument()
     expect(apiMocks.sendNotify).not.toHaveBeenCalled()
   })
+
+  // err.message 为空串时，|| 兜底文案「发送失败」。
+  it('shows the fallback wording when the error has no message', async () => {
+    apiMocks.sendNotify.mockRejectedValue(new TypeError(''))
+    useHeraldStore.setState({ providers: [{ name: 'feishu' }] })
+    render(<SendPage />)
+
+    await user.type(screen.getByPlaceholderText('输入标题'), 'oops')
+    await user.type(screen.getByPlaceholderText('输入内容'), 'body')
+    await user.click(screen.getByRole('button', { name: /发\s*送/ }))
+
+    expect(await screen.findByText('发送失败')).toBeInTheDocument()
+    expect(screen.getByText('发送失败')).toBeInTheDocument()
+  })
 })

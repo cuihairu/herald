@@ -338,4 +338,70 @@ describe('LogsPage', () => {
     // 级别筛选器仍然在（providers 拿不到值时是空下拉，不是消失）。
     expect(screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument()
   })
+
+  // data.data.providers 缺失时 || [] 兜底：不能因为 API 未返回 providers
+  // 就让 setProviders 收到 undefined（后续 .map 会崩）。
+  it('falls back to an empty list when providers omits the data field', async () => {
+    stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 2 } },
+      '/api/v1/providers': { code: 0, data: {} },
+    })
+    render(<LogsPage />)
+    // providers 拿到空数组，筛选器占位符仍渲染。
+    expect(screen.getByText('Provider', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument()
+  })
+
+  // level 为空串时走 render 的 ':' 支：渲染 '-' 而不是 Tag。
+  it('renders a dash for an empty level', async () => {
+    stubFetch({
+      '/api/v1/logs': {
+        code: 0,
+        data: {
+          logs: [{ id: 'le', provider: 'feishu', status: 'success', title: '无级别', level: '', duration: 1, created_at: '2026-09-24T10:00:00Z' }],
+          total: 1,
+        },
+      },
+      '/api/v1/logs/stats': { code: 0, data: { total: 1 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    render(<LogsPage />)
+    // level 为空串，渲染短横线而不是 Tag。
+    const cells = document.querySelectorAll('.ant-table-cell')
+    const dashCell = [...cells].find(c => c.textContent?.trim() === '-')
+    expect(dashCell).not.toBeNull()
+  })
+
+  // 清除级别筛选器：onChange 收到 null/undefined → v || '' 回落到 ''。
+  it('clears the level filter back to unset', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 9 } },
+      '/api/v1/providers': { code: 0, data: { providers: [{ name: 'feishu' }] } },
+    })
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+
+    // 选一个级别（与 provider 选择同一手法）
+    const levelPlaceholder = screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })
+    const levelSelect = levelPlaceholder.closest('.ant-select')!
+    await user.click(levelSelect.querySelector('.ant-select-selector')!)
+    await user.click(await screen.findByText('信息', { selector: '.ant-select-item-option-content' }))
+    await vi.waitFor(() => {
+      const logs = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs?'))
+      expect(logs.length).toBeGreaterThanOrEqual(2)
+    })
+    // 清除级别
+    await user.hover(levelSelect)
+    const clear = await waitFor(() => {
+      const el = levelSelect.querySelector('.ant-select-clear')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    await user.click(clear)
+    await vi.waitFor(() => {
+      const logs = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs?'))
+      expect(logs[logs.length - 1]).not.toContain('level=')
+    })
+  })
 })
