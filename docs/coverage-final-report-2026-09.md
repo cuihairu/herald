@@ -109,3 +109,11 @@
 ## 后续
 
 本文是 2026-09 那一轮攻坚的收官记录，数字停留在当时的水位。此后 dashboard 又补了通知规则与通知群组两个页面及其组件测试，并修掉两类"覆盖率满却没测到"的问题：一类是"行覆盖 100% 却 exit 1"的异步泄漏（未 `act` 收口的 React 调度在环境销毁后才冲刷），一类是把"用例空转"误判成"v8 归属偏差"（`not.toBeNull()` 对 `undefined` 也通过）。此后前端为 15 个文件 143 个用例，语句 / 分支 / 函数 / 行四项均 100%，门禁阈值已抬到 `branches: 100`。2026-09-27 按 CI 同流程复测（Go 侧链两轮 GREEN、等效 100.00%，前端 143 用例全过四项 100%）后，**本文的表格与提交链已按复测同步到当前水位，期 1–5 的叙述保留为该轮的历史记录**；最新水位始终以[测试覆盖率口径](./architecture/coverage.md)为准。
+
+## 维持复核
+
+| 日期 | go vet | go test（-count=1 -race 全包） | 覆盖率（go-test 原始口径） | 覆盖率（门禁合并口径） | zero_check --gate 100 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-27（维持复核） | 0 | 47 包全绿，0 FAIL | 99.64%（5012/5030，零块 10 = 台账 7 + 3 个 `main()` 入口块经子进程实测 rescue） | 99.78%（5019/5030，块 3262、零块 7） | GREEN，等效 **100.00%**（台账豁免 7/7，无未定性零块） | 与收官水位逐位一致，零漂移；零块集合与 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 台账一一对应（wechatmp 双检块本轮实测非零、按台账语义不参与豁免），无新增可达缺口 |
+
+复核方法：`GOTOOLCHAIN=go1.26.6 go test -count=1 -race -coverpkg=./... -coverprofile=coverage.out ./...` → `tools/covermerge.py`（三个 `main()` 入口 `--expect`，3 块 rescue）→ `python3 tools/zero_check.py coverage.merged.out --gate 100`；语句数按完整块区间去重聚合（与核对器同口径）。台账零块全部维持原理性不可测定性（`os.Exit` 跳过 GOCOVERDIR ×3、gorilla `SetWriteDeadline` 恒 nil ×2、map 键唯一性矛盾 ×2），测试侧无可达 seam，不重复登记。
