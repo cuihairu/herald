@@ -6,7 +6,7 @@
 
 排除本文件登记项后的等效语句覆盖率为 **100%**（`go test ... -coverprofile` + `tools/covermerge.py` 合并子进程口径后的门禁 profile，`tools/zero_check.py coverage.merged.out --gate 100` 强制）。三个 `main()` 的成功路径入口块已由 `TestMainProcessSuccessPath`（`go build -cover` 子进程 + GOCOVERDIR 转储）实测非零并合并进门禁 profile，不再登记；唯一残余是各 `main()` 的 `os.Exit` 失败分支——exit 跳过 GOCOVERDIR 转储，是 Go 工具链原理性不可测路径。
 
-**登记的行号以 go1.26.2（CI 门禁工具链）发出的 coverprofile 为准。** Go 把 `if` 的条件与分支体切成独立的块，而块边界标注随工具链版本变化：go1.26 对单行 `if` 把分支体块也标在 `if` 那一行起（如 `main.go:49.37,51.3`），go1.27 起才改标到分支体首行。本地默认工具链是 go1.27.1，两边行号整体错一位——本台账一度按 go1.27 的行号登记，在 CI 的 go1.26 之下一条都匹配不上，台账形同虚设，`--gate 100` 立即变红。所以登记或核对前，用 `GOTOOLCHAIN=go1.26.2 go test -count=1 -race -coverpkg=./... -coverprofile=coverage.out ./...` 重新生成 profile，照它抄起始行，别按源码"看起来是哪行"猜。
+**登记的行号以 go1.26.6（`go.mod` 钉定的最低工具链；CI 的 `go-version: '1.26'` 浮动版本恒 ≥ 它）发出的 coverprofile 为准。** Go 把 `if` 的条件与分支体切成独立的块，而块边界标注随工具链版本变化：go1.26 对单行 `if` 把分支体块也标在 `if` 那一行起（如 `main.go:49.37,51.3`），go1.27 起才改标到分支体首行。本地默认工具链是 go1.27.1，两边行号整体错一位——本台账一度按 go1.27 的行号登记，在 CI 的 go1.26 之下一条都匹配不上，台账形同虚设，`--gate 100` 立即变红。1.26 线内的补丁升级（1.26.2→1.26.6，2026-09-27 因 govulncheck 的 stdlib 漏洞修复抬版）不改块边界，已用整条门禁链复测实证。所以登记或核对前，用 `GOTOOLCHAIN=go1.26.6 go test -count=1 -race -coverpkg=./... -coverprofile=coverage.out ./...` 重新生成 profile，照它抄起始行，别按源码"看起来是哪行"猜。
 
 **零块按完整块区间 `(文件, 起, 止)` 聚合，起始行相同的块不会互相掩盖。** 核对器曾按 `(文件, 起始行)` 聚合取 max：单行 `if` 的条件块与分支体块起始行相同（`x.go:71.8,71.48` 是条件、`x.go:71.48,74.3` 是分支体），恒被走过的条件块把同起始行的零块 max 成非零，八处真缺口被静默藏出门禁之外。核对器现与 `covermerge` 同口径按完整区间聚合，被掩盖的块重新现身后，本台账据此补齐了 handler_groups、serve 守卫与各 deadline 条目。
 
@@ -38,7 +38,7 @@
 
 - `github.com/cuihairu/herald/worker-sdk/go/client.go:275` — `writeControl` 里 `conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不会返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。真实传输失败由 `WriteMessage` 返回，已由 `TestRegisterWriteControlFailure` 覆盖。
 
-> 登记行号会被注释改动顶掉：本文件里 `client.go:275`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.2，见页首纪律），别只看测试是否通过。
+> 登记行号会被注释改动顶掉：本文件里 `client.go:275`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.6，见页首纪律），别只看测试是否通过。
 
 > 对照：`client.go:175` 那个**形状看起来一样**的 `SetReadDeadline` 失败分支一度也躺在本台账里，其实是可达的——`writeControl` 是包级变量，测试可以注入"报告成功但先 Close 掉连接"的实现，它转发的 `net.Conn` 随即返回 `use of closed network connection`。已由 `TestRegisterReadDeadlineFailsOnClosedConn` 实测覆盖并移出台账。教训是别按"形状像"登记：先查被调方在目标版本下的真实实现（`SetWriteDeadline` 恒 nil、`SetReadDeadline` 转发），再判断有没有可达路径。同款模式已应用两次：`cmd/heraldd/main.go` 的 `registerRemoteWorker` 读 ack 的 `SetReadDeadline` 失败分支（原登记 `main.go:556`）与本条目同族——本文件原登记的 `client.go:197`（清 ack 截止时间）已于 2026-09-27 各提出包级 seam `setReadDeadline`、由 `TestRegisterRemoteWorkerReadDeadlineFailure` / `TestRegisterClearDeadlineFailure` 注入失败实测覆盖并移出台账。"缺 seam"从来不是死因，是待办。
 

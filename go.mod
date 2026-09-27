@@ -1,6 +1,9 @@
 module github.com/cuihairu/herald
 
-go 1.26.2
+// go 1.26.6: minimum toolchain fixing all govulncheck-reported stdlib
+// vulnerabilities affecting this code (GO-2026-6218/6090/6089/5972/5856/
+// 5039/5037/5026/4971/4918; fixed in 1.26.3–1.26.6). Do not lower.
+go 1.26.6
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0

@@ -97,7 +97,7 @@
 
 - `gofmt -l .` 无输出，`go vet ./...`、`golangci-lint run` 干净
 - `go test -race -count=1 ./...` 至少两遍全绿（flake 修复类提交对目标包额外 -race 重复 3-5 遍）
-- 零块核对器 `python3 tools/zero_check.py coverage.merged.out --gate 100` GREEN（`HERALD_MAIN_COVERDIR` 下跑全仓 `-coverpkg=./...`，covermerge 合并三个 `main()` 转储后验证；本地跑链必须 `GOTOOLCHAIN=go1.26.2` 与 CI 钉死版本一致——go1.27 的块边界整体 +1，照它核对或登记必失配）
+- 零块核对器 `python3 tools/zero_check.py coverage.merged.out --gate 100` GREEN（`HERALD_MAIN_COVERDIR` 下跑全仓 `-coverpkg=./...`，covermerge 合并三个 `main()` 转储后验证；本地跑链必须 `GOTOOLCHAIN=go1.26.6` 与 `go.mod` 钉定的最低工具链一致——go1.27 的块边界整体 +1，照它核对或登记必失配）
 - 涉及文档站时 `pnpm run build` 通过（无死链）
 - 前端批次：`pnpm test:coverage`（含 lines + branches 双 100 阈值）与 `pnpm build` 全绿后才 push
 - CI 全部 job（Lint / Test / Dashboard / Docker Build / Build）全绿确认
