@@ -1,6 +1,6 @@
 # 通知规则引擎升级设计
 
-> 状态：设计稿（未实施）。本文所有"现状"描述均对照 `main` 分支真实代码，引用处标注了文件与函数；实施顺序与边界见文末分阶段规划。
+> 状态：**已实施**（P1–P3 全部落地，2026-09-27 对照 main 逐项核对，回执见文末「实施回执」）。本文写作时的"现状"描述保留为实施前快照；其中已闭合的缺口（limiter 孤儿模块、retry 不可重试）在回执一节说明。
 
 ## 一、定位：从"事件驱动投递"到"可编程告警平台"
 
@@ -170,3 +170,24 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 - 不做表达式自定义函数注册（保持求值器封闭，为什么：开放函数注册等于放弃沙箱边界）；
 - 不在 P1/P2 动投递链路（queue/worker/provider 协议不变）；
 - 不做多租户（现有单配置文件部署形态保持，规则表带 `created_by` 字段为将来留痕）。
+
+## 七、实施回执（2026-09-27 对照 main 逐项核对）
+
+四层演进全部落地。逐项核对结果与实际落点：
+
+| 阶段 | 设计项 | 实际落点 | 与设计的差异 |
+|---|---|---|---|
+| P1 | 规则存储 DB（SQLite 起步） | `core/rules/store.go` 的 `Store` 接口 + `MemoryStore`/`FileStore`（JSON 持久化，`cmd/heraldd/main.go` 启动时从 `cfg.Rules` 播种） | **SQLite 未做**，JSON 文件先行；接口已抽象，换后端不动调用方 |
+| P1 | 后台 CRUD + 热加载 | `POST/GET /api/v1/rules`、`/api/v1/rules/{id}`（`api/handler_rules.go`），CRUD 直写 `rules.Engine` 进程内即时生效，文件持久化重启恢复 | 未做"watch 版本号 diff 重载"——CRUD 即时生效使 watch 无必要，效果等价 |
+| P1 | expr 表达式 + 编译期类型检查 + 超时/长度上限 | `expr-lang/expr`（go.mod），`engine.go` 保存时编译（`compileRule`），求值带超时护栏 | 按设计选型 expr，未用 cel-go |
+| P1 | 求值位置：入队前 + 未命中回落静态路由 | `core/service/notification.go` 的 `RuleEvaluator` 接口，`Process` 内 dedup 后、路由前求值；`Rules == nil` 时保持纯静态路由（`api/server.go:45`） | 一致 |
+| P1 | 影子模式 + logstore 扩展 | `core/rules/shadow.go` + `RuleObserver.RecordShadow` 观察者（影子命中/求值失败/静默扣留分事件记录） | 一致 |
+| P1 | limiter 接线投递侧 | `core/runtime/manager.go` 的 `Deliver` 在任何投递尝试前 `lm.Wait(ctx)`（:380），配置 `rate_limit` 经 `SetProviderLimiter` 接线（`cmd/heraldd/main.go:138`） | **§二"孤儿模块"的现状已闭合** |
+| P1 | retry 可重试判定修正 | `core/httpclient/client.go`：`retryableStatus`（429/5xx）将传输错误包成 `RetryableError`，`ShouldRetry` 据此重试 | **§二"没有任何 provider 构造该类型"的现状已闭合**（webhook 类 provider 走 httpclient 自动获得） |
+| P2 | 状态外置 Redis + memory 兜底 | `core/rules/state.go`（memory）/`state_redis.go`（Redis），`SetStateStore` 注入（`cmd/heraldd/main.go:202`） | 一致 |
+| P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups` | 一致 |
+| P3 | ACK 回调（飞书卡片 + 通用端点） | `POST /api/v1/callbacks/feishu`（`api/handler_callbacks.go`）+ `POST /api/v1/alerts/{id}/ack`（`api/handler_alerts.go`），ACK 状态在 `core/ack` | 一致 |
+| P3 | escalation 生效 | `core/escalation` + `engine_escalation_test.go`（ack_timeout 到期升级链） | P1/P2 建模、P3 兑现的承诺已兑现 |
+| P3 | 事故台账 | `core/incident` + `GET` 事故视图（`api/handler_incidents.go`） | 一致 |
+
+核对方法：端点与调用点以 `grep` 实证（上文标注行号），行为以各包 `*_test.go` 全绿佐证；`core/limiter`、`core/retry` 在 §二表格中的"现状"列保留为实施前快照，不逐格改写。
