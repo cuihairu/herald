@@ -8,18 +8,18 @@
 
 | 项目 | 值 |
 | --- | --- |
-| Go 语句覆盖率（go-test 口径原始值） | 99.5% |
-| Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.7%** |
+| Go 语句覆盖率（go-test 口径原始值） | 99.5%（5002/5027 语句，唯一块聚合口径） |
+| Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.6%**（5009/5027。期 5 收官时为 99.7%，其后规则/群组等功能代码与台账条目增长摊低） |
 | Go CI 门禁 | `tools/zero_check.py --gate 100`：排除台账登记块后等效语句覆盖率 **100%**，且无未定性零块；生效且通过 |
-| Go 残余零块 | **11 块**（详见[台账](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)）：3 块 `os.Exit` 失败分支 + 3 块重复名守卫 + 4 块 gorilla deadline setter + 1 块清 ack 截止时间 |
-| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记原因，分三类：`os.Exit` 跳过 GOCOVERDIR 转储（工具链原理性不可测）、下游契约使其不可达（`Manager.Get` 只返 `ErrNotFound`、gorilla `SetWriteDeadline` 恒 nil）、缺少 seam 需改设计才能构造 |
-| Dashboard 行覆盖率（vitest + `@vitest/coverage-v8`） | **100%**（13 个测试文件 84 个用例） |
-| Dashboard CI 门禁 | `thresholds: { lines: 100 }`，生效且通过（ci.yml dashboard job） |
-| Dashboard 分支覆盖率 | 86.6%，残余为兜底文案与环境性分支，逐类登记于[口径文档](./architecture/coverage.md) |
-| CI | main 最新提交全部 job 全绿（Lint / Test / Dashboard / Docker Build / Build） |
+| Go 残余零块 | 台账登记 **12 条**（详见[台账](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)）：3 块 `os.Exit` 失败分支 + 2 块 provider 重复名守卫 + 2 块 `Manager.Get` 契约守卫 + 2 块 gorilla `SetWriteDeadline` 恒 nil + 2 块 `SetReadDeadline` 转发失败（其一为清 ack 截止时间）+ 1 块 wechatmp 写锁双检命中（调度偶发走到，非零轮次自然不参与豁免）。2026-09-27 以 CI 同流程（go1.26.2）复测，该轮实测零块 **11 个**、全部命中台账 |
+| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 逐条登记原因，分三类：`os.Exit` 跳过 GOCOVERDIR 转储（工具链原理性不可测）、下游契约使其不可达（`Manager.Get` 只返 `ErrNotFound`、gorilla `SetWriteDeadline` 恒 nil、`SetReadDeadline` 被前序 `WriteMessage` 挡死、调度窗口不可确定性构造）、缺少 seam 需改设计才能构造 |
+| Dashboard 行覆盖率（vitest + `@vitest/coverage-v8`） | **100%**（457/457；15 个测试文件 143 个用例，2026-09-27 复测全过） |
+| Dashboard CI 门禁 | `thresholds: { lines: 100, branches: 100 }`——期 4 时仅 `lines: 100`，`43a85ab` 起行 + 分支双阈值，生效且通过（ci.yml dashboard job） |
+| Dashboard 分支覆盖率 | **100%**（分支 260/260；语句 482/482、函数 149/149 同满，四项均无任何台账豁免。期 4 收官时记为 86.6%，经 95% → 97.69% 爬坡后由 `43a85ab` 补齐最后一轮，逐分支定性见[口径文档](./architecture/coverage.md)） |
+| CI | `43a85ab` 全部 job 全绿（Lint / Test / Dashboard / Docker Build / Build + Docs workflow） |
 | 发版动作 | 无（未打 tag、未发 release、未改版本号） |
 
-为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；残余 11 块全部在 KNOWN_UNCOVERABLE.md 逐块登记原因——除 `os.Exit` 跳过 GOCOVERDIR 转储这一类工具链限制外，还有下游契约使其不可达的分支，以及需要先改设计加 seam 才能构造的分支。门禁强制"排除登记块后等效覆盖率 100%"。
+为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；残余块全部在 KNOWN_UNCOVERABLE.md 逐条登记原因（12 条，见上表）——除 `os.Exit` 跳过 GOCOVERDIR 转储这一类工具链限制外，还有下游契约使其不可达的分支，以及需要先改设计加 seam 才能构造的分支。门禁强制"排除登记块后等效覆盖率 100%"。
 
 ## 提交链
 
@@ -35,6 +35,8 @@
 | `fb11d07` | 期 5：`main()` 子进程覆盖合并进门禁（`tools/covermerge.py` + `zero_check --gate 100`），残余零块 6 → 3（仅剩 os.Exit 原理性不可测） |
 | `43b8154` | 修复 CI 合并步骤：`HERALD_MAIN_COVERDIR` 须用绝对路径——`go test` 以各包目录为测试二进制 cwd，相对路径让 dump 散落到各包目录下，glob 落空硬失败 |
 | `b81bb99` | escalation 重排窗口 100ms→250ms：高负载下 `Sleep(40ms)` 超调越过 100ms 窗口使「未提前触发」断言误报，容差加到 210ms |
+| `7ea0f75` | 修两处 CI 红：dashboard 卸载泄漏（`setup.ts` 以 `liveRoots` 登记挂载根、`afterAll` 确定性 unmount，替代计时窗冲刷）与台账行号错位。后者根因更深：`zero_check.py` 曾按「文件:起始行」聚合取 max，单行 `if` 的条件块与分支体块同起始行，恒非零的条件块把 8 处真零块静默掩盖出门禁——改为与 covermerge 一致的完整区间 `(文件, 起, 止)` 聚合后缺口现形，台账据此补齐并重锚到 go1.26.2（CI 钉死工具链；本地 go1.27.1 块边界整体 +1，照它抄行号必失配） |
+| `43a85ab` | dashboard 分支覆盖 97.69%→100%：上一期定性为「工具口径残余 + 契约防御」的 6 个分支逐个重查，**全部实为可测业务路径**——`toGroupPayload` 提为导出纯函数直测、空试用例改 `waitFor` 真等（`not.toBeNull()` 对 `undefined` 也通过的假断言纠正）、schema 真正省略键、无 token 时点保存/测试按钮补 `token ? {} :` 假支、抓 `setInterval` 回调直调补上 `% Lines` 看不见的轮询函数缺口。阈值随之抬到 `thresholds: { lines: 100, branches: 100 }` |
 
 ## 三期冲刺内容
 
@@ -65,7 +67,7 @@
 1. **seam 导出可测面**（沿用 Go 侧 `evalProgram` 先例）：`src/api` 导出真实 axios 实例，测试注入自定义 adapter 走真实拦截器链（`vi.mock('axios')` 对 CJS externalized 模块的源文件导入不生效，seam 是唯一可靠路径）；`src/main` 导出 `createStaticRenderer` 工厂，绕开 rc-motion 在 jsdom 里收不到 `transitionend` 的动画死路，直接验证 antd 静态方法渲染注入的 render/unmount 两条路径。
 2. **React 19 + antd v5 兼容注入**：antd 静态 message 依赖已移除的 `ReactDOM.render`，`unstableSetRender` 注入 `createRoot` 渲染器（生产入口与测试 setup 双处）。
 3. **jsdom 环境补齐**：`matchMedia` / `ResizeObserver` / `scrollTo` / `requestAnimationFrame` polyfill；antd message 的 portal 容器是全局单例，跨用例只清内容不删容器（删了会往 detached 节点渲染）。
-4. **残余分支的定性**：行覆盖 100% 是门禁；分支覆盖 86.6% 的缺口全部是 `|| '默认文案'` 兜底支、`allowClear` 清除到空路径与 jsdom 环境性分支（如 `https:` → `wss:`），逐类登记于口径文档，无一是未测的业务路径。
+4. **残余分支的定性（后被整体推翻）**：行覆盖 100% 是门禁；当时把分支覆盖 86.6% 的缺口整体定性为 `|| '默认文案'` 兜底支、`allowClear` 清除到空路径与 jsdom 环境性分支（如 `https:` → `wss:`），登记于口径文档，并宣称「无一是未测的业务路径」。**这一结论是错的**：2026-09 末逐个重查，残余分支全部是可测的业务路径，其中一条更是把「用例空转」误判成「v8 归属偏差」（`not.toBeNull()` 对 `undefined` 也通过，等于零断言）。`43a85ab` 已把缺口全部补齐、无一进台账，逐分支定性与教训见[口径文档](./architecture/coverage.md)「前端分支覆盖补齐的最后一轮」。
 
 ### 期 5 —— Go 侧收满：`main()` 子进程覆盖合并进门禁
 
@@ -85,7 +87,7 @@
 
 - **`runProgram` 取消竞态**：`select` 在「评估完成」与「上下文取消」同时就绪时伪随机择一，canceled context 的评估可能误报成功。修复：进入等待前预检父 `ctx.Err()`，取消路径确定性失败。
 - **`awaitingQueue.wait` 同款竞态**：任务已交付且 ctx 已取消时 `select` 双就绪随机返回，取消的 `DispatchSync` 可能误报成功。CI 上被 `TestRunCanceledContext` 抓住。修复：同款取消优先预检。
-- **`evalTimeout` 过紧**：50ms 在高负载下会被调度延迟击穿（CI 上正常表达式评估报超时）。放宽至 500ms，对微秒级的正常评估无感知，护栏（防失控程序）语义不变。
+- **`evalTimeout` 过紧**：50ms 在高负载下会被调度延迟击穿（CI 上正常表达式评估报超时）。放宽至 500ms，对微秒级的正常评估无感知，护栏（防失控程序）语义不变。（极端负载下 500ms 仍会击穿，后由 `3dd66f0` 提至 2s。）
 - **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法内部依赖 `ReactDOM.render`（React 19 已移除），生产环境所有 `message.success/error` 无声丢失。修复：`unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx`）。
 - **SendPage 渲染期 fetch 死循环**：`if (providers.length === 0) fetchProviders()` 写在渲染体内，zustand 每次 `set` 换 state 引用，形成「set → 重渲染 → 再 fetch」无限循环（测试挂起实证）。修复：副作用移入 `useEffect` 空依赖数组。
 
@@ -95,9 +97,9 @@
 
 - `gofmt -l .` 无输出，`go vet ./...`、`golangci-lint run` 干净
 - `go test -race -count=1 ./...` 至少两遍全绿（flake 修复类提交对目标包额外 -race 重复 3-5 遍）
-- 零块核对器 `python3 tools/zero_check.py coverage.merged.out --gate 100` GREEN（`HERALD_MAIN_COVERDIR` 下跑全仓 `-coverpkg=./...`，covermerge 合并三个 `main()` 转储后验证）
+- 零块核对器 `python3 tools/zero_check.py coverage.merged.out --gate 100` GREEN（`HERALD_MAIN_COVERDIR` 下跑全仓 `-coverpkg=./...`，covermerge 合并三个 `main()` 转储后验证；本地跑链必须 `GOTOOLCHAIN=go1.26.2` 与 CI 钉死版本一致——go1.27 的块边界整体 +1，照它核对或登记必失配）
 - 涉及文档站时 `pnpm run build` 通过（无死链）
-- 前端批次：`pnpm test:coverage`（含 lines:100 阈值）与 `pnpm build` 全绿后才 push
+- 前端批次：`pnpm test:coverage`（含 lines + branches 双 100 阈值）与 `pnpm build` 全绿后才 push
 - CI 全部 job（Lint / Test / Dashboard / Docker Build / Build）全绿确认
 
 ## 维护
@@ -106,4 +108,4 @@
 
 ## 后续
 
-本文是 2026-09 那一轮攻坚的收官记录，数字停留在当时的水位。此后 dashboard 又补了通知规则与通知群组两个页面及其组件测试，并修掉两类"覆盖率满却没测到"的问题：一类是"行覆盖 100% 却 exit 1"的异步泄漏（未 `act` 收口的 React 调度在环境销毁后才冲刷），一类是把"用例空转"误判成"v8 归属偏差"（`not.toBeNull()` 对 `undefined` 也通过）。现在前端为 15 个文件 143 个用例，语句 / 分支 / 函数 / 行四项均 100%，门禁阈值已抬到 `branches: 100`。**前端当前水位以[测试覆盖率口径](./architecture/coverage.md)为准**，本文的表格保留为该轮的历史快照。
+本文是 2026-09 那一轮攻坚的收官记录，数字停留在当时的水位。此后 dashboard 又补了通知规则与通知群组两个页面及其组件测试，并修掉两类"覆盖率满却没测到"的问题：一类是"行覆盖 100% 却 exit 1"的异步泄漏（未 `act` 收口的 React 调度在环境销毁后才冲刷），一类是把"用例空转"误判成"v8 归属偏差"（`not.toBeNull()` 对 `undefined` 也通过）。此后前端为 15 个文件 143 个用例，语句 / 分支 / 函数 / 行四项均 100%，门禁阈值已抬到 `branches: 100`。2026-09-27 按 CI 同流程复测（Go 侧链两轮 GREEN、等效 100.00%，前端 143 用例全过四项 100%）后，**本文的表格与提交链已按复测同步到当前水位，期 1–5 的叙述保留为该轮的历史记录**；最新水位始终以[测试覆盖率口径](./architecture/coverage.md)为准。
