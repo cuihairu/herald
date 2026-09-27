@@ -12,8 +12,7 @@
 
 ## api/handler_groups.go
 
-- `github.com/cuihairu/herald/api/handler_groups.go:71` — `createGroup` 中 `else if !errors.Is(err, groups.ErrNotFound)` 的 500 分支。到达条件要求 `groups.Manager.Get` 返回一个**非** `ErrNotFound` 的错误，但 `Manager.Get` 只读内存快照、找不到时**只**返回 `ErrNotFound`（`core/groups/manager.go` 的 `Get` 没有其他错误来源，也不碰 store）。给定当前 `Manager` 契约该分支不可达；保留它是防御 `Get` 的契约日后放宽——否则一次真实故障会被静默当成"不存在"而放过重复创建。
-- `github.com/cuihairu/herald/api/handler_groups.go:88` — `getGroup` 中 `if err != nil` 的 500 分支。依据同上：`Manager.Get` 只能给出 `ErrNotFound`，紧邻的 404 已经处理了这种情况。保留理由同上——宁可返回 500，也不要在契约变化后把故障报成"群组不存在"。
+> 本文件曾登记 `createGroup`/`getGroup` 里两处 `Manager.Get` 之后的 500 守卫（原 `handler_groups.go:71`、`:88`）——`Manager.Get` 只读内存快照、唯一错误是 `ErrNotFound`，当时判定为契约守卫。2026-09-27 按 `writeControl` 先例提为包级 seam `groupsGet`，由 `TestHandleGetGroupInternalErrorIs500` / `TestHandleCreateGroupLookupErrorIs500` 注入非 `ErrNotFound` 错误实测（500 与紧邻 404/409 均有断言），已移出台账。
 
 > 对照：同一文件 `deleteGroup` 里那个形似的 500 分支**不是**死代码。`Manager.Delete` 把 store 的错误原样返回（不像 `Put`/`Reload` 那样包一层上下文），存储故障会真的走到那里，已由 `TestHandleGroupStoreFailureIs500` / `TestHandleGroupStoreFailureStays500OnRetry` 用注入的失败 store 实测覆盖。同形状的分支，一个可达一个不可达，差别在下游契约而不在代码写法。
 

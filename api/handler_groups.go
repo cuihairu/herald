@@ -1,12 +1,22 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/cuihairu/herald/core/groups"
 )
+
+// groupsGet is a package-level seam (same pattern as worker-sdk's
+// writeControl): a real Manager.Get only ever returns nil or ErrNotFound, so
+// the internal-error arms in createGroup/getGroup below could not be
+// executed without a substitutable lookup. They exist so that a widened Get
+// contract fails loudly as 500 instead of being read as "not found".
+var groupsGet = func(ctx context.Context, m *groups.Manager, id string) (groups.Group, error) {
+	return m.Get(ctx, id)
+}
 
 // HandleGroups handles group list/create requests (GET/POST /api/v1/groups).
 func (h *Handler) HandleGroups(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +75,7 @@ func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		h.respondError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	if _, err := h.groupsManager.Get(r.Context(), group.ID); err == nil {
+	if _, err := groupsGet(r.Context(), h.groupsManager, group.ID); err == nil {
 		h.respondError(w, http.StatusConflict, "group already exists: "+group.ID)
 		return
 	} else if !errors.Is(err, groups.ErrNotFound) {
@@ -80,7 +90,7 @@ func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getGroup(w http.ResponseWriter, r *http.Request, id string) {
-	group, err := h.groupsManager.Get(r.Context(), id)
+	group, err := groupsGet(r.Context(), h.groupsManager, id)
 	if errors.Is(err, groups.ErrNotFound) {
 		h.respondError(w, http.StatusNotFound, "group not found: "+id)
 		return

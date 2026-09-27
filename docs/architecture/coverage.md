@@ -16,10 +16,10 @@
 
 | 项目 | 值 |
 | --- | --- |
-| 语句覆盖率（go-test 口径原始值） | 99.56%（5007/5029） |
-| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.70%**（5014/5029，2026-09-27 复测；期 5 收官时为 99.7%，功能代码增长摊低后经 `main.go:556`、`client.go:197` 两条 seam 升格实测回到同一水位；门禁等效口径不受影响） |
+| 语句覆盖率（go-test 口径原始值） | 99.64%（5012/5030） |
+| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.78%**（5019/5030，2026-09-27 复测；期 5 收官时为 99.7%，功能代码增长摊低后，台账条目经 seam 逐轮升格实测（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`），回到并越过原水位；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
-| 残余零块 | **9 块**（2026-09-27 go1.26.2 实测，全部命中台账）。台账共登记 **10 条**——`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）与 worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）两处 `SetReadDeadline` 失败分支已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 `Manager.Get` 契约守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
+| 残余零块 | **7 块**（2026-09-27 go1.26.2 实测，全部命中台账）。台账共登记 **8 条**——三处登记已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账：`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）、worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）、api `createGroup`/`getGroup` 的 `Manager.Get` 后 500 守卫（原 `handler_groups.go:71/:88`，seam 为 `groupsGet`）；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
 | **前端分支覆盖（dashboard/）** | **100%**（260/260，2026-09-27 实测；上期 97.69%，本轮补齐 6 个分支后满口径）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。

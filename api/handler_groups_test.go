@@ -54,6 +54,58 @@ func TestHandleGroupStoreFailureStays500OnRetry(t *testing.T) {
 	}
 }
 
+// Manager.Get cannot fail with anything but ErrNotFound, so the 500 arm
+// behind it is only reachable through the groupsGet seam. Injecting a
+// non-ErrNotFound error pins the contract: a widened Get must surface as
+// 500 with the real message, never as the adjacent 404.
+func TestHandleGetGroupInternalErrorIs500(t *testing.T) {
+	env := newTestEnv(t, withGroupsManager(groups.NewManager(nil)))
+
+	sentinel := errors.New("group index corrupted")
+	orig := groupsGet
+	groupsGet = func(context.Context, *groups.Manager, string) (groups.Group, error) {
+		return groups.Group{}, sentinel
+	}
+	defer func() { groupsGet = orig }()
+
+	code, resp := env.do(t, http.MethodGet, "/api/v1/groups/ops", "", nil)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d (%v)", code, resp)
+	}
+	if resp["message"] != "group index corrupted" {
+		t.Errorf("the lookup error must reach the client, got %v", resp["message"])
+	}
+}
+
+// Same seam on the create path: a lookup failure must be a 500, not the
+// 409 the success-found branch returns and not a silent "does not exist,
+// go ahead" — and the group must not be written.
+func TestHandleCreateGroupLookupErrorIs500(t *testing.T) {
+	env := newTestEnv(t, withGroupsManager(groups.NewManager(nil)))
+
+	sentinel := errors.New("group index corrupted")
+	orig := groupsGet
+	groupsGet = func(context.Context, *groups.Manager, string) (groups.Group, error) {
+		return groups.Group{}, sentinel
+	}
+
+	code, resp := env.do(t, http.MethodPost, "/api/v1/groups", validGroupBody, nil)
+	groupsGet = orig
+	if code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d (%v)", code, resp)
+	}
+	if resp["message"] != "group index corrupted" {
+		t.Errorf("the lookup error must reach the client, got %v", resp["message"])
+	}
+
+	// The create aborted before Put: a normal lookup afterwards still finds
+	// nothing (404), proving the store was not written behind the failure.
+	code, _ = env.do(t, http.MethodGet, "/api/v1/groups/ops", "", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("expected 404 after the aborted create, got %d", code)
+	}
+}
+
 func withGroupsManager(m *groups.Manager) func(*Config) {
 	return func(c *Config) { c.Groups = m }
 }
