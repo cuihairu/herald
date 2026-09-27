@@ -1,8 +1,14 @@
 import '@testing-library/jest-dom/vitest'
 import { afterAll, afterEach } from 'vitest'
-import { act, cleanup } from '@testing-library/react'
+import { act, cleanup, configure } from '@testing-library/react'
 import { unstableSetRender } from 'antd'
 import { createRoot } from 'react-dom/client'
+
+// RTL 的 waitFor/findBy 默认 1s 上限在负载下会批量击穿：jsdom 里 rc-motion
+// 的 rAF 兜底本身就是 setTimeout(16) 宏任务链，与 Go -race 全量套件并行或
+// CI 慢 runner 时排队被拉长（2026-09-27 实证一次 9 个交互用例连挂、复跑即
+// 全绿）。放宽到 3s 只抬上限——waitFor 一满足立即返回，快路径不受影响。
+configure({ asyncUtilTimeout: 3000 })
 
 // 交还环境前把还排着的工作跑干净。React scheduler 用 processImmediate
 // （宏任务）冲刷并发工作，rc-motion 的退场帧又走 rAF——这里的 rAF 兜底是
