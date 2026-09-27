@@ -15,6 +15,13 @@ interface LogEntry {
   created_at: string
 }
 
+const levelColors: Record<string, string> = { info: 'blue', warning: 'orange', error: 'red', critical: 'red' }
+
+// 模块级导出的渲染器：空 level 回落短横线，未知 level 走 default 色。
+export function renderLevel(l: string) {
+  return l ? <Tag color={levelColors[l] || 'default'}>{l}</Tag> : '-'
+}
+
 export default function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [stats, setStats] = useState<any>(null)
@@ -90,7 +97,6 @@ export default function LogsPage() {
   }, [fetchLogs, fetchStats])
 
   const statusColors: Record<string, string> = { success: 'green', failed: 'red', pending: 'orange' }
-  const levelColors: Record<string, string> = { info: 'blue', warning: 'orange', error: 'red', critical: 'red' }
 
   const columns: ColumnsType<LogEntry> = [
     { title: 'Provider', dataIndex: 'provider', key: 'provider', width: 120 },
@@ -101,7 +107,7 @@ export default function LogsPage() {
     { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
     {
       title: '级别', dataIndex: 'level', key: 'level', width: 80,
-      render: (l: string) => l ? <Tag color={levelColors[l] || 'default'}>{l}</Tag> : '-',
+      render: renderLevel,
     },
     { title: '错误', dataIndex: 'error', key: 'error', ellipsis: true, render: (e: string) => e || '-' },
     { title: '耗时', dataIndex: 'duration', key: 'duration', width: 80, render: (d: number) => d != null ? `${d}ms` : '-' },

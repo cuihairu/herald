@@ -247,7 +247,14 @@ describe('toGroupPayload', () => {
   // members 兜底右支：表单值里缺 members 字段（antd Form.List 契约变化、
   // 或表单未挂载就被提交）时按空花名册处理，而不是崩在 .map 上。
   it('treats missing members as an empty roster', () => {
+    // 键整个缺失
     expect(toGroupPayload({ id: 'ops' })).toEqual({
+      id: 'ops',
+      description: undefined,
+      members: [],
+    })
+    // 键存在但显式 undefined（antd Form 清空字段的真实形状），同一右支
+    expect(toGroupPayload({ id: 'ops', members: undefined })).toEqual({
       id: 'ops',
       description: undefined,
       members: [],

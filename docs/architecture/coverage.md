@@ -75,7 +75,7 @@
 | 位置 | 分支 | 之前的错误定性 | 实际处理 |
 | --- | --- | --- | --- |
 | `src/pages/GroupsPage.tsx:56` | `values.members \|\| []` 右支 | 契约防御，当下限不到 | 把换算提为导出的纯函数 `toGroupPayload`，直测 `members: undefined` 把右支语义固定成可断言行为；组件内只留调用 |
-| `src/pages/LogsPage.tsx:104` | `l ? <Tag> : '-'` 的 `:` 支 | **v8 分支归属偏差**（误判） | 真凶是**用例自己没等数据**：`render()` 后同步 `querySelector`，行尚未渲染，`find` 返回 `undefined` 而 `not.toBeNull()` 对 `undefined` 也通过——用例一直是空转。改用 `waitFor` 真等出短横线。源码保持原样（内联三元本来是准的，不需要为错误结论重构） |
+| `src/pages/LogsPage.tsx:104` | `l ? <Tag> : '-'` 的 `:` 支 | **v8 分支归属偏差**（误判） | 真凶是**用例自己没等数据**：`render()` 后同步 `querySelector`，行尚未渲染，`find` 返回 `undefined` 而 `not.toBeNull()` 对 `undefined` 也通过——用例一直是空转。改用 `waitFor` 真等出短横线。当时判定保持内联不动；后续收尾把该判定提为模块级导出的 `renderLevel`（语义不变，两支仍由这两条渲染用例真执行） |
 | `src/pages/ProviderConfigPage.tsx:30,33` | `schema \|\| {}` 右支 | 契约防御 | 原有用例注释写「omits the schema field」，实际传的是 `schema: {}`（有键但空，走 `||` 左支）。改为真正省略该键 |
 | `src/pages/ProviderConfigPage.tsx:71,96` | 保存/测试连接的 `token ? ... : {}` 假支 | 契约防御 | 原用例只覆盖了加载请求，没点按钮。补「无 token 时点保存 / 点测试通知」，断言请求头为空对象 |
 
