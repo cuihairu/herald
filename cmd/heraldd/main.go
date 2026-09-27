@@ -533,6 +533,13 @@ func buildWorkerWebSocketURL(cfg *config.Config) string {
 	return u.String()
 }
 
+// setReadDeadline is a package-level seam (same pattern as worker-sdk's
+// writeControl): on a live conn SetReadDeadline forwards to net.Conn and only
+// fails once the conn is closed, which WriteMessage would catch first — so
+// without injecting a failing implementation the ack-read deadline error arm
+// in registerRemoteWorker can never be executed.
+var setReadDeadline = func(conn *gws.Conn, t time.Time) error { return conn.SetReadDeadline(t) }
+
 func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string) error {
 	msg := &protocol.RegisterMessage{
 		WorkerID:     workerID,
@@ -550,10 +557,10 @@ func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string
 		return err
 	}
 
-	// Defensive: this runs only after WriteMessage succeeded, so the conn is
-	// still open and SetReadDeadline (which forwards to net.Conn) cannot
-	// fail. Kept explicit so a contract change fails loudly.
-	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	// A real SetReadDeadline cannot fail here (the conn is still open after
+	// WriteMessage), but the failure arm is exercised through the
+	// setReadDeadline seam; kept explicit so a contract change fails loudly.
+	if err := setReadDeadline(conn, time.Now().Add(10*time.Second)); err != nil {
 		return err
 	}
 	_, data, err := conn.ReadMessage()

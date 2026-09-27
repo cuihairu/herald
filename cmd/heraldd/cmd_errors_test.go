@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -385,6 +386,29 @@ func TestRegisterRemoteWorkerWriteError(t *testing.T) {
 
 	if err := registerRemoteWorker(conn, "w-wrerr", nil); err == nil {
 		t.Error("registerRemoteWorker() on closed conn = nil, want write error")
+	}
+}
+
+// TestRegisterRemoteWorkerReadDeadlineFailure swaps the setReadDeadline seam
+// for a failing implementation: the conn is live so the register write
+// succeeds, and the injected deadline error must surface before any ack read.
+// This is the arm the ledger used to hold as unreachable-without-a-seam.
+func TestRegisterRemoteWorkerReadDeadlineFailure(t *testing.T) {
+	stub := newWSStub(t, nil)
+
+	conn, _, err := gws.DefaultDialer.Dial(stub.url(), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	sentinel := errors.New("deadline boom")
+	orig := setReadDeadline
+	setReadDeadline = func(*gws.Conn, time.Time) error { return sentinel }
+	defer func() { setReadDeadline = orig }()
+
+	if err := registerRemoteWorker(conn, "w-dlerr", nil); err != sentinel {
+		t.Fatalf("registerRemoteWorker() error = %v, want the injected deadline failure", err)
 	}
 }
 

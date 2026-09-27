@@ -8,18 +8,18 @@
 
 | 项目 | 值 |
 | --- | --- |
-| Go 语句覆盖率（go-test 口径原始值） | 99.5%（5002/5027 语句，唯一块聚合口径） |
-| Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.6%**（5009/5027。期 5 收官时为 99.7%，其后规则/群组等功能代码与台账条目增长摊低） |
+| Go 语句覆盖率（go-test 口径原始值） | 99.52%（5004/5028 语句，唯一块聚合口径） |
+| Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.66%**（5011/5028。期 5 收官时为 99.7%，其后规则/群组等功能代码与台账条目增长摊低；2026-09-27 `main.go:556` 经 seam 升格实测，又补回 2 条语句） |
 | Go CI 门禁 | `tools/zero_check.py --gate 100`：排除台账登记块后等效语句覆盖率 **100%**，且无未定性零块；生效且通过 |
-| Go 残余零块 | 台账登记 **12 条**（详见[台账](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)）：3 块 `os.Exit` 失败分支 + 2 块 provider 重复名守卫 + 2 块 `Manager.Get` 契约守卫 + 2 块 gorilla `SetWriteDeadline` 恒 nil + 2 块 `SetReadDeadline` 转发失败（其一为清 ack 截止时间）+ 1 块 wechatmp 写锁双检命中（调度偶发走到，非零轮次自然不参与豁免）。2026-09-27 以 CI 同流程（go1.26.2）复测，该轮实测零块 **11 个**、全部命中台账 |
-| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 逐条登记原因，分三类：`os.Exit` 跳过 GOCOVERDIR 转储（工具链原理性不可测）、下游契约使其不可达（`Manager.Get` 只返 `ErrNotFound`、gorilla `SetWriteDeadline` 恒 nil、`SetReadDeadline` 被前序 `WriteMessage` 挡死、调度窗口不可确定性构造）、缺少 seam 需改设计才能构造 |
+| Go 残余零块 | 台账登记 **11 条**（详见[台账](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)）：3 块 `os.Exit` 失败分支 + 2 块 provider 重复名守卫 + 2 块 `Manager.Get` 契约守卫 + 2 块 gorilla `SetWriteDeadline` 恒 nil + 1 块 `SetReadDeadline` 转发失败（清 ack 截止时间）+ 1 块 wechatmp 写锁双检命中（调度偶发走到，非零轮次自然不参与豁免）。原 `main.go:556`（`registerRemoteWorker` 读 ack 的 `SetReadDeadline` 失败分支）已加包级 seam `setReadDeadline` 实测覆盖、移出台账。2026-09-27 以 CI 同流程（go1.26.2）复测，该轮实测零块 **10 个**、全部命中台账 |
+| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 逐条登记原因，分三类：`os.Exit` 跳过 GOCOVERDIR 转储（工具链原理性不可测）、下游契约使其不可达（`Manager.Get` 只返 `ErrNotFound`、gorilla `SetWriteDeadline` 恒 nil、调度窗口不可确定性构造）、缺少 seam 需改设计才能构造（`client.go:197`；同款问题在 `registerRemoteWorker` 已按此解决） |
 | Dashboard 行覆盖率（vitest + `@vitest/coverage-v8`） | **100%**（457/457；15 个测试文件 143 个用例，2026-09-27 复测全过） |
 | Dashboard CI 门禁 | `thresholds: { lines: 100, branches: 100 }`——期 4 时仅 `lines: 100`，`43a85ab` 起行 + 分支双阈值，生效且通过（ci.yml dashboard job） |
 | Dashboard 分支覆盖率 | **100%**（分支 260/260；语句 482/482、函数 149/149 同满，四项均无任何台账豁免。期 4 收官时记为 86.6%，经 95% → 97.69% 爬坡后由 `43a85ab` 补齐最后一轮，逐分支定性见[口径文档](./architecture/coverage.md)） |
 | CI | `43a85ab` 全部 job 全绿（Lint / Test / Dashboard / Docker Build / Build + Docs workflow） |
 | 发版动作 | 无（未打 tag、未发 release、未改版本号） |
 
-为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；残余块全部在 KNOWN_UNCOVERABLE.md 逐条登记原因（12 条，见上表）——除 `os.Exit` 跳过 GOCOVERDIR 转储这一类工具链限制外，还有下游契约使其不可达的分支，以及需要先改设计加 seam 才能构造的分支。门禁强制"排除登记块后等效覆盖率 100%"。
+为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；残余块全部在 KNOWN_UNCOVERABLE.md 逐条登记原因（11 条，见上表）——除 `os.Exit` 跳过 GOCOVERDIR 转储这一类工具链限制外，还有下游契约使其不可达的分支，以及需要先改设计加 seam 才能构造的分支。门禁强制"排除登记块后等效覆盖率 100%"。
 
 ## 提交链
 

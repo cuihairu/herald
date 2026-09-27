@@ -22,7 +22,6 @@
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:49` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:130` — `serve` 里 `manager.RegisterProvider` 的重复名守卫（`// Defensive: the duplicate-name guard cannot fire`）。配置遍历的是 `map[string]ProviderConfig`，键即 provider 名，map 本身保证每个名字只出现一次；且此处 manager 全新、builtin 只注册工厂。构造重复名需要同一 map 键出现两次，与数据结构矛盾。
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:381` — `serveCmd` 里同一守卫的第二处副本，依据同上（该处 manager 由 `serveCmd` 新建）。
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:556` — `registerRemoteWorker` 里 `conn.SetReadDeadline` 的失败分支。它转发给底层 `net.Conn`，只在连接已关闭时失败；而要走到它必须先通过上一行的 `WriteMessage`，那一步在同一个已关闭连接上必然先失败并 return。要构造"写得出去但设不了 deadline"的连接需要在两者之间加 seam，此处没有。
 
 ## providers/builtin/wechatmp/wechatmp.go
 
@@ -41,9 +40,9 @@
 - `github.com/cuihairu/herald/worker-sdk/go/client.go:197` — `conn.SetReadDeadline(time.Time{})`（清 ack 截止时间）的失败分支。gorilla 的 `SetReadDeadline` 直接转发给底层 `net.Conn`，只在**客户端自己的** conn 已关闭时失败；而 register 在读完 ack 与清 deadline 之间不关闭任何连接（此处也无包级 seam 可注入）。要到它必须先在那个位置加 seam，属于改设计而非补测试。
 - `github.com/cuihairu/herald/worker-sdk/go/client.go:275` — `writeControl` 里 `conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不会返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。真实传输失败由 `WriteMessage` 返回，已由 `TestRegisterWriteControlFailure` 覆盖。
 
-> 登记行号会被注释改动顶掉：本文件里 `client.go:197`、`client.go:275`、`main.go:556`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.2，见页首纪律），别只看测试是否通过。
+> 登记行号会被注释改动顶掉：本文件里 `client.go:197`、`client.go:275`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.2，见页首纪律），别只看测试是否通过。
 
-> 对照：`client.go:175` 那个**形状看起来一样**的 `SetReadDeadline` 失败分支一度也躺在本台账里，其实是可达的——`writeControl` 是包级变量，测试可以注入"报告成功但先 Close 掉连接"的实现，它转发的 `net.Conn` 随即返回 `use of closed network connection`。已由 `TestRegisterReadDeadlineFailsOnClosedConn` 实测覆盖并移出台账。教训是别按"形状像"登记：先查被调方在目标版本下的真实实现（`SetWriteDeadline` 恒 nil、`SetReadDeadline` 转发），再判断有没有可达路径。
+> 对照：`client.go:175` 那个**形状看起来一样**的 `SetReadDeadline` 失败分支一度也躺在本台账里，其实是可达的——`writeControl` 是包级变量，测试可以注入"报告成功但先 Close 掉连接"的实现，它转发的 `net.Conn` 随即返回 `use of closed network connection`。已由 `TestRegisterReadDeadlineFailsOnClosedConn` 实测覆盖并移出台账。教训是别按"形状像"登记：先查被调方在目标版本下的真实实现（`SetWriteDeadline` 恒 nil、`SetReadDeadline` 转发），再判断有没有可达路径。同款模式第二次应用：`cmd/heraldd/main.go` 的 `registerRemoteWorker` 读 ack 的 `SetReadDeadline` 失败分支（原登记 `main.go:556`）已于 2026-09-27 提出包级 seam `setReadDeadline`、由 `TestRegisterRemoteWorkerReadDeadlineFailure` 注入失败实测覆盖并移出台账。
 
 ## worker-sdk/go/example/main.go
 
