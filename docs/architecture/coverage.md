@@ -57,9 +57,9 @@
 
 注解关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note` 在源码中检索即可定位每一处说明。
 
-## Dashboard 前端：vitest + RTL，行覆盖 100% 门禁
+## Dashboard 前端：vitest + RTL，行覆盖 + 分支覆盖双 100% 门禁
 
-前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job）——**行覆盖低于 100% 直接失败**。测试共 15 个文件 117 个用例，覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 9 个页面组件与应用入口。
+前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job）——**行覆盖或分支覆盖低于 100% 直接失败**。测试共 15 个文件 143 个用例，覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 9 个页面组件与应用入口。四项指标（语句 / 分支 / 函数 / 行）实测均为 100%，但**门禁阈值只守分支与行两项**——为什么这两项仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-9779--100)。
 
 测试搭建过程中顺带修掉两个真实生产缺陷：
 
@@ -68,20 +68,35 @@
 
 `src/test/setup.ts` 另有一处不漏工作就测不干净的地方：注入的静态渲染器若不把 `createRoot().render()` 包进 `act()`，这次调度会漏到用例之外，由 scheduler 的 `processImmediate`（宏任务）在 **vitest 销毁 jsdom 之后**才冲刷，触发处 `window` 已不存在，抛 unhandled `ReferenceError`。它发生在覆盖率统计**之后**，所以行覆盖仍是 100%、门禁照样通过，vitest 却以 exit code 1 收场——**覆盖门禁抓不到这类泄漏**，只有 unhandled-error 报告能。因此 `render`/`unmount` 都包 `act`，`afterEach` 再用两轮 `act` + 定时器（`0` 与 `20ms`，后者跨过 rc-motion 的 rAF 兜底窗口）把 scheduler 与动画帧排空后才交还环境。
 
-### 前端残余的未覆盖分支定性
+### 前端分支覆盖补齐的最后一轮（97.69% → 100%）
 
-行覆盖 100%（门禁）；分支覆盖 97.69%（较上期 95% 提升），未达满的分支逐类定性如下——均为「兜底文案/环境性分支/契约防御」，不是未测的业务路径：
+上一期把分支水位记为 97.69%，并把未覆盖的 6 个分支整体定性为「工具口径残余 + 契约防御」。本轮逐个重查后，**这 6 个分支全部是可测的业务路径，无一需要台账登记**，已补齐到 100%：
 
-| 位置 | 分支 | 未覆盖侧 | 原因 |
+| 位置 | 分支 | 之前的错误定性 | 实际处理 |
 | --- | --- | --- | --- |
-| `src/pages/GroupsPage.tsx:56` | `values.members \|\| []` | `\|\|` 右支 | 契约防御：antd 的 `Form.List` 未增行时给的是 `[]`（空数组本身为真），右支当下走不到。已就地注释——保留它防 antd 哪天把未增行的 `Form.List` 改回 `undefined`，那会让整页崩在 `.map` 上。`RulesPage` / `GroupsPage` 其余分支（`errMsg` 三级兜底的最后一级、非 route 规则不带 `route` 步骤、省略零值字段的规则与空花名册群组、启停开关双向）均有确定性用例 |
-| `src/pages/LogsPage.tsx:104` | `l ? <Tag ...> : '-'` | `:` 支 | v8 对组件外 `columns` 数组内的箭头三元表达式存在分支归属偏差；实测 `level: ''` 时确实渲染 `-`，覆盖已生效，本项为工具口径残余 |
-| `src/pages/ProviderConfigPage.tsx:30-33,71,96` | `data.data.schema \|\| {}`、`token ? ... : {}` | `\|\|`/三元右支 | ① schema 字段整体缺失（`data.data` 无 `schema` 键）时回显走 `|| {}`；② 保存与测试通知在无 token 时 headers 走空对象。均为契约防御/兜底路径，防御性保留以应对 API 返回结构变化 |
+| `src/pages/GroupsPage.tsx:56` | `values.members \|\| []` 右支 | 契约防御，当下限不到 | 把换算提为导出的纯函数 `toGroupPayload`，直测 `members: undefined` 把右支语义固定成可断言行为；组件内只留调用 |
+| `src/pages/LogsPage.tsx:104` | `l ? <Tag> : '-'` 的 `:` 支 | **v8 分支归属偏差**（误判） | 真凶是**用例自己没等数据**：`render()` 后同步 `querySelector`，行尚未渲染，`find` 返回 `undefined` 而 `not.toBeNull()` 对 `undefined` 也通过——用例一直是空转。改用 `waitFor` 真等出短横线。源码保持原样（内联三元本来是准的，不需要为错误结论重构） |
+| `src/pages/ProviderConfigPage.tsx:30,33` | `schema \|\| {}` 右支 | 契约防御 | 原有用例注释写「omits the schema field」，实际传的是 `schema: {}`（有键但空，走 `||` 左支）。改为真正省略该键 |
+| `src/pages/ProviderConfigPage.tsx:71,96` | 保存/测试连接的 `token ? ... : {}` 假支 | 契约防御 | 原用例只覆盖了加载请求，没点按钮。补「无 token 时点保存 / 点测试通知」，断言请求头为空对象 |
+
+教训有两条，都写进维护清单：
+
+- **不要把「用例没真跑起来」归因成工具问题。** 那条 `v8 归属偏差` 结论是错的：用例断言在 `undefined` 上也会通过，等于零断言的假覆盖，工具口径只是替它背了锅。判定分支不可达之前，先确认该路径**真的被执行过一次**。
+- **`not.toBeNull()` 断言不了「元素存在」。** 它对 `undefined` 同样通过。查 DOM 必须用 `waitFor` + `not.toBeUndefined()`，或直接 `findBy*`。
+
+因此前端不再有残余未覆盖分支，`branches: 100` 作为门禁与实测水位一致，不含任何豁免。
+
+顺带补掉一处**行覆盖门禁看不见的函数缺口**：`LogsPage` 的 10 秒自动刷新回调（`src/pages/LogsPage.tsx:88`）从未被任何用例执行过，报表里 `% Lines` 一栏仍显示 100%（该回调的语句不带行信息，被 v8 的 Lines 折算跳过），只有 `% Funcs` 95.45% 暴露了它。用例改为抓 `setInterval` 注册的回调直接调用并断言日志与统计双双重拉，`LogsPage` 四个指标随之全满（100/100/100/100）。
+
+教训：**阈值只能守住它自己那一列**。`lines: 100` 满不代表函数都跑到，本轮就是靠交叉看 `% Funcs` 才发现的；补分支覆盖时顺手核对 `% Funcs` / `% Stmts`，是比只盯 Lines 便宜得多的自查。
+
+由于四项指标同时打满，本轮**没有任何分支或函数需要登记进台账**——前端不需要 `KNOWN_UNCOVERABLE` 式的豁免清单，这是它与 Go 侧最大的口径差异：Go 侧的零块来自工具链原理性不可测路径（`os.Exit` 跳过 GOCOVERDIR 转储、gorilla 的恒 nil setter），前端这类缺口都能用确定性用例补上。补不上时（确有条件不可达）再照 Go 侧纪律登记。
 
 ## 如何维护这份水位
 
 1. 给新代码写测试时以「触发每个分支」为目标，而不是「跑过函数」。
 2. 若某分支确实不可达，先怀疑它是不是死代码——是就删掉；确需保留（API 兼容、未来重构防静默），就地写 `// Defensive: ...` 并说明原因。
-3. 新增 `main()` 或常驻进程入口时，同步补 GOCOVERDIR 子进程守卫测试。
-4. 阈值只随实测水位上调，不预留缓冲；任何人引入未测代码，CI 会立即拦下。
-5. 覆盖率门禁只管「测没测到」，**不管「测干不干净」**：逃到环境销毁之后的异步工作（未被 `act` 收口的渲染、动画帧回调）会以 unhandled error 让 vitest 非零退出，但行覆盖仍显示 100%。给异步副作用补用例时，同步确认它落在 `act` 作用域内；否则以 unhandled-error 报告为准，别被绿色覆盖率骗过去。
+3. 断言某个元素/分支真的出现过，就用 `waitFor` + `not.toBeUndefined()` 或 `findBy*`；`not.toBeNull()` 对 `undefined` 也通过，等于没断言。**判定「不可达」前先确认路径真的被执行过**——本轮就有一处把「用例空转」误判成「v8 归属偏差」。
+4. 新增 `main()` 或常驻进程入口时，同步补 GOCOVERDIR 子进程守卫测试。
+5. 阈值只随实测水位上调，不预留缓冲；任何人引入未测代码，CI 会立即拦下。
+6. 覆盖率门禁只管「测没测到」，**不管「测干不干净」**：逃到环境销毁之后的异步工作（未被 `act` 收口的渲染、动画帧回调）会以 unhandled error 让 vitest 非零退出，但行覆盖仍显示 100%。给异步副作用补用例时，同步确认它落在 `act` 作用域内；否则以 unhandled-error 报告为准，别被绿色覆盖率骗过去。

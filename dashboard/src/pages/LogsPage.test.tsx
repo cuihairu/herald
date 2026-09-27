@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LogsPage from './LogsPage'
 
@@ -366,10 +366,15 @@ describe('LogsPage', () => {
       '/api/v1/providers': { code: 0, data: { providers: [] } },
     })
     render(<LogsPage />)
-    // level 为空串，渲染短横线而不是 Tag。
-    const cells = document.querySelectorAll('.ant-table-cell')
-    const dashCell = [...cells].find(c => c.textContent?.trim() === '-')
-    expect(dashCell).not.toBeNull()
+    // 数据是异步加载的：等 level='' 那一行真正渲染出短横线。
+    // （旧版这里 render 后立刻同步 querySelector——行还没渲染出来，find
+    // 返回 undefined，而 not.toBeNull() 对 undefined 也通过，于是用例
+    // 一直在空转，':' 支从未真正执行。）
+    await waitFor(() => {
+      const dashCell = [...document.querySelectorAll('.ant-table-cell')]
+        .find(c => c.textContent?.trim() === '-')
+      expect(dashCell).not.toBeUndefined()
+    })
   })
 
   // 清除级别筛选器：onChange 收到 null/undefined → v || '' 回落到 ''。
@@ -402,6 +407,40 @@ describe('LogsPage', () => {
     await vi.waitFor(() => {
       const logs = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs?'))
       expect(logs[logs.length - 1]).not.toContain('level=')
+    })
+  })
+
+  // 10 秒轮询回调：自动刷新必须同时重拉日志与统计，否则页面停在旧计数上。
+  // 抓 setInterval 注册的回调直接调用，不走 fake timer（user-event 与
+  // fake timer 混用会把整页的 act 收口搅乱）。
+  it('polls both the log list and the stats on its 10s interval', async () => {
+    const fetchMock = stubFetch({
+      '/api/v1/logs': { code: 0, data: { logs: logRows, total: 2 } },
+      '/api/v1/logs/stats': { code: 0, data: { total: 9 } },
+      '/api/v1/providers': { code: 0, data: { providers: [] } },
+    })
+    const timers: Array<{ fn: () => void; ms: number | undefined }> = []
+    const realSetInterval = window.setInterval
+    vi.spyOn(window, 'setInterval').mockImplementation(((fn: () => void, ms?: number) => {
+      timers.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof realSetInterval>
+    }) as typeof window.setInterval)
+
+    render(<LogsPage />)
+    await screen.findByText('正常一行')
+
+    const poll = timers.find((t) => t.ms === 10000)
+    expect(poll).toBeDefined()
+    const before = {
+      logs: fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs?')).length,
+      stats: fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs/stats')).length,
+    }
+    await act(async () => { poll!.fn() })
+    await vi.waitFor(() => {
+      const logs = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs?')).length
+      const stats = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs/stats')).length
+      expect(logs).toBeGreaterThan(before.logs)
+      expect(stats).toBeGreaterThan(before.stats)
     })
   })
 })

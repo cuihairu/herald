@@ -11,7 +11,7 @@ vi.mock('../api', () => ({
   },
 }))
 
-import GroupsPage from './GroupsPage'
+import GroupsPage, { toGroupPayload } from './GroupsPage'
 import { heraldApi } from '../api'
 import { useHeraldStore } from '../stores/herald'
 import { resetStore } from '../test/store'
@@ -240,5 +240,37 @@ describe('GroupsPage', () => {
     // jsdom 里 rc-motion 的关闭动画不收敛，DOM 断言不可靠；
     // 行为断言：取消不发出任何请求。
     await waitFor(() => expect(apiMocks.createGroup).not.toHaveBeenCalled())
+  })
+})
+
+describe('toGroupPayload', () => {
+  // members 兜底右支：表单值里缺 members 字段（antd Form.List 契约变化、
+  // 或表单未挂载就被提交）时按空花名册处理，而不是崩在 .map 上。
+  it('treats missing members as an empty roster', () => {
+    expect(toGroupPayload({ id: 'ops' })).toEqual({
+      id: 'ops',
+      description: undefined,
+      members: [],
+    })
+  })
+
+  it('drops empty recipient lists and keeps non-empty ones', () => {
+    expect(toGroupPayload({
+      id: 'ops',
+      description: '值班花名册',
+      members: [
+        { channel: 'feishu', recipients: [] },
+        { channel: 'sms', recipients: ['138'] },
+        { channel: 'wecom' },
+      ],
+    })).toEqual({
+      id: 'ops',
+      description: '值班花名册',
+      members: [
+        { channel: 'feishu' },
+        { channel: 'sms', recipients: ['138'] },
+        { channel: 'wecom' },
+      ],
+    })
   })
 })

@@ -16,8 +16,10 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/test/**'],
-      // 行覆盖 100% 是验收线：任何一行没测到都直接失败。
-      thresholds: { lines: 100 },
+      // 行 + 分支双 100% 是验收线：任何一行没测到、或任何一支三元/&&/||
+      // 只走到一侧都直接失败。分支比行严格——`x ? A : B`、`x || y` 只走
+      // 到一边时行覆盖照样满，兜底分支的语义就无人验证。
+      thresholds: { lines: 100, branches: 100 },
     },
   },
 })

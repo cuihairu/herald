@@ -303,18 +303,47 @@ describe('ProviderConfigPage', () => {
     })
   })
 
-  // schema 为空时走 alert 分支：渲染"暂无可配置项"，不渲染配置卡片。
+  // schema 字段整个缺失（不是空对象）时走 alert 分支：渲染"暂无可配置项"，
+  // 不渲染配置卡片。同时盖住 setSchema/序列化循环里 `schema || {}` 的兜底右支。
   it('shows the empty-schema notice when the API omits the schema field', async () => {
     stubFetch({
       '/api/v1/config/feishu': {
         code: 0,
-        data: { type: 'builtin', enabled: false, schema: {}, config: {} },
+        data: { type: 'builtin', enabled: false, config: {} },
       },
     })
     renderPage()
     // 卡片里的 Tag 在 schema 为空时不渲染，所以一个 .ant-tag 都没有。
     expect(document.querySelectorAll('.ant-tag')).toHaveLength(0)
     expect(await screen.findByText('此 Provider 暂无可配置项')).toBeInTheDocument()
+  })
+
+  // 无 token 时保存与测试连接都不带 Authorization 头：上面那条无 token
+  // 用例只点了加载（GET），PUT 与 POST 请求头里的三元假支在这里盖。
+  it('omits the authorization header when saving and testing without a token', async () => {
+    localStorage.removeItem('herald_token')
+    const fetchMock = stubFetch({
+      '/api/v1/config/feishu': {
+        code: 0,
+        data: { type: 'builtin', enabled: true, schema: { url: 'string' }, config: { url: '' } },
+      },
+      '/api/v1/notify': { code: 0, message: 'ok' },
+    })
+    renderPage()
+    await screen.findByText('配置项')
+
+    await user.click(screen.getByRole('button', { name: /保\s*存\s*配\s*置/ }))
+    await user.click(screen.getByRole('button', { name: /测\s*试\s*连\s*接/ }))
+    await vi.waitFor(async () => {
+      const put = fetchMock.mock.calls.filter(
+        ([u, init]) => String(u) === '/api/v1/config/feishu' && (init as RequestInit).method === 'PUT')
+      const post = fetchMock.mock.calls.filter(([u]) => String(u) === '/api/v1/notify')
+      expect(put.length).toBeGreaterThan(0)
+      expect(post.length).toBeGreaterThan(0)
+      for (const [, init] of [...put, ...post]) {
+        expect((init as RequestInit).headers).toEqual({ 'Content-Type': 'application/json' })
+      }
+    })
   })
 
   // 已禁用的 Provider 渲染「已禁用」灰徽标（需非空 schema，

@@ -115,7 +115,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # vitest coverage thresholds enforce 100% line coverage in
+      # vitest coverage thresholds enforce 100% line AND branch coverage in
       # vitest.config.ts — the frontend gate mirrors the Go one.
       - name: Run tests with coverage
         run: pnpm test:coverage

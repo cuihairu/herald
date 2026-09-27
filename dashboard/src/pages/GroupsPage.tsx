@@ -11,6 +11,26 @@ function errMsg(err: any, fallback: string) {
   return err?.response?.data?.message || err?.message || fallback
 }
 
+export interface GroupPayload {
+  id: string
+  description?: string
+  members: Array<{ channel: string; recipients?: string[] }>
+}
+
+// 表单值 → 后端负载。收件人钉选是可选字段：留空时不要给后端发空数组以外
+// 的噪音。members 的 || 兜底防御的是「表单值里缺 members 字段」：antd 的
+// Form.List 未增行时给的是 []（空数组本身为真，当下走不到右支），但若 antd
+// 哪天把未增行的 Form.List 改回 undefined、或表单未挂载就被提交，没有这层
+// 兜底整页会崩在 .map 上——右支由 toGroupPayload 的直测固定住语义。
+export function toGroupPayload(values: any): GroupPayload {
+  const members = (values.members || []).map((m: any) =>
+    m.recipients && m.recipients.length > 0
+      ? { channel: m.channel, recipients: m.recipients }
+      : { channel: m.channel }
+  )
+  return { id: values.id, description: values.description, members }
+}
+
 export default function GroupsPage() {
   const { groups, loading, fetchGroups } = useHeraldStore()
   const [form] = Form.useForm()
@@ -49,16 +69,8 @@ export default function GroupsPage() {
     } catch {
       return // 客户端校验失败：表单内已展示错误
     }
-    // 收件人钉选是可选字段：留空时不要给后端发空数组以外的噪音。
-    // values 是 validateFields 的 any；antd 的 Form.List 未增行时给的是 []
-    // （空数组本身为真，所以这个兜底当下走不到）。保留它是防御 antd 哪天
-    // 把未增行的 Form.List 改回 undefined——那会让整页崩在 .map 上。
-    const members = (values.members || []).map((m: any) =>
-      m.recipients && m.recipients.length > 0
-        ? { channel: m.channel, recipients: m.recipients }
-        : { channel: m.channel }
-    )
-    const payload = { id: values.id, description: values.description, members }
+    // 表单值 → 后端负载的换算（members 兜底、收件人降噪）见 toGroupPayload。
+    const payload = toGroupPayload(values)
     setSaving(true)
     try {
       if (editing?.id) await heraldApi.updateGroup(editing.id, payload)
