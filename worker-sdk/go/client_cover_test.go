@@ -135,6 +135,34 @@ func TestRegisterSuccessStoresConn(t *testing.T) {
 	}
 }
 
+// TestRegisterClearDeadlineFailure swaps the setReadDeadline seam for a
+// failing implementation: the whole handshake succeeds (ack decoded,
+// Success=true) and only the clear-the-ack-deadline call on the way out
+// fails — register must return that error as-is and drop the conn instead
+// of storing it. This is the arm the ledger used to hold as
+// "not testable without a design change".
+func TestRegisterClearDeadlineFailure(t *testing.T) {
+	ack, err := protocol.MarshalMessage(&protocol.RegisterAckMessage{WorkerID: "w-test", Success: true, ServerID: "herald-test"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	srv := echoAckServer(t, ack)
+	defer srv.Close()
+
+	sentinel := errors.New("deadline boom")
+	orig := setReadDeadline
+	setReadDeadline = func(*websocket.Conn, time.Time) error { return sentinel }
+	defer func() { setReadDeadline = orig }()
+
+	c := newControlClient(t, wsURL(srv))
+	if err := c.register(context.Background()); err != sentinel {
+		t.Fatalf("register() error = %v, want the injected deadline failure", err)
+	}
+	if c.controlConn() != nil {
+		t.Error("register() must not store the conn when the deadline clear failed")
+	}
+}
+
 func TestReadLoopExitsOnNilConn(t *testing.T) {
 	c := newControlClient(t, "")
 	done := make(chan struct{})

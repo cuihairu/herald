@@ -16,10 +16,11 @@
 
 | 项目 | 值 |
 | --- | --- |
-| 语句覆盖率（go-test 口径原始值） | 99.5% |
-| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.66%**（5011/5028，2026-09-27 复测；期 5 收官时为 99.7%，其后功能代码增长摊低，`main.go:556` 经 seam 升格实测又补回 2 条语句，门禁等效口径不受影响） |
+| 语句覆盖率（go-test 口径原始值） | 99.56%（5007/5029） |
+| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.70%**（5014/5029，2026-09-27 复测；期 5 收官时为 99.7%，功能代码增长摊低后经 `main.go:556`、`client.go:197` 两条 seam 升格实测回到同一水位；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
-| 残余零块 | **10 块**（2026-09-27 go1.26.2 实测，全部命中台账）。台账共登记 **11 条**——原 `registerRemoteWorker` 读 ack 的 `SetReadDeadline` 失败分支（`main.go:556`）已按 worker-sdk `writeControl` 同款先例提为包级 seam `setReadDeadline`，由 `TestRegisterRemoteWorkerReadDeadlineFailure` 实测升格并移出台账；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 `Manager.Get` 契约守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块 `SetReadDeadline` 转发失败（清 ack 截止时间）、1 块双检命中 |
+| 残余零块 | **9 块**（2026-09-27 go1.26.2 实测，全部命中台账）。台账共登记 **10 条**——`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）与 worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）两处 `SetReadDeadline` 失败分支已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 `Manager.Get` 契约守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
+| **前端分支覆盖（dashboard/）** | **100%**（260/260，2026-09-27 实测；上期 97.69%，本轮补齐 6 个分支后满口径）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
@@ -66,7 +67,14 @@
 1. **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法依赖 `ReactDOM.render`（React 19 已移除），必须调用 `unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx` + `src/test/setup.ts` 双处）。
 2. **SendPage 渲染期副作用死循环**：`if (providers.length === 0) fetchProviders()` 写在渲染体内，zustand 每次 `set` 都换 state 引用，形成「set → 重渲染 → 再 fetch」无限循环；已移入 `useEffect` 空依赖数组。
 
-`src/test/setup.ts` 另有一处不漏工作就测不干净的地方：注入的静态渲染器若不把 `createRoot().render()` 包进 `act()`，这次调度会漏到用例之外，由 scheduler 的 `processImmediate`（宏任务）在 **vitest 销毁 jsdom 之后**才冲刷，触发处 `window` 已不存在，抛 unhandled `ReferenceError`。它发生在覆盖率统计**之后**，所以行覆盖仍是 100%、门禁照样通过，vitest 却以 exit code 1 收场——**覆盖门禁抓不到这类泄漏**，只有 unhandled-error 报告能。因此 `render`/`unmount` 都包 `act`，`afterEach` 再用两轮 `act` + 定时器（`0` 与 `20ms`，后者跨过 rc-motion 的 rAF 兜底窗口）把 scheduler 与动画帧排空后才交还环境。
+`src/test/setup.ts` 另有一处不漏工作就测不干净的地方：注入的静态渲染器若不把 `createRoot().render()` 包进 `act()`，这次调度会漏到用例之外，由 scheduler 的 `processImmediate`（宏任务）在 **vitest 销毁 jsdom 之后**才冲刷，触发处 `window` 已不存在，抛 unhandled `ReferenceError`。它发生在覆盖率统计**之后**，所以行覆盖仍是 100%、门禁照样通过，vitest 却以 exit code 1 收场——**覆盖门禁抓不到这类泄漏**，只有 unhandled-error 报告能。
+
+修法分两层，缺一层都会漏：
+
+1. **`render`/`unmount` 都包 `act`**——否则这次 `createRoot().render()` 的调度工作从一开始就在用例作用域之外；
+2. **注入渲染器登记每个 root，`afterAll` 逐个 `root.unmount()`（同样包 `act`）**——unmount 同步冲刷并作废该 root 名下所有已排程工作，之后 scheduler 再无可为该 root 触发的回调，收尾是**确定性**的。
+
+只做第 1 层加 `afterEach` 定时排空（两轮 `act` + `0`/`20ms` 定时器，跨 rc-motion 的 rAF 兜底窗口）是**赌帧时机**：CI 上调度慢一点，immediate 就排在 flush 之后、环境销毁之后，照样抛 `window is not defined`——`23e8dc8`/`2c9f164` 两期 CI 红（3 处 unhandled error）正是这么来的，本地三轮并行复跑全绿也没能提前发现。`afterEach` 的定时排空仍保留（按用例回收动画帧，避免跨用例残留），但**不再承担收尾职责**；收尾只认第 2 层的确定性卸载。
 
 ### 前端分支覆盖补齐的最后一轮（97.69% → 100%）
 
@@ -75,7 +83,7 @@
 | 位置 | 分支 | 之前的错误定性 | 实际处理 |
 | --- | --- | --- | --- |
 | `src/pages/GroupsPage.tsx:56` | `values.members \|\| []` 右支 | 契约防御，当下限不到 | 把换算提为导出的纯函数 `toGroupPayload`，直测 `members: undefined` 把右支语义固定成可断言行为；组件内只留调用 |
-| `src/pages/LogsPage.tsx:104` | `l ? <Tag> : '-'` 的 `:` 支 | **v8 分支归属偏差**（误判） | 真凶是**用例自己没等数据**：`render()` 后同步 `querySelector`，行尚未渲染，`find` 返回 `undefined` 而 `not.toBeNull()` 对 `undefined` 也通过——用例一直是空转。改用 `waitFor` 真等出短横线。当时判定保持内联不动；后续收尾把该判定提为模块级导出的 `renderLevel`（语义不变，两支仍由这两条渲染用例真执行） |
+| `src/pages/LogsPage.tsx:104` | `l ? <Tag> : '-'` 的 `:` 支 | **v8 分支归属偏差**（误判） | 真凶是**用例自己没等数据**：`render()` 后同步 `querySelector`，行尚未渲染，`find` 返回 `undefined` 而 `not.toBeNull()` 对 `undefined` 也通过——用例一直是空转。改用 `waitFor` 真等出短横线。该判定已提为模块级导出的 `renderLevel`（语义不变，两支由这两条渲染用例真执行） |
 | `src/pages/ProviderConfigPage.tsx:30,33` | `schema \|\| {}` 右支 | 契约防御 | 原有用例注释写「omits the schema field」，实际传的是 `schema: {}`（有键但空，走 `||` 左支）。改为真正省略该键 |
 | `src/pages/ProviderConfigPage.tsx:71,96` | 保存/测试连接的 `token ? ... : {}` 假支 | 契约防御 | 原用例只覆盖了加载请求，没点按钮。补「无 token 时点保存 / 点测试通知」，断言请求头为空对象 |
 
@@ -99,4 +107,4 @@
 3. 断言某个元素/分支真的出现过，就用 `waitFor` + `not.toBeUndefined()` 或 `findBy*`；`not.toBeNull()` 对 `undefined` 也通过，等于没断言。**判定「不可达」前先确认路径真的被执行过**——本轮就有一处把「用例空转」误判成「v8 归属偏差」。
 4. 新增 `main()` 或常驻进程入口时，同步补 GOCOVERDIR 子进程守卫测试。
 5. 阈值只随实测水位上调，不预留缓冲；任何人引入未测代码，CI 会立即拦下。
-6. 覆盖率门禁只管「测没测到」，**不管「测干不干净」**：逃到环境销毁之后的异步工作（未被 `act` 收口的渲染、动画帧回调）会以 unhandled error 让 vitest 非零退出，但行覆盖仍显示 100%。给异步副作用补用例时，同步确认它落在 `act` 作用域内；否则以 unhandled-error 报告为准，别被绿色覆盖率骗过去。
+6. 覆盖率门禁只管「测没测到」，**不管「测干不干净」**：逃到环境销毁之后的异步工作（未被 `act` 收口的渲染、动画帧回调）会以 unhandled error 让 vitest 非零退出，但行覆盖仍显示 100%。给异步副作用补用例时，同步确认它落在 `act` 作用域内；否则以 unhandled-error 报告为准，别被绿色覆盖率骗过去。新增渲染 seam 沿用 `setup.ts` 的既有模式：**登记每个创建的 root、`afterAll` 确定性卸载**——定时排空只是辅助，别把收尾职责交还给帧时机。

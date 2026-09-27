@@ -37,12 +37,11 @@
 
 ## worker-sdk/go/client.go
 
-- `github.com/cuihairu/herald/worker-sdk/go/client.go:197` — `conn.SetReadDeadline(time.Time{})`（清 ack 截止时间）的失败分支。gorilla 的 `SetReadDeadline` 直接转发给底层 `net.Conn`，只在**客户端自己的** conn 已关闭时失败；而 register 在读完 ack 与清 deadline 之间不关闭任何连接（此处也无包级 seam 可注入）。要到它必须先在那个位置加 seam，属于改设计而非补测试。
 - `github.com/cuihairu/herald/worker-sdk/go/client.go:275` — `writeControl` 里 `conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不会返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。真实传输失败由 `WriteMessage` 返回，已由 `TestRegisterWriteControlFailure` 覆盖。
 
-> 登记行号会被注释改动顶掉：本文件里 `client.go:197`、`client.go:275`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.2，见页首纪律），别只看测试是否通过。
+> 登记行号会被注释改动顶掉：本文件里 `client.go:275`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.2，见页首纪律），别只看测试是否通过。
 
-> 对照：`client.go:175` 那个**形状看起来一样**的 `SetReadDeadline` 失败分支一度也躺在本台账里，其实是可达的——`writeControl` 是包级变量，测试可以注入"报告成功但先 Close 掉连接"的实现，它转发的 `net.Conn` 随即返回 `use of closed network connection`。已由 `TestRegisterReadDeadlineFailsOnClosedConn` 实测覆盖并移出台账。教训是别按"形状像"登记：先查被调方在目标版本下的真实实现（`SetWriteDeadline` 恒 nil、`SetReadDeadline` 转发），再判断有没有可达路径。同款模式第二次应用：`cmd/heraldd/main.go` 的 `registerRemoteWorker` 读 ack 的 `SetReadDeadline` 失败分支（原登记 `main.go:556`）已于 2026-09-27 提出包级 seam `setReadDeadline`、由 `TestRegisterRemoteWorkerReadDeadlineFailure` 注入失败实测覆盖并移出台账。
+> 对照：`client.go:175` 那个**形状看起来一样**的 `SetReadDeadline` 失败分支一度也躺在本台账里，其实是可达的——`writeControl` 是包级变量，测试可以注入"报告成功但先 Close 掉连接"的实现，它转发的 `net.Conn` 随即返回 `use of closed network connection`。已由 `TestRegisterReadDeadlineFailsOnClosedConn` 实测覆盖并移出台账。教训是别按"形状像"登记：先查被调方在目标版本下的真实实现（`SetWriteDeadline` 恒 nil、`SetReadDeadline` 转发），再判断有没有可达路径。同款模式已应用两次：`cmd/heraldd/main.go` 的 `registerRemoteWorker` 读 ack 的 `SetReadDeadline` 失败分支（原登记 `main.go:556`）与本条目同族——本文件原登记的 `client.go:197`（清 ack 截止时间）已于 2026-09-27 各提出包级 seam `setReadDeadline`、由 `TestRegisterRemoteWorkerReadDeadlineFailure` / `TestRegisterClearDeadlineFailure` 注入失败实测覆盖并移出台账。"缺 seam"从来不是死因，是待办。
 
 ## worker-sdk/go/example/main.go
 

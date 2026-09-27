@@ -209,13 +209,20 @@ func TestReadRemoteWorkerMessagesCancel(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
+	// Cancel before the reader starts so its first loop iteration observes
+	// the cancelled context. Cancelling after launching the goroutine would
+	// race with its first ReadMessage: nothing wakes a read in progress
+	// (production shuts down by closing the conn, covered by
+	// TestReadRemoteWorkerMessages), so a reader that wins the race blocks
+	// until the deadline and fails the test. With the context cancelled
+	// first, the exit path is deterministic and the conn is never touched.
 	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	done := make(chan struct{})
 	go func() {
 		readRemoteWorkerMessages(ctx, conn)
 		close(done)
 	}()
-	cancel()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):

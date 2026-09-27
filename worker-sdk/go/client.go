@@ -192,9 +192,9 @@ func (c *Client) register(ctx context.Context) error {
 		_ = conn.Close()
 		return fmt.Errorf("register rejected: %s", ack.Error)
 	}
-	// Clear the ack deadline; the read loop runs without one.
-	// Defensive: the live connection makes this deadline always settable.
-	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+	// Clear the ack deadline; the read loop runs without one. The failure
+	// arm is pinned through the setReadDeadline seam (see below).
+	if err := setReadDeadline(conn, time.Time{}); err != nil {
 		_ = conn.Close()
 		return err
 	}
@@ -277,6 +277,12 @@ var writeControl = func(conn *gws.Conn, msg protocol.Message) error {
 	}
 	return conn.WriteMessage(gws.TextMessage, payload)
 }
+
+// setReadDeadline is a package-level seam (same pattern as writeControl and
+// cmd/heraldd's setReadDeadline): gorilla forwards it to net.Conn, which never
+// fails on the freshly acked live conn — so without injection the clear-the-
+// ack-deadline failure arm in register is not testable at all.
+var setReadDeadline = func(conn *gws.Conn, t time.Time) error { return conn.SetReadDeadline(t) }
 
 // consumeLoop pops tasks from the queue and processes them
 func (c *Client) consumeLoop(ctx context.Context) {
