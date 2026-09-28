@@ -93,6 +93,17 @@ func TestGetProviderNotFound(t *testing.T) {
 	}
 }
 
+func TestLookupEnabledNotFound(t *testing.T) {
+	m := NewManager(100)
+	_, err := m.lookupEnabled("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for non-existent provider")
+	}
+	if err.Error() != "provider not found: nonexistent" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestDeliver(t *testing.T) {
 	m := NewManager(100)
 	p := &mockProvider{name: "test", status: &core.ProviderStatus{Name: "test"}}
