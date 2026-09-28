@@ -48,8 +48,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
 ```
 
 ### Worker Provider

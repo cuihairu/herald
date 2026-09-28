@@ -40,8 +40,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
       # 可选：自建 Bot API 服务器或镜像（默认 https://api.telegram.org）
       # api_url: "https://my-bot-api.example.com"
 
@@ -50,7 +50,7 @@ providers:
     type: feishu
     enabled: false
     config:
-      webhook_url: "${FEISHU_WEBHOOK_URL}"
+      webhook_url: "$FEISHU_WEBHOOK_URL"
       # 可选：卡片模式（投递告警时发带「确认告警」按钮的交互卡片，
       # 需配合 card_callback 回调端点，见「飞书卡片按钮回调（P3）」）
       # interactive_cards: true
@@ -60,32 +60,32 @@ providers:
     type: wecom
     enabled: false
     config:
-      webhook_url: "${WECOM_WEBHOOK_URL}"
+      webhook_url: "$WECOM_WEBHOOK_URL"
 
   # 钉钉
   dingtalk:
     type: dingtalk
     enabled: false
     config:
-      access_token: "${DINGTALK_ACCESS_TOKEN}"
-      secret: "${DINGTALK_SECRET}"
+      access_token: "$DINGTALK_ACCESS_TOKEN"
+      secret: "$DINGTALK_SECRET"
 
   # Slack
   slack:
     type: slack
     enabled: false
     config:
-      webhook_url: "${SLACK_WEBHOOK_URL}"
+      webhook_url: "$SLACK_WEBHOOK_URL"
 
   # Discord
   discord:
     type: discord
     enabled: false
     config:
-      webhook_url: "${DISCORD_WEBHOOK_URL}"
+      webhook_url: "$DISCORD_WEBHOOK_URL"
       # 或使用 bot API
-      bot_token: "${DISCORD_BOT_TOKEN}"
-      channel_id: "${DISCORD_CHANNEL_ID}"
+      bot_token: "$DISCORD_BOT_TOKEN"
+      channel_id: "$DISCORD_CHANNEL_ID"
       # 可选：自建/代理 Bot API（默认 https://discord.com/api/v10）
       # api_url: "https://my-discord-api.example.com"
 
@@ -96,9 +96,9 @@ providers:
     config:
       host: "smtp.gmail.com"
       port: 587
-      username: "${EMAIL_USERNAME}"
-      password: "${EMAIL_PASSWORD}"
-      from: "${EMAIL_FROM}"
+      username: "$EMAIL_USERNAME"
+      password: "$EMAIL_PASSWORD"
+      from: "$EMAIL_FROM"
       from_name: "Herald"
 
   # Webhook
@@ -106,7 +106,7 @@ providers:
     type: webhook
     enabled: false
     config:
-      url: "${WEBHOOK_URL}"
+      url: "$WEBHOOK_URL"
       method: "POST"
 
   # 阿里云短信
@@ -114,9 +114,9 @@ providers:
     type: aliyunsms
     enabled: false
     config:
-      access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
-      access_key_secret: "${ALIYUN_ACCESS_KEY_SECRET}"
-      sign_name: "${ALIYUN_SMS_SIGN_NAME}"
+      access_key_id: "$ALIYUN_ACCESS_KEY_ID"
+      access_key_secret: "$ALIYUN_ACCESS_KEY_SECRET"
+      sign_name: "$ALIYUN_SMS_SIGN_NAME"
       region: "cn-hangzhou"
 
   # 腾讯云短信
@@ -124,9 +124,9 @@ providers:
     type: tencentsms
     enabled: false
     config:
-      secret_id: "${TENCENT_SECRET_ID}"
-      secret_key: "${TENCENT_SECRET_KEY}"
-      app_id: "${TENCENT_SMS_APP_ID}"
+      secret_id: "$TENCENT_SECRET_ID"
+      secret_key: "$TENCENT_SECRET_KEY"
+      app_id: "$TENCENT_SMS_APP_ID"
       region: "ap-guangzhou"
 
   # 网易云信短信
@@ -134,15 +134,15 @@ providers:
     type: neteasesms
     enabled: false
     config:
-      app_key: "${NETEASE_APP_KEY}"
-      app_secret: "${NETEASE_APP_SECRET}"
+      app_key: "$NETEASE_APP_KEY"
+      app_secret: "$NETEASE_APP_SECRET"
 
   # 微信个人推送（Server酱）
   wechat:
     type: wechat
     enabled: false
     config:
-      sendkey: "${WECHAT_SENDKEY}"
+      sendkey: "$WECHAT_SENDKEY"
 
 # 路由配置
 routes:
@@ -258,7 +258,7 @@ rules:
 # encrypt_key 是飞书开放平台配置回调时生成的「Encrypt Key」：
 # 加密回调用它解密；不配置时加密回调被拒（明文回调与 URL 验证挑战不受影响）。
 # card_callback:
-#   encrypt_key: "${FEISHU_ENCRYPT_KEY}"
+#   encrypt_key: "$FEISHU_ENCRYPT_KEY"
 
 # Provider 限流（可选，token bucket）
 # 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
@@ -344,8 +344,8 @@ providers:
     type: builtin
     enabled: true
     config:
-      app_id: "${WECHAT_APP_ID}"
-      app_secret: "${WECHAT_APP_SECRET}"
+      app_id: "$WECHAT_APP_ID"
+      app_secret: "$WECHAT_APP_SECRET"
 ```
 
 ## 队列配置说明
@@ -372,14 +372,16 @@ providers:
 
 ## 环境变量
 
-支持使用 `${VAR_NAME}` 引用环境变量：
+provider config 里以 `$` 开头的字符串值会在加载时展开为同名环境变量的值：
 
 ```yaml
 providers:
   telegram:
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
+      token: "$TELEGRAM_BOT_TOKEN"
 ```
+
+> 注意：`"${VAR_NAME}"` 带花括号的写法**不会被展开**——Herald 按首个 `$` 之后的全部字符作为变量名查找（即 `{VAR_NAME}`），找不到时原样保留。请使用 `$VAR_NAME` 形式。
 
 ## 规则配置说明
 

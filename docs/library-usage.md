@@ -92,7 +92,7 @@ cfg := config.Default()   // 代码内改字段
 cfg, err := config.Load("herald.yaml") // 从 YAML 文件读取
 ```
 
-`config.Config` 的字段与 CLI 形态的配置文件完全一致（`Server`、`Providers`、`Routes`、`Queue`、`Retry`、`Dedup`、`Templates` 等），因此同一份 YAML 既可用于 `cmd/heraldd` 也可用于库形态。库形态下 `Server`/`WebSocket`/`Auth` 等面向 HTTP 服务的字段不生效，忽略即可。另有 `cfg.ExpandEnv()`（展开 `${VAR}` 环境变量）与 `cfg.Validate()` 可按需调用。
+`config.Config` 的字段与 CLI 形态的配置文件完全一致（`Server`、`Providers`、`Routes`、`Queue`、`Retry`、`Dedup`、`Templates` 等），因此同一份 YAML 既可用于 `cmd/heraldd` 也可用于库形态。库形态下 `Server`/`WebSocket`/`Auth` 等面向 HTTP 服务的字段不生效，忽略即可。另有 `cfg.ExpandEnv()`（展开 `$VAR` 形式的环境变量）与 `cfg.Validate()` 可按需调用。
 
 渠道声明示例：
 

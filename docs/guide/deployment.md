@@ -37,8 +37,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
 ```
 
 ## 分布式部署
@@ -74,8 +74,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
 ```
 
 ### Worker 节点
@@ -103,8 +103,8 @@ providers:
     type: builtin
     enabled: true
     config:
-      app_id: "${WECHAT_APP_ID}"
-      app_secret: "${WECHAT_APP_SECRET}"
+      app_id: "$WECHAT_APP_ID"
+      app_secret: "$WECHAT_APP_SECRET"
 ```
 
 ## Docker 部署

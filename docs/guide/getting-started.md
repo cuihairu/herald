@@ -58,8 +58,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
 
   # 邮件
   email:
@@ -68,8 +68,8 @@ providers:
     config:
       host: "smtp.example.com"
       port: 587
-      username: "${EMAIL_USER}"
-      password: "${EMAIL_PASS}"
+      username: "$EMAIL_USER"
+      password: "$EMAIL_PASS"
       from: "notify@example.com"
 
 routes:

@@ -21,9 +21,9 @@ providers:
     type: wechatmp
     enabled: true
     config:
-      app_id: "${WECHATMP_APP_ID}"
-      app_secret: "${WECHATMP_APP_SECRET}"
-      template_id: "${WECHATMP_TEMPLATE_ID}"
+      app_id: "$WECHATMP_APP_ID"
+      app_secret: "$WECHATMP_APP_SECRET"
+      template_id: "$WECHATMP_TEMPLATE_ID"
       default_url: "https://your-domain.com"
 ```
 

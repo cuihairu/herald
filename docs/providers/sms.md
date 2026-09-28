@@ -20,8 +20,8 @@ providers:
     type: builtin
     enabled: true
     config:
-      access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
-      access_key_secret: "${ALIYUN_ACCESS_KEY_SECRET}"
+      access_key_id: "$ALIYUN_ACCESS_KEY_ID"
+      access_key_secret: "$ALIYUN_ACCESS_KEY_SECRET"
       sign_name: "您的签名"
       region: "cn-hangzhou"
 ```
@@ -34,8 +34,8 @@ providers:
     type: builtin
     enabled: true
     config:
-      secret_id: "${TENCENT_SECRET_ID}"
-      secret_key: "${TENCENT_SECRET_KEY}"
+      secret_id: "$TENCENT_SECRET_ID"
+      secret_key: "$TENCENT_SECRET_KEY"
       app_id: "您的短信应用ID"
       region: "ap-guangzhou"
 ```
@@ -48,8 +48,8 @@ providers:
     type: builtin
     enabled: true
     config:
-      app_key: "${NETEASE_APP_KEY}"
-      app_secret: "${NETEASE_APP_SECRET}"
+      app_key: "$NETEASE_APP_KEY"
+      app_secret: "$NETEASE_APP_SECRET"
 ```
 
 ## 使用示例

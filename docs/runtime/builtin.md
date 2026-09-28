@@ -60,8 +60,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
       parse_mode: "markdown"  # 可选: markdown, html
 ```
 
@@ -82,8 +82,8 @@ providers:
     type: feishu
     enabled: false
     config:
-      webhook_url: "${FEISHU_WEBHOOK_URL}"
-      sign_secret: "${FEISHU_SIGN_SECRET}"  # 可选
+      webhook_url: "$FEISHU_WEBHOOK_URL"
+      sign_secret: "$FEISHU_SIGN_SECRET"  # 可选
 ```
 
 **环境变量：**
@@ -103,9 +103,9 @@ providers:
     type: wecom
     enabled: false
     config:
-      webhook_url: "${WECOM_WEBHOOK_URL}"
+      webhook_url: "$WECOM_WEBHOOK_URL"
       # 或使用 key
-      key: "${WECOM_KEY}"
+      key: "$WECOM_KEY"
 ```
 
 **环境变量：**
@@ -125,8 +125,8 @@ providers:
     type: dingtalk
     enabled: false
     config:
-      access_token: "${DINGTALK_ACCESS_TOKEN}"
-      secret: "${DINGTALK_SECRET}"
+      access_token: "$DINGTALK_ACCESS_TOKEN"
+      secret: "$DINGTALK_SECRET"
 ```
 
 ### Slack Provider
@@ -141,7 +141,7 @@ providers:
     type: slack
     enabled: false
     config:
-      webhook_url: "${SLACK_WEBHOOK_URL}"
+      webhook_url: "$SLACK_WEBHOOK_URL"
 ```
 
 ### Discord Provider
@@ -156,10 +156,10 @@ providers:
     type: discord
     enabled: false
     config:
-      webhook_url: "${DISCORD_WEBHOOK_URL}"
+      webhook_url: "$DISCORD_WEBHOOK_URL"
       # 或使用 bot API
-      bot_token: "${DISCORD_BOT_TOKEN}"
-      channel_id: "${DISCORD_CHANNEL_ID}"
+      bot_token: "$DISCORD_BOT_TOKEN"
+      channel_id: "$DISCORD_CHANNEL_ID"
 ```
 
 ### Email Provider
@@ -176,9 +176,9 @@ providers:
     config:
       host: "smtp.gmail.com"
       port: 587
-      username: "${EMAIL_USERNAME}"
-      password: "${EMAIL_PASSWORD}"
-      from: "${EMAIL_FROM}"
+      username: "$EMAIL_USERNAME"
+      password: "$EMAIL_PASSWORD"
+      from: "$EMAIL_FROM"
       from_name: "Herald"
 ```
 
@@ -225,10 +225,10 @@ providers:
     type: webhook
     enabled: false
     config:
-      url: "${WEBHOOK_URL}"
+      url: "$WEBHOOK_URL"
       method: "POST"
       headers:
-        Authorization: "Bearer ${TOKEN}"
+        Authorization: "Bearer your_webhook_token"
 ```
 
 **发送格式：**
@@ -255,9 +255,9 @@ providers:
     type: aliyunsms
     enabled: false
     config:
-      access_key_id: "${ALIYUN_ACCESS_KEY_ID}"
-      access_key_secret: "${ALIYUN_ACCESS_KEY_SECRET}"
-      sign_name: "${ALIYUN_SMS_SIGN_NAME}"
+      access_key_id: "$ALIYUN_ACCESS_KEY_ID"
+      access_key_secret: "$ALIYUN_ACCESS_KEY_SECRET"
+      sign_name: "$ALIYUN_SMS_SIGN_NAME"
       region: "cn-hangzhou"
 ```
 
@@ -269,9 +269,9 @@ providers:
     type: tencentsms
     enabled: false
     config:
-      secret_id: "${TENCENT_SECRET_ID}"
-      secret_key: "${TENCENT_SECRET_KEY}"
-      app_id: "${TENCENT_SMS_APP_ID}"
+      secret_id: "$TENCENT_SECRET_ID"
+      secret_key: "$TENCENT_SECRET_KEY"
+      app_id: "$TENCENT_SMS_APP_ID"
       region: "ap-guangzhou"
 ```
 
@@ -283,8 +283,8 @@ providers:
     type: neteasesms
     enabled: false
     config:
-      app_key: "${NETEASE_APP_KEY}"
-      app_secret: "${NETEASE_APP_SECRET}"
+      app_key: "$NETEASE_APP_KEY"
+      app_secret: "$NETEASE_APP_SECRET"
 ```
 
 ### WeChat Provider
@@ -297,7 +297,7 @@ providers:
     type: wechat
     enabled: false
     config:
-      sendkey: "${WECHAT_SENDKEY}"
+      sendkey: "$WECHAT_SENDKEY"
 ```
 
 ## 自定义 Builtin Provider

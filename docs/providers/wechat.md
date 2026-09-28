@@ -23,7 +23,7 @@ providers:
     type: wechat
     enabled: true
     config:
-      sendkey: "${WECHAT_SENDKEY}"
+      sendkey: "$WECHAT_SENDKEY"
 ```
 
 ### PushPlus
@@ -37,7 +37,7 @@ providers:
     type: wechat
     enabled: true
     config:
-      sendkey: "${WECHAT_PUSHPLUS_TOKEN}"
+      sendkey: "$WECHAT_PUSHPLUS_TOKEN"
 ```
 
 ### WxPusher
@@ -52,8 +52,8 @@ providers:
     type: wechat
     enabled: true
     config:
-      sendkey: "${WECHAT_WXPUSHER_APP_TOKEN}"
-      uid: "${WECHAT_WXPUSHER_UID}"  # 可选，不填则发送给所有订阅者
+      sendkey: "$WECHAT_WXPUSHER_APP_TOKEN"
+      uid: "$WECHAT_WXPUSHER_UID"  # 可选，不填则发送给所有订阅者
 ```
 
 ## 使用示例
