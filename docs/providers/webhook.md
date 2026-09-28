@@ -1,26 +1,24 @@
 # Webhook (通用 HTTP 回调)
 
-通过标准 HTTP 请求将通知推送到任意 HTTP 端点，适配自建服务、第三方平台、Serverless 函数等一切能接收 HTTP 的下游。
+将通知以 JSON 形式 POST/PUT 到任意 HTTP 端点。
 
 ## 作用
 
-`webhook` Builtin Provider 将 Herald 的通知内容序列化为 JSON，按配置的 HTTP Method 与 Headers 发送到指定 URL。适合对接内部运维平台、钉钉/飞书自定义机器人（非 SDK 模式）、Prometheus Alertmanager、Serverless 函数、自研告警中心等场景。
+`webhook` Builtin Provider 把 Herald 通知封装为统一 JSON 载荷，发送到配置的 `url`。适合对接自建告警平台、IM 机器人、CI/CD 系统、Serverless 函数等任意 HTTP 接收端。
 
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |
 |----|------|------|--------|
-| `url` | ✅ | 目标 HTTP 端点完整地址（含 scheme、host、path、query） | 无 |
-| `method` | ❌ | HTTP 方法：`POST` / `PUT` / `GET` / `DELETE` | `POST` |
-| `headers` | ❌ | 自定义请求头（YAML 映射 `key: value`） | 空 |
+| `url` | ✅ | 目标 HTTP 端点（完整 URL，含 scheme） | 无 |
+| `method` | ❌ | HTTP 方法：`POST`、`PUT`、`GET`、`DELETE` | `POST` |
+| `headers` | ❌ | 自定义请求头（`map[string]string`） | 空 |
 
-缺 `url` 时 Provider 创建即失败（`webhook: url is required`），启动日志可见。
+缺 `url` 时 Provider 创建即失败（`webhook: url is required`）。
 
-> ⚠️ **Headers 不参与环境变量展开**：`config.yaml` 中 `headers` 下的值为字面字符串，**不会**被 `$VAR` 替换。如需在 Header 中传递 Token，请在下游侧通过查询参数或请求体携带，或由 Worker Provider 动态组装。
+> ⚠️ `headers` 为 `map[string]string`，YAML 写法示例见下。**headers 不参与环境变量展开**（`ExpandEnv` 仅处理顶层字符串值），请直接写字面值或在应用层注入。
 
 ## 配置示例
-
-### 基础 POST JSON（最常用）
 
 ```yaml
 providers:
@@ -29,38 +27,11 @@ providers:
     enabled: true
     config:
       url: "$WEBHOOK_URL"
-      method: "POST"
-      headers:
-        Content-Type: "application/json"
+      method: "POST"                       # 可选：POST / PUT / GET / DELETE
+      headers:                             # 可选：自定义请求头
+        Authorization: "Bearer your-token" # 字面值，不展开环境变量
         X-Source: "herald"
-```
-
-### 自建告警平台（Bearer Token 在 URL query 中）
-
-```yaml
-providers:
-  alert-center:
-    type: webhook
-    enabled: true
-    config:
-      url: "https://alert.example.com/api/v1/ingest?token=$ALERT_CENTER_TOKEN"
-      method: "POST"
-      headers:
-        Content-Type: "application/json"
-```
-
-### 兼容 Alertmanager Webhook 格式
-
-```yaml
-providers:
-  alertmanager:
-    type: webhook
-    enabled: true
-    config:
-      url: "http://alertmanager:9093/api/v2/alerts"
-      method: "POST"
-      headers:
-        Content-Type: "application/json"
+        Content-Type: "application/json"   # POST/PUT 默认已设为 application/json
 ```
 
 ## 环境变量
@@ -69,66 +40,80 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 
 | 环境变量 | 对应配置项 | 说明 |
 |----------|-----------|------|
-| `WEBHOOK_URL` | `url` | 目标 HTTP 端点（含 query 参数时整体写入） |
+| `WEBHOOK_URL` | `url` | 目标 HTTP 端点（`.env.example` 惯用名） |
 
-`method` 与 `headers` 的值通常为字面常量，**不建议**用环境变量。
+> ⚠️ `method`、`headers` 通常不含敏感信息，可直接写在配置文件中。
 
 ## 消息模板与限制
 
-### 请求体（POST / PUT）
+### 载荷结构 (WebhookPayload)
 
 ```json
 {
   "id": "task-uuid",
   "provider": "webhook",
   "level": "warning",
-  "targets": ["ops-team"],
+  "targets": ["group:ops", "user:alice"],
   "timestamp": "2026-09-28T12:34:56+08:00",
-  "title": "CPU 使用率超过 90%",
-  "body": "服务器 node-01 持续 5 分钟负载过高",
-  "raw": {}
+  "title": "服务器告警",
+  "body": "CPU 使用率超过 90%",
+  "raw": { "custom": "field" }
 }
 ```
 
-- 字段来源：`task.ID`、`task.Provider`、`task.Level`、`task.Targets`、`task.CreatedAt` (RFC3339)、`task.Payload.Content.Title/Body`、`task.Payload.Raw`
-- `Content-Type: application/json` 由 `headers` 控制，默认不自动添加
+| 字段 | 来源 |
+|------|------|
+| `id` | `task.ID` |
+| `provider` | `task.Provider` |
+| `level` | `task.Level` |
+| `targets` | `task.Targets` |
+| `timestamp` | `task.CreatedAt` (RFC3339) |
+| `title` | `task.Payload.Content.Title` |
+| `body` | `task.Payload.Content.Body` |
+| `raw` | `task.Payload.Raw`（透传原始字段） |
 
-### GET / DELETE
+### HTTP 行为
 
-当前实现**仅支持 POST / PUT 发送 JSON**（其他方法返回 `method {method} not yet implemented`）。
+- **POST / PUT**: 以 `application/json` 发送上述 JSON，`Content-Type: application/json` 自动设置（可被 `headers` 覆盖）
+- **GET / DELETE**: **尚未实现**（返回 `method {method} not yet implemented`），仅 POST/PUT 可用
+- 响应体不解析；仅记录响应日志（`httpclient.LogResponse`）
+- 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
+
+### 限制
+
+- 仅 `POST`/`PUT` 实际可用
+- 无签名/防重放机制（如需安全性，请在接收端校验 `Authorization` 或 IP 白名单）
+- 载荷大小受 HTTP 客户端/服务端限制（建议单条 < 1MB）
 
 ### 能力声明
 
-- `PayloadKinds`: `content`（标准 title/body）+ `raw`（透传 `task.Payload.Raw`）
+- `PayloadKinds`: `Content`、`Raw`
 - `ContentFormats`: `json`
-
-### 限制说明
-
-| 限制项 | 说明 |
-|--------|------|
-| **仅 POST/PUT 可用** | GET/DELETE 返回未实现错误 |
-| **超时** | 底层 `httpclient.Client` 默认 30s；429/5xx 走统一重试 |
-| **响应体** | 仅记录日志（`httpclient.LogResponse`），不做业务校验 |
-| **Headers 字面量** | 环境变量不展开，敏感信息勿写在 headers |
-| **证书验证** | 使用系统 CA 池；自签证书需在 OS 层面信任或用 Worker 侧控制 |
 
 ## 常见错误
 
 | 错误 | 原因与处理 |
 |------|-----------|
 | `webhook: url is required` | 未配置 `url` |
-| `method GET not yet implemented` | 仅 POST/PUT 支持发送 JSON |
-| `unexpected status code: 401, body: …` | 下游鉴权失败，检查 Token/签名 |
-| `unexpected status code: 404, body: …` | URL 路径错误 |
-| `unexpected status code: 500, body: …` | 下游服务异常，查看下游日志 |
-| `Post …: dial tcp: timeout` | 网络不通、防火墙、或下游超时 |
-| `Post …: x509: certificate signed by unknown authority` | 自签证书未被信任 |
+| `method GET not yet implemented` | 使用了 GET/DELETE，请改用 POST 或 PUT |
+| `unexpected status code: 401` | 目标端点返回 401，检查 `headers.Authorization` |
+| `unexpected status code: 403` | 目标端点返回 403，检查 IP 白名单/签名校验 |
+| `unexpected status code: 404` | `url` 路径错误 |
+| `unexpected status code: 500` | 目标端点内部错误，查看对端日志 |
+| `context deadline exceeded` | 请求超时（默认 30s），检查网络/目标端点性能 |
+| `connection refused` | 目标主机/端口不可达 |
 
-错误格式：HTTP 非 2xx → `unexpected status code: {code}, body: {body}`；网络/HTTP 错误走统一重试。
+错误格式说明：HTTP 非 2xx 返回 `unexpected status code: {code}, body: {response body}`；网络/超时错误由 `httpclient` 包装。
+
+## 安全建议
+
+1. **HTTPS**：生产环境必须使用 `https://` 端点
+2. **认证**：在 `headers` 配置 `Authorization: Bearer <token>` 或 `X-Api-Key`，接收端校验
+3. **IP 白名单**：接收端限制仅 Herald 所在 IP 段访问
+4. **幂等**：接收端按 `id` 去重（Herald 重试会带相同 `id`）
 
 ## 下一步
 
 - [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
 - [Email](./email.md) - SMTP 邮件通道
 - [Log](./log.md) - 本地调试输出
-- [Worker Runtime](/runtime/worker) - 复杂逻辑请用 Worker Provider
