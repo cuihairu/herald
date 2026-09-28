@@ -8,14 +8,14 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhoo
 
 | Provider | 说明 | 状态 |
 |----------|------|------|
-| `telegram` | Telegram Bot | ✅ |
-| `feishu` | 飞书机器人 | ✅ |
-| `wecom` | 企业微信机器人 | ✅ |
+| [`telegram`](./telegram.md) | Telegram Bot | ✅ |
+| [`feishu`](./feishu.md) | 飞书机器人 | ✅ |
+| [`wecom`](./wecom.md) | 企业微信机器人 | ✅ |
 | `wechat` | 微信个人推送 (ServerChan/PushPlus/WxPusher) | ✅ |
 | `wechatmp` | 微信公众号模板消息 | ✅ |
-| `dingtalk` | 钉钉机器人 | ✅ |
-| `slack` | Slack | ✅ |
-| `discord` | Discord | ✅ |
+| [`dingtalk`](./dingtalk.md) | 钉钉机器人 | ✅ |
+| [`slack`](./slack.md) | Slack | ✅ |
+| [`discord`](./discord.md) | Discord | ✅ |
 
 ### 邮件
 

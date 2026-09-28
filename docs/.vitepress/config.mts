@@ -74,6 +74,12 @@ export default defineConfig({
           text: 'Providers',
           items: [
             { text: '概述', link: '/providers/overview' },
+            { text: 'Telegram', link: '/providers/telegram' },
+            { text: '飞书', link: '/providers/feishu' },
+            { text: '企业微信', link: '/providers/wecom' },
+            { text: '钉钉', link: '/providers/dingtalk' },
+            { text: 'Slack', link: '/providers/slack' },
+            { text: 'Discord', link: '/providers/discord' },
             { text: '微信个人推送', link: '/providers/wechat' },
             { text: '微信公众号', link: '/providers/wechat-official' },
             { text: 'SMS Providers', link: '/providers/sms' },
