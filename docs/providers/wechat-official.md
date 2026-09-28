@@ -79,8 +79,8 @@ Herald 会自动将内容映射到微信模板字段：
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `app_id` | 公众号 AppID | `wx1234567890abcdef` |
-| `app_secret` | 公众号 AppSecret | `abcdef1234567890abcdef` |
+| `app_id` | 公众号 AppID | `wx-your-appid` |
+| `app_secret` | 公众号 AppSecret | `your-app-secret` |
 | `template_id` | 模板消息 ID | `AT0001` |
 | `default_url` | 点击模板跳转的 URL（可选） | `https://your-domain.com` |
 
