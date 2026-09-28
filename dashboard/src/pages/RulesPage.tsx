@@ -131,6 +131,12 @@ export default function RulesPage() {
       title: '动作', key: 'action',
       render: (_: any, rule: any) => actionLabels[rule.action || 'route'],
     },
+    // 影子命中：后端按 (事件种类, 规则) 精确计数，只统计"影子期本会
+    // 触发"的次数；进程内累计，重启归零，所以缺失字段回落 0。
+    {
+      title: '影子命中', key: 'shadow_hits',
+      render: (_: any, rule: any) => rule.shadow_hits ?? 0,
+    },
     { title: '优先级', dataIndex: 'priority', key: 'priority' },
     {
       title: '匹配表达式', dataIndex: 'match', key: 'match',

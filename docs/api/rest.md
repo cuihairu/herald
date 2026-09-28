@@ -305,6 +305,7 @@ POST /api/v1/providers/telegram/disable
         "mode": "active",
         "action": "route",
         "priority": 10,
+        "shadow_hits": 42,
         "route": [{ "channels": ["feishu-oncall", "group:ops"] }]
       }
     ],
@@ -314,6 +315,8 @@ POST /api/v1/providers/telegram/disable
 ```
 
 `mode` 是启停载体：`active` 生效、`shadow` 只观察不动作、`off` 停用（省略时按 `shadow` 处理）。`action` 是决策层动词：`route` 改道（默认）、`allow` 放行、`suppress` 抑制；`route` 步骤只属于 `action=route`，带上会被拒。`priority` 从高到低排序，同级保持写入顺序，第一条命中的生效规则决定结果并停止求值。
+
+`shadow_hits` 是该规则在影子期累计的命中次数（`GET /api/v1/rules/{id}` 也带这个字段）：只统计"本会触发"的影子命中，因 `for` 挂起、组折叠、抑制、静默、丢弃而扣下的事件各记各的、不计入其中。它是**进程内观测状态**——重启归零、无 24h/7d 窗口，不随规则持久化；把规则切到 `active` 后计数停止增长，切回 `shadow` 继续。切之前先看这个数：它就是激活后真实会发出去的量。
 
 ## POST /api/v1/rules {#rule-create}
 
@@ -334,7 +337,7 @@ POST /api/v1/providers/telegram/disable
 
 ## GET /api/v1/rules/{id} {#rule-get}
 
-查询指定规则，不存在返回 404。
+查询指定规则，不存在返回 404。响应是规则文档加上与列表同一份 `shadow_hits` 统计。
 
 ## PUT /api/v1/rules/{id} {#rule-update}
 

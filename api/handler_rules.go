@@ -26,11 +26,35 @@ func (h *Handler) HandleRules(w http.ResponseWriter, r *http.Request) {
 	// List serves the live table (the evaluation truth), so it cannot
 	// fail; the error result stays in the signature for API symmetry.
 	list, _ := h.rulesEngine.List(r.Context())
+	views := make([]ruleView, 0, len(list))
+	for i := range list {
+		views = append(views, ruleView{Rule: list[i], ShadowHits: h.shadowHits(list[i].ID)})
+	}
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data:    map[string]interface{}{"rules": list, "count": len(list)},
+		Data:    map[string]interface{}{"rules": views, "count": len(views)},
 	})
+}
+
+// ruleView is the read projection of a stored rule: the rule document
+// itself plus the live shadow statistic the console shows next to it. The
+// counter is process-local observation state (it resets on restart and is
+// not part of the rule), so it is served beside the rule rather than
+// stored with it.
+type ruleView struct {
+	rules.Rule
+	ShadowHits uint64 `json:"shadow_hits"`
+}
+
+// shadowHits reads the live shadow-hit counter. A handler built without a
+// runtime manager (the rules engine is optional wiring) reports zero
+// rather than panicking: the rule table itself is still the truth.
+func (h *Handler) shadowHits(ruleID string) uint64 {
+	if h.runtime == nil {
+		return 0
+	}
+	return h.runtime.ShadowRuleCount(ruleID)
 }
 
 // HandleRuleByID handles rule get/update/delete requests
@@ -90,7 +114,11 @@ func (h *Handler) getRule(w http.ResponseWriter, r *http.Request, id string) {
 		h.respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: rule})
+	h.respondJSON(w, &Response{
+		Code:    0,
+		Message: "ok",
+		Data:    ruleView{Rule: rule, ShadowHits: h.shadowHits(rule.ID)},
+	})
 }
 
 // updateRule replaces the rule at id (the URL wins over the body id).

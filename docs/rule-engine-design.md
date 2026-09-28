@@ -1,6 +1,6 @@
 # 通知规则引擎升级设计
 
-> 状态：**已实施**（P1–P3 全部落地，2026-09-27 对照 main 逐项核对，回执见文末「实施回执」）。本文写作时的"现状"描述保留为实施前快照；其中已闭合的缺口（limiter 孤儿模块、retry 不可重试）在回执一节说明。
+> 状态：**主干能力已实施**（P1–P3 的主干能力全部落地，2026-09-27 对照 main 逐项核对，回执见文末「实施回执」）。本文写作时的"现状"描述保留为实施前快照；其中已闭合的缺口（limiter 孤儿模块、retry 不可重试）在回执一节说明。回执复审又查出两处设计与落地的偏差（影子统计只有进程内累计计数、静默窗没有时区与值班表），已按事实改写并在表中逐格标注——**回执表里的"差异"列是逐格可核的，不是一句"已实施"**。
 
 ## 一、定位：从"事件驱动投递"到"可编程告警平台"
 
@@ -173,7 +173,7 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 
 ## 七、实施回执（2026-09-27 对照 main 逐项核对）
 
-四层演进全部落地。逐项核对结果与实际落点：
+四层演进的主干能力全部落地。逐项核对结果与实际落点（2026-09-28 复审：`ef0a808` 的初版回执把 P1 影子统计与 P2 静默窗两行写成"一致"，与代码不符，已按下表改正；差异列只写代码里查得到的东西）：
 
 | 阶段 | 设计项 | 实际落点 | 与设计的差异 |
 |---|---|---|---|
@@ -181,11 +181,11 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 | P1 | 后台 CRUD + 热加载 | `POST/GET /api/v1/rules`、`/api/v1/rules/{id}`（`api/handler_rules.go`），CRUD 直写 `rules.Engine` 进程内即时生效，文件持久化重启恢复 | 未做"watch 版本号 diff 重载"——CRUD 即时生效使 watch 无必要，效果等价 |
 | P1 | expr 表达式 + 编译期类型检查 + 超时/长度上限 | `expr-lang/expr`（go.mod），`engine.go` 保存时编译（`compileRule`），求值带超时护栏 | 按设计选型 expr，未用 cel-go |
 | P1 | 求值位置：入队前 + 未命中回落静态路由 | `core/service/notification.go` 的 `RuleEvaluator` 接口，`Process` 内**路由前、dedup 前**求值（实际顺序：求值 `:167` → 静态路由兜底 `:253` → dedup `:277` 为入队前最后一道闸）；`Rules == nil` 时保持纯静态路由（`api/server.go:45`） | **顺序与 §4.1 相反**：设计写"dedup 检查之后、路由解析之前"，实现把求值提前到 dedup **之前**、dedup 挪到路由之后——有状态规则（for 窗口、组轮次、恢复判定）要吃**每个事件**推进状态，dedup 只决定"这次投递是否重复"（源码注释 `notification.go:156-161` 与 `:273-276` 给出论证）。"入队前"与"未命中回落静态路由"两项目标与设计一致 |
-| P1 | 影子模式 + logstore 扩展 | `core/rules/shadow.go` + `RuleObserver.RecordShadow` 观察者（影子命中/求值失败/静默扣留分事件记录） | 一致 |
+| P1 | 影子模式 + logstore 扩展 | `core/rules/shadow.go`（`ShadowSampler` 按 `(EventKind, 规则)` 分桶采样并精确计数）+ `RuleObserver` 的七个观察者方法（影子命中/求值失败/for 挂起/折叠/抑制/静默/丢弃各记一种事件）；计数经 `runtime.Manager.ShadowRuleCount` 暴露为 `GET /api/v1/rules` 与 `/api/v1/rules/{id}` 的 `shadow_hits`，控制台规则列表有一列"影子命中" | **§4.3 步骤 2 只兑现了计数这一半**：给的是**进程内累计**命中次数（重启归零，没有近 24h/7d 窗口，也没有命中样本），且没有独立详情页（列表列代替）；§4.3 步骤 3 的"一键回滚到 shadow"无专用端点，由控制台模式开关走 `PUT /api/v1/rules/{id}` 改 `mode` 兑现 |
 | P1 | limiter 接线投递侧 | `core/runtime/manager.go` 的 `Deliver` 在任何投递尝试前 `lm.Wait(ctx)`（HEAD 上 :381，紧邻注释 "Wait BEFORE any delivery attempt"），配置 `rate_limit` 经 `SetProviderLimiter` 接线（`cmd/heraldd/main.go:138`） | **§二"孤儿模块"的现状已闭合** |
 | P1 | retry 可重试判定修正 | `core/httpclient/client.go`：`retryableStatus`（429/5xx）将传输错误包成 `RetryableError`，`ShouldRetry` 据此重试 | **§二"没有任何 provider 构造该类型"的现状已闭合**（webhook 类 provider 走 httpclient 自动获得） |
 | P2 | 状态外置 Redis + memory 兜底 | `core/rules/state.go`（memory）/`state_redis.go`（Redis），`SetStateStore` 注入（`cmd/heraldd/main.go:202`） | 一致 |
-| P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups` | 一致 |
+| P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups` | 四类判定都在，但 **silence 只兑现了"时段 + 匹配条件"**：`SilenceSpec`（`core/rules/rule.go:79`）只有 `start`/`end`/`match`，**没有 §三 YAML 里的 `tz` 字段**——`silence.go` 的 `Contains` 直接取 `t.Hour()*60+t.Minute()`，走进程本地时区（跨时区部署需运维保证容器 `TZ`）；**也没有 §五 P2 承诺的"值班表对接排班占位"**。窗口字段是 `start`/`end` 两个 `HH:MM`，不是设计里的合并写法 `window: "00:00-06:00"`；跨零点窗口（22:00-06:00）与 end 开区间已支持 |
 | P3 | ACK 回调（飞书卡片 + 通用端点） | `POST /api/v1/callbacks/feishu`（`api/handler_callbacks.go`）+ `POST /api/v1/alerts/{id}/ack`（`api/handler_alerts.go`），ACK 状态在 `core/ack` | 一致 |
 | P3 | escalation 生效 | `core/escalation` + `engine_escalation_test.go`（ack_timeout 到期升级链） | P1/P2 建模、P3 兑现的承诺已兑现 |
 | P3 | 事故台账 | `core/incident` + `GET` 事故视图（`api/handler_incidents.go`） | 一致 |
@@ -194,3 +194,6 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 
 复核补记（同日第二轮逐行 grep 复核）：修正初版回执两处与代码不符——① 求值顺序实为 dedup **前**而非"dedup 后"（上表第 4 行已改，属对 §4.1 的有意偏离，理由见源码注释）；② limiter 的 `lm.Wait` 原标 `:380`，HEAD 上实为 `:381`（该行号会随本文件改动漂移，故行号旁一并引注释原文作定位）。其余 10 行落点全部复验属实（含飞书卡片确认按钮 `feishu.go:168` → 回调端点 → `core/ack` 的 P3 全链、`escalation.Manager` 经 `api/server.go:96` 注入通知服务）。
 
+复核补记（2026-09-28 第三轮，带代码改动）：专查"回执写了、但生产代码里没人调"的项，揪出 `runtime.Manager.ShadowRuleCount` —— 它此前**零生产调用方**（`grep -rn ShadowRuleCount --include=*.go . | grep -v _test.go` 只命中定义本身），即"影子模式已落地"只落地到日志采样，统计无人可读。现已接上规则读接口的 `shadow_hits`（`api/handler_rules.go` 的 `ruleView`，list + detail 两个读面）与控制台列表的"影子命中"列，行为由 `TestHandleRulesShadowHits` 覆盖。顺带修掉一处会让该数字**说谎**的缺陷：采样器原按 `规则` 单一分桶，for 挂起/折叠/抑制/静默/丢弃与影子命中共用计数器，"影子期本会触发多少次"会被"这条规则做过什么"撑大；改为按 `(EventKind, 规则)` 分桶（`core/rules/shadow.go`）后各事件种类互不干扰，影子样本流也不再被高流量丢弃事件吃掉采样预算（`TestShadowSamplerKindsAreIndependent`）。本轮同时把 P1 影子行、P2 静默行两处"一致"按代码事实改写。
+
+**结论：四层主干能力（静态兜底 → 动态规则 → 有状态判断 → ACK 闭环）确认全部落地；剩下的是两条设计细节**——影子统计只有进程内累计计数（无近 24h/7d 窗口、无命中样本、无独立详情页），silence 无时区字段与值班表排班占位。两者留在上表差异列里当待办，不计入"已实施"的账面。

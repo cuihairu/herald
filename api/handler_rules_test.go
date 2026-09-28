@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/rules"
 )
 
@@ -309,6 +311,107 @@ func TestHandleRulesStoreFailures(t *testing.T) {
 	if code, _ := env.do(t, http.MethodDelete, "/api/v1/rules/p1", "", nil); code != http.StatusInternalServerError {
 		t.Fatalf("delete on a failing store must be 500, got %d", code)
 	}
+}
+
+// The shadow statistic is what an operator reads before flipping a rule to
+// active, so it must be the shadow-hit count alone: the events the engine
+// withholds for other reasons are counted under their own kinds.
+func TestHandleRulesShadowHits(t *testing.T) {
+	newEnv := func(t *testing.T) *testEnv {
+		return newTestEnv(t, withRulesEngine(rules.NewEngine(rules.NewMemoryStore())))
+	}
+	observe := func(env *testEnv) {
+		t.Helper()
+		n := &core.Notification{ID: "n1", Type: "deploy", Level: "error"}
+		env.runtime.RecordShadow("p1", []string{"rec"}, n)
+		env.runtime.RecordShadow("p1", []string{"rec"}, n)
+		env.runtime.RecordShadow("p1", []string{"rec"}, n)
+		// Withheld for other reasons — must not show up as shadow hits.
+		env.runtime.RecordForPending("p1", n)
+		env.runtime.RecordSuppressed("p1", n)
+	}
+
+	t.Run("list reports hits per rule", func(t *testing.T) {
+		env := newEnv(t)
+		if code, _ := env.do(t, http.MethodPost, "/api/v1/rules", validRuleBody, nil); code != http.StatusOK {
+			t.Fatalf("create failed with status %d", code)
+		}
+		observe(env)
+
+		_, resp := env.do(t, http.MethodGet, "/api/v1/rules", "", nil)
+		list, _ := dataOf(t, resp)["rules"].([]any)
+		entry, _ := list[0].(map[string]any)
+		if got := num(t, entry["shadow_hits"]); got != 3 {
+			t.Errorf("expected 3 shadow hits, got %d", got)
+		}
+	})
+
+	t.Run("detail reports hits and keeps the rule document", func(t *testing.T) {
+		env := newEnv(t)
+		if code, _ := env.do(t, http.MethodPost, "/api/v1/rules", validRuleBody, nil); code != http.StatusOK {
+			t.Fatalf("create failed with status %d", code)
+		}
+		observe(env)
+
+		code, resp := env.do(t, http.MethodGet, "/api/v1/rules/p1", "", nil)
+		if code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", code)
+		}
+		data := dataOf(t, resp)
+		if got := num(t, data["shadow_hits"]); got != 3 {
+			t.Errorf("expected 3 shadow hits, got %d", got)
+		}
+		// The rule document itself is untouched by the extra field.
+		if data["id"] != "p1" || data["mode"] != string(rules.ModeActive) {
+			t.Errorf("unexpected rule document: %v", data)
+		}
+	})
+
+	t.Run("a rule that never matched reports zero", func(t *testing.T) {
+		env := newEnv(t)
+		if code, _ := env.do(t, http.MethodPost, "/api/v1/rules", validRuleBody, nil); code != http.StatusOK {
+			t.Fatalf("create failed with status %d", code)
+		}
+		_, resp := env.do(t, http.MethodGet, "/api/v1/rules/p1", "", nil)
+		if got := num(t, dataOf(t, resp)["shadow_hits"]); got != 0 {
+			t.Errorf("expected 0 shadow hits, got %d", got)
+		}
+	})
+
+	t.Run("without a runtime manager the counter is zero", func(t *testing.T) {
+		// The rules engine is optional wiring and can be attached to a
+		// handler built without a runtime manager: the rule table is
+		// still served, the live counter degrades to zero.
+		engine := rules.NewEngine(rules.NewMemoryStore())
+		seed := rules.Rule{ID: "p1", Match: "true", Mode: rules.ModeShadow,
+			Route: []rules.RouteStep{{Channels: []string{"rec"}}}}
+		if err := engine.Put(t.Context(), &seed); err != nil {
+			t.Fatalf("failed to seed rule: %v", err)
+		}
+		h := NewHandler(nil, nil, nil)
+		h.SetRuleEngine(engine)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/rules", nil)
+		rec := httptest.NewRecorder()
+		h.HandleRules(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rec.Code)
+		}
+		var body struct {
+			Data struct {
+				Rules []struct {
+					ID         string `json:"id"`
+					ShadowHits uint64 `json:"shadow_hits"`
+				} `json:"rules"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(body.Data.Rules) != 1 || body.Data.Rules[0].ShadowHits != 0 {
+			t.Fatalf("expected one rule with zero shadow hits, got %+v", body.Data.Rules)
+		}
+	})
 }
 
 // The mux never routes an empty {id}, so the empty-id guard is exercised

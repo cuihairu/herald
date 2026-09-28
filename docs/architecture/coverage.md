@@ -16,11 +16,11 @@
 
 | 项目 | 值 |
 | --- | --- |
-| 语句覆盖率（go-test 口径原始值） | 99.64%（5012/5030） |
-| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.78%**（5019/5030，2026-09-27 复测；期 5 收官时为 99.7%，功能代码增长摊低后，台账条目经 seam 逐轮升格实测（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`），回到并越过原水位；门禁等效口径不受影响） |
+| 语句覆盖率（go-test 口径原始值） | 99.64%（5019/5037） |
+| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.78%**（5026/5037，2026-09-28 复测（影子统计切片，+7 条语句全命中）；期 5 收官时为 99.7%，功能代码增长摊低后，台账条目经 seam 逐轮升格实测（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`），回到并越过原水位；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
-| 残余零块 | **7 块**（2026-09-27 go1.26.2 实测，全部命中台账）。台账共登记 **8 条**——三处登记已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账：`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）、worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）、api `createGroup`/`getGroup` 的 `Manager.Get` 后 500 守卫（原 `handler_groups.go:71/:88`，seam 为 `groupsGet`）；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
-| **前端分支覆盖（dashboard/）** | **100%**（260/260，2026-09-27 实测；上期 97.69%，本轮补齐 6 个分支后满口径）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
+| 残余零块 | **7 块**（2026-09-28 go1.26.6 实测，与上一轮同数同块，全部命中台账）。台账共登记 **8 条**——三处登记已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账：`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）、worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）、api `createGroup`/`getGroup` 的 `Manager.Get` 后 500 守卫（原 `handler_groups.go:71/:88`，seam 为 `groupsGet`）；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
+| **前端分支覆盖（dashboard/）** | **100%**（262/262，2026-09-28 实测，规则页新增"影子命中"列的 `?? 0` 两个分支两侧均已测；补齐该列前的 2026-09-27 轮为 260/260，再上期为 97.69%，补齐 6 个分支后满口径）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
@@ -60,7 +60,7 @@
 
 ## Dashboard 前端：vitest + RTL，行覆盖 + 分支覆盖双 100% 门禁
 
-前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job）——**行覆盖或分支覆盖低于 100% 直接失败**。测试共 15 个文件 143 个用例，覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 9 个页面组件与应用入口。四项指标（语句 / 分支 / 函数 / 行）实测均为 100%，但**门禁阈值只守分支与行两项**——为什么这两项仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-9779--100)。
+前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job）——**行覆盖或分支覆盖低于 100% 直接失败**。测试共 15 个文件 144 个用例，覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 9 个页面组件与应用入口。四项指标（语句 / 分支 / 函数 / 行）实测均为 100%，但**门禁阈值只守分支与行两项**——为什么这两项仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-9779--100)。
 
 测试搭建过程中顺带修掉两个真实生产缺陷：
 

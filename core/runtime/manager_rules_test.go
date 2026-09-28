@@ -6,6 +6,7 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/logstore"
+	"github.com/cuihairu/herald/core/rules"
 )
 
 func TestManagerRecordShadow(t *testing.T) {
@@ -52,6 +53,29 @@ func TestManagerRecordShadowSampling(t *testing.T) {
 	}
 	if m.ShadowRuleCount("r1") != 100 {
 		t.Errorf("counter must track every hit, got %d", m.ShadowRuleCount("r1"))
+	}
+}
+
+func TestManagerShadowRuleCountIsShadowOnly(t *testing.T) {
+	m := NewManager(100)
+	n := &core.Notification{ID: "notif", Level: "error"}
+
+	// The console reads this number before flipping a rule to active: it
+	// must answer "how often would this have fired", so events the engine
+	// withheld for other reasons must not inflate it.
+	m.RecordShadow("r1", nil, n)
+	m.RecordShadow("r1", nil, n)
+	m.RecordForPending("r1", n)
+	m.RecordGroupFolded("r1", n)
+	m.RecordInhibited("r1", n)
+	m.RecordSilenced("r1", n)
+	m.RecordSuppressed("r1", n)
+
+	if got := m.ShadowRuleCount("r1"); got != 2 {
+		t.Errorf("expected 2 shadow hits, got %d", got)
+	}
+	if got := m.ShadowRuleCount("never-shadowed"); got != 0 {
+		t.Errorf("expected 0 for a rule that never matched in shadow, got %d", got)
 	}
 }
 
@@ -106,8 +130,8 @@ func TestManagerRecordForPending(t *testing.T) {
 	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "pending"})); got != 1 {
 		t.Errorf("expected sampling to keep 1 entry, got %d", got)
 	}
-	if m.ShadowRuleCount("r-for") != 2 {
-		t.Errorf("counter must track every suppression, got %d", m.ShadowRuleCount("r-for"))
+	if got := m.shadowSampler.Count(rules.KindForPending, "r-for"); got != 2 {
+		t.Errorf("counter must track every pending event, got %d", got)
 	}
 }
 
@@ -138,8 +162,8 @@ func TestManagerRecordGroupFolded(t *testing.T) {
 	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "folded"})); got != 1 {
 		t.Errorf("expected sampling to keep 1 entry, got %d", got)
 	}
-	if m.ShadowRuleCount("r-group") != 2 {
-		t.Errorf("counter must track every folded event, got %d", m.ShadowRuleCount("r-group"))
+	if got := m.shadowSampler.Count(rules.KindGroupFolded, "r-group"); got != 2 {
+		t.Errorf("counter must track every folded event, got %d", got)
 	}
 }
 
@@ -170,8 +194,8 @@ func TestManagerRecordInhibited(t *testing.T) {
 	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "inhibited"})); got != 1 {
 		t.Errorf("expected sampling to keep 1 entry, got %d", got)
 	}
-	if m.ShadowRuleCount("leaf") != 2 {
-		t.Errorf("counter must track every inhibited event, got %d", m.ShadowRuleCount("leaf"))
+	if got := m.shadowSampler.Count(rules.KindInhibited, "leaf"); got != 2 {
+		t.Errorf("counter must track every inhibited event, got %d", got)
 	}
 }
 
@@ -202,8 +226,8 @@ func TestManagerRecordSilenced(t *testing.T) {
 	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "silenced"})); got != 1 {
 		t.Errorf("expected sampling to keep 1 entry, got %d", got)
 	}
-	if m.ShadowRuleCount("quiet") != 2 {
-		t.Errorf("counter must track every silenced event, got %d", m.ShadowRuleCount("quiet"))
+	if got := m.shadowSampler.Count(rules.KindSilenced, "quiet"); got != 2 {
+		t.Errorf("counter must track every silenced event, got %d", got)
 	}
 }
 
@@ -233,8 +257,8 @@ func TestManagerRecordSuppressed(t *testing.T) {
 	if got := len(m.GetLogs(0, 10, &logstore.Filter{Status: "suppressed"})); got != 1 {
 		t.Errorf("expected sampling to keep 1 entry, got %d", got)
 	}
-	if m.ShadowRuleCount("blocker") != 2 {
-		t.Errorf("counter must track every suppressed event, got %d", m.ShadowRuleCount("blocker"))
+	if got := m.shadowSampler.Count(rules.KindSuppressed, "blocker"); got != 2 {
+		t.Errorf("counter must track every suppressed event, got %d", got)
 	}
 }
 

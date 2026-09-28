@@ -64,8 +64,10 @@ func NewManager(logLimit int, retryCfg ...*retry.Config) *Manager {
 // RecordShadow implements the rule observer contract: it records a
 // shadow-mode rule hit into the delivery log stream (status "shadow"),
 // sampled per rule so high-QPS traffic does not flood the ring buffer.
+// The counter it advances is the one the rules API reports: how often the
+// rule would have fired had it been active.
 func (m *Manager) RecordShadow(ruleID string, channels []string, n *core.Notification) {
-	if !m.shadowSampler.ShouldRecord(ruleID) {
+	if !m.shadowSampler.ShouldRecord(rules.KindShadow, ruleID) {
 		return
 	}
 	now := time.Now()
@@ -105,7 +107,7 @@ func (m *Manager) RecordEvalError(ruleID string, err error, n *core.Notification
 // running. Suppressions are sampled per rule like shadow hits — a pending
 // window is exactly the noise-reduction scenario where volume is high.
 func (m *Manager) RecordForPending(ruleID string, n *core.Notification) {
-	if !m.shadowSampler.ShouldRecord(ruleID) {
+	if !m.shadowSampler.ShouldRecord(rules.KindForPending, ruleID) {
 		return
 	}
 	now := time.Now()
@@ -124,7 +126,7 @@ func (m *Manager) RecordForPending(ruleID string, n *core.Notification) {
 // delivered. Folded events are sampled per rule like shadow hits — folding
 // exists exactly for the high-volume scenario.
 func (m *Manager) RecordGroupFolded(ruleID string, n *core.Notification) {
-	if !m.shadowSampler.ShouldRecord(ruleID) {
+	if !m.shadowSampler.ShouldRecord(rules.KindGroupFolded, ruleID) {
 		return
 	}
 	now := time.Now()
@@ -144,7 +146,7 @@ func (m *Manager) RecordGroupFolded(ruleID string, n *core.Notification) {
 // hits — a storm of sub-alerts under one root cause is exactly the
 // high-volume scenario inhibition exists for.
 func (m *Manager) RecordInhibited(ruleID string, n *core.Notification) {
-	if !m.shadowSampler.ShouldRecord(ruleID) {
+	if !m.shadowSampler.ShouldRecord(rules.KindInhibited, ruleID) {
 		return
 	}
 	now := time.Now()
@@ -162,7 +164,7 @@ func (m *Manager) RecordInhibited(ruleID string, n *core.Notification) {
 // event withheld because the rule's daily silence window covers the
 // current time. Sampled per rule like shadow hits.
 func (m *Manager) RecordSilenced(ruleID string, n *core.Notification) {
-	if !m.shadowSampler.ShouldRecord(ruleID) {
+	if !m.shadowSampler.ShouldRecord(rules.KindSilenced, ruleID) {
 		return
 	}
 	now := time.Now()
@@ -182,7 +184,7 @@ func (m *Manager) RecordSilenced(ruleID string, n *core.Notification) {
 // rule like shadow hits: unconditional filters exist exactly for the
 // high-volume traffic nobody wants page through.
 func (m *Manager) RecordSuppressed(ruleID string, n *core.Notification) {
-	if !m.shadowSampler.ShouldRecord(ruleID) {
+	if !m.shadowSampler.ShouldRecord(rules.KindSuppressed, ruleID) {
 		return
 	}
 	now := time.Now()
@@ -197,9 +199,16 @@ func (m *Manager) RecordSuppressed(ruleID string, n *core.Notification) {
 }
 
 // ShadowRuleCount returns how many times a rule has matched during shadow
-// evaluation so far — the exact total behind the sampled log entries.
+// evaluation so far — the exact total behind the sampled log entries, and
+// the number the rules API serves as `shadow_hits`.
+//
+// Only KindShadow observations count. Events the engine withheld for other
+// reasons (for-window pending, group folding, inhibition, silence,
+// explicit suppression) have their own kinds: counting them here would
+// report "would have fired" as "did anything at all", which is exactly the
+// number an operator reads before switching a rule to active.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {
-	return m.shadowSampler.Count(ruleID)
+	return m.shadowSampler.Count(rules.KindShadow, ruleID)
 }
 
 // RegisterFactory registers a provider factory keyed by provider type.

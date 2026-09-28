@@ -19,9 +19,10 @@ import { resetStore } from '../test/store'
 const apiMocks = vi.mocked(heraldApi)
 
 // 覆盖 mode / action 的默认值分支：r2 不带 mode 与 action（后端
-// 省略零值字段），r3 是 suppress 动作（无路由渠道列）。
+// 省略零值字段），r3 是 suppress 动作（无路由渠道列）。r1 带影子命中
+// 计数，r2/r3 没有（后端只在该规则有过影子命中时才非零）。
 const rules = [
-  { id: 'r1', match: 'level == "error"', mode: 'active', action: 'route', priority: 10, route: [{ channels: ['oncall'] }] },
+  { id: 'r1', match: 'level == "error"', mode: 'active', action: 'route', priority: 10, shadow_hits: 7, route: [{ channels: ['oncall'] }] },
   { id: 'r2', match: 'env == "prod"', mode: '', action: '', priority: 0 },
   { id: 'r3', match: 'type == "noise"', mode: 'shadow', action: 'suppress', priority: -1 },
 ]
@@ -58,6 +59,15 @@ describe('RulesPage', () => {
     expect(screen.getByText('oncall')).toBeInTheDocument()
     // 空字段回落默认动作（route）标签而不是空白。
     expect(screen.getByText('level == "error"')).toBeInTheDocument()
+  })
+
+  it('shows the shadow hit count reported by the backend', async () => {
+    renderPage()
+    expect(await screen.findByText('r1')).toBeInTheDocument()
+    // r1 影子期命中 7 次。
+    expect(screen.getByText('7')).toBeInTheDocument()
+    // r2/r3 回落 0 而不是空白（0 同时出现在 r2 的优先级列）。
+    expect(screen.getAllByText('0').length).toBe(3)
   })
 
   it('toggles a rule between shadow and active via the switch', async () => {
