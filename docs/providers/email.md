@@ -1,22 +1,27 @@
-# Email
+# Email (SMTP)
 
-`email` Builtin Provider 通过 SMTP 把通知作为邮件发送给收件人列表。
+通过 SMTP 协议发送邮件通知，兼容所有标准 SMTP 服务商（Gmail、Outlook、QQ 邮箱、企业邮箱、自建 Postfix 等）。
+
+## 作用
+
+`email` Builtin Provider 直接使用 Go `net/smtp` 库通过 SMTP 发送邮件。支持纯文本与 HTML 两种格式，适合告警通知、报表发送、账号验证等场景。
 
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |
 |----|------|------|--------|
-| `host` | ✅ | SMTP 服务器地址（如 `smtp.example.com`） | 无 |
+| `host` | ✅ | SMTP 服务器地址（如 `smtp.gmail.com`、`smtp.qq.com`） | 无 |
 | `port` | ❌ | SMTP 端口 | `587` |
-| `username` | ❌ | SMTP 认证用户名；同时是 `from` 的默认值 | 空 |
-| `password` | ❌ | SMTP 认证密码 / 授权码 | 空 |
-| `from` | 二选一 | 发件人地址；留空时取 `username`，仍为空则创建失败 | 空 |
-| `from_name` | ❌ | 发件人显示名，设置后发件人为 `显示名 <地址>` | 空 |
+| `username` | ❌ | 登录用户名（通常为邮箱地址） | 空（不鉴权） |
+| `password` | ❌ | 登录密码或应用专用密码 | 空 |
+| `from` | ✅ | 发件人邮箱地址 | 若留空且配置了 `username`，则回退为 `username` |
+| `from_name` | ❌ | 发件人显示名称 | 空 |
 
-- 缺 `host` 报 `email: host is required`；`from` 与 `username` 都为空报 `email: from is required`
-- `username` 与 `password` **都非空**时启用 SMTP Plain 认证，否则匿名发送（多数公网 SMTP 会拒绝）
+缺 `host` 或 `from`（且无 `username` 回退）时 Provider 创建即失败（`email: host is required` / `email: from is required`），启动日志可见。
 
 ## 配置示例
+
+### Gmail（需开启两步验证并生成应用专用密码）
 
 ```yaml
 providers:
@@ -24,73 +29,99 @@ providers:
     type: email
     enabled: true
     config:
-      host: "smtp.example.com"
+      host: "smtp.gmail.com"
       port: 587
+      username: "$EMAIL_USERNAME"
+      password: "$EMAIL_APP_PASSWORD"
+      from: "$EMAIL_FROM"
+      from_name: "Herald Alert"
+```
+
+### 企业邮箱 / 自建 SMTP（465 SSL 端口）
+
+```yaml
+providers:
+  email:
+    type: email
+    enabled: true
+    config:
+      host: "smtp.exmail.qq.com"
+      port: 465
       username: "$EMAIL_USERNAME"
       password: "$EMAIL_PASSWORD"
       from: "$EMAIL_FROM"
-      from_name: "Herald 告警"    # 可选
+      from_name: "系统通知"
 ```
 
-发送时通过 `recipients` 指定收件人邮箱列表：
+### 仅发件人、无鉴权（内网直连 Postfix）
 
-```bash
-curl -X POST http://localhost:8080/api/v1/notify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "daily-report",
-    "title": "每日巡检报告",
-    "body": "<h1>巡检通过</h1><p>详情……</p>",
-    "level": "info",
-    "channels": ["email"],
-    "recipients": { "email": ["ops@example.com", "dev@example.com"] }
-  }'
+```yaml
+providers:
+  email:
+    type: email
+    enabled: true
+    config:
+      host: "smtp.internal.example.com"
+      port: 25
+      from: "alerts@example.com"
+      from_name: "内网监控"
 ```
 
 ## 环境变量
 
-provider config 里以 `$` 开头的字符串值会在加载时展开为同名环境变量的值（`$VAR` 写法；`"${VAR}"` 带花括号不会被展开）。
+Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
 
 | 环境变量 | 对应配置项 | 说明 |
 |----------|-----------|------|
-| `EMAIL_USERNAME` | `username` | SMTP 用户名（`.env.example` 惯用名） |
-| `EMAIL_PASSWORD` | `password` | SMTP 密码 / 授权码 |
-| `EMAIL_FROM` | `from` | 发件人地址 |
+| `EMAIL_HOST` | `host` | SMTP 服务器地址 |
+| `EMAIL_PORT` | `port` | SMTP 端口（数字） |
+| `EMAIL_USERNAME` | `username` | 登录用户名 |
+| `EMAIL_PASSWORD` | `password` | 登录密码/应用专用密码 |
+| `EMAIL_FROM` | `from` | 发件人邮箱 |
+| `EMAIL_FROM_NAME` | `from_name` | 发件人显示名称 |
 
-## 消息模板与格式
+## 消息模板与限制
 
-**主题**：`[级别] 标题`（级别大写，如 `[ERROR] 磁盘告警`；级别为空时仅标题）。
+### 邮件结构
 
-**正文格式**由通知内容的 `format` 决定：
+- **主题**：`[LEVEL] title`（如 `[WARNING] CPU 使用率超过 90%`）
+- **发件人**：`from_name <from>`（若配置了 `from_name`）
+- **收件人**：任务的 `targets` 字段（多个邮箱用逗号分隔）
+- **正文**：任务的 `body`
+- **格式**：
+  - `task.Payload.Content.Format == "html"` → `text/html; charset=UTF-8`
+  - 否则 → `text/plain; charset=UTF-8`
 
-| 内容 format | 邮件 Content-Type |
-|-------------|-------------------|
-| `html` | `text/html; charset=UTF-8` |
-| 其他 / 空 | `text/plain; charset=UTF-8` |
+### 能力声明
 
-正文原样发送，不做模板加工。
+- `PayloadKinds`: `content`（标准 title/body）
+- `ContentFormats`: `html` / `plain`
 
-## 传输与限制
+### 限制说明
 
-- 走标准 `net/smtp`：587 端口下 STARTTLS 由服务端协商自动升级；**不支持 465 端口的隐式 TLS**（SMTPS），如需 TLS 请使用支持 STARTTLS 的 587/25 端口
-- 收件人取自 `targets`，为空报 `email: no recipients specified`
-- 发送失败统一包装为 `failed to send email: {原因}`；SMTP 层无独立重试语义，5xx 类瞬时错误视 httpclient 之外——email 不走 httpclient，重试由上层统一投递重试承担
-- 认证信息经 `smtp.PlainAuth` 发送：该实现仅在 TLS 连接上发送明文密码（标准库安全约束），所以服务器必须支持 STARTTLS，否则认证会失败
+| 限制项 | 说明 |
+|--------|------|
+| **SMTP 服务商限额** | Gmail 500/天、Outlook 300/分钟、企业邮箱视套餐而定 |
+| **连接超时** | 由 Go `net/smtp` 决定（默认无显式超时，建议服务商侧配置） |
+| **大附件** | 不支持附件（仅纯文本/HTML 正文） |
+| **重试** | 网络错误/临时失败走统一重试（429/5xx 等价语义由上层限流器处理） |
 
 ## 常见错误
 
 | 错误 | 原因与处理 |
 |------|-----------|
 | `email: host is required` | 未配置 `host` |
-| `email: from is required` | `from` 与 `username` 都为空 |
-| `email: no recipients specified` | 请求未带 `recipients.email` |
-| `failed to send email: 535 Authentication failed` | 用户名/密码错误；QQ/163 等国内邮箱须用**授权码**而非登录密码 |
-| `failed to send email: tls: first record does not look like a SMTP handshake` | 端口是 465（隐式 TLS），改用 587 |
-| `failed to send email: …unencrypted connection` | 服务器不支持 STARTTLS 却要求认证，换支持 TLS 的服务商或端口 |
-| `failed to send email: 554 …` | 被收件方判为垃圾邮件 / 发件人未验证，检查 SPF/DKIM 与服务商要求 |
+| `email: from is required` | 未配置 `from` 且无 `username` 可回退 |
+| `failed to send email: 535 Authentication failed` | 用户名/密码错误；Gmail 需用应用专用密码而非登录密码 |
+| `failed to send email: 550 Sender address rejected` | `from` 与认证账号不匹配，或服务商要求发件人验证 |
+| `failed to send email: 421 Too many connections` | 并发连接过多，降低并发或配置限流器 |
+| `failed to send email: dial tcp: timeout` | 网络不通、防火墙拦截、或端口错误（465 需 SSL、587 需 STARTTLS） |
+| `failed to send email: 554 Message rejected` | 内容触发反垃圾规则，精简正文或调整发件人信誉 |
+
+错误格式：`failed to send email: {底层 smtp 错误}`。
 
 ## 下一步
 
 - [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [SMS Providers](./sms.md) - 短信通道配置
 - [Webhook](./webhook.md) - 自定义 HTTP 接收端
+- [Log](./log.md) - 本地调试输出

@@ -1,50 +1,93 @@
-# Log
+# Log (本地日志输出)
 
-`log` Builtin Provider 把通知直接写入进程日志，**不做任何外部投递**。用于本地开发、冒烟测试和 CI 里验证路由与派发链路。
+将通知内容直接写入标准输出/日志系统，适合开发调试、本地验证、CI 流水线观测。
+
+## 作用
+
+`log` Builtin Provider 在 `Deliver` 阶段把通知的标题、正文、级别等字段通过结构化日志（`logger.Info`）与 `fmt.Printf` 双重输出。不依赖任何外部服务，**零配置可用**，是开发联调、单元测试、临时通道的首选。
 
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |
 |----|------|------|--------|
-| `name` | ❌ | Provider 实例名（显示在日志与状态接口里） | `log` |
+| `name` | ❌ | Provider 实例名称（用于日志区分多实例） | `"log"` |
 
-创建永不失败；投递除 task 为 nil 外恒成功。
+无任何必填项，`config` 可为空或省略。
 
 ## 配置示例
+
+### 最小配置（零配置）
 
 ```yaml
 providers:
   log:
     type: log
     enabled: true
+    config: {}
+```
+
+### 多实例区分（开发/测试/生产同机部署时）
+
+```yaml
+providers:
+  log-dev:
+    type: log
+    enabled: true
     config:
-      name: "log"          # 可选，默认 "log"
+      name: "log-dev"
+  log-test:
+    type: log
+    enabled: true
+    config:
+      name: "log-test"
 ```
 
-## 输出形态
+## 环境变量
 
-每条通知同时产生两行标准输出：
+Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
 
-1. 结构化 JSON 日志（`log/slog` JSONHandler，可直接进采集器；通知的 `level` 以同名字段附在 slog 自身的 `level` 之后）：
+| 环境变量 | 对应配置项 | 说明 |
+|----------|-----------|------|
+| `LOG_PROVIDER_NAME` | `name` | 实例名称（极少需要通过环境变量配置） |
 
-```json
-{"time":"2026-09-28T10:00:00+08:00","level":"INFO","msg":"delivering task","provider":"log","task_id":"…","title":"磁盘告警","body":"/data 92%","level":"error"}
+## 消息模板与限制
+
+### 输出格式
+
+**结构化日志（JSON，含级别/时间/字段）：**
+```
+{"level":"info","msg":"delivering task","provider":"log","task_id":"abc-123","title":"CPU 告警","body":"负载过高","level":"warning"}
 ```
 
-2. 一行人类可读文本：
-
+**标准输出（人类可读，同步打印）：**
 ```
-[error] 磁盘告警: /data 92%
+[warning] CPU 告警: 负载过高
 ```
 
-## 典型用法
+### 能力声明
 
-- **开发联调**：把路由 `channels` 指向 `log`，先验证通知构造、模板渲染、规则决策是否正确，再切真实渠道
-- **CI 冒烟**：配置里只启用 `log`，启动即可端到端跑通 API → 队列 → 派发全链路而不发任何外部请求
-- **影子对照**：与真实 Provider 并存，观察派发行为不影响线上接收者
+- `PayloadKinds`: `content`（标准 title/body）
+- `ContentFormats`: `plain`
+
+### 限制说明
+
+| 限制项 | 说明 |
+|--------|------|
+| **仅本地可见** | 不具备远程触达能力，不可用于生产告警 |
+| **无持久化** | 随进程 stdout 消失，需配合日志采集（ELK/Loki/文件） |
+| **无重试/限流** | 同步打印即返回，失败仅为 `fmt.Printf` 极端异常 |
+| **无认证/授权** | 任意任务路由到该 Provider 均会打印 |
+
+## 常见错误
+
+| 错误 | 原因与处理 |
+|------|-----------|
+| `task is nil` | 内部调度异常，任务对象为空（极罕见，重启 Herald 核心） |
+
+`log` Provider **不会返回业务错误**；唯一可能的 error 是入参 `task == nil`（防御性编程）。
 
 ## 下一步
 
 - [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [快速开始](/guide/getting-started) - 用 log provider 跑通第一个通知
-- [Telegram](./telegram.md) - 接入第一个真实外部渠道
+- [Webhook](./webhook.md) - 需要 HTTP 触达时的通用方案
+- [Worker Runtime](/runtime/worker) - 复杂逻辑请用 Worker Provider
