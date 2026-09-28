@@ -27,9 +27,9 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhoo
 
 | Provider | 说明 | 状态 |
 |----------|------|------|
-| `aliyunsms` | 阿里云短信 | ✅ |
-| `tencentsms` | 腾讯云短信 | ✅ |
-| `neteasesms` | 网易云信短信 | ✅ |
+| [`aliyunsms`](./aliyunsms.md) | 阿里云短信 | ✅ |
+| [`tencentsms`](./tencentsms.md) | 腾讯云短信 | ✅ |
+| [`neteasesms`](./neteasesms.md) | 网易云信短信 | ✅ |
 
 ### 其他
 
