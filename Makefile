@@ -1,4 +1,4 @@
-.PHONY: build clean run docs docs-dev test docker-build docker-up docker-down docker-logs dashboard-dev dashboard-build
+.PHONY: build clean run docs docs-dev test test-integration docker-build docker-up docker-down docker-logs dashboard-dev dashboard-build
 
 build:
 	@echo "Building herald..."
@@ -24,6 +24,11 @@ docs-build:
 test:
 	@echo "Running tests..."
 	@go test ./...
+
+# 需要本地 Redis（默认 localhost:6379，可用 TEST_REDIS_ADDR 覆盖）
+test-integration:
+	@echo "Running integration tests..."
+	@go test -count=1 -tags=integration ./core/queue
 
 # Dashboard commands
 dashboard-dev:

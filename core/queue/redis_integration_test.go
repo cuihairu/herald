@@ -39,6 +39,21 @@ func skipWithoutRedis(t *testing.T) {
 	}
 }
 
+// freshConfig returns a config bound to a brand-new stream and group.
+// Subtests that assume an empty queue must never reuse the parent's stream:
+// XAck/XClaim clear the pending list but stream entries persist, and
+// Size() counts XLEN — earlier subtests' leftovers leak into later ones.
+func freshConfig() *QueueConfig {
+	return &QueueConfig{
+		Type: "redis",
+		Redis: RedisConfig{
+			Addr:   getRedisAddr(),
+			Stream: fmt.Sprintf("test-stream-%d", time.Now().UnixNano()),
+			Group:  fmt.Sprintf("test-group-%d", time.Now().UnixNano()),
+		},
+	}
+}
+
 func TestRedisQueueIntegration(t *testing.T) {
 	skipWithoutRedis(t)
 
@@ -183,7 +198,7 @@ func TestRedisQueueIntegration(t *testing.T) {
 	})
 
 	t.Run("size returns message count", func(t *testing.T) {
-		q, err := NewRedisQueue(config)
+		q, err := NewRedisQueue(freshConfig())
 		if err != nil {
 			t.Fatalf("failed to create redis queue: %v", err)
 		}
@@ -276,7 +291,7 @@ func TestRedisQueueIntegration(t *testing.T) {
 	})
 
 	t.Run("pop with timeout when empty", func(t *testing.T) {
-		q, err := NewRedisQueue(config)
+		q, err := NewRedisQueue(freshConfig())
 		if err != nil {
 			t.Fatalf("failed to create redis queue: %v", err)
 		}
