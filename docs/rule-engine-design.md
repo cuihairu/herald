@@ -180,9 +180,9 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 | P1 | 规则存储 DB（SQLite 起步） | `core/rules/store.go` 的 `Store` 接口 + `MemoryStore`/`FileStore`（JSON 持久化，`cmd/heraldd/main.go` 启动时从 `cfg.Rules` 播种） | **SQLite 未做**，JSON 文件先行；接口已抽象，换后端不动调用方 |
 | P1 | 后台 CRUD + 热加载 | `POST/GET /api/v1/rules`、`/api/v1/rules/{id}`（`api/handler_rules.go`），CRUD 直写 `rules.Engine` 进程内即时生效，文件持久化重启恢复 | 未做"watch 版本号 diff 重载"——CRUD 即时生效使 watch 无必要，效果等价 |
 | P1 | expr 表达式 + 编译期类型检查 + 超时/长度上限 | `expr-lang/expr`（go.mod），`engine.go` 保存时编译（`compileRule`），求值带超时护栏 | 按设计选型 expr，未用 cel-go |
-| P1 | 求值位置：入队前 + 未命中回落静态路由 | `core/service/notification.go` 的 `RuleEvaluator` 接口，`Process` 内 dedup 后、路由前求值；`Rules == nil` 时保持纯静态路由（`api/server.go:45`） | 一致 |
+| P1 | 求值位置：入队前 + 未命中回落静态路由 | `core/service/notification.go` 的 `RuleEvaluator` 接口，`Process` 内**路由前、dedup 前**求值（实际顺序：求值 `:167` → 静态路由兜底 `:253` → dedup `:277` 为入队前最后一道闸）；`Rules == nil` 时保持纯静态路由（`api/server.go:45`） | **顺序与 §4.1 相反**：设计写"dedup 检查之后、路由解析之前"，实现把求值提前到 dedup **之前**、dedup 挪到路由之后——有状态规则（for 窗口、组轮次、恢复判定）要吃**每个事件**推进状态，dedup 只决定"这次投递是否重复"（源码注释 `notification.go:156-161` 与 `:273-276` 给出论证）。"入队前"与"未命中回落静态路由"两项目标与设计一致 |
 | P1 | 影子模式 + logstore 扩展 | `core/rules/shadow.go` + `RuleObserver.RecordShadow` 观察者（影子命中/求值失败/静默扣留分事件记录） | 一致 |
-| P1 | limiter 接线投递侧 | `core/runtime/manager.go` 的 `Deliver` 在任何投递尝试前 `lm.Wait(ctx)`（:380），配置 `rate_limit` 经 `SetProviderLimiter` 接线（`cmd/heraldd/main.go:138`） | **§二"孤儿模块"的现状已闭合** |
+| P1 | limiter 接线投递侧 | `core/runtime/manager.go` 的 `Deliver` 在任何投递尝试前 `lm.Wait(ctx)`（HEAD 上 :381，紧邻注释 "Wait BEFORE any delivery attempt"），配置 `rate_limit` 经 `SetProviderLimiter` 接线（`cmd/heraldd/main.go:138`） | **§二"孤儿模块"的现状已闭合** |
 | P1 | retry 可重试判定修正 | `core/httpclient/client.go`：`retryableStatus`（429/5xx）将传输错误包成 `RetryableError`，`ShouldRetry` 据此重试 | **§二"没有任何 provider 构造该类型"的现状已闭合**（webhook 类 provider 走 httpclient 自动获得） |
 | P2 | 状态外置 Redis + memory 兜底 | `core/rules/state.go`（memory）/`state_redis.go`（Redis），`SetStateStore` 注入（`cmd/heraldd/main.go:202`） | 一致 |
 | P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups` | 一致 |
@@ -191,3 +191,6 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 | P3 | 事故台账 | `core/incident` + `GET` 事故视图（`api/handler_incidents.go`） | 一致 |
 
 核对方法：端点与调用点以 `grep` 实证（上文标注行号），行为以各包 `*_test.go` 全绿佐证；`core/limiter`、`core/retry` 在 §二表格中的"现状"列保留为实施前快照，不逐格改写。
+
+复核补记（同日第二轮逐行 grep 复核）：修正初版回执两处与代码不符——① 求值顺序实为 dedup **前**而非"dedup 后"（上表第 4 行已改，属对 §4.1 的有意偏离，理由见源码注释）；② limiter 的 `lm.Wait` 原标 `:380`，HEAD 上实为 `:381`（该行号会随本文件改动漂移，故行号旁一并引注释原文作定位）。其余 10 行落点全部复验属实（含飞书卡片确认按钮 `feishu.go:168` → 回调端点 → `core/ack` 的 P3 全链、`escalation.Manager` 经 `api/server.go:96` 注入通知服务）。
+
