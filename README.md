@@ -268,6 +268,7 @@ routes:
 完整文档请访问 [docs/](./docs/)
 
 - [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、队列、Provider 全量配置项）
+- [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / Email / Webhook / SMS / Log）
 - [规则引擎决策层设计](./docs/design-rule-engine.md) · [通知群组设计](./docs/design-notification-groups.md)
 
 ## 开发

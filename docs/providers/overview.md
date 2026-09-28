@@ -11,8 +11,8 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhoo
 | [`telegram`](./telegram.md) | Telegram Bot | ✅ |
 | [`feishu`](./feishu.md) | 飞书机器人 | ✅ |
 | [`wecom`](./wecom.md) | 企业微信机器人 | ✅ |
-| `wechat` | 微信个人推送 (ServerChan/PushPlus/WxPusher) | ✅ |
-| `wechatmp` | 微信公众号模板消息 | ✅ |
+| [`wechat`](./wechat.md) | 微信个人推送 (ServerChan/PushPlus/WxPusher) | ✅ |
+| [`wechatmp`](./wechatmp.md) | 微信公众号模板消息 | ✅ |
 | [`dingtalk`](./dingtalk.md) | 钉钉机器人 | ✅ |
 | [`slack`](./slack.md) | Slack | ✅ |
 | [`discord`](./discord.md) | Discord | ✅ |
@@ -21,7 +21,7 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhoo
 
 | Provider | 说明 | 状态 |
 |----------|------|------|
-| `email` | SMTP 邮件 | ✅ |
+| [`email`](./email.md) | SMTP 邮件 | ✅ |
 
 ### 短信
 
@@ -35,8 +35,8 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhoo
 
 | Provider | 说明 | 状态 |
 |----------|------|------|
-| `webhook` | 通用 Webhook | ✅ |
-| `log` | 日志输出 | ✅ |
+| [`webhook`](./webhook.md) | 通用 Webhook | ✅ |
+| [`log`](./log.md) | 日志输出 | ✅ |
 
 ## Builtin vs Worker
 
@@ -114,8 +114,17 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 3. **按需启用**：根据环境启用不同的 Provider
 4. **监控状态**：定期检查 Provider 健康状态
 
+## 注册机制与 worker 占位
+
+- 所有 Builtin Provider 的工厂统一在 `providers/builtin/registry` 注册（`RegisterBuiltinProviders`），上表即注册全集，无需手工注册
+- `worker` 类型的 provider 是**远程 Worker 的本地占位**：本地 Deliver 为空操作，任务由调度器按 `target` 路由到对应 Worker 节点执行（`name` 默认 `worker`，`target` 默认取 `name`）。适用场景与开发方式见 [Worker Runtime](/runtime/worker) 与 [Worker SDK](/runtime/sdk)
+
 ## 下一步
 
 - [微信个人推送](./wechat.md) - 使用第三方服务推送
-- [微信公众号](./wechat-official.md) - 自建公众号推送指南
+- [微信公众号指南](./wechat-official.md) - 自建公众号推送指南
+- [微信公众号模板消息](./wechatmp.md) - wechatmp Provider 配置参考
+- [Email](./email.md) - SMTP 邮件通道
+- [Webhook](./webhook.md) - 自定义 HTTP 接收端
+- [Log](./log.md) - 本地调试输出
 - [SMS Providers](./sms.md) - 短信 Provider 详细配置

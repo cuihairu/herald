@@ -81,8 +81,12 @@ export default defineConfig({
             { text: 'Slack', link: '/providers/slack' },
             { text: 'Discord', link: '/providers/discord' },
             { text: '微信个人推送', link: '/providers/wechat' },
-            { text: '微信公众号', link: '/providers/wechat-official' },
+            { text: '微信公众号指南', link: '/providers/wechat-official' },
+            { text: '微信公众号模板消息', link: '/providers/wechatmp' },
             { text: 'SMS Providers', link: '/providers/sms' },
+            { text: 'Email', link: '/providers/email' },
+            { text: 'Webhook', link: '/providers/webhook' },
+            { text: 'Log', link: '/providers/log' },
           ]
         },
         {

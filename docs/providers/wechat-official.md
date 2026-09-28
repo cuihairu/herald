@@ -13,6 +13,8 @@ Herald 支持两种微信公众号推送方式：
 
 ## 方式一：Builtin Provider（推荐）
 
+`wechatmp` Provider 的完整配置参考（模板字段映射、Token 管理、常见错误）见 [微信公众号模板消息](./wechatmp.md)，下面快速过一遍。
+
 ### 配置
 
 ```yaml
@@ -190,5 +192,6 @@ A: Provider 会自动管理 Access Token，无需手动处理。
 ## 下一步
 
 - [Provider 概览](./overview.md) - 查看所有 Provider
+- [微信公众号模板消息](./wechatmp.md) - wechatmp Provider 配置参考
 - [微信个人推送](./wechat.md) - 使用第三方服务的简单方案
 - [Worker SDK](/runtime/sdk) - 了解 Worker 开发
