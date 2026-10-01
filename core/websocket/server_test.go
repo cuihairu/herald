@@ -21,6 +21,27 @@ type mockHandler struct {
 	disconnectCalls []string
 }
 
+// errorMockHandler returns an error on OnRegister
+type errorMockHandler struct{}
+
+func (e *errorMockHandler) OnRegister(workerID string, msg *protocol.RegisterMessage) error {
+	return fmt.Errorf("handler error")
+}
+
+func (e *errorMockHandler) OnHeartbeat(workerID string) error {
+	return nil
+}
+
+func (e *errorMockHandler) OnTaskAck(taskID string, success bool, errMsg string) error {
+	return nil
+}
+
+func (e *errorMockHandler) OnWorkerEvent(workerID string, event *protocol.EventMessage) error {
+	return nil
+}
+
+func (e *errorMockHandler) OnDisconnect(workerID string) {}
+
 type registerCall struct {
 	workerID string
 	msg      *protocol.RegisterMessage
@@ -1326,5 +1347,69 @@ func TestHandleRegister(t *testing.T) {
 	}
 	if handler.registerCalls[0].workerID != "worker-1" {
 		t.Fatalf("expected worker-1 callback, got %s", handler.registerCalls[0].workerID)
+	}
+}
+
+func TestHandleRegisterHandlerError(t *testing.T) {
+	// Handler that returns an error on OnRegister
+	errorHandler := &errorMockHandler{}
+
+	server := NewServer(&Config{
+		Addr:           "127.0.0.1:0",
+		ReadTimeout:    time.Second,
+		WriteTimeout:   time.Second,
+		PingTimeout:    time.Second,
+		PingInterval:   time.Second,
+		AllowedOrigins: []string{"*"},
+	}, errorHandler)
+
+	testSrv := httptest.NewServer(http.HandlerFunc(server.handleWebSocket))
+	defer testSrv.Close()
+
+	wsURL := "ws" + testSrv.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	register := &protocol.RegisterMessage{
+		WorkerID:     "worker-error",
+		Platform:     "linux",
+		Version:      "1.0.0",
+		Capabilities: []string{"telegram"},
+	}
+	payload, err := protocol.MarshalMessage(register)
+	if err != nil {
+		t.Fatalf("failed to marshal register message: %v", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		t.Fatalf("failed to write register message: %v", err)
+	}
+
+	_, ackData, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read register ack: %v", err)
+	}
+
+	var ack protocol.RegisterAckMessage
+	if err := json.Unmarshal(ackData, &ack); err != nil {
+		t.Fatalf("failed to decode register ack: %v", err)
+	}
+	// Registration should still succeed (ACK sent) even if handler returns error
+	if ack.WorkerID != "worker-error" || !ack.Success {
+		t.Fatalf("unexpected ack: %#v", ack)
+	}
+
+	// Verify handler was called and error was logged (no panic)
+	server.mu.RLock()
+	state, ok := server.workers["worker-error"]
+	server.mu.RUnlock()
+	if !ok {
+		t.Fatal("expected worker to be registered despite handler error")
+	}
+	if state.WorkerID != "worker-error" {
+		t.Fatalf("expected worker-error, got %s", state.WorkerID)
 	}
 }
