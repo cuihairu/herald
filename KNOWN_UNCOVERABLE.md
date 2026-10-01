@@ -19,8 +19,8 @@
 ## cmd/heraldd/main.go
 
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:49` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:130` — `serve` 里 `manager.RegisterProvider` 的重复名守卫（`// Defensive: the duplicate-name guard cannot fire`）。配置遍历的是 `map[string]ProviderConfig`，键即 provider 名，map 本身保证每个名字只出现一次；且此处 manager 全新、builtin 只注册工厂。构造重复名需要同一 map 键出现两次，与数据结构矛盾。
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:381` — `serveCmd` 里同一守卫的第二处副本，依据同上（该处 manager 由 `serveCmd` 新建）。
+
+> 本文件曾登记 `serveCmd`/`workerCmd` 两个注册循环里的 `manager.RegisterProvider` 重复名守卫（原 `main.go:130`、`main.go:381`）——按结构不可达（factories 与 providers 分属两个 map、`cfg.Providers` 键唯一）。2026-10-01 按 `writeControl` 先例提为包级 seam `registerProvider`，由 `TestDuplicateNameGuardAbortsRegistration` 注入失败实测两处 return 1 分支（均在绑端口/起 worker 前退出），已移出台账。
 
 ## providers/builtin/wechatmp/wechatmp.go
 

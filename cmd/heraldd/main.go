@@ -75,6 +75,13 @@ func run(args []string) int {
 	}
 }
 
+// registerProvider is a seam over Manager.RegisterProvider: the
+// duplicate-name guards in the registration loops below cannot fire in
+// production — factories and instances are separate namespaces and config
+// map keys are unique — so tests swap this to make registration fail and
+// exercise both error branches deterministically.
+var registerProvider = (*coreruntime.Manager).RegisterProvider
+
 // serveCmd runs Herald in scheduler mode: API + Queue + local workers.
 // It returns the process exit code.
 func serveCmd(args []string) int {
@@ -127,7 +134,7 @@ func serveCmd(args []string) int {
 		}
 		// Defensive: the duplicate-name guard cannot fire — builtins only
 		// register factories, and each configured name is registered once.
-		if err := manager.RegisterProvider(name, provider, enabled); err != nil {
+		if err := registerProvider(manager, name, provider, enabled); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
 			return 1
 		}
@@ -378,7 +385,7 @@ func workerCmd(args []string) int {
 		// Defensive: the duplicate-name guard cannot fire — the manager is
 		// fresh (see serveCmd), builtins only register factories, and each
 		// configured name registers once.
-		if err := manager.RegisterProvider(name, provider, true); err != nil {
+		if err := registerProvider(manager, name, provider, true); err != nil {
 			logger.Error("failed to register provider", "name", name, "error", err)
 			return 1
 		}

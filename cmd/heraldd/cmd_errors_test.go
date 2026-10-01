@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/config"
+	"github.com/cuihairu/herald/core"
+	coreruntime "github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/protocol"
 	gws "github.com/gorilla/websocket"
@@ -102,6 +104,65 @@ func TestWorkerCmdConfigErrors(t *testing.T) {
 	// A config path that does not exist must fail config loading.
 	if code := workerCmd([]string{"--config", filepath.Join(t.TempDir(), "missing.yaml")}); code != 1 {
 		t.Errorf("workerCmd(missing file) = %d, want 1", code)
+	}
+}
+
+// TestDuplicateNameGuardAbortsRegistration swaps the registerProvider seam
+// to fail: both registration loops must log the duplicate-name error and
+// abort with exit 1 before the API port binds or pool workers start. The
+// guard cannot fire in production — factories and instances are separate
+// namespaces and config map keys are unique — so the seam is the only way
+// to reach these two branches (same pattern as writeControl/groupsGet).
+func TestDuplicateNameGuardAbortsRegistration(t *testing.T) {
+	orig := registerProvider
+	seamCalled := false
+	registerProvider = func(*coreruntime.Manager, string, core.Provider, ...bool) error {
+		seamCalled = true
+		return errors.New("provider already registered: injected")
+	}
+	t.Cleanup(func() { registerProvider = orig })
+
+	serveCfg := writeTestConfig(t, `
+server:
+  addr: 127.0.0.1:0
+queue:
+  type: memory
+providers:
+  hook:
+    type: webhook
+    config:
+      url: http://127.0.0.1:1/hook
+`)
+	if code := serveCmd([]string{"--config", serveCfg}); code != 1 {
+		t.Errorf("serveCmd with failing RegisterProvider = %d, want 1", code)
+	}
+	if !seamCalled {
+		t.Fatal("serveCmd never reached the provider registration loop")
+	}
+
+	seamCalled = false
+	fr := newFakeRedis(t)
+	workerCfg := writeTestConfig(t, fmt.Sprintf(`
+server:
+  addr: 127.0.0.1:0
+queue:
+  type: redis
+  redis:
+    addr: %s
+  workers: 1
+providers:
+  hook:
+    type: webhook
+    config:
+      url: http://127.0.0.1:1/hook
+worker:
+  id: w-guard
+`, fr.Addr()))
+	if code := workerCmd([]string{"--config", workerCfg}); code != 1 {
+		t.Errorf("workerCmd with failing RegisterProvider = %d, want 1", code)
+	}
+	if !seamCalled {
+		t.Fatal("workerCmd never reached the provider registration loop")
 	}
 }
 
