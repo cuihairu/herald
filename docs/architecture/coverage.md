@@ -16,10 +16,10 @@
 
 | 项目 | 值 |
 | --- | --- |
-| 语句覆盖率（go-test 口径原始值） | 99.64%（5019/5037） |
-| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.78%**（5026/5037，2026-09-28 复测（影子统计切片，+7 条语句全命中）；期 5 收官时为 99.7%，功能代码增长摊低后，台账条目经 seam 逐轮升格实测（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`），回到并越过原水位；门禁等效口径不受影响） |
+| 语句覆盖率（go-test 口径原始值） | 99.72%（5022/5036，2026-10-01 实测；此前 2026-09-28 为 99.64%（5019/5037）） |
+| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.86%**（5029/5036，2026-10-01 复测（provider 重复名守卫两处经 seam 实测，零块 7→5）；2026-09-28 为 99.78%（5026/5037，影子统计切片，+7 条语句全命中）；期 5 收官时为 99.7%，功能代码增长摊低后，台账条目经 seam 逐轮升格实测（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`、`main.go:130/:381`），回到并越过原水位；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
-| 残余零块 | **7 块**（2026-09-28 go1.26.6 实测，与上一轮同数同块，全部命中台账）。台账共登记 **8 条**——三处登记已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账：`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）、worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）、api `createGroup`/`getGroup` 的 `Manager.Get` 后 500 守卫（原 `handler_groups.go:71/:88`，seam 为 `groupsGet`）；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 provider 重复名守卫、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
+| 残余零块 | **5 块**（2026-10-01 go1.26.6 实测，全部命中台账；上一轮 2026-09-28 为 7 块）。台账共登记 **6 条**（原 8 条）——累计六处登记已按 `writeControl` 先例提为包级 seam、由注入失败用例实测升格并移出台账：`cmd/heraldd` `registerRemoteWorker`（原 `main.go:556`）、worker-sdk `register` 清 ack 截止时间（原 `client.go:197`）、api `createGroup`/`getGroup` 的 `Manager.Get` 后 500 守卫（原 `handler_groups.go:71/:88`，seam 为 `groupsGet`）、2026-10-01 `cmd/heraldd` 两处 provider 重复名守卫（原 `main.go:130/:381`，seam 为 `registerProvider`）；其余条目中 wechatmp 写锁双检命中块偶发走到非零，非零轮次自然不参与豁免：3 块 `main()` 的 `os.Exit` 失败分支、2 块 gorilla `SetWriteDeadline` 恒 nil、1 块双检命中 |
 | **前端分支覆盖（dashboard/）** | **100%**（262/262，2026-09-28 实测，规则页新增"影子命中"列的 `?? 0` 两个分支两侧均已测；补齐该列前的 2026-09-27 轮为 260/260，再上期为 97.69%，补齐 6 个分支后满口径）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。

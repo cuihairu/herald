@@ -62,11 +62,17 @@ func (p *Pool) Run(ctx context.Context) {
 
 func (p *Pool) workerLoop(ctx context.Context, workerID string) {
 	defer p.wg.Done()
+	// Deregistration is deferred so every exit path leaves the registry
+	// clean, and it runs before wg.Done() (LIFO): Run() returns the moment
+	// wg.Wait() unblocks, so a worker returning without deregistering would
+	// leak its entry past shutdown. The Pop error branch below is where that
+	// happened — a cancellation error returned early with the entry still
+	// registered, which flaked the post-shutdown Count() assertion.
+	defer p.registry.Deregister(workerID)
 
 	for {
 		select {
 		case <-ctx.Done():
-			p.registry.Deregister(workerID)
 			return
 		default:
 		}
@@ -83,7 +89,6 @@ func (p *Pool) workerLoop(ctx context.Context, workerID string) {
 			// A closed queue pops its zero value (memory queue semantics):
 			// no task will ever come again, so this worker retires the
 			// same way it would on context cancellation.
-			p.registry.Deregister(workerID)
 			return
 		}
 
