@@ -82,6 +82,13 @@ func statusError(code int, body []byte) error {
 
 // PostJSON sends a JSON POST request
 func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*Response, error) {
+	return c.PostJSONWithHeaders(ctx, url, body, nil)
+}
+
+// PostJSONWithHeaders sends a JSON POST request with extra request headers
+// (e.g. Authorization for token-authenticated APIs). Values overwrite the
+// defaults on collision.
+func (c *Client) PostJSONWithHeaders(ctx context.Context, url string, body interface{}, headers map[string]string) (*Response, error) {
 	// Marshal body
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -95,6 +102,9 @@ func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*R
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	// Send request
 	resp, err := c.client.Do(req)

@@ -116,6 +116,12 @@ export default defineConfig({
           ]
         },
         {
+          text: 'App 推送',
+          items: [
+            { text: 'FCM', link: '/providers/fcm' },
+          ]
+        },
+        {
           text: '对接与调试',
           items: [
             { text: 'Webhook', link: '/providers/webhook' },

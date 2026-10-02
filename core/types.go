@@ -94,7 +94,7 @@ type Queue interface {
 var SensitiveFields = map[string]bool{
 	"token": true, "secret": true, "password": true, "secret_key": true,
 	"access_key_secret": true, "app_secret": true, "bot_token": true,
-	"sign_secret": true,
+	"sign_secret": true, "private_key": true,
 }
 
 // MaskConfig masks sensitive fields in a config map

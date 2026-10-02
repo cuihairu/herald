@@ -38,6 +38,7 @@ var providerSchemas = map[string]map[string]string{
 	"aliyunsms":  {"access_key_id": "string", "access_key_secret": "string", "sign_name": "string", "region": "string", "endpoint": "string"},
 	"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string", "region": "string", "endpoint": "string"},
 	"neteasesms": {"app_key": "string", "app_secret": "string", "endpoint": "string"},
+	"fcm":        {"project_id": "string", "client_email": "string", "private_key": "string", "endpoint": "string"},
 }
 
 type registeredProvider struct {
