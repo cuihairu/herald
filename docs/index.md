@@ -3,15 +3,18 @@ layout: home
 
 hero:
   name: Herald
-  text: Event-driven Delivery Infrastructure
-  tagline: 统一事件 · 统一 Runtime · 统一调度 · 统一投递
+  text: 统一消息通知分发平台
+  tagline: 一条 HTTP 请求，送达任何渠道 —— 即时通讯 · 短信 · 邮件 · Webhook · App 推送。内置路由、重试、去重、限流与规则引擎，单二进制部署，也可作为 Go 库嵌入。
   actions:
     - theme: brand
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 作为 Go 库使用
-      link: /library-usage
+      text: Provider 总览
+      link: /providers/overview
+    - theme: alt
+      text: 使用指南
+      link: /guide/introduction
     - theme: alt
       text: 架构设计
       link: /architecture/overview
@@ -35,3 +38,25 @@ features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><rect x="3.5" y="7" width="10" height="8" rx="1.5"/><rect x="10.5" y="12" width="10" height="7" rx="1.5"/><path d="M7 10.5h3"/><path d="M14 15h3"/><path d="M14 10.5h3.5"/></svg>'
     title: Worker Model
     details: 独立 Runtime 节点，支持浏览器自动化等复杂场景
+---
+
+## Herald 是什么
+
+Herald 是一个**事件驱动的消息通知分发平台**：业务方把通知作为一条 HTTP 请求交给它，Herald 负责渲染成各渠道的格式并可靠送达。内置 Provider 覆盖即时通讯（飞书、企业微信、钉钉、Slack、Discord、Telegram、微信）、短信（阿里云、腾讯云、网易）、邮件、Webhook 与 App 推送，并且仍在扩展。
+
+去重、重试、限流、模板多渠道复用、规则引擎放行/抑制/改道——这些通知系统的公共难题在平台侧一次解决，业务方只关心「发什么、发给谁」。
+
+## 使用场景
+
+- **系统告警推送**：监控、巡检产生的事件经规则引擎分级路由——IM 群即时弹窗、短信兜底，超时未确认按升级策略自动加码。
+- **运营消息触达**：模板一次定义、多渠道复用；命名受众（Notification Groups）维护花名册，运营公告一发即达飞书/企微/邮件。
+- **验证码与事务短信**：对接阿里云/腾讯云/网易短信通道，内置限流防刷与失败重试，验证码这类高时效消息不丢单。
+- **多通道兜底重试**：同一事件可路由到多个渠道，主通道故障自动重试、换道送达，指数退避直到成功或达到重试上限。
+- **CI/CD 与自动化接入**：curl 一行接入，无 SDK 依赖；构建、部署、备份任务的结束状态直接进群，或经 Webhook 联动自建系统。
+
+## 快速入口
+
+- [快速开始](/guide/getting-started) —— 从安装到发出第一条通知
+- [Provider 总览](/providers/overview) —— 全部支持渠道的配置项与申请方式
+- [配置参考](/guide/configuration) —— 完整配置项说明
+- [架构设计](/architecture/overview) —— Runtime、队列与投递模型
