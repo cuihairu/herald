@@ -24,7 +24,7 @@ const (
 )
 
 // Provider sends push notifications through the JPush REST API v3
-// (POST /3/push). Authentication is HTTP Basic: base64(app_key:master_secret).
+// (POST /v3/push). Authentication is HTTP Basic: base64(app_key:master_secret).
 // Each delivery target is one registration_id, sent individually so a
 // dead device (JPush error 1011) is attributed to exactly that target.
 type Provider struct {
