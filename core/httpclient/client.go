@@ -3,6 +3,7 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -78,6 +79,20 @@ func statusError(code int, body []byte) error {
 		return WithRetry(err)
 	}
 	return err
+}
+
+// WithClientCert returns a copy of the client that presents the given
+// TLS client certificate on every connection (e.g. APNs certificate
+// authentication). The receiver's transport is untouched: Clone gives
+// the copy its own tls.Config (go1.26's Transport.Clone materializes one
+// with the h2 ALPN protocols on both sides, so only Certificates is set
+// on the clone — replacing the config would drop HTTP/2 negotiation).
+func (c *Client) WithClientCert(cert tls.Certificate) *Client {
+	transport := c.client.Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+	httpClient := *c.client
+	httpClient.Transport = transport
+	return &Client{client: &httpClient, timeout: c.timeout}
 }
 
 // PostJSON sends a JSON POST request

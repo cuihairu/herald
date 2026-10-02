@@ -39,6 +39,7 @@ var providerSchemas = map[string]map[string]string{
 	"tencentsms": {"secret_id": "string", "secret_key": "string", "app_id": "string", "sign_name": "string", "region": "string", "endpoint": "string"},
 	"neteasesms": {"app_key": "string", "app_secret": "string", "endpoint": "string"},
 	"fcm":        {"project_id": "string", "client_email": "string", "private_key": "string", "endpoint": "string"},
+	"apns":       {"key_id": "string", "team_id": "string", "private_key": "string", "cert_pem": "string", "topic": "string", "push_type": "string", "priority": "number", "endpoint": "string"},
 }
 
 type registeredProvider struct {

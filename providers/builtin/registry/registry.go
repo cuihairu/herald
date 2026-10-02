@@ -3,6 +3,7 @@ package builtin
 import (
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/providers/builtin/aliyunsms"
+	"github.com/cuihairu/herald/providers/builtin/apns"
 	"github.com/cuihairu/herald/providers/builtin/dingtalk"
 	"github.com/cuihairu/herald/providers/builtin/discord"
 	"github.com/cuihairu/herald/providers/builtin/email"
@@ -35,6 +36,7 @@ func RegisterBuiltinProviders(manager *runtime.Manager) {
 	manager.RegisterFactory(&tencentsms.Factory{})
 	manager.RegisterFactory(&neteasesms.Factory{})
 	manager.RegisterFactory(&fcm.Factory{})
+	manager.RegisterFactory(&apns.Factory{})
 	manager.RegisterFactory(&wechat.Factory{})
 	manager.RegisterFactory(&wechatmp.Factory{})
 	manager.RegisterFactory(&worker.Factory{})

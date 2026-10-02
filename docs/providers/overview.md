@@ -13,7 +13,8 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送�
 | 推到 Discord / Slack 频道 | [`discord`](./discord.md) / [`slack`](./slack.md) | 创建 Webhook 即得，零审批 |
 | 对接自建系统 / 本地调试 | [`webhook`](./webhook.md) / [`log`](./log.md) | 零凭据 |
 | 公众号模板消息 | [`wechatmp`](./wechatmp.md) | 需认证服务号 |
-| App 推送（Android/iOS/Web） | [`fcm`](./fcm.md) | 需 Firebase 项目，控制台生成服务账号即用 |
+| App 推送（Android/Web） | [`fcm`](./fcm.md) | 需 Firebase 项目，控制台生成服务账号即用 |
+| App 推送（iOS/macOS） | [`apns`](./apns.md) | 需 Apple Developer 账号，Keys 页生成 .p8 |
 
 每个渠道页都含：**申请凭据 → 配置 → 发第一条消息（可跟跑的命令）→ 常见错误**。
 
@@ -50,7 +51,8 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送�
 
 | Provider | 说明 | 状态 |
 |----------|------|------|
-| [`fcm`](./fcm.md) | Firebase Cloud Messaging (Android/iOS/Web) | ✅ |
+| [`fcm`](./fcm.md) | Firebase Cloud Messaging (Android/Web) | ✅ |
+| [`apns`](./apns.md) | Apple Push Notification service (iOS/macOS) | ✅ |
 
 ### 其他
 

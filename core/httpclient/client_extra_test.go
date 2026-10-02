@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -118,4 +119,50 @@ func TestLogResponse(t *testing.T) {
 		StatusCode: http.StatusTeapot,
 		Body:       []byte(`{"ok":false}`),
 	}, nil)
+}
+
+func TestWithClientCert(t *testing.T) {
+	orig := NewClient(&Config{Timeout: 7 * time.Second})
+	with := orig.WithClientCert(tls.Certificate{})
+
+	if with == orig {
+		t.Fatal("WithClientCert returned the receiver, want a copy")
+	}
+	origTransport, ok := orig.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("original transport is not *http.Transport")
+	}
+	withTransport, ok := with.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("derived transport is not *http.Transport")
+	}
+	if withTransport == origTransport {
+		t.Error("transport not cloned; the original would be mutated")
+	}
+	if withTransport.TLSClientConfig == origTransport.TLSClientConfig {
+		t.Fatal("tls.Config not cloned; installing a certificate would leak into the original")
+	}
+	if n := len(origTransport.TLSClientConfig.Certificates); n != 0 {
+		t.Errorf("original client certificates = %d, want 0 (receiver untouched)", n)
+	}
+	if withTransport.TLSClientConfig == nil || len(withTransport.TLSClientConfig.Certificates) != 1 {
+		t.Fatalf("derived TLSClientConfig = %+v, want one client certificate", withTransport.TLSClientConfig)
+	}
+	// HTTP/2 must still be negotiable after cloning — APNs requires it.
+	if !containsProto(withTransport.TLSClientConfig.NextProtos, "h2") {
+		t.Errorf("derived NextProtos = %v, want h2 kept for HTTP/2", withTransport.TLSClientConfig.NextProtos)
+	}
+	if with.timeout != orig.timeout {
+		t.Errorf("timeout = %v, want preserved %v", with.timeout, orig.timeout)
+	}
+}
+
+// containsProto reports whether protos contains want.
+func containsProto(protos []string, want string) bool {
+	for _, p := range protos {
+		if p == want {
+			return true
+		}
+	}
+	return false
 }

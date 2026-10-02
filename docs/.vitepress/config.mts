@@ -119,6 +119,7 @@ export default defineConfig({
           text: 'App 推送',
           items: [
             { text: 'FCM', link: '/providers/fcm' },
+            { text: 'APNs', link: '/providers/apns' },
           ]
         },
         {
