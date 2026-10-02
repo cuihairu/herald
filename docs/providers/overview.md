@@ -1,6 +1,20 @@
 # Providers
 
-Herald 支持多种通知渠道，包括即时通讯、邮件、短信和 Webhook。
+Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送和 Webhook。
+
+## 按任务找渠道
+
+| 你想做什么 | 用哪个 | 申请难度 |
+|-----------|--------|---------|
+| 消息发进飞书/企微/钉钉群 | [`feishu`](./feishu.md) / [`wecom`](./wecom.md) / [`dingtalk`](./dingtalk.md) | 群里加机器人即得，**零审批** |
+| 推送到自己手机 | [`telegram`](./telegram.md) 或 [`wechat`](./wechat.md)（Server酱等） | Telegram 零审批；微信第三方扫码即用 |
+| 发验证码 / 事务短信 | [`aliyunsms`](./aliyunsms.md) / [`tencentsms`](./tencentsms.md) / [`neteasesms`](./neteasesms.md) | 需签名+模板审核 |
+| 发邮件 | [`email`](./email.md) | 有 SMTP 账号即可（授权码） |
+| 推到 Discord / Slack 频道 | [`discord`](./discord.md) / [`slack`](./slack.md) | 创建 Webhook 即得，零审批 |
+| 对接自建系统 / 本地调试 | [`webhook`](./webhook.md) / [`log`](./log.md) | 零凭据 |
+| 公众号模板消息 | [`wechatmp`](./wechatmp.md) | 需认证服务号 |
+
+每个渠道页都含：**申请凭据 → 配置 → 发第一条消息（可跟跑的命令）→ 常见错误**。
 
 ## Provider 分类
 
@@ -47,7 +61,7 @@ Builtin Providers 直接在 Herald 核心进程中运行，配置简单：
 ```yaml
 providers:
   telegram:
-    type: builtin
+    type: telegram
     enabled: true
     config:
       token: "your_token"
@@ -73,13 +87,13 @@ providers:
 ```yaml
 providers:
   telegram:
-    type: builtin
+    type: telegram
     enabled: true    # 启用
     config:
       token: "your_token"
 
   slack:
-    type: builtin
+    type: slack
     enabled: false   # 禁用
     config:
       webhook_url: "your_url"

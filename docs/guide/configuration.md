@@ -341,7 +341,7 @@ websocket:
 # Worker 本地 Provider（可选）
 providers:
   wechatmp:
-    type: builtin
+    type: wechatmp
     enabled: true
     config:
       app_id: "$WECHAT_APP_ID"

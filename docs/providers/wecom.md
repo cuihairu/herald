@@ -6,6 +6,32 @@
 
 `wecom` Builtin Provider 调用企业微信群机器人的 Webhook 接口，以 markdown 消息把 Herald 的通知发送到群聊。适合企业内部值班群、告警群场景。
 
+## 申请凭据
+
+无需审批，一分钟拿到 Webhook：
+
+1. 打开目标企业微信群 → 右上角 **...** → **群机器人** → **添加机器人** → 新创建一个
+2. **复制 Webhook 地址**（或只记地址里的 `key` 参数，二者填一个即可）
+3. 若企微后台要求，把服务器出口 IP 加入应用的「企业可信 IP」
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["wecom"]
+  }'
+```
+
+API 返回 `"accepted":["wecom"]`，群里收到加粗橙红标题的 markdown 消息。没收到？查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 `webhook_url` 与 `key` 二选一（都配置时 `webhook_url` 优先）：

@@ -6,6 +6,33 @@
 
 `discord` Builtin Provider 把 Herald 的通知以 Embed 卡片形式发送到 Discord 频道。发送优先走 Webhook；未配置 Webhook 时回退到 Bot API 通道。
 
+## 申请凭据
+
+推荐 Webhook 方式，无需审批：
+
+1. 打开 Discord 目标频道 → **编辑频道（齿轮）** → **整合** → **创建 Webhook**
+2. 点 **复制 Webhook URL**（形如 `https://discord.com/api/webhooks/xxxx/yyyy`）
+
+> ⚠️ Bot API 方式当前实现不附加 `Authorization` 头，会被 Discord 401 拒绝——**用 Webhook 方式**。
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["discord"]
+  }'
+```
+
+API 返回 `"accepted":["discord"]`（Webhook 成功时 Discord 返回 204），频道里出现红色 **Herald** Embed 卡片。没收到？查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 三种方式按优先级排列（Webhook 优先）：

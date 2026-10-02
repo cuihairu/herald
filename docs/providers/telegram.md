@@ -6,6 +6,32 @@
 
 `telegram` Builtin Provider 调用 Telegram Bot API 的 `sendMessage` 接口，把 Herald 的通知内容发送到 `chat_id` 指定的会话。适合个人告警接收、群组值班通知等场景。
 
+## 申请凭据
+
+全程无需审批，两样东西：Bot Token 和 chat_id。
+
+1. Telegram 里找 [@BotFather](https://t.me/BotFather) → 发送 `/newbot` → 按提示起名 → 得到 **Bot Token**（形如 `123456:ABC-DEF...`）
+2. **给你的机器人发一条消息**（私聊必须用户先发起，否则机器人无法主动推送给你；拉进群则自动可见）
+3. 拿 **chat_id**：浏览器打开 `https://api.telegram.org/bot<你的Token>/getUpdates`，在返回的 JSON 里找 `result[].message.chat.id`（私聊是正数，群组是 `-100…` 负数）
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["telegram"]
+  }'
+```
+
+API 返回 `"accepted":["telegram"]`，你的 Telegram 会收到 `🔴 Herald 第一条推送`。没收到？先 `getUpdates` 确认 token 和 chat_id 有效，再查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |

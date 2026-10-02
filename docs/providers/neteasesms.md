@@ -8,6 +8,47 @@
 
 > ⚠️ **前置要求**：需开通网易云信短信服务、创建应用、申请短信模板并通过审核。
 
+## 申请凭据
+
+三步走（网易云信控制台）：
+
+1. **创建应用**：控制台 → 创建应用，得到 **AppKey / AppSecret**
+2. **开通短信**并认领/申请签名（短信功能 → 签名管理）
+3. **申请模板**：短信 → 模板管理 → 新建模板（审核通过），记下**模板 ID**
+
+## 发第一条消息
+
+短信**必须走模板**（本 Provider 不支持直连 title/body），配置模板 + 参数后发送：
+
+```yaml
+# config.yaml 追加
+templates:
+  verify_code:
+    name: "验证码"
+    level: "info"
+    template_id: "你的网易云信模板ID"
+    fields:
+      - label: "code"
+        value: "{{.Code}}"
+```
+
+`heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "user.verify",
+    "level": "info",
+    "template": "verify_code",
+    "params": {"Code": "884275"},
+    "channels": ["neteasesms"],
+    "recipients": {"neteasesms": ["13800000000"]}
+  }'
+```
+
+手机收到 `【签名】验证码884275...`。没收到？模板/签名审核状态、错误码见[常见错误](#常见错误)与[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |
@@ -24,7 +65,7 @@
 ```yaml
 providers:
   neteasesms:
-    type: builtin
+    type: neteasesms
     enabled: true
     config:
       app_key: "$NETEASE_APP_KEY"

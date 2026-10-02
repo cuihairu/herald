@@ -100,7 +100,7 @@ websocket:
 
 providers:
   wechatmp:
-    type: builtin
+    type: wechatmp
     enabled: true
     config:
       app_id: "$WECHAT_APP_ID"

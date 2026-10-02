@@ -6,6 +6,38 @@
 
 `email` Builtin Provider 直接连接 SMTP 服务器发送邮件，无需第三方中转。适合已有邮件服务器（企业邮箱、自建 Postfix/Exim、云厂商 SMTP）的场景。
 
+## 申请凭据
+
+需要一个能用 SMTP 发信的邮箱账号。**常见误区：不是邮箱登录密码，是授权码**：
+
+| 服务商 | 申请入口 | 拿什么 |
+|--------|---------|--------|
+| QQ 邮箱 | 设置 → 账户 → POP3/IMAP → 开启 IMAP 并生成**授权码** | 授权码当 `password` |
+| 163 邮箱 | 设置 → POP3/SMTP → 开启并生成**授权密码** | 授权密码当 `password` |
+| Gmail | Google 账户 → 两步验证 → **应用专用密码** | 应用专用密码 |
+| 企业邮箱 | 找管理员要 SMTP 地址与账号 | SMTP 密码 |
+
+服务器地址与端口见本页下方[常见 SMTP 服务器参考](#常见-smtp-服务器参考)。
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后（**邮件必须带收件人**）：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "info",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["email"],
+    "recipients": {"email": ["you@example.com"]}
+  }'
+```
+
+API 返回 `"accepted":["email"]`，收件箱出现 `[INFO] Herald 第一条推送`（HTML 模板见下）。没收到？查垃圾箱 + [排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |

@@ -140,6 +140,27 @@ rules:
       - provider: "log"   # 夜间通知不发真实渠道，仅落日志
 ```
 
+## 发第一条消息
+
+`log` 是唯一零凭据的通道，也是验证 Herald 链路的标准手段（同款步骤见[快速开始](/guide/getting-started)第 1 步）：
+
+```bash
+# 启动
+./bin/heraldd serve --config config.yaml
+
+# 发送
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{"type":"demo","level":"error","title":"Node Offline","body":"node-17 is offline","channels":["log"]}'
+```
+
+服务端 stdout 立即出现两行——结构化日志 + 人类可读送达行：
+
+```
+{"time":"...","level":"INFO","msg":"delivering task","provider":"log","task_id":"...","title":"Node Offline","body":"node-17 is offline","level":"error"}
+[error] Node Offline: node-17 is offline
+```
+
 ## 下一步
 
 - [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式

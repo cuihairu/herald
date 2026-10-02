@@ -17,7 +17,7 @@ Herald 支持国内主流短信服务商的接入。
 ```yaml
 providers:
   aliyunsms:
-    type: builtin
+    type: aliyunsms
     enabled: true
     config:
       access_key_id: "$ALIYUN_ACCESS_KEY_ID"
@@ -31,7 +31,7 @@ providers:
 ```yaml
 providers:
   tencentsms:
-    type: builtin
+    type: tencentsms
     enabled: true
     config:
       secret_id: "$TENCENT_SECRET_ID"
@@ -45,7 +45,7 @@ providers:
 ```yaml
 providers:
   neteasesms:
-    type: builtin
+    type: neteasesms
     enabled: true
     config:
       app_key: "$NETEASE_APP_KEY"

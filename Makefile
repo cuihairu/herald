@@ -11,7 +11,7 @@ clean:
 
 run: build
 	@echo "Running herald..."
-	@./bin/heraldd --config config.yaml
+	@./bin/heraldd serve --config config.yaml
 
 docs-dev:
 	@echo "Starting docs dev server..."

@@ -14,22 +14,37 @@ export default defineConfig({
   themeConfig: {
     logo: '/logo.svg',
     nav: [
+      { text: '快速开始', link: '/guide/getting-started' },
+      { text: '使用场景', link: '/guide/use-cases' },
+      { text: 'Providers', link: '/providers/overview' },
       { text: '指南', link: '/guide/introduction' },
       { text: '架构', link: '/architecture/overview' },
       { text: 'Runtime', link: '/runtime/overview' },
       { text: 'API', link: '/api/overview' },
-      { text: 'Providers', link: '/providers/overview' },
     ],
 
     sidebar: {
       '/guide/': [
         {
-          text: '指南',
+          text: '开始',
           items: [
             { text: '简介', link: '/guide/introduction' },
             { text: '快速开始', link: '/guide/getting-started' },
-            { text: '配置', link: '/guide/configuration' },
+            { text: '使用场景与接入', link: '/guide/use-cases' },
+          ]
+        },
+        {
+          text: '配置',
+          items: [
+            { text: '配置参考', link: '/guide/configuration' },
             { text: '模板系统', link: '/guide/templates' },
+          ]
+        },
+        {
+          text: '运维',
+          items: [
+            { text: '部署', link: '/guide/deployment' },
+            { text: '排错指南', link: '/guide/troubleshooting' },
           ]
         }
       ],
@@ -71,9 +86,15 @@ export default defineConfig({
       ],
       '/': [
         {
-          text: 'Providers',
+          text: 'Provider 手册',
           items: [
-            { text: '概述', link: '/providers/overview' },
+            { text: '总览与选型', link: '/providers/overview' },
+            { text: '三家短信对比', link: '/providers/sms' },
+          ]
+        },
+        {
+          text: '即时通讯',
+          items: [
             { text: 'Telegram', link: '/providers/telegram' },
             { text: '飞书', link: '/providers/feishu' },
             { text: '企业微信', link: '/providers/wecom' },
@@ -83,11 +104,20 @@ export default defineConfig({
             { text: '微信个人推送', link: '/providers/wechat' },
             { text: '微信公众号指南', link: '/providers/wechat-official' },
             { text: '微信公众号模板消息', link: '/providers/wechatmp' },
-            { text: 'SMS Providers', link: '/providers/sms' },
+          ]
+        },
+        {
+          text: '短信与邮件',
+          items: [
             { text: '阿里云短信', link: '/providers/aliyunsms' },
             { text: '腾讯云短信', link: '/providers/tencentsms' },
             { text: '网易云信短信', link: '/providers/neteasesms' },
             { text: 'Email', link: '/providers/email' },
+          ]
+        },
+        {
+          text: '对接与调试',
+          items: [
             { text: 'Webhook', link: '/providers/webhook' },
             { text: 'Log', link: '/providers/log' },
           ]

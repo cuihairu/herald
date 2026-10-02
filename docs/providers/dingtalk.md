@@ -6,6 +6,32 @@
 
 `dingtalk` Builtin Provider 调用钉钉自定义机器人的 Webhook 接口，以 markdown 消息把 Herald 的通知发送到群聊。
 
+## 申请凭据
+
+无需审批，一分钟拿到 Webhook：
+
+1. 打开目标钉钉群 → **群设置** → **机器人** → **添加机器人** → 选 **自定义（通过 Webhook 接入自定义服务）**
+2. 安全设置三选一：**自定义关键词**（消息须含该词，推荐）、**加签**（⚠️ 当前实现不支持，**不要选**）、IP 白名单（段）
+3. 创建完成，**复制 Webhook 地址**（形如 `https://oapi.dingtalk.com/robot/send?access_token=xxxx`，只填 `access_token` 参数也行）
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["dingtalk"]
+  }'
+```
+
+API 返回 `"accepted":["dingtalk"]`，群里收到红色标题的 markdown 消息。若设了自定义关键词，把关键词放进标题（例如标题就叫 `XX告警`）。没收到？查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 `webhook_url` 与 `access_token` 二选一（都配置时 `webhook_url` 优先）：

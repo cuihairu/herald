@@ -1,235 +1,176 @@
 # 快速开始
 
+从零到**第一条真实送达的通知**，两条路径：
+
+- **第 1 步（约 1 分钟，零凭据）**：用 `log` 通道在本地跑通「API 接单 → 队列 → 投递」全链路，亲眼看到消息被送达；
+- **第 2 步（约 5 分钟）**：接入一个真实渠道（Telegram 或群机器人 Webhook），把通知发到你的手机/群里。
+
+之后再到[场景与接入](/guide/use-cases)挑你的业务场景照抄配置。
+
 ## 安装
 
-### Docker 部署（推荐）
+### 源码构建（推荐，需 Go 1.26+）
 
 ```bash
-# 克隆仓库
 git clone https://github.com/cuihairu/herald
 cd herald
+make build          # 产出 bin/heraldd
+```
 
-# 复制环境变量模板
-cp .env.example .env
+### Docker
 
-# 编辑 .env 文件
-vim .env
-
-# 启动服务
+```bash
+git clone https://github.com/cuihairu/herald
+cd herald
+cp .env.example .env   # 按需填渠道凭据
 make docker-up
 ```
 
-### 本地运行
+## 第 1 步：60 秒跑通全链路（零凭据）
 
-```bash
-# 克隆仓库
-git clone https://github.com/cuihairu/herald
-cd herald
+`log` Provider 不发网络请求，直接把通知打印到 stdout——不需要申请任何账号，就能验证整条投递链路。
 
-# 构建
-make build
-
-# 启动服务
-make run
-
-# 启动 Dashboard（另一个终端）
-make dashboard-dev
-```
-
-## 配置
-
-创建配置文件 `config.yaml`：
+**1. 写最小配置** `config.yaml`：
 
 ```yaml
 server:
-  addr: ":8080"
+  addr: "127.0.0.1:8080"
   timeout: 30s
 
+queue:
+  type: memory       # 单机内嵌队列，无需 Redis
+  workers: 2
+
 providers:
-  # 日志 Provider（默认启用）
   log:
     type: log
     enabled: true
     config:
       name: "log"
-
-  # Telegram 机器人
-  telegram:
-    type: telegram
-    enabled: true
-    config:
-      token: "$TELEGRAM_BOT_TOKEN"
-      chat_id: "$TELEGRAM_CHAT_ID"
-
-  # 邮件
-  email:
-    type: email
-    enabled: true
-    config:
-      host: "smtp.example.com"
-      port: 587
-      username: "$EMAIL_USER"
-      password: "$EMAIL_PASS"
-      from: "notify@example.com"
-
-routes:
-  error:
-    - telegram
-    - email
-  warning:
-    - telegram
-  info:
-    - log
-
-retry:
-  max: 3
-  backoff: exponential
-  initial_delay: 1s
-  max_delay: 1m
-
-dedup:
-  enabled: true
-  window: 5m
-
-websocket:
-  addr: ":8081"
 ```
 
-## 启动服务
+**2. 启动服务**：
 
 ```bash
-heraldd --config config.yaml
+./bin/heraldd serve --config config.yaml
 ```
 
-## 访问 Dashboard
+启动日志大概长这样（JSON 结构化输出）：
 
-Dashboard 启动后访问：
-
+```json
+{"time":"...","level":"INFO","msg":"provider registered","name":"log","type":"log","enabled":true}
+{"time":"...","level":"INFO","msg":"herald scheduler started","addr":"127.0.0.1:8080","workers":2}
+{"time":"...","level":"INFO","msg":"worker pool started","local_workers":2}
 ```
-http://localhost:3000
-```
 
-## 发送通知
-
-### 使用直接内容
+**3. 发一条通知**（另开一个终端）：
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/notify \
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
     "type": "server.alert",
     "level": "error",
     "title": "Node Offline",
     "body": "node-17 is offline",
-    "channels": ["telegram"]
+    "channels": ["log"]
   }'
 ```
 
-### 使用模板
+API 立即返回受理结果：
 
-在 `config.yaml` 中定义模板：
+```json
+{"code":0,"message":"ok","data":{"accepted":["log"],"notification_id":"a2c000ea-77b2-45d8-ac50-52f83d8dd0ae","task_ids":["73e15ce1-6434-4f87-9520-9d5e990f15c9"]}}
+```
+
+服务端日志随后出现**送达行**——消息到了：
+
+```
+[error] Node Offline: node-17 is offline
+```
+
+这一分钟里发生的事：`notify` API 收单 → 按 `channels` 找到 Provider → 生成投递任务进队列 → worker 池取出 → 调用 Provider 的 `Deliver` → 打印送达行。换任何真实渠道，流程完全一样，只是最后一步变成了发 Telegram / 短信 / 邮件。
+
+> ⚠️ 启动命令是 `heraldd serve --config ...`（serve 是子命令）。另外 WebSocket 管理端默认占 `:8081`，被占用时在配置里改 `websocket.addr`。
+
+## 第 2 步：发到真实渠道
+
+### 路径 A：Telegram（个人手机收到，约 5 分钟）
+
+**申请凭据**（全程无需审批）：
+
+1. Telegram 里找 [@BotFather](https://t.me/BotFather) → 发 `/newbot` → 按提示起名，得到 **Bot Token**（形如 `123456:ABC-DEF...`）
+2. 给你的机器人随便发一条消息（私聊必须用户先发起，否则机器人不能主动发给你）
+3. 拿 **chat_id**：浏览器打开 `https://api.telegram.org/bot<你的Token>/getUpdates`，在返回 JSON 里找 `chat.id`
+
+**配置并启动**：
 
 ```yaml
-templates:
-  server_alert:
-    name: "服务器告警"
-    title: "【{{.Level}}】{{.Service}} 服务异常"
-    level: "error"
-    fields:
-      - label: "服务器"
-        value: "{{.Server}}"
-      - label: "错误信息"
-        value: "{{.Error}}"
+providers:
+  telegram:
+    type: telegram
+    enabled: true
+    config:
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
 ```
 
-发送通知：
+```bash
+export TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+export TELEGRAM_CHAT_ID=你的数字ID
+./bin/heraldd serve --config config.yaml
+```
+
+**发送**：
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/notify \
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "server.alert",
-    "level": "error",
-    "template": "server_alert",
-    "params": {
-      "Level": "CRITICAL",
-      "Service": "order-service",
-      "Server": "order-01",
-      "Error": "CPU 使用率 95%"
-    },
-    "channels": ["telegram", "email"]
-  }'
+  -d '{"type":"demo","level":"error","title":"Herald 第一条推送","body":"from curl","channels":["telegram"]}'
 ```
 
-### 指定接收人
+手机上的 Telegram 会立刻收到 `🔴 Herald 第一条推送`。详见 [Telegram Provider](/providers/telegram)。
+
+### 路径 B：群机器人 Webhook（飞书/企业微信/钉钉，约 2 分钟）
+
+三家的自定义机器人都不需要审批，群设置里添加后拿到 Webhook 地址即可。以飞书为例：
+
+1. 飞书群 → 设置 → 群机器人 → 添加自定义机器人，复制 Webhook 地址
+2. 配置：
+
+```yaml
+providers:
+  feishu:
+    type: feishu
+    enabled: true
+    config:
+      webhook_url: "$FEISHU_WEBHOOK_URL"
+```
+
+3. 重启后把上面 curl 的 `"channels"` 换成 `["feishu"]`，群里即收到 `[错误] Herald 第一条推送`。
+
+企业微信、钉钉同理：[企业微信](/providers/wecom) · [钉钉](/providers/dingtalk) · 全部渠道见 [Provider 手册](/providers/overview)。
+
+## 第 3 步：接上你的业务
+
+把 curl 换成你业务代码里的一次 HTTP 调用即可——Herald 是 HTTP First 的，任何语言、脚本、监控系统的 webhook 都能接：
+
+- **按业务类型路由**：`type` + `routes`/`level_routes` 决定一条通知走哪些渠道，见[场景与接入](/guide/use-cases)
+- **模板复用**：`templates` 一次定义、多渠道复用，见[模板系统](/guide/templates)
+- **命名受众**：`group:ops` 一个引用展开整组值班人，见[通知群组](/design-notification-groups)
+
+## 常用查询
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/notify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "alert",
-    "title": "Test Alert",
-    "body": "This is a test",
-    "level": "info",
-    "channels": ["email"],
-    "recipients": {
-      "email": ["user1@example.com", "user2@example.com"]
-    }
-  }'
+curl http://127.0.0.1:8080/api/v1/status      # 服务状态
+curl http://127.0.0.1:8080/api/v1/providers   # Provider 列表与状态
+curl "http://127.0.0.1:8080/api/v1/logs?limit=10"  # 投递日志（送达/失败/重试）
 ```
 
-## 响应
-
-**成功：**
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "notification_id": "550e8400-e29b-41d4-a716-446655440000",
-    "task_ids": ["task-001", "task-002"],
-    "accepted": ["telegram", "email"],
-    "failed": []
-  }
-}
-```
-
-**部分失败：**
-
-```json
-{
-  "code": 0,
-  "message": "ok",
-  "data": {
-    "notification_id": "550e8400-e29b-41d4-a716-446655440000",
-    "task_ids": ["task-001"],
-    "accepted": ["telegram"],
-    "failed": [
-      { "channel": "email", "error": "connection timeout" }
-    ]
-  }
-}
-```
-
-## 查看状态
-
-```bash
-# 服务状态
-curl http://localhost:8080/api/v1/status
-
-# Provider 列表
-curl http://localhost:8080/api/v1/providers
-
-# 投递日志
-curl http://localhost:8080/api/v1/logs?limit=10
-
-# 模板列表
-curl http://localhost:8080/api/v1/templates
-```
+发送接口的完整字段（`recipients`、`template`、`params` 等）见[配置参考](/guide/configuration)。出了问题先看[排错指南](/guide/troubleshooting)。
 
 ## 下一步
 
-- [配置](/guide/configuration) - 详细配置说明
-- [模板系统](/guide/templates) - 模板使用指南
-- [Providers](/providers/overview) - 支持的 Provider 列表
+- [场景与接入](/guide/use-cases) - 告警推送/运营触达/验证码短信/多通道兜底的完整配置
+- [Provider 手册](/providers/overview) - 每个渠道的申请凭据、配置、第一条消息
+- [配置参考](/guide/configuration) - 全量配置项

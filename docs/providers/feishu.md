@@ -6,6 +6,32 @@
 
 `feishu` Builtin Provider 调用飞书自定义机器人的 Webhook 接口，把 Herald 的通知以纯文本或交互卡片的形式发送到群聊。告警类通知可携带「确认告警」按钮，与 Herald 的告警回调联动。
 
+## 申请凭据
+
+无需审批，一分钟拿到 Webhook 地址：
+
+1. 打开目标飞书群 → 右上角 **设置** → **群机器人** → **添加机器人** → 选 **自定义机器人**
+2. 起名、描述后创建，**复制 Webhook 地址**（形如 `https://open.feishu.cn/open-apis/bot/v2/hook/xxxx`）
+3. 安全设置三选一：**自定义关键词**（消息须含该词）、**签名校验**（⚠️ 当前实现不支持，**不要选**）、IP 白名单
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["feishu"]
+  }'
+```
+
+API 返回 `"accepted":["feishu"]`，群里收到 `[错误] Herald 第一条推送`。若设了自定义关键词，记得让标题/正文包含该词。没收到？查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |

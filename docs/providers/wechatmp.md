@@ -6,6 +6,34 @@
 
 `wechatmp` Builtin Provider 使用微信公众号模板消息 API（需服务号+认证），将 Herald 通知推送到用户微信。适合正式业务通知、订单状态、告警触达等场景。
 
+## 申请凭据
+
+模板消息对公众号资质有硬性要求，申请链路较长，按顺序：
+
+1. **认证服务号**：模板消息仅对**已认证的服务号**开放（个人订阅号不行）。没有的话先在 [微信公众平台](https://mp.weixin.qq.com/) 注册服务号并完成微信认证
+2. **AppID / AppSecret**：公众平台 → **设置与开发** → **基本配置**，成为开发者后可见；**把 Herald 服务器的出口 IP 加入 IP 白名单**，否则取 access_token 会被拒
+3. **模板**：**广告与服务** → **模板消息** → 从模板库选用或申请新模板（标题 + 关键词，需审核），得到 **模板 ID**（形如 `AtE-xxxx`）
+4. **OpenID**：关注公众号的用户，通过「获取用户列表」接口或业务侧授权拿到，作为投递目标
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后（**必须带 OpenID 收件人**）：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "order.notice",
+    "level": "info",
+    "title": "订单已发货",
+    "body": "您的订单 SF123456 已发出",
+    "channels": ["wechatmp"],
+    "recipients": {"wechatmp": ["用户的OpenID"]}
+  }'
+```
+
+微信「服务通知」里收到模板卡片（标题/正文按模板关键词位填充，见下）。没收到？查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |

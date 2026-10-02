@@ -6,6 +6,46 @@
 
 `webhook` Builtin Provider 把 Herald 通知封装为统一 JSON 载荷，发送到配置的 `url`。适合对接自建告警平台、IM 机器人、CI/CD 系统、Serverless 函数等任意 HTTP 接收端。
 
+## 申请凭据
+
+无需申请——接收端是**你自己的** HTTP 服务。想先零成本体验，可以：
+
+- 用 [webhook.site](https://webhook.site) 之类的在线调试服务生成一个临时 URL，或
+- 本地起一个监听：`nc -l 8899` / 自己写个接收路由
+
+生产环境换成你的告警平台、Serverless 函数或内部服务地址即可。
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["webhook"]
+  }'
+```
+
+接收端会收到一条 `POST`，body 形如：
+
+```json
+{
+  "id": "task-uuid",
+  "provider": "webhook",
+  "level": "error",
+  "title": "Herald 第一条推送",
+  "body": "from curl",
+  "timestamp": "2026-10-02T12:00:00+08:00"
+}
+```
+
+没收到？查接收端日志 + [排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |

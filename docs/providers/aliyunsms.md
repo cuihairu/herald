@@ -8,6 +8,48 @@
 
 > ⚠️ **前置要求**：需开通阿里云短信服务、完成实名认证、申请短信签名与模板并通过审核。
 
+## 申请凭据
+
+短信是国内强审核渠道，四步走（全程在阿里云控制台）：
+
+1. **开通服务**：控制台搜「短信服务」开通；账号需完成实名认证
+2. **申请签名**：国内消息 → 签名管理 → 添加签名（个人可用 App/公众号名等，企业资质通过更快），审核通过前不能发
+3. **申请模板**：模板管理 → 添加模板（验证码/通知类），得到 **模板 CODE**（形如 `SMS_123456789`），模板里的占位符 `${code}` 与发送参数对应
+4. **AccessKey**：RAM 访问控制 → 创建用户 → 授权 `AliyunDysmsFullAccess` → 生成 AccessKey ID / Secret
+
+## 发第一条消息
+
+短信**必须走模板**（本 Provider 不支持直连 title/body），配置模板 + 参数后发送：
+
+```yaml
+# config.yaml 追加
+templates:
+  verify_code:
+    name: "验证码"
+    level: "info"
+    template_code: "SMS_123456789"
+    fields:
+      - label: "code"
+        value: "{{.Code}}"
+```
+
+`heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "user.verify",
+    "level": "info",
+    "template": "verify_code",
+    "params": {"Code": "884275"},
+    "channels": ["aliyunsms"],
+    "recipients": {"aliyunsms": ["13800000000"]}
+  }'
+```
+
+手机收到 `【你的签名】您的验证码884275...`（文案=你的模板）。没收到？签名/模板审核状态、余额、错误码见[常见错误](#常见错误)与[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |
@@ -26,7 +68,7 @@
 ```yaml
 providers:
   aliyunsms:
-    type: builtin
+    type: aliyunsms
     enabled: true
     config:
       access_key_id: "$ALIYUN_ACCESS_KEY_ID"

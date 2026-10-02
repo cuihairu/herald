@@ -8,6 +8,48 @@
 
 > ⚠️ **前置要求**：需开通腾讯云短信服务、完成实名认证、创建短信应用、申请短信签名与模板并通过审核。
 
+## 申请凭据
+
+四步走（腾讯云控制台）：
+
+1. **开通服务**：控制台搜「短信」开通；账号需完成实名认证
+2. **创建应用**：应用管理 → 创建应用，得到 **SDKAppID**（即配置里的 `app_id`，形如 `1400000000`）
+3. **签名与正文模板**：国内短信 → 签名管理 / 正文模板管理，各自提交审核（签名需资质佐证），通过后记下**正文模板 ID**（形如 `1234567`）
+4. **API 密钥**：访问管理 CAM → API 密钥管理 → 新建密钥，得到 SecretId / SecretKey
+
+## 发第一条消息
+
+短信**必须走模板**（本 Provider 不支持直连 title/body），配置模板 + 参数后发送：
+
+```yaml
+# config.yaml 追加
+templates:
+  verify_code:
+    name: "验证码"
+    level: "info"
+    template_id: "1234567"
+    fields:
+      - label: "code"
+        value: "{{.Code}}"
+```
+
+`heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "user.verify",
+    "level": "info",
+    "template": "verify_code",
+    "params": {"Code": "884275"},
+    "channels": ["tencentsms"],
+    "recipients": {"tencentsms": ["13800000000"]}
+  }'
+```
+
+手机收到 `【你的签名】您的验证码884275...`。号码自动补 `+86` 前缀；没收到？签名/模板审核状态、错误码见[常见错误](#常见错误)与[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |
@@ -27,7 +69,7 @@
 ```yaml
 providers:
   tencentsms:
-    type: builtin
+    type: tencentsms
     enabled: true
     config:
       secret_id: "$TENCENT_SECRET_ID"

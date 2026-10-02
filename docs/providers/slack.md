@@ -6,6 +6,34 @@
 
 `slack` Builtin Provider 调用 Slack Incoming Webhook，以带色 attachment 的形式把 Herald 的通知发送到固定频道，消息附带级别与来源 Provider 字段。
 
+## 申请凭据
+
+无需审批，但要在 Slack 后台创建 App：
+
+1. 打开 [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch** → 起名、选工作区
+2. 左侧 **Incoming Webhooks** → 打开 **Activate Incoming Webhooks** → **Add New Webhook to Workspace** → 选择目标频道
+3. 复制生成的 Webhook URL（形如 `https://hooks.slack.com/services/T00/B00/xxxx`）
+
+> ⚠️ Slack 这家是唯一**没有启动校验**的 Provider：`webhook_url` 配错也要到发送时才报错，所以拿到 URL 后务必按下面发一条验证。
+
+## 发第一条消息
+
+配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "demo",
+    "level": "error",
+    "title": "Herald 第一条推送",
+    "body": "from curl",
+    "channels": ["slack"]
+  }'
+```
+
+API 返回 `"accepted":["slack"]`，频道里出现 **Herald** 发的红色 attachment 消息（带 Level/Provider 字段）。没收到？查[排错指南](/guide/troubleshooting)。
+
 ## 配置项
 
 | 键 | 必填 | 说明 | 默认值 |

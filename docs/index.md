@@ -4,17 +4,17 @@ layout: home
 hero:
   name: Herald
   text: 统一消息通知分发平台
-  tagline: 一条 HTTP 请求，送达任何渠道 —— 即时通讯 · 短信 · 邮件 · Webhook · App 推送。内置路由、重试、去重、限流与规则引擎，单二进制部署，也可作为 Go 库嵌入。
+  tagline: 一条 HTTP 请求，送达任何渠道 —— 即时通讯 · 短信 · 邮件 · Webhook。内置路由、重试、去重、限流与规则引擎，单二进制部署，也可作为 Go 库嵌入。
   actions:
     - theme: brand
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
+      text: 使用场景
+      link: /guide/use-cases
+    - theme: alt
       text: Provider 总览
       link: /providers/overview
-    - theme: alt
-      text: 使用指南
-      link: /guide/introduction
     - theme: alt
       text: 架构设计
       link: /architecture/overview
@@ -42,7 +42,7 @@ features:
 
 ## Herald 是什么
 
-Herald 是一个**事件驱动的消息通知分发平台**：业务方把通知作为一条 HTTP 请求交给它，Herald 负责渲染成各渠道的格式并可靠送达。内置 Provider 覆盖即时通讯（飞书、企业微信、钉钉、Slack、Discord、Telegram、微信）、短信（阿里云、腾讯云、网易）、邮件、Webhook 与 App 推送，并且仍在扩展。
+Herald 是一个**事件驱动的消息通知分发平台**：业务方把通知作为一条 HTTP 请求交给它，Herald 负责渲染成各渠道的格式并可靠送达。内置 Provider 覆盖即时通讯（飞书、企业微信、钉钉、Slack、Discord、Telegram、微信）、短信（阿里云、腾讯云、网易）、邮件、Webhook 与日志调试，App 推送（FCM/APNs）在扩展中。
 
 去重、重试、限流、模板多渠道复用、规则引擎放行/抑制/改道——这些通知系统的公共难题在平台侧一次解决，业务方只关心「发什么、发给谁」。
 
@@ -56,7 +56,8 @@ Herald 是一个**事件驱动的消息通知分发平台**：业务方把通知
 
 ## 快速入口
 
-- [快速开始](/guide/getting-started) —— 从安装到发出第一条通知
-- [Provider 总览](/providers/overview) —— 全部支持渠道的配置项与申请方式
-- [配置参考](/guide/configuration) —— 完整配置项说明
+- [快速开始](/guide/getting-started) —— 60 秒零凭据发出第一条通知
+- [使用场景与接入](/guide/use-cases) —— 告警推送 / 运营触达 / 验证码短信 / 多通道兜底怎么接
+- [Provider 总览](/providers/overview) —— 每个渠道：申请凭据 → 配置 → 第一条消息
+- [排错指南](/guide/troubleshooting) —— 启动失败、消息没到、重试不生效
 - [架构设计](/architecture/overview) —— Runtime、队列与投递模型
