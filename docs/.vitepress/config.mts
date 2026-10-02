@@ -120,6 +120,7 @@ export default defineConfig({
           items: [
             { text: 'FCM', link: '/providers/fcm' },
             { text: 'APNs', link: '/providers/apns' },
+            { text: '极光 JPush', link: '/providers/jpush' },
           ]
         },
         {
