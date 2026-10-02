@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/herald/providers/builtin/email"
 	"github.com/cuihairu/herald/providers/builtin/fcm"
 	"github.com/cuihairu/herald/providers/builtin/feishu"
+	"github.com/cuihairu/herald/providers/builtin/getui"
 	"github.com/cuihairu/herald/providers/builtin/jpush"
 	"github.com/cuihairu/herald/providers/builtin/log"
 	"github.com/cuihairu/herald/providers/builtin/neteasesms"
@@ -39,6 +40,7 @@ func RegisterBuiltinProviders(manager *runtime.Manager) {
 	manager.RegisterFactory(&fcm.Factory{})
 	manager.RegisterFactory(&apns.Factory{})
 	manager.RegisterFactory(&jpush.Factory{})
+	manager.RegisterFactory(&getui.Factory{})
 	manager.RegisterFactory(&wechat.Factory{})
 	manager.RegisterFactory(&wechatmp.Factory{})
 	manager.RegisterFactory(&worker.Factory{})

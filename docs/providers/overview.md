@@ -15,7 +15,7 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送�
 | 公众号模板消息 | [`wechatmp`](./wechatmp.md) | 需认证服务号 |
 | App 推送（Android/Web） | [`fcm`](./fcm.md) | 需 Firebase 项目，控制台生成服务账号即用 |
 | App 推送（iOS/macOS） | [`apns`](./apns.md) | 需 Apple Developer 账号，Keys 页生成 .p8 |
-| App 推送（国内，Android/iOS/鸿蒙） | [`jpush`](./jpush.md) | 需极光账号，控制台建应用即得 AppKey/Master Secret |
+| App 推送（国内，Android/iOS/鸿蒙） | [`jpush`](./jpush.md) / [`getui`](./getui.md) | 需极光/个推账号，控制台建应用即得 AppKey/Master Secret |
 
 每个渠道页都含：**申请凭据 → 配置 → 发第一条消息（可跟跑的命令）→ 常见错误**。
 
@@ -55,6 +55,7 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送�
 | [`fcm`](./fcm.md) | Firebase Cloud Messaging (Android/Web) | ✅ |
 | [`apns`](./apns.md) | Apple Push Notification service (iOS/macOS) | ✅ |
 | [`jpush`](./jpush.md) | 极光推送 JPush (Android/iOS/鸿蒙) | ✅ |
+| [`getui`](./getui.md) | 个推 Getui (Android/iOS/鸿蒙) | ✅ |
 
 ### 其他
 

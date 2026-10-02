@@ -147,4 +147,5 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 - [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
 - [FCM](./fcm.md) - Android/Web 推送通道
 - [APNs](./apns.md) - iOS/macOS 推送通道
+- [Getui](./getui.md) - 另一家国内厂商推送通道
 - [排错指南](/guide/troubleshooting) - 启动失败、消息没到、重试不生效

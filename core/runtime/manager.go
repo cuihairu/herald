@@ -41,6 +41,7 @@ var providerSchemas = map[string]map[string]string{
 	"fcm":        {"project_id": "string", "client_email": "string", "private_key": "string", "endpoint": "string"},
 	"apns":       {"key_id": "string", "team_id": "string", "private_key": "string", "cert_pem": "string", "topic": "string", "push_type": "string", "priority": "number", "endpoint": "string"},
 	"jpush":      {"app_key": "string", "master_secret": "string", "platform": "string", "apns_production": "bool", "time_to_live": "number", "endpoint": "string"},
+	"getui":      {"app_id": "string", "app_key": "string", "master_secret": "string", "ttl": "number", "click_type": "string", "endpoint": "string"},
 }
 
 type registeredProvider struct {
