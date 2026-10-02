@@ -266,8 +266,8 @@ func TestDeliverNotificationPayload(t *testing.T) {
 		t.Fatalf("Deliver: %v", err)
 	}
 
-	if gotPath != "/3/push" {
-		t.Errorf("path = %q, want /3/push", gotPath)
+	if gotPath != "/v3/push" {
+		t.Errorf("path = %q, want /v3/push", gotPath)
 	}
 	if gotAuth != expectedAuth() {
 		t.Errorf("authorization = %q, want %q", gotAuth, expectedAuth())

@@ -18,8 +18,9 @@ const (
 	// stable, so only a test/proxy override is configurable.
 	defaultEndpoint = "https://api.jpush.cn"
 
-	// pushPath is the create-push API path (docs.jiguang.cn: 创建推送 API).
-	pushPath = "/3/push"
+	// pushPath is the create-push API path (docs.jiguang.cn: 创建推送
+	// API, endpoint https://api.jpush.cn/v3/push).
+	pushPath = "/v3/push"
 )
 
 // Provider sends push notifications through the JPush REST API v3
