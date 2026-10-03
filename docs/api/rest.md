@@ -316,7 +316,7 @@ POST /api/v1/providers/telegram/disable
 
 `mode` 是启停载体：`active` 生效、`shadow` 只观察不动作、`off` 停用（省略时按 `shadow` 处理）。`action` 是决策层动词：`route` 改道（默认）、`allow` 放行、`suppress` 抑制；`route` 步骤只属于 `action=route`，带上会被拒。`priority` 从高到低排序，同级保持写入顺序，第一条命中的生效规则决定结果并停止求值。
 
-`shadow_hits` 是该规则在影子期累计的命中次数（`GET /api/v1/rules/{id}` 也带这个字段）：只统计"本会触发"的影子命中，因 `for` 挂起、组折叠、抑制、静默、丢弃而扣下的事件各记各的、不计入其中。它是**进程内观测状态**——重启归零、无 24h/7d 窗口，不随规则持久化；把规则切到 `active` 后计数停止增长，切回 `shadow` 继续。切之前先看这个数：它就是激活后真实会发出去的量。
+`shadow_hits` 是该规则在影子期累计的命中次数（`GET /api/v1/rules/{id}` 也带这个字段）：只统计"本会触发"的影子命中，因 `for` 挂起、组折叠、抑制、静默、丢弃而扣下的事件各记各的、不计入其中。它是**进程内观测状态**——重启归零、不随规则持久化；把规则切到 `active` 后计数停止增长，切回 `shadow` 继续。切之前先看这个数：它就是激活后真实会发出去的量。列表只带累计计数；近 24 小时/近 7 天窗口与最近命中样本在**规则详情**的 `shadow_stats` 里（见 `GET /api/v1/rules/{id}`）。
 
 ## POST /api/v1/rules {#rule-create}
 
@@ -337,7 +337,29 @@ POST /api/v1/providers/telegram/disable
 
 ## GET /api/v1/rules/{id} {#rule-get}
 
-查询指定规则，不存在返回 404。响应是规则文档加上与列表同一份 `shadow_hits` 统计。
+查询指定规则，不存在返回 404。响应是规则文档加上与列表同一份 `shadow_hits` 统计，以及完整的影子统计读面 `shadow_stats`（控制台「详情」抽屉渲染的就是它）：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": "prod-payment-failure",
+    "match": "level == \"error\"",
+    "shadow_hits": 42,
+    "shadow_stats": {
+      "total": 42,
+      "last_24h": 9,
+      "last_7d": 30,
+      "samples": [
+        { "at": "2026-10-03T08:00:00Z", "type": "deploy", "level": "error", "title": "上线完成", "channels": ["feishu-oncall"] }
+      ]
+    }
+  }
+}
+```
+
+`samples` 是最近命中（最新在前，最多 20 条，从未命中时省略）——独立于投递日志的采样与环形缓冲，每条影子命中都进环。窗口按整点小时桶累计（`last_24h`/`last_7d`）。与 `shadow_hits` 一样是进程内观测状态：重启归零。未接 Runtime 的部署省略 `shadow_stats` 字段。
 
 ## PUT /api/v1/rules/{id} {#rule-update}
 

@@ -367,6 +367,46 @@ func TestHandleRulesShadowHits(t *testing.T) {
 		}
 	})
 
+	t.Run("detail reports windows and samples", func(t *testing.T) {
+		env := newEnv(t)
+		if code, _ := env.do(t, http.MethodPost, "/api/v1/rules", validRuleBody, nil); code != http.StatusOK {
+			t.Fatalf("create failed with status %d", code)
+		}
+		observe(env)
+
+		_, resp := env.do(t, http.MethodGet, "/api/v1/rules/p1", "", nil)
+		entry := dataOf(t, resp)
+		stats, _ := entry["shadow_stats"].(map[string]any)
+		if stats == nil {
+			t.Fatalf("detail must carry shadow_stats, got %v", entry["shadow_stats"])
+		}
+		if got := num(t, stats["total"]); got != 3 {
+			t.Errorf("total = %d, want 3", got)
+		}
+		if got := num(t, stats["last_24h"]); got != 3 {
+			t.Errorf("last_24h = %d, want 3", got)
+		}
+		if got := num(t, stats["last_7d"]); got != 3 {
+			t.Errorf("last_7d = %d, want 3", got)
+		}
+		samples, _ := stats["samples"].([]any)
+		if len(samples) != 3 {
+			t.Fatalf("samples = %d, want 3", len(samples))
+		}
+		first, _ := samples[0].(map[string]any)
+		if first["type"] != "deploy" {
+			t.Errorf("newest sample type = %v, want deploy", first["type"])
+		}
+
+		// The list view stays lean: the counter column only, no stats.
+		_, listResp := env.do(t, http.MethodGet, "/api/v1/rules", "", nil)
+		list, _ := dataOf(t, listResp)["rules"].([]any)
+		row, _ := list[0].(map[string]any)
+		if _, ok := row["shadow_stats"]; ok {
+			t.Error("list rows must not carry shadow_stats")
+		}
+	})
+
 	t.Run("a rule that never matched reports zero", func(t *testing.T) {
 		env := newEnv(t)
 		if code, _ := env.do(t, http.MethodPost, "/api/v1/rules", validRuleBody, nil); code != http.StatusOK {
@@ -410,6 +450,23 @@ func TestHandleRulesShadowHits(t *testing.T) {
 		}
 		if len(body.Data.Rules) != 1 || body.Data.Rules[0].ShadowHits != 0 {
 			t.Fatalf("expected one rule with zero shadow hits, got %+v", body.Data.Rules)
+		}
+
+		// The detail read degrades the same way: shadow_stats is omitted
+		// rather than served empty.
+		req = httptest.NewRequest(http.MethodGet, "/api/v1/rules/p1", nil)
+		req.SetPathValue("id", "p1")
+		rec = httptest.NewRecorder()
+		h.HandleRuleByID(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rec.Code)
+		}
+		var detail map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+			t.Fatalf("failed to decode detail: %v", err)
+		}
+		if _, ok := dataOf(t, detail)["shadow_stats"]; ok {
+			t.Error("without a runtime manager shadow_stats must be omitted")
 		}
 	})
 }

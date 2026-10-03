@@ -1,6 +1,10 @@
 package rules
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+	"time"
+)
 
 func TestShadowSamplerFirstHitAlwaysRecorded(t *testing.T) {
 	s := NewDefaultShadowSampler()
@@ -79,5 +83,91 @@ func TestShadowSamplerZeroIntervalRecordsEverything(t *testing.T) {
 		if !s.ShouldRecord(KindShadow, "r") {
 			t.Fatalf("hit %d must be recorded with no sampling", i)
 		}
+	}
+}
+
+// clockSampler returns a sampler whose clock the test drives through *at,
+// so buckets, windows and sample timestamps share one controllable base.
+func clockSampler() (*ShadowSampler, *time.Time) {
+	s := NewShadowSampler(0)
+	at := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return at }
+	return s, &at
+}
+
+func TestShadowSamplerWindowCounts(t *testing.T) {
+	s, at := clockSampler()
+	// Three buckets — 30h, 2h and 0h behind the query hour — with
+	// 4+3+2 shadow hits; a silenced hit must not leak into them.
+	for i := 0; i < 4; i++ {
+		s.ShouldRecord(KindShadow, "r1")
+	}
+	*at = at.Add(28 * time.Hour)
+	for i := 0; i < 3; i++ {
+		s.ShouldRecord(KindShadow, "r1")
+	}
+	*at = at.Add(2 * time.Hour)
+	for i := 0; i < 2; i++ {
+		s.ShouldRecord(KindShadow, "r1")
+	}
+	s.ShouldRecord(KindSilenced, "r1")
+
+	if got := s.Count(KindShadow, "r1"); got != 9 {
+		t.Fatalf("total = %d, want 9", got)
+	}
+	if got := s.WindowCount(KindShadow, "r1", 24*time.Hour); got != 5 {
+		t.Errorf("24h window = %d, want 5 (the 2h and 0h buckets)", got)
+	}
+	if got := s.WindowCount(KindShadow, "r1", 7*24*time.Hour); got != 9 {
+		t.Errorf("7d window = %d, want 9", got)
+	}
+	// Sub-hour windows read the current bucket only.
+	if got := s.WindowCount(KindShadow, "r1", 30*time.Minute); got != 2 {
+		t.Errorf("30m window = %d, want 2", got)
+	}
+
+	// Eight days on: buckets past the keep window are pruned on write, so
+	// the 7d window restarts from the fresh bucket while the exact total
+	// keeps accumulating.
+	*at = at.Add(8 * 24 * time.Hour)
+	s.ShouldRecord(KindShadow, "r1")
+	if got := s.Count(KindShadow, "r1"); got != 10 {
+		t.Errorf("total after prune = %d, want 10", got)
+	}
+	if got := s.WindowCount(KindShadow, "r1", 7*24*time.Hour); got != 1 {
+		t.Errorf("7d window after prune = %d, want 1", got)
+	}
+}
+
+func TestShadowSamplerSamples(t *testing.T) {
+	s, at := clockSampler()
+
+	// 22 samples on one rule: the ring keeps the latest 20.
+	for i := 0; i < 22; i++ {
+		*at = at.Add(time.Minute)
+		s.AddSample("r1", ShadowSample{Type: "alert", Level: "error", Title: fmt.Sprintf("t%d", i)})
+	}
+	stats := s.Stats("r1")
+	if len(stats.Samples) != DefaultShadowSampleKeep {
+		t.Fatalf("kept %d samples, want %d", len(stats.Samples), DefaultShadowSampleKeep)
+	}
+	// Newest first: the last two added lead the list.
+	if stats.Samples[0].Title != "t21" || stats.Samples[1].Title != "t20" {
+		t.Errorf("newest-first order broken: %q, %q", stats.Samples[0].Title, stats.Samples[1].Title)
+	}
+	for _, sm := range stats.Samples {
+		if sm.At.IsZero() {
+			t.Fatal("sample timestamps must come from the sampler clock")
+		}
+	}
+	// The returned slice is a copy: mutating it must not touch the ring.
+	stats.Samples[0].Title = "mutated"
+	if got := s.Stats("r1").Samples[0].Title; got != "t21" {
+		t.Errorf("Stats must return a defensive copy, got %q", got)
+	}
+
+	// An untouched rule reports the zero stats with no sample list.
+	if got := s.Stats("r2"); got.Total != 0 || got.Last24h != 0 || got.Last7d != 0 || got.Samples != nil {
+		t.Errorf("untouched rule stats = %+v, want zero value", got)
 	}
 }

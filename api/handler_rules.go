@@ -41,10 +41,12 @@ func (h *Handler) HandleRules(w http.ResponseWriter, r *http.Request) {
 // itself plus the live shadow statistic the console shows next to it. The
 // counter is process-local observation state (it resets on restart and is
 // not part of the rule), so it is served beside the rule rather than
-// stored with it.
+// stored with it. The detail read additionally carries the full shadow
+// stats (windows + samples); the list stays lean with the counter only.
 type ruleView struct {
 	rules.Rule
-	ShadowHits uint64 `json:"shadow_hits"`
+	ShadowHits  uint64             `json:"shadow_hits"`
+	ShadowStats *rules.ShadowStats `json:"shadow_stats,omitempty"`
 }
 
 // shadowHits reads the live shadow-hit counter. A handler built without a
@@ -55,6 +57,17 @@ func (h *Handler) shadowHits(ruleID string) uint64 {
 		return 0
 	}
 	return h.runtime.ShadowRuleCount(ruleID)
+}
+
+// shadowStats reads the full shadow observation state for the rule detail
+// view (trailing windows + latest samples). Nil runtime omits the field,
+// mirroring shadowHits' zero fallback.
+func (h *Handler) shadowStats(ruleID string) *rules.ShadowStats {
+	if h.runtime == nil {
+		return nil
+	}
+	stats := h.runtime.ShadowStats(ruleID)
+	return &stats
 }
 
 // HandleRuleByID handles rule get/update/delete requests
@@ -117,7 +130,11 @@ func (h *Handler) getRule(w http.ResponseWriter, r *http.Request, id string) {
 	h.respondJSON(w, &Response{
 		Code:    0,
 		Message: "ok",
-		Data:    ruleView{Rule: rule, ShadowHits: h.shadowHits(rule.ID)},
+		Data: ruleView{
+			Rule:        rule,
+			ShadowHits:  h.shadowHits(rule.ID),
+			ShadowStats: h.shadowStats(rule.ID),
+		},
 	})
 }
 

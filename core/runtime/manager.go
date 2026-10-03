@@ -69,8 +69,16 @@ func NewManager(logLimit int, retryCfg ...*retry.Config) *Manager {
 // shadow-mode rule hit into the delivery log stream (status "shadow"),
 // sampled per rule so high-QPS traffic does not flood the ring buffer.
 // The counter it advances is the one the rules API reports: how often the
-// rule would have fired had it been active.
+// rule would have fired had it been active. Every hit also feeds the
+// rule's sample ring (independent of the log sampling) so the detail view
+// always shows the latest hits.
 func (m *Manager) RecordShadow(ruleID string, channels []string, n *core.Notification) {
+	m.shadowSampler.AddSample(ruleID, rules.ShadowSample{
+		Type:     n.Type,
+		Level:    n.Level,
+		Title:    notificationTitle(n),
+		Channels: channels,
+	})
 	if !m.shadowSampler.ShouldRecord(rules.KindShadow, ruleID) {
 		return
 	}
@@ -213,6 +221,23 @@ func (m *Manager) RecordSuppressed(ruleID string, n *core.Notification) {
 // number an operator reads before switching a rule to active.
 func (m *Manager) ShadowRuleCount(ruleID string) uint64 {
 	return m.shadowSampler.Count(rules.KindShadow, ruleID)
+}
+
+// ShadowStats returns the full shadow observation state of one rule: the
+// exact total behind ShadowRuleCount, the trailing 24h/7d windows and the
+// latest hit samples. Process-local like the counter (restart resets it);
+// the rule detail read surface serves it as `shadow_stats`.
+func (m *Manager) ShadowStats(ruleID string) rules.ShadowStats {
+	return m.shadowSampler.Stats(ruleID)
+}
+
+// notificationTitle reads a notification's inline title; notifications
+// built from templates have none and the sample simply omits it.
+func notificationTitle(n *core.Notification) string {
+	if n.Content == nil {
+		return ""
+	}
+	return n.Content.Title
 }
 
 // RegisterFactory registers a provider factory keyed by provider type.

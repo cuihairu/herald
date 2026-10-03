@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   Table, Button, Tag, Typography, Modal, Form, Input, InputNumber,
-  Select, Switch, Space, Popconfirm, message,
+  Select, Switch, Space, Popconfirm, message, Drawer, Descriptions, Empty,
 } from 'antd'
+import dayjs from 'dayjs'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useHeraldStore } from '../stores/herald'
 import { heraldApi } from '../api'
@@ -29,6 +30,10 @@ export default function RulesPage() {
   // null = 弹窗关闭；{} = 新建；rule 对象 = 编辑该条。
   const [editing, setEditing] = useState<any>(null)
   const [saving, setSaving] = useState(false)
+  // 影子统计详情：detail 是打开详情的规则，detailData 是规则详情接口
+  // 的返回（加载中为 null，字段回落 0/空表）。
+  const [detail, setDetail] = useState<any>(null)
+  const [detailData, setDetailData] = useState<any>(null)
 
   useEffect(() => {
     fetchRules()
@@ -84,6 +89,18 @@ export default function RulesPage() {
       message.error(errMsg(err, '保存失败'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // 打开影子统计详情：窗口计数与最近命中样本都在规则详情读面里。
+  async function openDetail(rule: any) {
+    setDetail(rule)
+    setDetailData(null)
+    try {
+      const res = await heraldApi.getRule(rule.id)
+      setDetailData(res.data.data)
+    } catch (err: any) {
+      message.error(errMsg(err, '详情加载失败'))
     }
   }
 
@@ -150,6 +167,7 @@ export default function RulesPage() {
       title: '操作', key: 'actions',
       render: (_: any, rule: any) => (
         <Space>
+          <Button size="small" onClick={() => openDetail(rule)}>详情</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(rule)}>编辑</Button>
           <Popconfirm title="删除该规则？" okText="确认" cancelText="取消" onConfirm={() => handleDelete(rule.id)}>
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
@@ -233,6 +251,52 @@ export default function RulesPage() {
           </Form.Item>
         </Form>
       </Modal>
+      <Drawer
+        title="影子统计详情"
+        open={detail !== null}
+        onClose={() => setDetail(null)}
+        width={640}
+      >
+        {detail && <ShadowDetail rule={detail} data={detailData} />}
+      </Drawer>
+    </div>
+  )
+}
+
+// 影子统计详情：累计 / 近24小时 / 近7天三个口径 + 最近命中样本。
+// 数据是后端进程内状态（重启归零）；加载中或后端未上报时字段回落
+// 0 与空样本表，规则文档本身不受影响。
+function ShadowDetail({ rule, data }: { rule: any; data: any }) {
+  const stats = data?.shadow_stats
+  const samples = stats?.samples || []
+  return (
+    <div>
+      <Typography.Title level={5}>{rule.id}</Typography.Title>
+      <Descriptions column={3} size="small" bordered>
+        <Descriptions.Item label="累计">{stats?.total ?? 0}</Descriptions.Item>
+        <Descriptions.Item label="近24小时">{stats?.last_24h ?? 0}</Descriptions.Item>
+        <Descriptions.Item label="近7天">{stats?.last_7d ?? 0}</Descriptions.Item>
+      </Descriptions>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
+        进程内统计，重启归零；窗口按整点小时桶累计，样本为最近命中（最多保留 20 条）。
+      </Typography.Paragraph>
+      {samples.length > 0 ? (
+        <Table
+          rowKey="at"
+          size="small"
+          pagination={false}
+          dataSource={samples}
+          columns={[
+            { title: '时间', dataIndex: 'at', render: (v: string) => dayjs(v).format('MM-DD HH:mm:ss') },
+            { title: '类型', dataIndex: 'type' },
+            { title: '级别', dataIndex: 'level' },
+            { title: '标题', dataIndex: 'title' },
+            { title: '命中渠道', key: 'channels', render: (_: any, s: any) => (s.channels || []).join(', ') },
+          ] as any}
+        />
+      ) : (
+        <Empty description="暂无命中样本" />
+      )}
     </div>
   )
 }

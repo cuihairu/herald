@@ -79,6 +79,38 @@ func TestManagerShadowRuleCountIsShadowOnly(t *testing.T) {
 	}
 }
 
+func TestManagerShadowStats(t *testing.T) {
+	m := NewManager(1000)
+
+	// Every hit feeds the sample ring; the first hit also lands in the
+	// log. Titles come from inline content when the notification has it.
+	m.RecordShadow("r1", []string{"oncall"}, &core.Notification{
+		ID: "n1", Type: "alert", Level: "error",
+		Content: &core.DirectContent{Title: "磁盘告警"},
+	})
+	m.RecordShadow("r1", nil, &core.Notification{ID: "n2", Type: "deploy"})
+
+	stats := m.ShadowStats("r1")
+	if stats.Total != 2 {
+		t.Fatalf("total = %d, want 2", stats.Total)
+	}
+	if stats.Last24h != 2 || stats.Last7d != 2 {
+		t.Errorf("windows = %d/%d, want 2/2 (the hits just happened)", stats.Last24h, stats.Last7d)
+	}
+	if len(stats.Samples) != 2 {
+		t.Fatalf("samples = %d, want 2", len(stats.Samples))
+	}
+	// Newest first: the untitled deploy hit leads.
+	first := stats.Samples[0]
+	if first.Type != "deploy" || first.Title != "" || first.Channels != nil {
+		t.Errorf("newest sample = %+v, want the untitled deploy hit", first)
+	}
+	second := stats.Samples[1]
+	if second.Type != "alert" || second.Title != "磁盘告警" || len(second.Channels) != 1 || second.Channels[0] != "oncall" {
+		t.Errorf("oldest sample = %+v, want the titled alert hit", second)
+	}
+}
+
 func TestManagerRecordEvalError(t *testing.T) {
 	m := NewManager(100)
 	n := &core.Notification{ID: "notif-1", Level: "error"}

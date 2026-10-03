@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 vi.mock('../api', () => ({
   heraldApi: {
     getRules: vi.fn(),
+    getRule: vi.fn(),
     createRule: vi.fn(),
     updateRule: vi.fn(),
     deleteRule: vi.fn(),
@@ -43,6 +44,9 @@ describe('RulesPage', () => {
     resetStore()
     vi.clearAllMocks()
     apiMocks.getRules.mockResolvedValue({ data: { rules } })
+    apiMocks.getRule.mockResolvedValue({
+      data: { data: { id: 'r1', shadow_stats: { total: 0, last_24h: 0, last_7d: 0 } } },
+    })
     apiMocks.createRule.mockResolvedValue({ data: { code: 0 } })
     apiMocks.updateRule.mockResolvedValue({ data: { code: 0 } })
     apiMocks.deleteRule.mockResolvedValue({ data: { code: 0 } })
@@ -265,5 +269,63 @@ describe('RulesPage', () => {
     // jsdom 里 rc-motion 的关闭动画不收敛，DOM 断言不可靠；
     // 行为断言：取消不发出任何请求。
     await waitFor(() => expect(apiMocks.createRule).not.toHaveBeenCalled())
+  })
+
+  it('opens the shadow detail drawer with windows and samples', async () => {
+    // r1 影子命中 9 次：5 次在近 24 小时；样本最新在前，首条带渠道与
+    // 级别，次条两者皆缺（模板通知没有内联标题）。
+    apiMocks.getRule.mockResolvedValue({
+      data: {
+        data: {
+          id: 'r1',
+          shadow_hits: 9,
+          shadow_stats: {
+            total: 9,
+            last_24h: 5,
+            last_7d: 9,
+            samples: [
+              { at: '2026-10-03T08:00:00Z', type: 'deploy', level: 'error', title: '上线完成', channels: ['sms-duty'] },
+              { at: '2026-10-03T07:00:00Z', type: 'alert', title: '磁盘告警' },
+            ],
+          },
+        },
+      },
+    })
+    renderPage()
+    const detailButtons = await screen.findAllByRole('button', { name: /详\s*情/ })
+    await user.click(detailButtons[0])
+    expect(await screen.findByText('影子统计详情')).toBeInTheDocument()
+    // 样本表渲染：标题、类型与渠道（sms-duty 不与列表渠道列混淆）。
+    expect(screen.getByText('上线完成')).toBeInTheDocument()
+    expect(screen.getByText('磁盘告警')).toBeInTheDocument()
+    expect(screen.getByText('sms-duty')).toBeInTheDocument()
+    await waitFor(() => expect(apiMocks.getRule).toHaveBeenCalledWith('r1'))
+
+    // 关闭抽屉后可重新打开：onClose 复位状态，重开触发重新拉取。
+    // （rc-motion 关闭动画在 jsdom 不收敛，用行为断言。）
+    await user.click(screen.getByLabelText('Close'))
+    const buttons = await screen.findAllByRole('button', { name: /详\s*情/ })
+    await user.click(buttons[0])
+    await waitFor(() => expect(apiMocks.getRule).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows an empty sample list for a rule without hits', async () => {
+    // 从未命中过的规则：后端省略 samples 字段，详情回落空表。
+    apiMocks.getRule.mockResolvedValue({
+      data: { data: { id: 'r2', shadow_stats: { total: 0, last_24h: 0, last_7d: 0 } } },
+    })
+    renderPage()
+    const detailButtons = await screen.findAllByRole('button', { name: /详\s*情/ })
+    await user.click(detailButtons[1])
+    expect(await screen.findByText('暂无命中样本')).toBeInTheDocument()
+    await waitFor(() => expect(apiMocks.getRule).toHaveBeenCalledWith('r2'))
+  })
+
+  it('reports detail load failures', async () => {
+    apiMocks.getRule.mockRejectedValue({ response: { data: { message: 'rule detail down' } } })
+    renderPage()
+    const detailButtons = await screen.findAllByRole('button', { name: /详\s*情/ })
+    await user.click(detailButtons[0])
+    expect(await screen.findByText('rule detail down')).toBeInTheDocument()
   })
 })
