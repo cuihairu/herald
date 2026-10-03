@@ -76,6 +76,45 @@ func TestEngineSilenceWindowCrossesMidnight(t *testing.T) {
 	}
 }
 
+// TestEngineSilenceUsesConfiguredTZ drives evaluation end to end with a
+// zoned window: the injected clock carries a foreign zone (UTC), and the
+// decision must follow the window's tz, not the clock's.
+func TestEngineSilenceUsesConfiguredTZ(t *testing.T) {
+	engine := NewEngine(NewMemoryStore())
+	r := validRule()
+	r.ID = "r-quiet"
+	r.Match = `level != ""`
+	r.Silence = &SilenceSpec{Start: "22:00", End: "06:00", TZ: "Asia/Shanghai"}
+	if err := engine.Put(context.Background(), &r); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	ctx := context.Background()
+	env := NewEnv("alert", "error", "t", "b", nil)
+
+	// 14:30 UTC is 22:30 in Shanghai: silenced inside the window even
+	// though the clock's own wall time (14:30) is not.
+	now := time.Date(2026, 5, 10, 14, 30, 0, 0, time.UTC)
+	engine.now = func() time.Time { return now }
+	d, err := engine.Evaluate(ctx, env)
+	if err != nil {
+		t.Fatalf("Evaluate inside (Shanghai): %v", err)
+	}
+	if d == nil || !d.Silenced {
+		t.Fatalf("expected silenced at 22:30 Asia/Shanghai, got %+v", d)
+	}
+
+	// 23:00 UTC is 07:00 the next day in Shanghai: outside the window,
+	// even though the clock's own wall time (23:00) would be inside.
+	now = time.Date(2026, 5, 10, 23, 0, 0, 0, time.UTC)
+	d, err = engine.Evaluate(ctx, env)
+	if err != nil {
+		t.Fatalf("Evaluate outside (Shanghai): %v", err)
+	}
+	if d == nil || d.Silenced || len(d.Channels) != 1 {
+		t.Fatalf("expected delivery at 07:00 Asia/Shanghai, got %+v", d)
+	}
+}
+
 func TestEngineSilenceMatchLimitsScope(t *testing.T) {
 	match := `level != "critical"`
 	engine, now := silenceEngine(t, "10:00", "14:00", &match)

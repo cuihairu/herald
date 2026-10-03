@@ -71,14 +71,17 @@ type EscalationSpec struct {
 	To         []string `json:"to" yaml:"to"`
 }
 
-// SilenceSpec keeps a rule quiet during a daily window (HH:MM, process
-// local time). Within the window the rule is frozen: its events are
-// withheld and no for/group state advances. The optional match limits the
+// SilenceSpec keeps a rule quiet during a daily window (HH:MM). Within
+// the window the rule is frozen: its events are withheld and no
+// for/group state advances. TZ names the IANA zone the window is read in
+// (e.g. "Asia/Shanghai"); empty means the event time's own zone, which
+// in production is the process local zone. The optional match limits the
 // silencing to matching events (e.g. `level != "critical"` silences
 // everything but criticals during the window). Enforced in P2.
 type SilenceSpec struct {
 	Start string  `json:"start" yaml:"start"`
 	End   string  `json:"end" yaml:"end"`
+	TZ    string  `json:"tz,omitempty" yaml:"tz,omitempty"`
 	Match *string `json:"match,omitempty" yaml:"match,omitempty"`
 }
 
@@ -182,9 +185,10 @@ func validateInhibit(r *Rule) error {
 }
 
 // validateSilence checks the daily window: both bounds must parse as
-// HH:MM and the window must be non-zero length.
+// HH:MM, the window must be non-zero length, and tz (when set) must name
+// a zone time.LoadLocation knows.
 func validateSilence(r *Rule) error {
-	if _, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End); err != nil {
+	if _, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End, r.Silence.TZ); err != nil {
 		return fmt.Errorf("rules: rule %q: %w", r.ID, err)
 	}
 	return nil

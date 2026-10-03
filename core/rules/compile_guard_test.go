@@ -27,6 +27,7 @@ func TestCompileRuleRejectsInvalidFields(t *testing.T) {
 		}},
 		{"inhibit_ttl", func(r *Rule) { r.Inhibit = &InhibitSpec{Source: "src", TTL: strPtr("bogus")} }},
 		{"silence_window", func(r *Rule) { r.Silence = &SilenceSpec{Start: "25:99", End: "08:00"} }},
+		{"silence_tz", func(r *Rule) { r.Silence = &SilenceSpec{Start: "22:30", End: "06:00", TZ: "Mars/Olympus"} }},
 		{"silence_match", func(r *Rule) {
 			r.Silence = &SilenceSpec{Start: "22:30", End: "06:00", Match: &badMatch}
 		}},

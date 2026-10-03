@@ -447,8 +447,9 @@ providers:
 
 ### silence 静默窗（P2）
 
-- 规则可带 `silence: {start: "22:00", end: "06:00"}`（HH:MM，进程本地时区）：窗口内该规则**整体冻结**——事件被拦（不入队，按规则采样记入投递日志，状态 `silenced`），for 窗口不计时、组轮不开
+- 规则可带 `silence: {start: "22:00", end: "06:00"}`（HH:MM；可选 `tz` 指定窗口所按时区，缺省进程本地时区）：窗口内该规则**整体冻结**——事件被拦（不入队，按规则采样记入投递日志，状态 `silenced`），for 窗口不计时、组轮不开
 - `end` 独占（22:00-06:00 静默到 06:00 整）；`start < end` 为当日窗口，`start > end` 自动理解为跨午夜窗口；零长度窗口（start == end）会被校验拒绝
+- 可选 `tz` 为 IANA 时区名（如 `silence: {start: "22:00", end: "06:00", tz: "Asia/Shanghai"}`），窗口按该时区换算——部署在 UTC 容器里也能写「北京时间 22 点后静默」，不必再靠容器 `TZ` 兜底；时区名无法解析（`time.LoadLocation` 不认识）在规则保存时即拒绝。发行镜像已带 `tzdata`（Dockerfile `apk add tzdata`），自建精简镜像时注意保留时区库
 - 可选 `match` 表达式限定静默范围，如 `silence: {start: "22:00", end: "06:00", match: 'level != "critical"'}`——窗口内只静默非 critical 事件，critical 照常投递；match 编译失败在规则校验时即拒绝
 - 日程驱动、无状态：不进 `rules_state`，判定只看当前时刻，不依赖进程重启前后的一致性
 - 判定顺序在最前（先于 inhibit / for / group_by）：静默是「整段日程不吵」，与根因在场、持续判定都是不同层面的语义

@@ -519,7 +519,7 @@ func compileRule(r Rule) (*compiledRule, error) {
 	}
 	var silence *compiledSilence
 	if r.Silence != nil {
-		window, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End)
+		window, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End, r.Silence.TZ)
 		if err != nil {
 			// Defensive: Validate runs this same parse (rule.go Validate),
 			// so this cannot trigger from Put.

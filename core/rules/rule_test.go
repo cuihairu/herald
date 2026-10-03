@@ -327,6 +327,19 @@ func TestRuleValidate(t *testing.T) {
 		if err := r.Validate(); err == nil {
 			t.Error("zero-length window: expected rejection")
 		}
+
+		// tz names the zone the window is read in: a known IANA name is
+		// accepted, an unknown one rejected at save.
+		r = validRule()
+		r.Silence = &SilenceSpec{Start: "22:00", End: "06:00", TZ: "Asia/Shanghai"}
+		if err := r.Validate(); err != nil {
+			t.Errorf("silence tz: expected acceptance, got %v", err)
+		}
+		r = validRule()
+		r.Silence = &SilenceSpec{Start: "22:00", End: "06:00", TZ: "Mars/Olympus"}
+		if err := r.Validate(); err == nil {
+			t.Error("unknown tz: expected rejection")
+		}
 	})
 
 	t.Run("escalation validated", func(t *testing.T) {
