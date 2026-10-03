@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
+	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
@@ -27,6 +28,7 @@ type Handler struct {
 	queue           core.Queue
 	rulesEngine     *rules.Engine
 	groupsManager   *groups.Manager
+	rostersManager  *roster.Manager
 	ackStore        ack.Store
 	escalation      *escalation.Manager
 	incidents       *incident.Store
@@ -86,6 +88,12 @@ func (h *Handler) SetRuleEngine(engine *rules.Engine) {
 // endpoints.
 func (h *Handler) SetGroupManager(m *groups.Manager) {
 	h.groupsManager = m
+}
+
+// SetRosterManager attaches the duty roster manager for roster CRUD
+// endpoints (the push face of the silence schedule placeholder).
+func (h *Handler) SetRosterManager(m *roster.Manager) {
+	h.rostersManager = m
 }
 
 // SetAckStore attaches the alert acknowledgement store for alert endpoints.

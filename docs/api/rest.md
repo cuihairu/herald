@@ -423,6 +423,59 @@ POST /api/v1/providers/telegram/disable
 
 删除群组，不存在返回 404。删除**不会**清理规则里对它的引用——仍在引用它的规则会在派发时因未知群组显式失败，这胜过悄悄改写用户的规则。
 
+## GET /api/v1/rosters {#rosters-list}
+
+查询值班表列表。值班表管理器未配置时返回 503。
+
+### rosters-响应 {#rosters-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "rosters": [
+      {
+        "id": "ops-oncall",
+        "description": "周末值班",
+        "periods": [
+          { "start": "2026-10-10T09:00:00+08:00", "end": "2026-10-10T18:00:00+08:00" }
+        ]
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+值班表是外部排班系统推进 herald 的绝对时段表：规则的 `silence: {roster: "ops-oncall"}` 在任一时段覆盖的每一刻静默该规则（见 [rules-响应](#rules-response) 的 silence 字段）。herald 只存与判定推送来的时段，不做排班。
+
+## POST /api/v1/rosters {#roster-create}
+
+推送值班表（排班系统整表全量推送）。ID 已存在返回 409；时段校验失败（缺时间戳、零长度/倒置时段、时段重叠、超过 512 段、空时段表）返回 400。乱序时段会被自动按 start 排序。
+
+### roster-create-请求 {#roster-create-request}
+
+```json
+{
+  "id": "ops-oncall",
+  "description": "周末值班",
+  "periods": [{ "start": "2026-10-10T09:00:00+08:00", "end": "2026-10-10T18:00:00+08:00" }]
+}
+```
+
+## GET /api/v1/rosters/{id} {#roster-get}
+
+查询指定值班表，不存在返回 404。
+
+## PUT /api/v1/rosters/{id} {#roster-update}
+
+整体替换该值班表的时段（URL 里的 id 优先于请求体），替换立即对静默判定生效。
+
+## DELETE /api/v1/rosters/{id} {#roster-delete}
+
+删除值班表，不存在返回 404。删除不会改写引用它的规则——引用它的静默立即失效（fail-open：缺日程数据绝不等于该静默），恢复投递比悄悄静默安全。
+
 ## GET /api/v1/templates {#templates-list}
 
 查询模板列表。

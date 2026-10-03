@@ -71,18 +71,25 @@ type EscalationSpec struct {
 	To         []string `json:"to" yaml:"to"`
 }
 
-// SilenceSpec keeps a rule quiet during a daily window (HH:MM). Within
-// the window the rule is frozen: its events are withheld and no
-// for/group state advances. TZ names the IANA zone the window is read in
-// (e.g. "Asia/Shanghai"); empty means the event time's own zone, which
-// in production is the process local zone. The optional match limits the
-// silencing to matching events (e.g. `level != "critical"` silences
-// everything but criticals during the window). Enforced in P2.
+// SilenceSpec keeps a rule quiet on a schedule. The schedule has exactly
+// one source: a daily window (Start/End as HH:MM plus the optional TZ zone
+// it is read in, e.g. "Asia/Shanghai"; empty TZ means the event time's own
+// zone, which in production is the process local zone) or a duty roster
+// (Roster names a 值班表 whose externally pushed periods supply absolute
+// quiet times — the 排班占位 seam for a scheduling system outside herald).
+// Within the schedule the rule is frozen: its events are withheld and no
+// for/group state advances. Match limits the silencing to matching events
+// (e.g. `level != "critical"` silences everything but criticals).
+// Enforced in P2.
 type SilenceSpec struct {
-	Start string  `json:"start" yaml:"start"`
-	End   string  `json:"end" yaml:"end"`
-	TZ    string  `json:"tz,omitempty" yaml:"tz,omitempty"`
-	Match *string `json:"match,omitempty" yaml:"match,omitempty"`
+	Start string `json:"start,omitempty" yaml:"start,omitempty"`
+	End   string `json:"end,omitempty" yaml:"end,omitempty"`
+	TZ    string `json:"tz,omitempty" yaml:"tz,omitempty"`
+	// Roster names the duty roster supplying the schedule instead of the
+	// daily window. The reference may be forward (the roster is pushed
+	// later); until it exists the gate stays open.
+	Roster string  `json:"roster,omitempty" yaml:"roster,omitempty"`
+	Match  *string `json:"match,omitempty" yaml:"match,omitempty"`
 }
 
 // Rule is the storage model of a notification rule. Every field is
@@ -184,10 +191,25 @@ func validateInhibit(r *Rule) error {
 	return nil
 }
 
-// validateSilence checks the daily window: both bounds must parse as
-// HH:MM, the window must be non-zero length, and tz (when set) must name
-// a zone time.LoadLocation knows.
+// validateSilence checks the schedule source. A silence has exactly one:
+// the daily window (both bounds parse as HH:MM, non-zero length, tz names
+// a zone time.LoadLocation knows) or a duty roster reference (well-formed
+// id, nothing of the window alongside it). The roster is validated by
+// shape only, not existence — like inhibit.source, the reference may
+// resolve later when the external scheduler pushes the schedule.
 func validateSilence(r *Rule) error {
+	if r.Silence.Roster != "" {
+		if r.Silence.Start != "" || r.Silence.End != "" {
+			return fmt.Errorf("rules: rule %q: silence roster %q cannot be combined with start/end (a silence has one schedule source: the daily window or the roster)", r.ID, r.Silence.Roster)
+		}
+		if r.Silence.TZ != "" {
+			return fmt.Errorf("rules: rule %q: silence tz names the daily window's zone and does not apply to roster %q", r.ID, r.Silence.Roster)
+		}
+		if !ruleIDPattern.MatchString(r.Silence.Roster) {
+			return fmt.Errorf("rules: rule %q: silence roster %q is not a valid roster id (want 1-64 chars of letters, digits, dot, dash, underscore)", r.ID, r.Silence.Roster)
+		}
+		return nil
+	}
 	if _, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End, r.Silence.TZ); err != nil {
 		return fmt.Errorf("rules: rule %q: %w", r.ID, err)
 	}

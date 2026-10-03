@@ -13,6 +13,7 @@ import (
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
+	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
@@ -44,6 +45,9 @@ type Config struct {
 	WorkerRegistry  *worker.Registry
 	Rules           *rules.Engine       // optional; nil keeps static routing only
 	Groups          *groups.Manager     // optional; nil keeps group endpoints off
+	// Rosters supplies the silence schedule placeholder: nil keeps roster
+	// endpoints off and every roster-named silence gate open (fail open).
+	Rosters *roster.Manager
 	AckStore        ack.Store           // optional; nil keeps alert endpoints off
 	Escalation      *escalation.Manager // optional; enables ack-cancel of upgrades
 	Incidents       *incident.Store     // optional; nil keeps incident endpoints off
@@ -70,6 +74,10 @@ func NewServer(config *Config) *Server {
 		notificationSvc.SetRuleEngine(config.Rules)
 		// The runtime manager observes shadow hits into the delivery log.
 		notificationSvc.SetRuleObserver(config.Runtime)
+		// The silence gate consults the roster read face for rules whose
+		// silence names a roster; nil (no rosters configured) keeps those
+		// gates open.
+		config.Rules.SetRosterSource(config.Rosters)
 	}
 
 	handler := NewHandler(notificationSvc, config.Runtime, config.TemplateManager)
@@ -83,6 +91,9 @@ func NewServer(config *Config) *Server {
 		// Group references in any channel list resolve through the
 		// manager's live table.
 		notificationSvc.SetGroupResolver(config.Groups.Resolver())
+	}
+	if config.Rosters != nil {
+		handler.SetRosterManager(config.Rosters)
 	}
 	if config.AckStore != nil {
 		handler.SetAckStore(config.AckStore)
@@ -145,6 +156,8 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
 	mux.HandleFunc("/api/v1/groups", s.withAuth(s.handleGroups))
 	mux.HandleFunc("/api/v1/groups/{id}", s.withAuth(s.handleGroupByID))
+	mux.HandleFunc("/api/v1/rosters", s.withAuth(s.handleRosters))
+	mux.HandleFunc("/api/v1/rosters/{id}", s.withAuth(s.handleRosterByID))
 	mux.HandleFunc("/api/v1/alerts/{id}", s.withAuth(s.handleAlertByID))
 	mux.HandleFunc("/api/v1/alerts/{id}/ack", s.withAuth(s.handleAlertAck))
 	// Feishu's servers call this endpoint — it authenticates with the
@@ -332,6 +345,14 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGroupByID(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleGroupByID(w, r)
+}
+
+func (s *Server) handleRosters(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleRosters(w, r)
+}
+
+func (s *Server) handleRosterByID(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleRosterByID(w, r)
 }
 
 // Alert acknowledgement handlers

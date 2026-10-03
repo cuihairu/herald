@@ -29,6 +29,11 @@ func TestServeCmdStartupFailures(t *testing.T) {
 	if err := os.WriteFile(badGroups, []byte(`{"version":1,"groups":[{"id":"bad","members":[]}]}`), 0o600); err != nil {
 		t.Fatalf("write bad groups store: %v", err)
 	}
+	// Same shape for rosters: parses, then fails validation on reload.
+	badRosters := filepath.Join(dir, "rosters-invalid.json")
+	if err := os.WriteFile(badRosters, []byte(`{"version":1,"rosters":[{"id":"bad","periods":[]}]}`), 0o600); err != nil {
+		t.Fatalf("write bad rosters store: %v", err)
+	}
 	cases := map[string]string{
 		// A rules store pointing at a directory cannot be opened.
 		"rules store is a dir": fmt.Sprintf("rules_store: %s\n", dir),
@@ -49,6 +54,10 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"groups reload failure": fmt.Sprintf("groups_store: %s\n", badGroups),
 		// A group that does not validate is rejected at load time.
 		"invalid group": "groups:\n  - id: bad\n    members: []\n",
+		// A rosters store pointing at a directory cannot be opened.
+		"rosters store is a dir": fmt.Sprintf("rosters_store: %s\n", dir),
+		// A rosters store that opens but fails validation aborts the load.
+		"rosters reload failure": fmt.Sprintf("rosters_store: %s\n", badRosters),
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -71,6 +80,9 @@ func TestServeCmdFullFeaturedLifecycle(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rulesPath := filepath.Join(t.TempDir(), "rules.json")
 	groupsPath := filepath.Join(t.TempDir(), "groups.json")
+	// The rosters store starts absent (an external scheduler pushes through
+	// the API); opening and reloading an empty file must still succeed.
+	rostersPath := filepath.Join(t.TempDir(), "rosters.json")
 	// A directory as escalation store makes Restore fail; the server must
 	// come up anyway.
 	escStore := t.TempDir()
@@ -88,6 +100,7 @@ rules_state:
   type: redis
   addr: %s
 groups_store: %s
+rosters_store: %s
 escalation_store: %s
 card_callback:
   encrypt_key: test-encrypt-key
@@ -110,7 +123,7 @@ groups:
     description: the webhook audience
     members:
       - channel: hook
-`, httpPort, wsPort, rulesPath, mr.Addr(), groupsPath, escStore)
+`, httpPort, wsPort, rulesPath, mr.Addr(), groupsPath, rostersPath, escStore)
 	path := writeTestConfig(t, cfgYAML)
 
 	done := make(chan int, 1)

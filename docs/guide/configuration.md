@@ -241,6 +241,12 @@ rules:
 # 不设置时群组仅保存在内存中（groups 种子仍然生效）。
 # groups_store: ./data/groups.json
 
+# 值班表持久化文件（可选）
+# 值班表由外部排班系统通过 API 推送（无 YAML 种子——它是推送数据不是配置）；
+# 设置后推送的排班时段落盘到该 JSON 文件，重启自动恢复；
+# 不设置时值班表仅保存在内存中（重启后等排班系统重推）。
+# rosters_store: ./data/rosters.json
+
 # 升级链待决记录持久化（可选）
 # 设置后 escalation 的待决升级落盘到该 JSON 文件，重启时恢复：
 # 已过期的补发升级（停机期间的 ack 仍会被尊重），未到期的按剩余时间重建定时器。
@@ -446,12 +452,14 @@ providers:
 - 显式 `channels` 的通知不受抑制（显式意图优先）；shadow 规则不检查抑制（影子只观察条件命中）
 - 在场读取故障按「求值失败」fail-open（跳过该规则）；写入故障不阻断 source 自己的投递（宁可多投不漏投，错误计入观测）
 
-### silence 静默窗（P2）
+### silence 静默（P2：静默窗与值班表）
 
 - 规则可带 `silence: {start: "22:00", end: "06:00"}`（HH:MM；可选 `tz` 指定窗口所按时区，缺省进程本地时区）：窗口内该规则**整体冻结**——事件被拦（不入队，按规则采样记入投递日志，状态 `silenced`），for 窗口不计时、组轮不开
 - `end` 独占（22:00-06:00 静默到 06:00 整）；`start < end` 为当日窗口，`start > end` 自动理解为跨午夜窗口；零长度窗口（start == end）会被校验拒绝
 - 可选 `tz` 为 IANA 时区名（如 `silence: {start: "22:00", end: "06:00", tz: "Asia/Shanghai"}`），窗口按该时区换算——部署在 UTC 容器里也能写「北京时间 22 点后静默」，不必再靠容器 `TZ` 兜底；时区名无法解析（`time.LoadLocation` 不认识）在规则保存时即拒绝。发行镜像已带 `tzdata`（Dockerfile `apk add tzdata`），自建精简镜像时注意保留时区库
 - 可选 `match` 表达式限定静默范围，如 `silence: {start: "22:00", end: "06:00", match: 'level != "critical"'}`——窗口内只静默非 critical 事件，critical 照常投递；match 编译失败在规则校验时即拒绝
+- **排班对接占位**：静默的日程来源二选一——每日窗口（上面的 start/end/tz）或值班表（`silence: {roster: "ops-oncall"}`，不与 start/end/tz 同用，同用保存即拒绝）。值班表是外部排班系统通过 API 推进 herald 的**绝对时段表**（见下方「值班表 rosters」）；排班轮换、值班人管理都在 herald 之外，herald 只存与判定推送来的时段
+- 值班表来源 fail-open：引用的值班表从未推送（前向引用合法）、已被删除、或部署压根没配值班表时，静默门**保持打开**——缺日程数据绝不等于该静默，静默必须是运维显式做的决定，不能是推送管道坏了的副作用
 - 日程驱动、无状态：不进 `rules_state`，判定只看当前时刻，不依赖进程重启前后的一致性
 - 判定顺序在最前（先于 inhibit / for / group_by）：静默是「整段日程不吵」，与根因在场、持续判定都是不同层面的语义
 - 显式 `channels` 的通知不受静默（显式意图优先）；shadow 规则不检查静默（影子只观察条件命中）
@@ -509,6 +517,34 @@ curl -X DELETE http://localhost:8080/api/v1/groups/ops-oncall
 ```
 
 - 增删改即时生效（活表替换），下一条通知就用新花名册；持久化与热加载语义同规则存储（`groups_store` 落盘、文件损坏启动失败）
+
+### 值班表 rosters（silence 排班对接占位）
+
+- 值班表是**命名时段表**：`id` + 可选描述 + 排班时段列表（`periods`，每段为绝对时间 `start`/`end`，RFC3339，`end` 独占）。规则的 `silence: {roster: <id>}` 在任一时段内生效——时段覆盖的每一刻该规则整体冻结，语义与静默窗完全一致
+- herald **不做排班**：轮换规则、换班、谁在值班都是外部排班系统的事；排班系统算出时段后整表推给 herald（PUT 全量替换），herald 只存、只判。时段乱序推送会被自动排序（Normalize），时段重叠、缺时间戳、零长度时段在保存时拒绝——两次推送抢同一时刻是排班系统的 bug，值得一次响亮的失败而不是静默合并
+- 每表至多 512 段（数年的每周维护窗按次推送也够用；超长列表几乎总意味着把历史当排班推了）；清空排班用 DELETE，不用推空表（空表保存会被拒绝）
+- 静默门读活表：推送即时生效，下一条通知就按新排班判定；删除值班表后引用它的静默立即失效（fail-open，见上）——不会丢告警，只会恢复投递
+
+**API：**
+
+```bash
+# 列出值班表
+curl http://localhost:8080/api/v1/rosters
+
+# 推送 / 全量替换值班表（重复 id 返回 409；时段校验失败返回 400）
+curl -X POST http://localhost:8080/api/v1/rosters \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"ops-oncall","description":"周末值班","periods":[
+        {"start":"2026-10-10T09:00:00+08:00","end":"2026-10-10T18:00:00+08:00"},
+        {"start":"2026-10-11T09:00:00+08:00","end":"2026-10-11T18:00:00+08:00"}]}'
+
+# 查看 / 替换 / 删除（URL 中的 id 优先于 body）
+curl http://localhost:8080/api/v1/rosters/ops-oncall
+curl -X PUT http://localhost:8080/api/v1/rosters/ops-oncall -d '{...}'
+curl -X DELETE http://localhost:8080/api/v1/rosters/ops-oncall
+```
+
+- 持久化与热加载语义同规则存储（`rosters_store` 落盘、文件损坏启动失败）；未配置 `rosters_store` 时仅内存保存
 
 ### ACK 告警确认（P3）
 

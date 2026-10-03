@@ -205,3 +205,137 @@ func TestEngineValidateSilenceMatchMustCompile(t *testing.T) {
 		t.Error("expected Engine.Validate to reject a non-compiling silence match")
 	}
 }
+
+// stubRosterSource answers Covers from a fixed table (id -> covered), the
+// shape a pushed schedule presents to the gate.
+type stubRosterSource struct {
+	covered map[string]bool
+}
+
+func (s stubRosterSource) Covers(id string, _ time.Time) bool { return s.covered[id] }
+
+// rosterEngine seeds the same active rule as silenceEngine, but its
+// silence names the "ops-oncall" duty roster instead of a window.
+func rosterEngine(t *testing.T, src RosterSource) (*Engine, *time.Time) {
+	t.Helper()
+	engine := NewEngine(NewMemoryStore())
+	r := validRule()
+	r.ID = "r-quiet"
+	r.Match = `level != ""`
+	r.Silence = &SilenceSpec{Roster: "ops-oncall"}
+	if err := engine.Put(context.Background(), &r); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	engine.SetRosterSource(src)
+	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.Local)
+	engine.now = func() time.Time { return now }
+	return engine, &now
+}
+
+func TestEngineSilenceRosterGate(t *testing.T) {
+	src := stubRosterSource{covered: map[string]bool{"ops-oncall": true}}
+	engine, _ := rosterEngine(t, src)
+	ctx := context.Background()
+	env := NewEnv("alert", "error", "t", "b", nil)
+
+	// The pushed schedule covers the moment: the event is silenced.
+	d, err := engine.Evaluate(ctx, env)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d == nil || !d.Silenced || d.RuleID != "r-quiet" {
+		t.Fatalf("expected silenced decision while the roster covers, got %+v", d)
+	}
+
+	// The schedule rotates (a later push no longer covers): the event
+	// delivers — the gate follows the live table, no state involved.
+	src.covered = map[string]bool{"ops-oncall": false}
+	engine.SetRosterSource(src)
+	d, err = engine.Evaluate(ctx, env)
+	if err != nil {
+		t.Fatalf("Evaluate after rotation: %v", err)
+	}
+	if d == nil || d.Silenced || len(d.Channels) != 1 {
+		t.Fatalf("expected delivery once the roster stops covering, got %+v", d)
+	}
+}
+
+func TestEngineSilenceRosterFailsOpen(t *testing.T) {
+	// No schedule data at all: no source attached (nil), or a roster the
+	// scheduler never pushed / has since deleted (covered=false) — the
+	// gate stays open and the alert goes out.
+	for _, tc := range []struct {
+		name string
+		src  RosterSource
+	}{
+		{"nil source", nil},
+		{"unknown roster", stubRosterSource{covered: map[string]bool{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine, _ := rosterEngine(t, tc.src)
+			d, err := engine.Evaluate(context.Background(), NewEnv("alert", "error", "t", "b", nil))
+			if err != nil {
+				t.Fatalf("Evaluate: %v", err)
+			}
+			if d == nil || d.Silenced || len(d.Channels) != 1 {
+				t.Fatalf("missing schedule data must never silence, got %+v", d)
+			}
+		})
+	}
+}
+
+func TestEngineSilenceRosterMatchLimitsScope(t *testing.T) {
+	match := `level != "critical"`
+	engine, _ := rosterEngine(t, stubRosterSource{covered: map[string]bool{"ops-oncall": true}})
+	r := validRule()
+	r.ID = "r-quiet"
+	r.Match = `level != ""`
+	r.Silence = &SilenceSpec{Roster: "ops-oncall", Match: &match}
+	if err := engine.Put(context.Background(), &r); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	ctx := context.Background()
+
+	d, err := engine.Evaluate(ctx, NewEnv("alert", "error", "t", "b", nil))
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d == nil || !d.Silenced {
+		t.Fatalf("expected non-critical event silenced by the roster, got %+v", d)
+	}
+
+	d, err = engine.Evaluate(ctx, NewEnv("alert", "critical", "t", "b", nil))
+	if err != nil {
+		t.Fatalf("Evaluate critical: %v", err)
+	}
+	if d == nil || d.Silenced || len(d.Channels) != 1 {
+		t.Fatalf("expected critical to bypass the roster silence, got %+v", d)
+	}
+}
+
+func TestEngineSilenceWindowIgnoresRosterSource(t *testing.T) {
+	// A window gate reads the window alone: an attached roster source
+	// (covering everything) must not extend or shorten it.
+	engine, now := silenceEngine(t, "10:00", "14:00", nil)
+	engine.SetRosterSource(stubRosterSource{covered: map[string]bool{"ops-oncall": true}})
+	ctx := context.Background()
+	env := NewEnv("alert", "error", "t", "b", nil)
+
+	*now = time.Date(2026, 5, 10, 12, 0, 0, 0, time.Local)
+	d, err := engine.Evaluate(ctx, env)
+	if err != nil {
+		t.Fatalf("Evaluate inside: %v", err)
+	}
+	if d == nil || !d.Silenced {
+		t.Fatalf("expected silenced inside the window, got %+v", d)
+	}
+
+	*now = time.Date(2026, 5, 10, 15, 0, 0, 0, time.Local)
+	d, err = engine.Evaluate(ctx, env)
+	if err != nil {
+		t.Fatalf("Evaluate outside: %v", err)
+	}
+	if d == nil || d.Silenced || len(d.Channels) != 1 {
+		t.Fatalf("expected delivery outside the window, got %+v", d)
+	}
+}

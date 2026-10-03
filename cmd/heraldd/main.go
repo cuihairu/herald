@@ -19,6 +19,7 @@ import (
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
+	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
@@ -249,6 +250,26 @@ func serveCmd(args []string) int {
 		logger.Info("groups loaded", "count", len(cfg.Groups))
 	}
 
+	// Create duty rosters: externally pushed schedules (值班表) that
+	// silence rules can name; persisted via rosters_store, read by the
+	// silence gate from the in-memory live table.
+	var rosterStore roster.Store
+	if cfg.RostersStore != "" {
+		store, err := roster.NewFileStore(cfg.RostersStore)
+		if err != nil {
+			logger.Error("failed to open rosters store", "path", cfg.RostersStore, "error", err)
+			return 1
+		}
+		rosterStore = store
+	}
+	rostersManager := roster.NewManager(rosterStore)
+	if rosterStore != nil {
+		if err := rostersManager.Reload(context.Background()); err != nil {
+			logger.Error("failed to load rosters", "error", err)
+			return 1
+		}
+	}
+
 	// Create worker registry and pool
 	registry := worker.NewRegistry()
 	pool := worker.NewPool(q, manager, registry, cfg.Queue.Workers)
@@ -273,6 +294,7 @@ func serveCmd(args []string) int {
 		WorkerRegistry:  registry,
 		Rules:           rulesEngine,
 		Groups:          groupsManager,
+		Rosters:         rostersManager,
 		AckStore:        ackStore,
 		Escalation:      escalations,
 		Incidents:       incidents,

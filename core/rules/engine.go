@@ -131,17 +131,20 @@ type compiledRule struct {
 	inhibit *InhibitSpec
 	// inhibitTTL is the parsed inhibit.ttl (DefaultInhibitTTL when unset).
 	inhibitTTL time.Duration
-	// silence is the parsed daily quiet window; nil = rule is never silenced.
+	// silence is the parsed quiet gate (daily window or duty roster);
+	// nil = rule is never silenced.
 	silence *compiledSilence
 	// escalation is the parsed ack-gated upgrade plan; nil = no escalation.
 	escalation *EscalationPlan
 }
 
-// compiledSilence pairs the parsed daily window with the optional
-// expression limiting which in-window events are silenced.
+// compiledSilence pairs the schedule source — exactly one of the daily
+// window and the roster name (validation enforces it) — with the optional
+// expression limiting which in-schedule events are silenced.
 type compiledSilence struct {
 	window *SilenceWindow
-	match  *vm.Program // nil = everything in the window is silenced
+	roster string     // "" when the gate is the daily window
+	match  *vm.Program // nil = everything in the schedule is silenced
 }
 
 // EvalError is one rule's evaluation failure, kept structured so callers
@@ -192,8 +195,9 @@ type Decision struct {
 	// not discarded forever — the presence entry expires with its TTL.
 	Inhibited bool
 	// Silenced reports that the governing active rule matched inside its
-	// daily silence window: the event is withheld for as long as the
-	// window lasts (pure schedule-driven, no state involved).
+	// silence schedule — the daily window or the named duty roster's pushed
+	// periods: the event is withheld for as long as the schedule lasts
+	// (pure schedule-driven, no state involved).
 	Silenced bool
 	// Escalation is the governing active rule's ack-gated upgrade plan;
 	// non-nil only when the event itself is routed and the rule declares
@@ -246,7 +250,10 @@ type Engine struct {
 	// PolicyDeny behaves as PolicyAllow (config validation is strict, the
 	// engine stays lenient).
 	defaultPolicy DefaultPolicy
-	// now is the clock for schedule-driven judgements (silence windows);
+	// rosterSource resolves silence gates that name a duty roster; nil =
+	// no roster data attached (every roster gate then stays open).
+	rosterSource RosterSource
+	// now is the clock for schedule-driven judgements (silence schedules);
 	// swapped in tests.
 	now func() time.Time
 	// onResolved, when set, fires when a delivered alert recovers: a
@@ -315,6 +322,17 @@ func (e *Engine) SetDefaultPolicy(p DefaultPolicy) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.defaultPolicy = p
+}
+
+// SetRosterSource attaches the duty-roster read face the silence gate
+// consults for rules whose silence names a roster (core/roster.Manager
+// implements it). Call it during setup, before the engine serves traffic;
+// without one, roster gates stay open (fail open — missing schedule data
+// must never keep an alert quiet).
+func (e *Engine) SetRosterSource(src RosterSource) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.rosterSource = src
 }
 
 // sortRulesLocked orders the live table by evaluation priority: higher
@@ -519,13 +537,21 @@ func compileRule(r Rule) (*compiledRule, error) {
 	}
 	var silence *compiledSilence
 	if r.Silence != nil {
-		window, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End, r.Silence.TZ)
-		if err != nil {
-			// Defensive: Validate runs this same parse (rule.go Validate),
-			// so this cannot trigger from Put.
-			return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+		silence = &compiledSilence{}
+		if r.Silence.Roster != "" {
+			// Validation guarantees roster and window are mutually
+			// exclusive; the reference itself resolves at eval time (it
+			// may not have been pushed yet).
+			silence.roster = r.Silence.Roster
+		} else {
+			window, err := ParseSilenceWindow(r.Silence.Start, r.Silence.End, r.Silence.TZ)
+			if err != nil {
+				// Defensive: Validate runs this same parse (rule.go Validate),
+				// so this cannot trigger from Put.
+				return nil, fmt.Errorf("rules: rule %q: %w", r.ID, err)
+			}
+			silence.window = window
 		}
-		silence = &compiledSilence{window: window}
 		if r.Silence.Match != nil && *r.Silence.Match != "" {
 			silence.match, err = compileExpr(*r.Silence.Match)
 			if err != nil {
@@ -565,6 +591,7 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	rules := make([]*compiledRule, len(e.rules))
 	copy(rules, e.rules)
 	defaultPolicy := e.defaultPolicy
+	rosterSource := e.rosterSource
 	e.mu.RUnlock()
 
 	var decision *Decision
@@ -617,23 +644,23 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 			return governing, joinEvalErrors(evalErrs)
 		}
 
-		// Step -1: the daily silence window. Schedule-driven and stateless:
-		// inside the window (and, when the silence match is set, for
-		// matching events only) the rule is frozen — the event is withheld
-		// and no for/group state advances. Only active rules check: shadow
-		// observation is about condition hits.
-		if cr.silence != nil && cr.rule.Mode == ModeActive && cr.silence.window.Contains(e.now()) {
+		// Step -1: the silence schedule — daily window or duty roster.
+		// Schedule-driven and stateless: inside the schedule (and, when the
+		// silence match is set, for matching events only) the rule is
+		// frozen — the event is withheld and no for/group state advances.
+		// Only active rules check: shadow observation is about condition hits.
+		if cr.silence != nil && cr.rule.Mode == ModeActive && silenceQuiet(rosterSource, cr.silence, e.now()) {
 			if cr.silence.match == nil {
 				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Silenced: true}
 				governing.EvalErrors = evalErrs
 				return governing, joinEvalErrors(evalErrs)
 			}
-			inWindow, err := e.runProgram(ctx, cr.silence.match, env)
+			inSchedule, err := e.runProgram(ctx, cr.silence.match, env)
 			if err != nil {
 				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
 				continue
 			}
-			if inWindow {
+			if inSchedule {
 				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Silenced: true}
 				governing.EvalErrors = evalErrs
 				return governing, joinEvalErrors(evalErrs)

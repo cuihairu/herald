@@ -80,3 +80,24 @@ func (w *SilenceWindow) Contains(t time.Time) bool {
 	// Window crosses midnight (e.g. 22:00-06:00).
 	return minutes >= w.StartMin || minutes < w.EndMin
 }
+
+// RosterSource answers whether a duty roster's pushed schedule covers a
+// moment. core/roster.Manager implements it over its live table; the
+// silence gate consults it for rules whose silence names a roster.
+type RosterSource interface {
+	Covers(id string, t time.Time) bool
+}
+
+// silenceQuiet reports whether a compiled quiet gate holds at t: the daily
+// window when the silence names one, otherwise the named duty roster's
+// pushed periods. With no source attached, or for a roster nothing has
+// pushed yet (or since been deleted), there is no schedule data and the
+// gate stays open — missing data must never keep an alert quiet, while
+// silence stays a decision the operator made, not a side effect of a
+// broken push pipeline.
+func silenceQuiet(src RosterSource, s *compiledSilence, t time.Time) bool {
+	if s.roster != "" {
+		return src != nil && src.Covers(s.roster, t)
+	}
+	return s.window.Contains(t)
+}

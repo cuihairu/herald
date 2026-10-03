@@ -340,6 +340,40 @@ func TestRuleValidate(t *testing.T) {
 		if err := r.Validate(); err == nil {
 			t.Error("unknown tz: expected rejection")
 		}
+
+		// A roster names the schedule source instead of the window; the
+		// id only needs the right shape — the schedule may be pushed later
+		// (forward reference, like inhibit.source).
+		r = validRule()
+		r.Silence = &SilenceSpec{Roster: "ops-oncall"}
+		if err := r.Validate(); err != nil {
+			t.Errorf("silence roster: expected acceptance, got %v", err)
+		}
+		match2 := `level != "critical"`
+		r.Silence = &SilenceSpec{Roster: "ops-oncall", Match: &match2}
+		if err := r.Validate(); err != nil {
+			t.Errorf("silence roster + match: expected acceptance, got %v", err)
+		}
+
+		// One schedule source only: the roster cannot be combined with the
+		// window's fields, and the id must be well-formed.
+		r = validRule()
+		r.Silence = &SilenceSpec{Roster: "ops-oncall", Start: "22:00", End: "06:00"}
+		if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "one schedule source") {
+			t.Errorf("roster + window: expected rejection, got %v", err)
+		}
+		r = validRule()
+		r.Silence = &SilenceSpec{Roster: "ops-oncall", TZ: "Asia/Shanghai"}
+		if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "does not apply to roster") {
+			t.Errorf("roster + tz: expected rejection, got %v", err)
+		}
+		for _, bad := range []string{"", "has space", "斜杠/x", strings.Repeat("x", 65)} {
+			r = validRule()
+			r.Silence = &SilenceSpec{Roster: bad}
+			if err := r.Validate(); err == nil {
+				t.Errorf("roster id %q: expected rejection", bad)
+			}
+		}
 	})
 
 	t.Run("escalation validated", func(t *testing.T) {

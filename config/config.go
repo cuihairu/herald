@@ -43,6 +43,10 @@ type Config struct {
 	// GroupsStore points at the persistent groups file. Empty keeps groups
 	// in memory only (seeds from Groups are still honored).
 	GroupsStore string `yaml:"groups_store"`
+	// RostersStore points at the persistent duty-roster file (the push
+	// target of the silence schedule placeholder). Empty keeps rosters in
+	// memory only.
+	RostersStore string `yaml:"rosters_store"`
 	// EscalationStore points at the persistent pending-upgrade file for
 	// ack-gated escalation. Empty keeps pending upgrades in memory only
 	// (a restart then silently drops them instead of escalating).

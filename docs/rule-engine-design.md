@@ -1,6 +1,6 @@
 # 通知规则引擎升级设计
 
-> 状态：**主干能力已实施**（P1–P3 的主干能力全部落地，2026-09-27 对照 main 逐项核对，回执见文末「实施回执」）。本文写作时的"现状"描述保留为实施前快照；其中已闭合的缺口（limiter 孤儿模块、retry 不可重试）在回执一节说明。回执复审又查出两处设计与落地的偏差（影子统计只有进程内累计计数、静默窗没有时区与值班表），已按事实改写并在表中逐格标注——**回执表里的"差异"列是逐格可核的，不是一句"已实施"**。
+> 状态：**主干能力已实施**（P1–P3 的主干能力全部落地，2026-09-27 对照 main 逐项核对，回执见文末「实施回执」）。本文写作时的"现状"描述保留为实施前快照；其中已闭合的缺口（limiter 孤儿模块、retry 不可重试）在回执一节说明。回执复审又查出两处设计与落地的偏差（影子统计只有进程内累计计数、静默窗没有时区与值班表），已按事实改写并在表中逐格标注；两处偏差后续均已补齐（影子窗口计数 2026-10-03、静默时区 2026-10-03、值班表排班占位 2026-10-04）——**回执表里的"差异"列是逐格可核的，不是一句"已实施"**。
 
 ## 一、定位：从"事件驱动投递"到"可编程告警平台"
 
@@ -185,7 +185,7 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 | P1 | limiter 接线投递侧 | `core/runtime/manager.go` 的 `Deliver` 在任何投递尝试前 `lm.Wait(ctx)`（HEAD 上 :381，紧邻注释 "Wait BEFORE any delivery attempt"），配置 `rate_limit` 经 `SetProviderLimiter` 接线（`cmd/heraldd/main.go:138`） | **§二"孤儿模块"的现状已闭合** |
 | P1 | retry 可重试判定修正 | `core/httpclient/client.go`：`retryableStatus`（429/5xx）将传输错误包成 `RetryableError`，`ShouldRetry` 据此重试 | **§二"没有任何 provider 构造该类型"的现状已闭合**（webhook 类 provider 走 httpclient 自动获得） |
 | P2 | 状态外置 Redis + memory 兜底 | `core/rules/state.go`（memory）/`state_redis.go`（Redis），`SetStateStore` 注入（`cmd/heraldd/main.go:202`） | 一致 |
-| P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups` | 四类判定都在，但 **silence 未兑现 §五 P2 承诺的"值班表对接排班占位"**：`SilenceSpec` 落地 `start`/`end`/`tz`/`match`——`tz`（§三 YAML 的 IANA 时区名）2026-10-03 补齐：`ParseSilenceWindow` 经 `time.LoadLocation` 解析、未知名在保存时拒绝，`Contains` 把时刻换算到窗口时区再取钟点，缺省仍按事件自身时区（进程本地）。窗口字段是 `start`/`end` 两个 `HH:MM`，不是设计里的合并写法 `window: "00:00-06:00"`；跨零点窗口（22:00-06:00）与 end 开区间已支持 |
+| P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups`；值班表在 `core/roster` | 四类判定都在。silence 的 **"值班表对接排班占位"已于 2026-10-04 兑现**：`SilenceSpec` 新增 `roster` 字段（与 `start`/`end`/`tz` 互斥，同用保存即拒），`core/roster`（`Roster`/`Period`/`Manager`，镜像 groups 的 Store+FileStore+Manager 形制）存外部排班系统经 `POST/PUT /api/v1/rosters` 推来的绝对时段表（`rosters_store` 落盘），`Engine.SetRosterSource` 把 `Manager.Covers` 接进静默门——引用未知/未推/已删的值班表或未接 Manager 时 fail-open（缺日程数据绝不等于该静默）。排班轮换与值班人管理留在 herald 之外（§五"值班表对接的排班占位"的占位语义）。`tz`（§三 YAML 的 IANA 时区名）2026-10-03 补齐：`ParseSilenceWindow` 经 `time.LoadLocation` 解析、未知名在保存时拒绝，`Contains` 把时刻换算到窗口时区再取钟点，缺省仍按事件自身时区（进程本地）。窗口字段是 `start`/`end` 两个 `HH:MM`，不是设计里的合并写法 `window: "00:00-06:00"`；跨零点窗口（22:00-06:00）与 end 开区间已支持 |
 | P3 | ACK 回调（飞书卡片 + 通用端点） | `POST /api/v1/callbacks/feishu`（`api/handler_callbacks.go`）+ `POST /api/v1/alerts/{id}/ack`（`api/handler_alerts.go`），ACK 状态在 `core/ack` | 一致 |
 | P3 | escalation 生效 | `core/escalation` + `engine_escalation_test.go`（ack_timeout 到期升级链） | P1/P2 建模、P3 兑现的承诺已兑现 |
 | P3 | 事故台账 | `core/incident` + `GET` 事故视图（`api/handler_incidents.go`） | 一致 |
@@ -196,4 +196,4 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 
 复核补记（2026-09-28 第三轮，带代码改动）：专查"回执写了、但生产代码里没人调"的项，揪出 `runtime.Manager.ShadowRuleCount` —— 它此前**零生产调用方**（`grep -rn ShadowRuleCount --include=*.go . | grep -v _test.go` 只命中定义本身），即"影子模式已落地"只落地到日志采样，统计无人可读。现已接上规则读接口的 `shadow_hits`（`api/handler_rules.go` 的 `ruleView`，list + detail 两个读面）与控制台列表的"影子命中"列，行为由 `TestHandleRulesShadowHits` 覆盖。顺带修掉一处会让该数字**说谎**的缺陷：采样器原按 `规则` 单一分桶，for 挂起/折叠/抑制/静默/丢弃与影子命中共用计数器，"影子期本会触发多少次"会被"这条规则做过什么"撑大；改为按 `(EventKind, 规则)` 分桶（`core/rules/shadow.go`）后各事件种类互不干扰，影子样本流也不再被高流量丢弃事件吃掉采样预算（`TestShadowSamplerKindsAreIndependent`）。本轮同时把 P1 影子行、P2 静默行两处"一致"按代码事实改写。
 
-**结论：四层主干能力（静态兜底 → 动态规则 → 有状态判断 → ACK 闭环）确认全部落地；剩下的一条设计细节**——silence 无值班表排班占位（时区字段 `tz` 已于 2026-10-03 补齐）。影子统计的 24h/7d 窗口计数与命中样本也已于 2026-10-03 补齐（`shadow_stats` 读面 + 控制台详情抽屉，仍为进程内状态）。待办留在上表差异列里，不计入"已实施"的账面。
+**结论：四层主干能力（静态兜底 → 动态规则 → 有状态判断 → ACK 闭环）确认全部落地；最后一条设计细节——silence 的值班表排班占位——已于 2026-10-04 补齐**（`core/roster` + `silence.roster` + `/api/v1/rosters` 推送面，fail-open 语义；时区字段 `tz` 已于 2026-10-03 补齐）。影子统计的 24h/7d 窗口计数与命中样本也已于 2026-10-03 补齐（`shadow_stats` 读面 + 控制台详情抽屉，仍为进程内状态）。设计承诺至此全部兑账，差异列只余记录在案的有意偏离（求值顺序、JSON 存储、窗口字段写法）。
