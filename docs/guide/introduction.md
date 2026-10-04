@@ -15,12 +15,15 @@
 
 ## 它长什么样
 
-Herald 是单个二进制（或 Docker 容器），核心是一条事件流水线：
+Herald 是单个二进制（或 Docker 容器），**轻量、Provider 无关**：业务方描述「发生了什么、通知什么、通知谁」，渠道细节（Telegram / 飞书 / 邮件 / 短信… 具体是哪个、怎么送达、失败怎么重试）全部交给 Herald。核心是一条通知流水线：
 
 ```
-事件 → 路由(routes) → 投递(Runtime) → 各渠道 Provider
-         ↑ 规则引擎(放行/抑制/改道) · 去重 · 重试 · 限流
+Notification → 受众解析(通知谁) → 路由(走哪条通道) → Delivery Task → Queue → Worker → Provider
+                 ↑ 模板(内容怎么生) · 规则引擎(放行/抑制/改道) · 去重 · 重试 · 限流
 ```
+
+- **Notification ≠ Delivery**：一条通知可展开成多条投递（多渠道扇出），每条 Delivery 独立状态、独立重试
+- **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——当前版本受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分属于规划中的[Audience 领域模型](/design-audience-model)
 
 - **HTTP First**：`POST /api/v1/notify` 一条 curl 即可发通知，curl 友好、无业务 SDK 依赖
 - **多渠道 Provider**：内置即时通讯（飞书、企微、钉钉、Slack、Discord、Telegram、微信）、邮件、短信（阿里云、腾讯云、网易）、Webhook 等十余个通道，统一接口面，见 [Provider 手册](/providers/overview)

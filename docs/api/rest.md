@@ -4,6 +4,8 @@
 
 发送通知。
 
+模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**——`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。当前请求按 `type` + `level`（或显式 `channels`）路由；`channel` / `audience` / `idempotency_key` 等字段属于规划中的 [Audience 领域模型](/design-audience-model)，暂不生效。
+
 ### notify-请求 {#notify-request}
 
 ```http

@@ -643,6 +643,21 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 2. 配置文件（启动时加载）
 3. 默认配置
 
+### 领域模型与配置块
+
+配置与领域模型一一对应（关系与边界见 [Audience 领域模型](/design-audience-model)）：
+
+| 配置块 | 领域角色 | 状态 |
+|--------|---------|------|
+| `server` / `queue` / `retry` / `dedup` | 平台底座 | ✅ 已实现 |
+| `providers` | Channel 的投递实现（Provider） | ✅ 已实现 |
+| `routes` / `level_routes` | Channel → Provider 的路由映射 | ✅ 已实现 |
+| `groups` | Audience 的 `group:` 形态（命名受众） | ✅ 已实现 |
+| `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | 🚧 规划中 |
+| `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | 🚧 规划中 |
+
+规划中的配置块当前版本**不会生效**（配置解析为宽松模式，未知键被静默忽略、不会报错——误以为生效是常见坑），落地节奏按设计文档 Phase 实施顺序执行。
+
 ## Provider 类型
 
 | 类型 | 说明 | 配置示例 |
