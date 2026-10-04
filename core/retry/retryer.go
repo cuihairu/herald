@@ -96,6 +96,14 @@ func NewRetryer(config *Config) *Retryer {
 	return &Retryer{policy: policy}
 }
 
+// MaxAttempts is the total number of delivery attempts the policy allows:
+// the initial try plus every retry in the budget. The runtime snapshots it
+// onto the task at the start of delivery (DeliveryTask.MaxAttempts), so
+// observers see the budget without reaching into the policy.
+func (r *Retryer) MaxAttempts() int {
+	return r.policy.MaxRetries() + 1
+}
+
 // Execute executes a function with retry
 func (r *Retryer) Execute(ctx context.Context, task *core.DeliveryTask, fn func() error) error {
 	var lastErr error

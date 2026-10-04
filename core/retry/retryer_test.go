@@ -193,3 +193,28 @@ func TestExecuteDoesNotRetryPlainError(t *testing.T) {
 		t.Fatalf("plain errors must not retry, got %d calls", calls)
 	}
 }
+
+func TestRetryerMaxAttempts(t *testing.T) {
+	// MaxAttempts is the total budget: initial try + retry rounds. The
+	// runtime snaps it onto the task, so the number must match what
+	// Execute actually runs: MaxRetries()+1 loop iterations.
+	cases := []struct {
+		max  int
+		want int
+	}{
+		{max: 0, want: 1},
+		{max: 1, want: 2},
+		{max: 2, want: 3},
+		{max: 5, want: 6},
+	}
+	for _, tc := range cases {
+		r := NewRetryer(&Config{Max: tc.max, Backoff: "fixed", InitialDelay: time.Millisecond, MaxDelay: time.Millisecond})
+		if got := r.MaxAttempts(); got != tc.want {
+			t.Errorf("MaxAttempts with Max=%d = %d, want %d", tc.max, got, tc.want)
+		}
+	}
+	// nil config falls back to the default policy (Max 3).
+	if got := NewRetryer(nil).MaxAttempts(); got != 4 {
+		t.Errorf("MaxAttempts with default policy = %d, want 4", got)
+	}
+}

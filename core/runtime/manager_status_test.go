@@ -62,6 +62,14 @@ func TestDeliverMarksStatusDelivered(t *testing.T) {
 	if task.RetryCount != 0 {
 		t.Errorf("RetryCount = %d, want 0 on a first-attempt success", task.RetryCount)
 	}
+	// The delivery budget is snapped on at start: Max 2 policy -> 3
+	// attempts; a delivered task carries no error residue.
+	if task.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3 (Max 2 policy + initial try)", task.MaxAttempts)
+	}
+	if task.LastError != "" {
+		t.Errorf("LastError = %q, want empty on delivered", task.LastError)
+	}
 }
 
 // TestDeliverMarksEveryAttemptDelivering asserts the attempt wrapper flips
@@ -128,6 +136,12 @@ func TestDeliverMarksStatusFailed(t *testing.T) {
 	if task.RetryCount != 0 {
 		t.Errorf("RetryCount = %d, want 0 (no retry was taken)", task.RetryCount)
 	}
+	if task.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3 (Max 2 policy + initial try)", task.MaxAttempts)
+	}
+	if task.LastError != "permanent" {
+		t.Errorf("LastError = %q, want the permanent error text", task.LastError)
+	}
 }
 
 func TestDeliverMarksStatusDead(t *testing.T) {
@@ -146,6 +160,12 @@ func TestDeliverMarksStatusDead(t *testing.T) {
 	}
 	if task.RetryCount != 2 {
 		t.Errorf("RetryCount = %d, want 2 retries performed", task.RetryCount)
+	}
+	if task.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3 (Max 2 policy + initial try)", task.MaxAttempts)
+	}
+	if !strings.Contains(task.LastError, "max retries exceeded") {
+		t.Errorf("LastError = %q, want the max-retries residue", task.LastError)
 	}
 
 	// The task log keeps its wire vocabulary: dead maps to "failed".
@@ -182,5 +202,8 @@ func TestDeliverRateLimitAbortMarksStatusFailed(t *testing.T) {
 	}
 	if task.Status != core.StatusFailed {
 		t.Errorf("Status = %q, want %q", task.Status, core.StatusFailed)
+	}
+	if !strings.Contains(task.LastError, "rate limit wait aborted") {
+		t.Errorf("LastError = %q, want the rate-limit abort residue", task.LastError)
 	}
 }

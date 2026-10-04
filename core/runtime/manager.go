@@ -409,6 +409,15 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		return err
 	}
 
+	// Snapshot the delivery budget onto the task before any attempt:
+	// MaxAttempts is the policy total (retries + initial try), or a single
+	// attempt with no retryer configured.
+	if m.retryer != nil {
+		task.MaxAttempts = m.retryer.MaxAttempts()
+	} else {
+		task.MaxAttempts = 1
+	}
+
 	// Channel rate limiting: the rule engine can fan one notification out
 	// to many channels, so a misconfigured rule must not turn into a
 	// provider-side storm. Wait BEFORE any delivery attempt.
@@ -423,6 +432,7 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 				m.logStore.Add(entry)
 				m.logStore.UpdateStatus(task.ID, "failed", err.Error())
 				task.Status = core.StatusFailed
+				task.LastError = err.Error()
 				return err
 			}
 		}
@@ -454,11 +464,15 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		} else {
 			task.Status = core.StatusFailed
 		}
+		// The task carries its own last_error: observers read the settled
+		// error off the task; the log store keeps the full history.
+		task.LastError = deliverErr.Error()
 		m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
 		return deliverErr
 	}
 
 	task.Status = core.StatusDelivered
+	task.LastError = ""
 	m.logStore.UpdateStatus(task.ID, "success", "")
 	return nil
 }

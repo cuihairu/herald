@@ -84,7 +84,7 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1/2/3/6 分批落地）
+## 五、执行记录（2026-10-04：Phase 1/2/3/4/6 分批落地）
 
 前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
@@ -120,6 +120,20 @@ POST /api/v1/notify
 
 - `core/service/notification.go`：新增 `expandRefs(refs)` —— 引用集合 → 投递目标的**纯决策**步骤（不触碰队列）；单条引用解析失败记录为该引用的 `ChannelError`、其余照常展开。`enqueue` 改为先取决策、后执行入队（`enqueueOne`），Routing（决定谁收到什么）与 Delivery（Plan/Push/重试）在代码上有明确分割点。行为零变化。
 - `core/service/routing_test.go`（新）：`expandRefs` 决策层直接单测——空引用集、裸渠道透传、group:+user: 混合展开（`user:alice` 按 provider 合并端点）、失败引用不阻断批量、无 resolver 时显式失败；`ctx`/queue 零接触（纯函数可测性即边界证明）。
+
+### Phase 4 MVP：Queue / Worker 五项核对 + §14 字段回填
+
+按计划 §16/§17 逐项核对（enqueue/dequeue/ack/worker/retry）：
+
+- **enqueue / dequeue / ack**：`core.Queue` 接口（Push/Pop/Ack/Nack/Size/Close）与 memory 队列实现齐全（buffered chan、closed 守卫、ctx 取消；内存队列 ack 语义 = Pop 即出队，Ack/Nack 按设计为 no-op）；worker 成功→Ack、失败→Nack 已接线。**无缺口**。
+- **worker**：Pool.workerLoop 只做「取任务 → 调 Provider → Ack/Nack」，不携带路由/模板/接收人知识（§17 边界成立，路由决策在 Phase 2 已独立）。**无缺口**。
+- **retry**：同步重试在 runtime.Deliver 内（Phase 3），一次 Pop 覆盖整个重试周期，耗尽→dead。**无缺口**。
+- **§14 字段核对回填**：计划建议 Delivery 保存 `attempts` / `max_attempts` / `last_error` / `next_retry_at`。检查发现 `last_error` 与 `max_attempts` 只存在于重试策略/任务日志、不在任务对象上。本批补齐：
+  - `core.DeliveryTask` 新增 `MaxAttempts int`（投递预算快照：retry 策略轮数 + 首试；无 retryer 时为 1，由 runtime 在首次尝试前钉入）与 `LastError string`（终态错误：failed/dead 写最终错误、delivered 清空、限流中止同样记录；与任务日志的完整历史并存，§14 "Delivery 自带 last_error"）；
+  - `core/retry.Retryer.MaxAttempts()`（= MaxRetries()+1）暴露预算；
+  - `next_retry_at` 依旧不做：同步重试在单次 Deliver 内完成、无排队语义（Phase 3 执行记录已声明，留异步批次）。
+- **核对测试**：`core/worker/pool_phase4_test.go`（新）——真 runtime + 真 worker loop 的 §16/§17 全链路核对（成功→delivered+ack、失败→failed+nack+last_error、retryable 耗尽→dead+预算/重试数/错误残留断言；经队列 mutex 观察点同步、race 干净）；`manager_status_test.go` 四个终态测试补 MaxAttempts/LastError 断言；`retryer_test.go` 补 MaxAttempts 预算测试。
+- 外部依赖零新增（§16：维持 MemoryQueue 为第一队列，Redis 队列不动、不引新后端）。
 
 ### 差异总表回填（本批后）
 

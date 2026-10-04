@@ -75,7 +75,15 @@ type DeliveryTask struct {
 	// (the retryer sets it between attempts; 0 means none so far, so
 	// attempts = RetryCount + 1).
 	RetryCount int       `json:"retry_count"`
-	CreatedAt  time.Time `json:"created_at"`
+	// MaxAttempts is the delivery budget snapped onto the task when the
+	// first attempt starts (retry policy retries + 1; 1 with no retryer).
+	MaxAttempts int `json:"max_attempts,omitempty"`
+	// LastError is the final attempt's error once delivery settled: set on
+	// the terminal failed/dead state, cleared on delivered. Mirrors the
+	// error already recorded in the task log (§14 notes Delivery carries
+	// its own last_error; the log keeps the full history).
+	LastError string    `json:"last_error,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider
