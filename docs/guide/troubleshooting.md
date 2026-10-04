@@ -44,7 +44,7 @@ token: "${TELEGRAM_BOT_TOKEN}"
 **判定「受理」与「送达」是两件事**：`{"code":0,...}` 只代表进入投递管线，最终每个通道的成败看 `data.accepted` / `data.failed` 和投递日志：
 
 ```bash
-curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：delivered / failed / retrying
+curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / failed / pending / shadow
 ```
 
 ## 消息没到（受理成功但没收到）

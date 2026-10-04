@@ -23,7 +23,7 @@ Notification → 受众解析(通知谁) → 路由(走哪条通道) → Deliver
 ```
 
 - **Notification ≠ Delivery**：一条通知可展开成多条投递（多渠道扇出），每条 Delivery 独立状态、独立重试
-- **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——当前版本受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分属于规划中的[Audience 领域模型](/design-audience-model)
+- **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分（Recipient/Endpoint，配置化）与 `channels` 渠道块见 [Audience 领域模型](/design-audience-model)与[配置参考](/guide/configuration)
 
 - **HTTP First**：`POST /api/v1/notify` 一条 curl 即可发通知，curl 友好、无业务 SDK 依赖
 - **多渠道 Provider**：内置即时通讯（飞书、企微、钉钉、Slack、Discord、Telegram、微信）、邮件、短信（阿里云、腾讯云、网易）、Webhook 等十余个通道，统一接口面，见 [Provider 手册](/providers/overview)

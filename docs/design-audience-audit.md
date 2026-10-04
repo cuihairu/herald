@@ -84,7 +84,7 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1-8 分批落地）
+## 五、执行记录（2026-10-04：Phase 0-9 全批落地，计划收官）
 
 前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
@@ -183,3 +183,22 @@ POST /api/v1/notify
 | Provider 错误分类接口 | ✅ core/errclass 六类词汇（§15）接入 httpclient 分类与 retry 判定（Phase 5：408/429/5xx/传输错误显式分类，其余 4xx 不分类不重试，wire 文本不变） |
 | Logs 与 Delivery 状态分离 | 未动（成本最高项，按 §25 需独立 Phase 设计事件流） |
 | Channel 独立配置块 | ✅ `channels: {name: {providers: [...]}}` 落地（Phase 7：启动校验拒起、provider 显式 > channels 块 > routes 表优先级、routes 键未删） |
+
+### Phase 9 MVP：Documentation（全站对齐 + 差异总表收官）
+
+按计划 Phase 9 的七个文档面逐一核对，代码改动为零、纯文档批：
+
+- **Getting Started**（getting-started.md）：实现现状段改写为「Phase 0-9 全批落地」终态（channels 块、六类错误分类、MaxAttempts/LastError 并入），留批项点名并指到审计；第 3 步接入清单补 `user:` 受众、`channels` 命名渠道、`idempotency_key` 幂等重发三个指针。
+- **Architecture**（architecture/overview.md）：边界现状段从「执行中 + 三项后续规划」改写为落地终态——Channel 独立配置块与错误分类接口**已落地**（此前是过时表述），仅异步重新入队与 Logs 事件流分离留批。
+- **Configuration**：Phase 7 批已同步（领域模型与配置块表全 ✅ + channels 节 + 宽松解析警示改写），本批复核无新增。
+- **Provider**（providers/overview.md）：新增「错误分类与重试」节——六类词汇表（触发/是否重试）、httpclient 自动分类口径（408/429/5xx/传输错误 vs 其余 4xx）、短信业务码差异指到各渠道页、dead/last_error 与日志 wire 词汇的分离说明。
+- **Audience**（introduction.md）：「`user:` 级细分属于规划中」的过时表述改为已配置化落地。
+- **Delivery**：状态机文档随 Getting Started/Architecture 终态更新；API 不暴露任务对象（queue 端点只报 size），无 API 文档改动；troubleshooting.md 修正一处**文档错误**——`/api/v1/logs` 的 `status` 字段实际是 `success/failed/pending/shadow`（wire 词汇），原文误写为 `delivered/failed/retrying`。
+- **API**（api/rest.md）：Phase 6 批已同步（notify 领域字段 + 幂等节），本批复核无新增。
+
+**差异总表收官**：全部行收敛为「✅ 已落地」或「留批 + 理由」，无未定性缺口。留批清单（均为显式设计决策，非遗漏）：
+1. `next_retry_at` / 异步重新入队——同步重试在单次 Deliver 内完成、无排队语义；改动会变更端到端耗时与日志时序，需独立设计（护栏 5）。
+2. Logs 与 Delivery 状态分离——计划 §25 的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
+3. audiences/recipients/channels 的运行时 API——一期口径为纯配置化（Phase 1/7 记录在案）。
+4. RateLimited per-class 退避（Retry-After）——沿用统一退避策略（Phase 5 留批）。
+5. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。

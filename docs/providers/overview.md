@@ -133,6 +133,23 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 配置文件中的 `enabled` 字段指定 Provider 的初始状态，之后可以通过 API 或 Dashboard 动态修改。
 
+## 错误分类与重试
+
+投递失败是否重试由**错误分类**决定（六类词汇，见 [Audience 领域模型](/design-audience-model)）：
+
+| 分类 | 触发 | 是否重试 |
+|------|------|---------|
+| `temporary` | 上游 5xx、一般网络错误 | ✅ 按 `retry` 配置退避重投 |
+| `rate_limited` | 上游 429 | ✅ 同上 |
+| `timeout` | 请求超时（408 或传输超时） | ✅ 同上 |
+| `permanent` | 上游明确拒绝且重试无意义 | ❌ 立即 failed |
+| `authentication` | 凭据无效 | ❌ 立即 failed |
+| `invalid_request` | 请求本身不合法 | ❌ 立即 failed |
+
+- 走内置 HTTP 客户端的 Provider（飞书/钉钉/Telegram/短信等）自动获得分类：408/429/5xx 与传输错误归可重试类，其余 4xx 不分类（不重试）——与分类引入前的重试语义一致，只是显式化
+- 短信类「HTTP 200 但业务码失败」由 Provider 判定响应体后归类，各渠道差异见对应 Provider 页
+- 可重试类耗尽 `retry.max` 后任务进入 dead，终态错误留在任务的 `last_error`；日志（`/api/v1/logs`）的 `status` 始终是 `success/failed` 二值 wire 词汇
+
 ## 最佳实践
 
 1. **敏感信息**：使用环境变量存储 API 密钥

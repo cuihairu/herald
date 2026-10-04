@@ -46,7 +46,7 @@ Routing      ≠ Delivery           —— 展开决策与执行任务分离
 Provider     ≠ Business Logic     —— Provider 只做请求构造/调用/错误转换
 ```
 
-各边界的落地现状与缺口拆解见 [Audience 领域模型](/design-audience-model)（执行中）：已实现 Notification / Channel（routes 路由）/ Delivery Task / Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化 MVP：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Delivery 显式状态机（queued/delivering/retrying/delivered/failed/dead，同步重试）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）；Channel 独立配置块、错误分类接口与异步重新入队为后续规划项。
+各边界的落地现状与逐批执行记录见 [Audience 领域模型](/design-audience-model)与[现状审计](/design-audience-audit)（计划 Phase 0-9 已全批落地）：Notification / Channel（routes 路由 + `channels` 独立配置块，显式 provider > channels 块 > routes 表）/ Delivery Task（显式状态机 queued/delivering/retrying/delivered/failed/dead + MaxAttempts/LastError，同步重试）/ Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Provider 错误六类分类（ Temporary/Permanent/RateLimited/Authentication/InvalidRequest/Timeout，分类骑错误链、wire 文本不变）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）。明确留批：异步重新入队（`next_retry_at`，同步重试无排队语义）与 Logs/Delivery 事件流分离，均已在审计中记录留批理由。
 
 ## 核心设计思想
 

@@ -54,7 +54,7 @@ Telegram / Feishu / Email / Log ...
 
 Notification 与 Delivery 分离：一条 Notification 可能展开成多条 Delivery（多渠道），各 Delivery 独立状态、独立重试。`accepted` 只代表 Herald 受理，不代表已送达。
 
-> 实现现状：`Notification / Template / Channel（routes）/ Delivery / Queue / Worker / Provider` 以及通知群组（Audience 的 `group:` 形态）当前版本已落地；`user:` 级 Recipient 与多 Endpoint 已以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"），Delivery 状态机已枚举化（queued/delivering/retrying/delivered/failed/dead），notify API 已支持 `channel` / `audience` / `data` / `idempotency_key` 领域字段（见 [REST API](/api/rest#notify-receivers)）。差异详情与剩余计划的拆解见 [Audience 领域模型](/design-audience-model) 与 [现状审计](/design-audience-audit)。
+> 实现现状：[Audience 领域模型](/design-audience-model)计划（Phase 0-9）已全批落地——`Notification / Template / Channel（routes + channels 块）/ Delivery（枚举状态机 + MaxAttempts/LastError）/ Queue / Worker / Provider` 全部就位；`user:` 级 Recipient 与多 Endpoint 以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"）；Provider 错误按六类词汇分类（可重试类按退避重投、确定性类立即失败）；notify API 支持 `channel` / `audience` / `data` / `idempotency_key` 领域字段（见 [REST API](/api/rest#notify-receivers)）。逐批执行记录见 [现状审计](/design-audience-audit)；明确留批的项（异步重新入队/`next_retry_at`、Logs 与 Delivery 事件流分离、受众与渠道的运行时 API）在审计差异总表中各有留批理由。
 
 ## 安装
 
@@ -206,7 +206,9 @@ providers:
 
 - **按业务类型路由**：`type` + `routes`/`level_routes` 决定一条通知走哪些渠道，见[场景与接入](/guide/use-cases)
 - **模板复用**：`templates` 一次定义、多渠道复用，见[模板系统](/guide/templates)
-- **命名受众**：`group:ops` 一个引用展开整组值班人，见[通知群组](/design-notification-groups)
+- **命名受众**：`group:ops` 一个引用展开整组值班人，见[通知群组](/design-notification-groups)；`user:alice` 精确到人（多端点合并投递），见[配置参考](/guide/configuration)
+- **命名渠道**：`channels: {ci: {providers: [...]}}` 把一组 provider 定义成一个可引用的渠道，见[配置参考](/guide/configuration)
+- **幂等重发**：网络重试时带上同一个 `idempotency_key`，Herald 只受理一次，见 [REST API](/api/rest#notify-receivers)
 
 ## 常用查询
 
