@@ -15,7 +15,7 @@
 ## 待办（按序执行）
 
 - [x] **Phase 7 · Configuration** — `channels` 独立配置块（`channels: {ci: {providers: [...]}}`，启动校验拒起：零 providers/未知 provider）；优先级「channel 显式 > channels 块 > routes 表」在 expandRef 落地（显式 provider 实例压过块、`routes` 键未删）；router.ExpandChannel + service ChannelResolver；配置参考文档 channels 节；channels 运行时 API 按受众一期口径留批
-- [ ] **Phase 8 · 测试** — Integration / Provider / Routing / Retry / Idempotency Test 补全
+- [x] **Phase 8 · 测试** — §31 逐块核对：Notification（创建/参数 422）、Audience（group→recipients、user→recipient→endpoints）、Routing（refs→tasks）、Retry（Temporary 重试/Permanent 立败）、State（queued→delivering→delivered、failed→retrying→delivered）、Idempotency（键回放不重复创建）**均有既有测试底稿**；唯一真实缺口 **Multi Provider 隔离**（同一 fan-out 中 telegram 恰投一次不被兄弟失败带偏、feishu 可重试落地）补 `pool_phase8_test.go` 全真链路测试（service 路由→计划→队列→worker→provider）
 - [ ] **Phase 9 · Documentation** — 全站文档与代码最终对齐、差异总表清零
 
 ## 说明

@@ -84,7 +84,7 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1/2/3/4/5/6/7 分批落地）
+## 五、执行记录（2026-10-04：Phase 1-8 分批落地）
 
 前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
@@ -155,6 +155,22 @@ POST /api/v1/notify
 - 装配：`cmd/heraldd` 建 router 时注入展平块 + `channels loaded` 日志；`api/server.go` 挂 `SetChannelResolver(config.Router)`。
 - 测试：router 展开（命中顺序/未知/空条目回 false）；config 校验（无 providers/未知 provider/合法）+ yaml 解析 + 展平；service 决策层（块展开有序、provider 压过块、双不中回落字面）+ 全链路（`channels: [ci]` → 每 provider 一任务）；heraldd 拒起两例 + FullFeaturedLifecycle 带 channels 块。
 - 未做（护栏 5 留批/超纲）：channels 运行时 API（配置化即 MVP，与 audiences 一期口径一致）；group 成员渠道名不走块展开（成员语义是 provider 实例名，保持原样）。
+
+### Phase 8 MVP：测试补全（§31 逐块核对 + Multi Provider 隔离）
+
+按 §31 七个块逐一核对既有测试底稿，**六块已有**、一块真缺口：
+
+| §31 块 | 要求 | 底稿（核对证据） |
+|--------|------|-----------------|
+| Notification | 创建 + 参数验证 | `TestNotificationService_Process`；handler_notify_test 的 invalid body / 422 / 未知渠道与模板 |
+| Audience | group→recipients、user→recipient、recipient→endpoints | `TestProcessGroupReferences`（成员+recipient 钉选）；`TestExpandUser`/`TestExpandUserAudiencePrecedence`；`TestProcessUserReferences`/`TestMergeUserEndpoints`（端点按 provider 合并） |
+| Routing | Notification+Audience+Channel → Delivery Tasks | `TestExpandRefs` 5 场景 + `TestExpandRefsChannelsBlock` + `TestProcessChannelBlockReference` + group:/user: 全链路 |
+| **Multi Provider** | telegram success 不重复 / feishu failure 可 retry | **缺口 → 本批补** `TestPoolMultiProviderFanOutIsolation`（core/worker/pool_phase8_test.go） |
+| Retry | Temporary→retry / Permanent→立即败 | Phase 5：`TestRetryerClassifiedErrors` + `TestDeliverClassifiedErrorTerminals` |
+| State | queued→delivering→delivered；failed→retrying→delivered | Phase 3/4：`TestDeliverMarksStatusDelivered` + `TestDeliverMarksEveryAttemptDelivering` + pool_phase4 |
+| Idempotency | 相同 idempotency_key → 不重复创建 Delivery | Phase 6：handler replay（队列零增长）+ `idempotency_test` 表驱动 |
+
+补的测试走**全真链路**（service 路由 → planner 计划 → 队列 → worker → provider）：一次 fan-out 两个 provider 各自独立终态——telegram 首试即成且恰投一次（兄弟任务的失败不复制它），feishu 首试可重试失败、次试落地（delivered 而非 dead，RetryCount 1，LastError 交付时清空），两任务日志各自 success。计数断言钉住 §31 的「不重复 / 可以 retry」语义。
 
 ### 差异总表回填（本批后）
 
