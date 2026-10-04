@@ -4,7 +4,7 @@
 
 发送通知。
 
-模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**——`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。当前请求按 `type` + `level`（或显式 `channels`）路由；`channel` / `audience` / `idempotency_key` 等字段属于规划中的 [Audience 领域模型](/design-audience-model)，暂不生效。
+模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**——`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。请求按 `type` + `level` 路由，也可显式命名接收方（`channels` / `channel` / `audience`）；`template` + `params`/`data` 走模板渲染，`title`/`body` 走直接内容。幂等语义见 [接收方与幂等](#notify-receivers)，字段演进依据 [Audience 领域模型](/design-audience-model)。
 
 ### notify-请求 {#notify-request}
 
@@ -47,9 +47,13 @@ Content-Type: application/json
 | type     | string | 是    | 通知类型（用于路由） |
 | level    | string | 否    | 级别 (debug/info/warning/error/critical) |
 | channels | array  | 否    | 指定渠道，不指定则根据 type/level 路由 |
+| channel  | string | 否    | 单渠道写法，与 `channels` 并列并集（见[接收方与幂等](#notify-receivers)） |
+| audience | array  | 否    | 受众引用（`group:` / `user:` / 裸渠道名），逐项按渠道展开 |
 | recipients | map | 否    | 按渠道指定接收人 `{ "telegram": ["chat_id_1"] }` |
 | template | string | 否    | 模板 ID |
 | params   | map    | 否    | 模板参数 |
+| data     | map    | 否    | 模板数据，与 `params` 合并、`params` 优先 |
+| idempotency_key | string | 否    | 幂等键：进程生命周期内同键重复请求返回首次结果、不再投递 |
 | title    | string | 否    | 直接标题（无模板时使用） |
 | body     | string | 否    | 直接内容（无模板时使用） |
 
@@ -102,6 +106,24 @@ Content-Type: application/json
   }
 }
 ```
+
+### 接收方与幂等 {#notify-receivers}
+
+**接收方拼集**：`channels`、`channel`、`audience` 三个字段并列、可任意混用，最终接收方为三者合并：`audience` 的每一项按受众引用展开——`group:` 解析为群组成员、`user:` 解析为[配置化接收人](/guide/configuration#领域模型与配置块)、裸名字按渠道名处理。`data` 与 `params` 同为模板数据、合并生效，重名时 `params` 优先。
+
+```json
+{
+  "type": "server.alert",
+  "level": "error",
+  "channel": "telegram",
+  "audience": ["user:alice", "group:ops"],
+  "template": "server_alert",
+  "data": { "host": "node-17", "status": "offline" },
+  "idempotency_key": "alert:node-17:4"
+}
+```
+
+**幂等**：携带 `idempotency_key` 的请求，在 **进程生命周期内**重复发送同键请求时，返回首次请求的记录结果（同样的 `notification_id` / `task_ids`），且**不产生新的投递**。只有成功受理（`code` 0）的请求会被记录；全部失败（422）的请求不记录、可修正后重试同键。幂等表为内存实现（约 1000 条 FIFO 逐出，服务重启即清空）——需要跨重启幂等的场景请由调用方自行去重。
 
 ## GET /api/v1/status {#get-status}
 

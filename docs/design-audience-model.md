@@ -1,7 +1,8 @@
 # Audience 领域模型：Herald 完整架构改进计划书
 
 > 状态：**执行中**。Phase 0 审计已完成（见 [现状审计](/design-audience-audit)）；Phase 1 的
-> `user:` 级受众配置化 MVP 与 Phase 3 的 Delivery 状态机枚举化（同步重试）已落地
+> `user:` 级受众配置化 MVP、Phase 3 的 Delivery 状态机枚举化（同步重试）与 Phase 6 的
+> notify API 领域字段（`channel` / `audience` / `data` / `idempotency_key`）已落地
 > （执行记录见[审计文档](/design-audience-audit#五执行记录)），其余 Phase 待后续 Code Agent
 > 按此计划推进：**先分析现状 → 再按模型改造 → 保持兼容 → 测试 → 文档同步更新**。
 > 执行起点是各 Phase 前的代码审计（第 33 节 Phase 0），本文本身不改代码。
@@ -1409,6 +1410,12 @@ idempotency_key
 ```
 
 同时保持简单文本通知的兼容能力。
+
+> ✅ 已落地（2026-10-04）：`channel` / `audience` / `data` / `idempotency_key` 四个可选字段
+> 全部兼容上线（护栏 1"新增字段全部可选"）；`audience` 逐项走既有展开链（`group:` /
+> `user:` / 裸渠道名）；`data` 与 `params` 合并、`params` 优先；幂等为进程生命周期内的
+> 内存表（约 1000 条 FIFO，仅记录成功结果，命中返回首次结果的 replay、不产生新投递）。
+> 落地细节与文档同步见[现状审计](/design-audience-audit#五执行记录)。
 
 ## Phase 7：Configuration
 

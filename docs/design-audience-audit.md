@@ -84,9 +84,9 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1 + Phase 3 落地）
+## 五、执行记录（2026-10-04：Phase 1 + Phase 3 + Phase 6 落地）
 
-第一批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）。按上表差异逐项回填：
+前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
 ### Phase 1 MVP：`user:` 级受众（配置化）
 
@@ -94,7 +94,7 @@ POST /api/v1/notify
 - `config` 新增 `audiences` / `recipients` 顶层块（宽松解析由此落地生效；见 [configuration.md「领域模型与配置块」](/guide/configuration#领域模型与配置块)）。
 - `core/service/notification.go`：`expandRef` 新增 `user:` 分支（`UserResolver` 接口 + `SetUserResolver`，与 GroupResolver 同构）；`mergeUserEndpoints` **按 provider 合并端点**——同一 provider 的所有目标捆绑进一次投递，provider 顺序排序保证任务/日志跨运行稳定。未知 user / 无 resolver → 该通道显式失败，其余照发（与 group: 行为一致）。
 - `cmd/heraldd/main.go` 装配 `audience.NewManager`（非法表退出码 1）；`api.Config.Users` 透传。
-- 按计划 §7 轻量原则**未做**：channels 独立配置块、audiences/recipients 运行时 API、idempotency 请求字段。
+- 按计划 §7 轻量原则**未做**：channels 独立配置块、audiences/recipients 运行时 API（idempotency 请求字段已由第三批 Phase 6 补齐，见下）。
 
 ### Phase 3 MVP：Delivery 状态机（枚举化 + 同步重试）
 
@@ -104,6 +104,16 @@ POST /api/v1/notify
 - **TaskLog wire 不变**：`pending/success/failed/shadow` 原样保留——dead/retrying 只体现在 DeliveryTask 状态，dashboard 与 logs API 无感知（护栏 2 就地兑现）。
 - 错误分类按护栏 5 保持现状：`RetryableError` / `httpclient.RetryableError` 二元标记（HTTP 408/429/5xx、网络错误）→ 可重试；其余立即 failed（此前审计稿中"401 也会重试 3 次"的表述有误，已按上述事实修正理解）。异步重新入队与 `next_retry_at` 留后续 Phase（会改变端到端耗时与日志时序，需单独设计）。
 
+### Phase 6 MVP：notify API 领域字段（channel / audience / data / idempotency_key）
+
+按计划 §21/§24 与护栏 1（新增字段全部可选）落地，全部向后兼容：
+
+- `api/handler_notify.go`：`NotifyRequest` 新增 `channel`（单数写法，与 `channels` 并集）、`audience`（受众引用数组，逐项走既有 `expandRef` 链——`group:` / `user:` / 裸渠道名）、`data`（模板数据，与 `params` 合并、`params` 重名优先）、`idempotency_key`；合并逻辑抽为 `notifyChannels` / `notifyParams` 两个纯函数，成功响应抽 `notifyData` 复用（首次投递与幂等 replay 同一构造）。
+- `api/idempotency.go`（新）：`notifyIdempotency` 内存表——mutex + map + FIFO 队列，容量 1000（`defaultNotifyIdempotencyCap`，按需逐出最旧）；`get` / `put`，重复 put 保留首条记录。`NewHandler` 即挂载，零配置。
+- 幂等语义：仅记录**成功受理**（`code 0`）的结果；命中 → 直接返回首次的 `notification_id` / `task_ids`，**不触碰投递管线**（队列零增长）；失败请求（422）不记录、同键可修正重试。进程生命周期内有效，重启即清空（MVP 无持久化，已在文档明示）。
+- 覆盖：`handler_notify_test.go` 新增 7 个子测试（channels+channel 并集、channel 单用、audience 展开 `user:` 引用、data 并入 params、params 重名优先、data 独用、幂等 replay/键独立/失败不记录）+ `idempotency_test.go` 表驱动直测（miss/roundtrip/重复 put 保首条/FIFO 逐出/容量回退/自定义容量）。
+- 设计取舍：幂等放 handler 层而非 service 层——键是请求字段、命中路径短路在 Process 之前（dedup 是内容指纹去重、幂等是请求键回放，两者语义不同、互不替代）；表内不存请求原文，只存 `service.ProcessResult`。
+
 ### 差异总表回填（本批后）
 
 | 目标（design-audience-model.md） | 落地后状态 |
@@ -111,6 +121,7 @@ POST /api/v1/notify
 | Delivery 独立状态机 + attempts | ✅ 枚举化 + `RetryCount` 实测驱动；`next_retry_at` 未做（同步重试无排队语义） |
 | user:/Recipient/Endpoint | ✅ 配置化 MVP（audiences/recipients YAML + user: 引用展开合并） |
 | 配置块 audiences/recipients | ✅ 已生效 + 启动校验（宽松解析"落地即生效"先例） |
+| notify 领域字段 channel/audience/data/idempotency_key（§21/§24） | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
 | Provider 错误分类接口 | 保持二元 RetryableError（计划 §29 细分分类未做——当前语义已够支持 retrying/dead 区分） |
 | Logs 与 Delivery 状态分离 | 未动（成本最高项，按 §25 需独立 Phase 设计事件流） |
-| Channel 独立配置块 / idempotency | 未做（计划内后续 Phase） |
+| Channel 独立配置块 | 未做（计划内后续 Phase） |

@@ -46,7 +46,7 @@ Routing      ≠ Delivery           —— 展开决策与执行任务分离
 Provider     ≠ Business Logic     —— Provider 只做请求构造/调用/错误转换
 ```
 
-各边界的落地现状与缺口拆解见 [Audience 领域模型](/design-audience-model)（执行中）：已实现 Notification / Channel（routes 路由）/ Delivery Task / Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化 MVP：`audiences` / `recipients` 配置块 + `user:` 引用展开）以及 Delivery 显式状态机（queued/delivering/retrying/delivered/failed/dead，同步重试）；Channel 独立配置块、错误分类接口、异步重新入队与 idempotency 为后续规划项。
+各边界的落地现状与缺口拆解见 [Audience 领域模型](/design-audience-model)（执行中）：已实现 Notification / Channel（routes 路由）/ Delivery Task / Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化 MVP：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Delivery 显式状态机（queued/delivering/retrying/delivered/failed/dead，同步重试）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）；Channel 独立配置块、错误分类接口与异步重新入队为后续规划项。
 
 ## 核心设计思想
 

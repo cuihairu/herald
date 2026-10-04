@@ -33,6 +33,7 @@ type Handler struct {
 	escalation      *escalation.Manager
 	incidents       *incident.Store
 	cardEncryptKey  string
+	idempotency     *notifyIdempotency
 }
 
 // NewHandler creates a new handler
@@ -44,6 +45,7 @@ func NewHandler(notificationSvc *service.NotificationService, rt *runtime.Manage
 		notificationSvc: notificationSvc,
 		runtime:         rt,
 		templateManager: templateMgr,
+		idempotency:     newNotifyIdempotency(0),
 	}
 }
 
