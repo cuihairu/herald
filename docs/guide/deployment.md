@@ -95,8 +95,9 @@ queue:
     stream: "herald:tasks"
     group: "herald-workers"
 
-websocket:
-  addr: "scheduler:8081"
+worker:
+  id: "wechat-worker-01"
+  server_url: "ws://scheduler:8081/worker"   # 不写时回落到 websocket.addr 自动拼接
 
 providers:
   wechatmp:
@@ -244,7 +245,7 @@ curl http://localhost:8080/api/v1/status
     "providers": [
       {
         "name": "telegram",
-        "type": "builtin",
+        "type": "telegram",
         "status": "available"
       }
     ]

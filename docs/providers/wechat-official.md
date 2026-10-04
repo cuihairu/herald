@@ -123,30 +123,30 @@ package main
 
 import (
     "context"
-    workersdk "github.com/cuihairu/herald/worker-sdk/go"
+    "time"
+
+    "github.com/cuihairu/herald/core"
     "github.com/cuihairu/herald/protocol"
+    workersdk "github.com/cuihairu/herald/worker-sdk/go"
 )
 
 func main() {
     config := &protocol.WorkerConfig{
         WorkerID:          "wechat-worker-01",
-        CoreURL:           "ws://localhost:8081",
+        CoreURL:           "ws://localhost:8081/worker",
         ReconnectDelay:    5 * time.Second,
         HeartbeatInterval: 30 * time.Second,
         Capabilities:      []string{"wechatmp"},
     }
 
-    client := workersdk.NewClient(config)
+    client := workersdk.NewClient(config, nil) // queue 为 nil 走内置内存队列
 
-    client.OnTask(func(task *protocol.DispatchMessage) error {
-        // 处理任务
-        err := sendWechatTemplateMessage(task)
-        client.Ack(task.TaskID, err == nil, "")
-        return err
+    client.OnTask(func(task *core.DeliveryTask) error {
+        // 处理任务（任务确认由 SDK/队列处理，不用手动 Ack）
+        return sendWechatTemplateMessage(task)
     })
 
-    client.Connect(context.Background())
-    select {}
+    _ = client.Run(context.Background())
 }
 ```
 

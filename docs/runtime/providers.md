@@ -8,10 +8,13 @@
 | Webhook | Webhook 接口 | 飞书 / 企业微信 / 钉钉 / Slack |
 | SMTP | 邮件协议 | Email |
 | SMS | 短信服务 | 阿里云 / 腾讯云 / 网易云 |
-| Third-party Push | 第三方推送 | Server酱 / PushPlus |
-| Worker Proxy | Worker 代理 | 微信公众号 |
+| 移动推送 | APNs / FCM 等 | FCM / APNs / 极光 / 个推 |
+| Third-party Push | 第三方推送 | Server酱 |
+| Worker Proxy | Worker 代理 | type: worker 的转发渠道 |
 
 ## Builtin Providers
+
+19 个 Factory 全部注册在 `providers/builtin/registry/registry.go`：
 
 | Provider | 类型 | 描述 |
 |----------|------|------|
@@ -27,16 +30,17 @@
 | AliyunSMS | SMS | 阿里云短信 |
 | TencentSMS | SMS | 腾讯云短信 |
 | NetEaseSMS | SMS | 网易云短信 |
-| WeChat | Third-party | 微信个人推送（Server酱等） |
+| WeChat | Third-party | 微信个人推送（Server酱） |
+| WeChatMP | Third-party | 微信公众号（模板消息/客服消息） |
+| FCM | 移动推送 | Firebase Cloud Messaging |
+| APNs | 移动推送 | Apple Push Notification service |
+| JPush | 移动推送 | 极光推送 |
+| Getui | 移动推送 | 个推 |
+| Worker | 代理 | 转发给远程 Worker 进程执行 |
 
-## Worker Providers
+## Worker Provider
 
-Worker Provider 是一种代理类型，通过 WebSocket 将任务分发给远程 Worker。
-
-| Provider | 描述 | 平台 |
-|----------|------|------|
-| WeChatMP | 微信公众号 | Worker |
-| WeChat | 微信个人推送（复杂场景） | Worker |
+Worker Provider 不是具体渠道，而是一个代理类型（`type: worker`），把任务按 `target`（等价 `name`）转发给匹配的远程 Worker，由 Worker 进程去执行真正渠道的发送。业务渠道（含微信公众号）跑在哪个 Runtime 由部署决定：内置渠道默认走 Builtin Runtime，同一个渠道也可以由远程 Worker 承接——配置里换 `type: worker` 即可。
 
 ## 配置格式
 
@@ -56,11 +60,11 @@ providers:
 
 ```yaml
 providers:
-  wechatmp:
+  ops-push:
     type: worker
     enabled: true
     config:
-      target: "wechat-worker-01"
+      target: "wechat-worker-01"   # 也支持 name 键，二者等价
 ```
 
 ## Provider 工厂
@@ -71,10 +75,11 @@ providers:
 type Factory interface {
     Create(config map[string]interface{}) (Provider, error)
     Name() string
+    Type() string
 }
 ```
 
-工厂注册：
+工厂注册（`providers/builtin/registry`）：
 
 ```go
 manager.RegisterFactory(&telegram.Factory{})

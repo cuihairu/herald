@@ -27,6 +27,10 @@ type Config struct {
 	// that is not itself a provider instance resolves through it.
 	Channels  map[string]ChannelConfig           `yaml:"channels"`
 	Routes    map[string][]string                `yaml:"routes"`
+	// LevelRoutes is the fallback routing table consulted when the type
+	// route misses: level -> providers, tried in Router.Route after the
+	// type table.
+	LevelRoutes map[string][]string                `yaml:"level_routes"`
 	Queue     QueueConfig                        `yaml:"queue"`
 	Retry     RetryConfig                        `yaml:"retry"`
 	Dedup     DedupConfig                        `yaml:"dedup"`
@@ -234,11 +238,20 @@ func Load(path string) (*Config, error) {
 	if cfg.Routes == nil {
 		cfg.Routes = make(map[string][]string)
 	}
+	if cfg.LevelRoutes == nil {
+		cfg.LevelRoutes = make(map[string][]string)
+	}
 	if cfg.Providers == nil {
 		cfg.Providers = make(map[string]ProviderConfig)
 	}
 	if cfg.Channels == nil {
 		cfg.Channels = make(map[string]ChannelConfig)
+	}
+	if cfg.Audiences == nil {
+		cfg.Audiences = make(map[string]audience.Audience)
+	}
+	if cfg.Recipients == nil {
+		cfg.Recipients = make(map[string]audience.Recipient)
 	}
 	if cfg.Templates == nil {
 		cfg.Templates = make(map[string]template.TemplateConfig)
@@ -295,11 +308,14 @@ func Default() *Config {
 				"admin": "admin",
 			},
 		},
-		Providers: make(map[string]ProviderConfig),
-		Channels: make(map[string]ChannelConfig),
+		Providers:  make(map[string]ProviderConfig),
+		Channels:   make(map[string]ChannelConfig),
+		Audiences:  make(map[string]audience.Audience),
+		Recipients: make(map[string]audience.Recipient),
 		Routes: map[string][]string{
 			"error": {},
 		},
+		LevelRoutes: make(map[string][]string),
 		Queue: QueueConfig{
 			Type:    "memory",
 			Size:    10000,

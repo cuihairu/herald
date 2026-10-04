@@ -33,7 +33,7 @@ import (
 func main() {
     config := &protocol.WorkerConfig{
         WorkerID:          "my-worker-001",
-        CoreURL:           "ws://localhost:8081",
+        CoreURL:           "ws://localhost:8081/worker",
         ReconnectDelay:    5 * time.Second,
         HeartbeatInterval: 30 * time.Second,
         Capabilities:      []string{"wechat"},

@@ -64,30 +64,17 @@ curl -X POST http://localhost:8080/api/v1/notify \
 
 ## 渲染格式
 
-支持多种渲染格式，系统会自动根据 Provider 能力选择最佳格式：
-
 | 格式 | 说明 | 适用场景 |
 |------|------|---------|
-| `auto` | 自动选择 | 默认，根据 Provider 能力选择 |
-| `html` | HTML 格式 | 邮件、富文本消息 |
-| `markdown` | Markdown 格式 | Telegram、GitHub 等 |
+| `html` | HTML 格式 | 邮件 |
+| `markdown` | Markdown 格式 | Telegram 等 |
 | `plain` | 纯文本 | 通用文本消息 |
 | `json` | JSON 格式 | 飞书卡片、钉钉卡片 |
 
-### 渲染格式选择流程
-
-```
-模板渲染完成
-        ↓
-Handler.chooseFormat()
-        ↓
-┌───────────────────────────────┐
-│ Provider 实现 FormattableProvider? │
-└───────────────────────────────┘
-        ↓ Yes              ↓ No
-  使用 Provider 声明      使用 Plain Text
-  的支持格式
-```
+选择规则（`DeliveryPlanner.selectFormat`）：binding 里显式写了 `format` 就用它；
+否则取 Provider 声明的 `ContentFormats` 第一项；什么都没有就 `plain`。各内置
+Provider 的默认格式：Email `html`、Telegram `markdown`、飞书 `plain`（飞书要出
+卡片须在 binding 写 `format: json`）。
 
 ## 变量语法
 
@@ -124,7 +111,7 @@ title: "{{if .Urgent}}【紧急】{{end}}{{.Title}}"
 ### 创建模板
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/templates \
+curl -X POST http://localhost:8080/api/v1/templates/create \
   -H "Content-Type: application/json" \
   -d '{
     "id": "custom_alert",
@@ -213,12 +200,12 @@ curl -X POST http://localhost:8080/api/v1/notify \
 
 ## 渠道差异化渲染
 
-同一个模板，不同渠道自动渲染为最佳格式：
+同一个模板，不同渠道按各自 `ContentFormats` 默认格式渲染：
 
-| 模板数据 | Email | Telegram | Feishu |
+| 模板数据 | Email（默认 html） | Telegram（默认 markdown） | Feishu（默认 plain） |
 |---------|-------|----------|--------|
-| Title + Fields | HTML 表格 | Markdown 文本 | 富文本消息 |
-| Binding format: json | 不支持 | 不支持 | 卡片消息 |
+| Title + Fields | HTML 表格 | Markdown 文本 | 纯文本 |
+| Binding format: json | 非默认，需显式指定 | 非默认，需显式指定 | 卡片消息 |
 
 ## 最佳实践
 

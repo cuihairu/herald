@@ -14,6 +14,7 @@ import (
 
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/limiter"
@@ -117,6 +118,16 @@ func TestNewUnknownProviderType(t *testing.T) {
 	cfg.Providers["bad"] = config.ProviderConfig{Type: "no-such"}
 	if _, err := New(cfg); err == nil {
 		t.Error("New() with unknown provider type should fail")
+	}
+}
+
+func TestNewInvalidAudienceTable(t *testing.T) {
+	cfg := config.Default()
+	// A recipient with no endpoint is configuration drift: the CLI refuses
+	// to start, and so must the library form.
+	cfg.Recipients["ghost"] = audience.Recipient{}
+	if _, err := New(cfg); err == nil {
+		t.Error("New() with an endpoint-less recipient should fail")
 	}
 }
 
@@ -268,6 +279,83 @@ func TestRouteFromConfig(t *testing.T) {
 	}
 	if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
 		t.Errorf("Accepted = %v, want [rec]", res.Accepted)
+	}
+}
+
+func TestLevelRouteFromConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.LevelRoutes["error"] = []string{"rec"}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	defer func() { _ = app.Close() }()
+
+	// The type table has no entry for this type: the level table decides.
+	res, err := app.DispatchSync(context.Background(), &core.Notification{Type: "never-routed", Level: "error"})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
+		t.Errorf("Accepted = %v, want [rec]", res.Accepted)
+	}
+}
+
+func TestChannelsBlockFromConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.Channels["ci"] = config.ChannelConfig{Providers: []string{"rec"}}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	defer func() { _ = app.Close() }()
+
+	// "ci" is not a provider instance: it expands through the channels
+	// block to its provider list.
+	res, err := app.DispatchSync(context.Background(), &core.Notification{Type: "deploy", Channels: []string{"ci"}})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
+		t.Errorf("Accepted = %v, want [rec]", res.Accepted)
+	}
+	if got := prov.count(); got != 1 {
+		t.Errorf("provider got %d tasks, want 1", got)
+	}
+}
+
+func TestUserRefFromConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.Recipients["alice"] = audience.Recipient{
+		Endpoints: []audience.Endpoint{{Type: "rec", Target: "chat-1"}},
+	}
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	prov := &recordingProvider{}
+	if err := app.Runtime().RegisterProvider("rec", prov, true); err != nil {
+		t.Fatalf("RegisterProvider() error = %v", err)
+	}
+	defer func() { _ = app.Close() }()
+
+	res, err := app.DispatchSync(context.Background(), &core.Notification{Type: "deploy", Channels: []string{"user:alice"}})
+	if err != nil {
+		t.Fatalf("DispatchSync() error = %v", err)
+	}
+	if len(res.Accepted) != 1 || res.Accepted[0] != "rec" {
+		t.Errorf("Accepted = %v, want [rec]", res.Accepted)
+	}
+	if got := prov.count(); got != 1 {
+		t.Errorf("provider got %d tasks, want 1", got)
 	}
 }
 

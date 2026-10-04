@@ -37,7 +37,7 @@ token: "${TELEGRAM_BOT_TOKEN}"
 | 现象 | 原因与处理 |
 |------|-----------|
 | `no route found for type=xxx level=xxx` | 请求没带 `channels`，且 `routes`（按 type）和 `level_routes`（按 level）都没命中。补路由表，或请求里显式带 `channels` |
-| HTTP 422 + `data.failed` 列出通道 | 通知受理但某个通道投递失败，错误详情在 `failed[].error`；确定性错误不会重试，可重试错误会按退避策略自动重投 |
+| 响应体 `data.failed` 列出通道 | 通知受理但某个通道投递失败，错误详情在 `failed[].error`（**HTTP 状态始终 200**：部分失败 body `code` 仍为 0，全部失败才把 body `code` 写成 422）；确定性错误不会重试，可重试错误会按退避策略自动重投 |
 | `provider not found` | `channels` 里写了未注册的实例名（配置里没有这个 provider 名，或它 `enabled: false`） |
 | 请求 401 | 启用了 `auth.enabled`，`notify` 接口需要带 API Key（见[配置参考](/guide/configuration)认证一节） |
 

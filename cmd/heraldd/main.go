@@ -109,7 +109,7 @@ func serveCmd(args []string) int {
 	defer func() { _ = q.Close() }()
 
 	// Create router
-	router := route.NewRouter(&route.Config{Routes: cfg.Routes, Channels: cfg.ChannelRoutes()})
+	router := route.NewRouter(&route.Config{Routes: cfg.Routes, LevelRoutes: cfg.LevelRoutes, Channels: cfg.ChannelRoutes()})
 	if len(cfg.Channels) > 0 {
 		logger.Info("channels loaded", "count", len(cfg.Channels))
 	}
@@ -399,7 +399,7 @@ func workerCmd(args []string) int {
 	cfg.ExpandEnv()
 
 	if cfg.Queue.Type == "memory" {
-		logger.Error("remote worker requires a shared queue backend (redis/nats), got: memory")
+		logger.Error("remote worker requires a shared queue backend (redis), got: memory")
 		return 1
 	}
 

@@ -20,9 +20,9 @@ Herald 可以作为独立服务运行，也可以作为 Go 库嵌入你的进程
 **CLI 网关** — 独立进程部署，REST API + Dashboard，适合作为组织级通知网关（见下方[快速开始](#快速开始)）：
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/notifications \
+curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{"type": "deploy", "channels": ["feishu-ops"], "content": {"title": "v1.2.0 已发布"}}'
+  -d '{"type": "deploy", "channels": ["feishu-ops"], "title": "v1.2.0 已发布"}'
 ```
 
 **Go 库** — 一个 `App` 完成入队与投递，零配置即可运行（内存队列 + 本地 worker 池），适合把通知能力直接嵌进自己的服务：
@@ -52,8 +52,9 @@ app.Dispatch(ctx, &core.Notification{
 - **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
 - **Rule Engine** - 表达式规则决定放行/抑制/改道，优先级 + 默认策略，shadow 模式先观察后生效，支持 for 持续判定、group_by 聚合、inhibit 抑制、silence 静默与 escalation 升级
 - **Notification Groups** - 命名受众：任何渠道位可写 `group:<id>`，投递时展开成成员渠道（含收件人钉选），API 热更新花名册
+- **Audience Model** - 受众与渠道解耦：配置化 `user:<id>` 受众（`audiences`/`recipients` 表）、`channels` 渠道块、notify 的 `audience` 字段与 `idempotency_key` 幂等键
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
-- **Multi-channel** - 统一接口对接 15+ 通知渠道
+- **Multi-channel** - 统一接口对接 18 个内置通知渠道
 - **Dashboard** - Web 管理界面
 - **Config First** - 通过配置文件加载 Provider、路由和模板
 
@@ -73,6 +74,10 @@ app.Dispatch(ctx, &core.Notification{
 | AliyunSMS            | Builtin  | ✅   |
 | TencentSMS           | Builtin  | ✅   |
 | NetEaseSMS           | Builtin  | ✅   |
+| FCM                  | Builtin  | ✅   |
+| Apple Push (APNs)    | Builtin  | ✅   |
+| JPush                | Builtin  | ✅   |
+| Getui                | Builtin  | ✅   |
 | WeChat Push          | Builtin  | ✅   |
 | WeChat Official (MP) | Builtin  | ✅   |
 
@@ -234,8 +239,8 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "$TELEGRAM_BOT_TOKEN"     # 环境变量只支持 $VAR 写法（${VAR} 不展开）
+      chat_id: "$TELEGRAM_CHAT_ID"
 
 queue:
   type: memory
@@ -243,6 +248,15 @@ queue:
 
 routes:
   error: [telegram, email]
+
+# level_routes（可选）：type 路由未命中时按 level 兜底
+# level_routes:
+#   warning: [email]
+
+# 渠道块（可选）：给渠道组合起名，channels/channel 字段写块名即展开成成员 provider
+# channels:
+#   ci:
+#     providers: [telegram, email]
 
 # 规则引擎（可选）：按表达式决定 放行/抑制/改道，未命中回落静态路由
 # rules:

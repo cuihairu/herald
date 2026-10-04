@@ -27,7 +27,6 @@ type Provider interface {
     Name() string
     Type() string
     Status() *ProviderStatus
-    Close() error
 }
 ```
 
@@ -297,8 +296,21 @@ providers:
     type: wechat
     enabled: false
     config:
-      sendkey: "$WECHAT_SENDKEY"
+      send_key: "$WECHAT_SEND_KEY"
 ```
+
+### 其余内置 Provider
+
+移动端推送四件套与公众号的完整配置见 [Provider 手册](/providers/overview)，这里只列类型名：
+
+| type | 渠道 |
+|------|------|
+| `fcm` | Firebase Cloud Messaging |
+| `apns` | Apple Push Notification service |
+| `jpush` | 极光推送 |
+| `getui` | 个推 |
+| `wechatmp` | 微信公众号（模板消息/客服消息） |
+| `worker` | 远程 Worker 代理（不是真实渠道，转发给 Worker 进程执行） |
 
 ## 自定义 Builtin Provider
 
@@ -337,10 +349,6 @@ func (p *Provider) Status() *core.ProviderStatus {
     }
 }
 
-func (p *Provider) Close() error {
-    return nil
-}
-
 type Factory struct{}
 
 func (f *Factory) Create(config map[string]interface{}) (core.Provider, error) {
@@ -348,6 +356,10 @@ func (f *Factory) Create(config map[string]interface{}) (core.Provider, error) {
 }
 
 func (f *Factory) Name() string {
+    return "myprovider"
+}
+
+func (f *Factory) Type() string {
     return "myprovider"
 }
 ```

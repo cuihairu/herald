@@ -158,9 +158,10 @@ queue:
   type: memory          # memory | redis
   size: 10000           # 队列容量
   workers: 0            # 本地 Worker 数量（0 = 自动，默认 CPU核心数*2+1）
-  timeout: 5s
   # redis:              # type=redis 时需要配置
   #   addr: "localhost:6379"
+  #   password: ""      # 可选
+  #   db: 0             # 可选
   #   stream: "herald:tasks"
   #   group: "herald-workers"
 
@@ -340,9 +341,14 @@ queue:
     stream: "herald:tasks"
     group: "herald-workers"
 
-# Worker 注册信息
+# Worker 控制面连接（推荐写法：显式给出调度器 WebSocket 地址）
+worker:
+  id: "worker-01"             # 可选，缺省自动生成
+  server_url: "ws://localhost:8081/worker"   # 调度器管理通道（注意带 /worker 路径）
+
+# 兼容写法：不配 worker.server_url 时回退到 websocket.addr（自动补 /worker 路径）
 websocket:
-  addr: "localhost:8081"    # 调度器 WebSocket 地址（用于注册和心跳）
+  addr: "localhost:8081"
 
 # Worker 本地 Provider（可选）
 providers:
@@ -361,7 +367,9 @@ providers:
 | `type` | string | `memory` | 队列类型：`memory`（单机）或 `redis`（分布式） |
 | `size` | int | `10000` | 队列容量 |
 | `workers` | int | `CPU*2+1` | 本地 Worker 并发数 |
-| `timeout` | duration | `5s` | 队列操作超时 |
+
+`queue.timeout` 是保留键，当前没有任何队列实现读取它（Redis 队列内部使用固定的
+命令超时）；配置了不会生效。
 
 ### 部署模式对照
 
@@ -707,7 +715,43 @@ channels:
 | `aliyunsms` | 阿里云短信 | `type: aliyunsms` |
 | `tencentsms` | 腾讯云短信 | `type: tencentsms` |
 | `neteasesms` | 网易云短信 | `type: neteasesms` |
+| `fcm` | Firebase 推送（Android/Web） | `type: fcm` |
+| `apns` | Apple 推送（iOS/macOS） | `type: apns` |
+| `jpush` | 极光推送（Android/iOS/鸿蒙） | `type: jpush` |
+| `getui` | 个推（Android/iOS/鸿蒙） | `type: getui` |
 | `wechat` | 微信个人推送 | `type: wechat` |
+| `wechatmp` | 微信公众号模板消息 | `type: wechatmp` |
+| `worker` | 远程 Worker 本地占位（转发到 Worker 节点） | `type: worker` |
+
+各渠道的凭据申请与 config 明细见 [Provider 手册](/providers/overview)。
+
+## 认证配置（auth）
+
+API 认证为可选项；开启后除登录/刷新与飞书卡片回调外，所有端点需要凭据（Bearer
+token 或 API Key）。`enabled: true` 时 `api_keys` 必须至少配置一条，否则**启动报
+错拒起**：
+
+```yaml
+auth:
+  enabled: true
+  api_keys:                 # key -> 描述（Dashboard/API 调用方使用）
+    "hk-xxxxxxxx": "CI 管道"
+  secret_key: "$HERALD_JWT_SECRET"   # 可选：JWT 签名密钥（不配则使用内置默认密钥，生产环境必须显式配置）
+  admin_user:               # 可选：Dashboard 登录账号（用户名 -> 密码）
+    admin: "$HERALD_ADMIN_PASSWORD"
+```
+
+## Worker 配置（worker）
+
+远程 Worker 节点（`heraldd worker`）通过 WebSocket 连到调度器的管理通道：
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `id` | 自动生成 | Worker 标识（`/api/v1/workers` 里的 `worker_id`） |
+| `server_url` | — | 调度器管理通道地址，形如 `ws://host:8081/worker`；不配时回退 `websocket.addr`（自动补 `/worker` 路径），两者皆无则不上报控制面 |
+| `heartbeat_interval` | `20s` | 心跳间隔 |
+| `reconnect_delay` | `5s` | 断线重连间隔 |
+| `capabilities` | `["*"]` | 能力标签，调度器据此选择 Worker |
 
 ### 模板配置
 

@@ -104,10 +104,14 @@ templates:
   verify_code:
     name: "验证码"
     level: "info"
-    template_code: "SMS_123456789"     # 阿里云模板 CODE
     fields:
       - label: "code"
         value: "{{.Code}}"
+    bindings:
+      aliyunsms:
+        template_code: "SMS_123456789"     # 阿里云模板 CODE
+        params:
+          code: "code"
 ```
 
 **怎么发**：

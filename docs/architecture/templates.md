@@ -30,11 +30,12 @@ Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
 │  └──────────────────────────────────────────────────────────┘   │
 │                          ↓                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                    Handler.chooseFormat()                 │   │
+│  │              DeliveryPlanner.buildPayload()               │   │
 │  │  ┌────────────────────────────────────────────────────┐  │   │
-│  │  │ Provider implements FormattableProvider?            │  │   │
-│  │  │   YES → 使用 Provider 声明的格式                     │  │   │
-│  │  │   NO  → 使用 Plain Text                             │  │   │
+│  │  │ binding 带 provider 模板且 Provider 支持 →           │  │   │
+│  │  │   PayloadProviderTemplate（服务商渲染）              │  │   │
+│  │  │ 否则 → selectFormat() 选格式再渲染：                 │  │   │
+│  │  │   binding.format > ContentFormats[0] > plain        │  │   │
 │  │  └────────────────────────────────────────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                          ↓                                      │
@@ -89,7 +90,7 @@ type Engine struct {
     funcMap   template.FuncMap
 }
 
-func (e *Engine) Render(tmpl *Template, params map[string]interface{}) *RenderedData
+func (e *Engine) Render(tmpl *Template, params map[string]interface{}) (*RenderedData, error)
 ```
 
 **职责**：
@@ -131,25 +132,30 @@ func (m *Manager) Render(id string, params map[string]interface{}) (*RenderedDat
 
 ## Provider 适配
 
-### FormattableProvider 接口
+### 格式选择（selectFormat）
 
-支持格式选择的 Provider 实现：
+Provider 通过 Capability 里的 `ContentFormats` 字段声明支持的格式，没有独立接口：
 
 ```go
-type FormattableProvider interface {
-    SupportedFormats() []string
-    DefaultFormat() string
+// core/provider.go
+type ProviderCapability struct {
+    // ...
+    ContentFormats   []string // html, markdown, plain, json
 }
 ```
 
+`DeliveryPlanner.selectFormat` 的取值顺序：binding 显式写了 `format` 就用它；否则取 `ContentFormats` 的第一项；两者都没有则 `plain`。内置 Provider 的默认值：Email `["html", "plain"]`、Telegram `["markdown", "plain"]`、飞书 `["plain"]`。
+
 ### 不同 Provider 的处理方式
 
-| Provider 类型 | 渲染方式 | 数据来源 |
+planner 按 Provider 声明的 `PayloadKinds` 生成投递载荷，三种取值：`payload_content`（Herald 渲染的标题+正文）、`payload_provider_template`（服务商模板）、`payload_raw`（原始字段兜底）。
+
+| Provider 类型 | PayloadKind | 数据来源 |
 |-------------|---------|---------|
-| **Email** | Handler 渲染 | `task.Body` + `task.RenderFormat` |
-| **SMS** | 服务商渲染 | `task.Data["template_code"]` |
-| **IM (Feishu/Telegram)** | Handler 渲染 | `task.Body` |
-| **Webhook** | Handler 渲染 | `task.Body` |
+| **Email** | payload_content | `task.Payload.Content`（Title/Body/Format） |
+| **SMS** | payload_provider_template | `task.Payload.ProviderTemplate.TemplateCode` |
+| **IM (Feishu/Telegram)** | payload_content | `task.Payload.Content` |
+| **Webhook** | payload_content，raw 兜底 | `task.Payload.Content`，无渲染数据时退 `Payload.Raw` |
 
 ### SMS Provider 特殊处理
 
@@ -176,18 +182,18 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
    Template { Title: "【<code v-pre>{{.Level}}</code>】告警" }
    → RenderedData { Title: "【ERROR】告警", Fields: [...] }
 
-3. Handler.chooseFormat()
-   Provider: Email → FormattableProvider.DefaultFormat() = "html"
-   Provider: Telegram → 不实现接口 → "plain"
+3. DeliveryPlanner.selectFormat()
+   Email → ContentFormats[0] = "html"
+   Telegram → ContentFormats[0] = "markdown"
 
 4. Renderer.Render()
    HTMLRenderer.Render(RenderedData) → "<html>...</html>"
 
-5. 创建 Task
-   Task { Body: "<html>...</html>", RenderFormat: "html" }
+5. 创建 Payload
+   Payload.Content { Title, Body: "<html>...</html>", Format: "html" }
 
 6. Provider.Deliver()
-   Email: 读取 RenderFormat，发送 HTML 邮件
+   Email: 按 Payload.Content.Format 发送 HTML 邮件
 ```
 
 ## 设计原则
@@ -243,12 +249,9 @@ template.Registry[RenderFormat("custom")] = &CustomRenderer{}
 
 ### Provider 声明格式支持
 
-```go
-func (p *Provider) SupportedFormats() []string {
-    return []string{"html", "plain"}
-}
+在 Factory 返回的 Capability 里声明，列表第一项是默认格式：
 
-func (p *Provider) DefaultFormat() string {
-    return "html"
-}
+```go
+PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+ContentFormats: []string{"html", "plain"},
 ```

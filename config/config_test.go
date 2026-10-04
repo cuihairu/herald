@@ -579,6 +579,31 @@ channels:
 	}
 }
 
+func TestLoadLevelRoutes(t *testing.T) {
+	path := writeConfigFile(t, `
+level_routes:
+  error: [telegram, feishu]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got, ok := cfg.LevelRoutes["error"]
+	if !ok || len(got) != 2 || got[0] != "telegram" || got[1] != "feishu" {
+		t.Errorf("level_routes parse: %+v", cfg.LevelRoutes)
+	}
+
+	// A config without the key still leaves an empty (non-nil) table.
+	path = writeConfigFile(t, "providers:\n  log:\n    type: log\n")
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LevelRoutes == nil {
+		t.Error("level_routes should default to an empty map, got nil")
+	}
+}
+
 func TestToQueueConfig(t *testing.T) {
 	cfg := QueueConfig{
 		Type:    "redis",

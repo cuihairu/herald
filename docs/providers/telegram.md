@@ -81,7 +81,7 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 | `error` | 🔴 |
 | `warning` | 🟡 |
 | `info` | 🔵 |
-| 其他 | ⚪ |
+| 其他 | 无前缀 |
 
 - 粗体（`*…*`）需要 `parse_mode: "markdown"` 才会渲染；留空时星号原样显示
 - Provider 能力声明支持 `markdown` / `plain` 两种内容格式

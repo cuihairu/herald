@@ -1,5 +1,62 @@
 # REST API
 
+## 认证 {#auth}
+
+开启 `auth.enabled` 后，下述端点（除 auth 自身与飞书回调外）都需要
+`Authorization: Bearer <token>`；未开启时匿名可用。
+
+## POST /api/v1/auth/login {#auth-login}
+
+登录换取 JWT token。用户名或密码错误返回 401。token 也可通过 `X-API-Key` 头携带
+API Key 代替（见[认证](#auth)）。
+
+### login-请求 {#login-request}
+
+```json
+{
+  "username": "admin",
+  "password": "admin"
+}
+```
+
+### login-响应 {#login-response}
+
+```json
+{
+  "token": "eyJ...",
+  "user": {
+    "id": "u-1",
+    "username": "admin",
+    "role": "admin"
+  }
+}
+```
+
+## POST /api/v1/auth/refresh {#auth-refresh}
+
+刷新 JWT：凭 Bearer token（或 `herald_token` cookie / `?token=` 查询参数）换发新
+token。token 缺失、无效或过期返回 401。
+
+### refresh-响应 {#refresh-response}
+
+```json
+{ "token": "eyJ..." }
+```
+
+## GET /api/v1/auth/me {#auth-me}
+
+查询当前登录用户。token 缺失、无效或过期返回 401；用户不存在返回 404。
+
+### me-响应 {#me-response}
+
+```json
+{
+  "id": "u-1",
+  "username": "admin",
+  "role": "admin"
+}
+```
+
 ## POST /api/v1/notify
 
 发送通知。
@@ -24,7 +81,7 @@ Content-Type: application/json
     "host": "node-17",
     "status": "offline"
   },
-  "channels": ["telegram", "aliunsms"]
+  "channels": ["telegram", "aliyunsms"]
 }
 ```
 
@@ -59,6 +116,10 @@ Content-Type: application/json
 
 ### notify-响应 {#notify-response}
 
+三种结果（成功 / 部分失败 / 全部失败）的 **HTTP 状态码都是 200**：部分失败的
+body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP 状态码只用于
+传输层错误（如请求体不合法 400）。
+
 **成功：**
 
 ```json
@@ -85,7 +146,7 @@ Content-Type: application/json
     "task_ids": ["task-001"],
     "accepted": ["telegram"],
     "failed": [
-      { "channel": "aliunsms", "error": "factory not found" }
+      { "channel": "sms-x", "error": "provider not found: sms-x" }
     ]
   }
 }
@@ -96,12 +157,12 @@ Content-Type: application/json
 ```json
 {
   "code": 422,
-  "message": "all channels failed: [aliunsms: factory not found]",
+  "message": "all channels failed: [sms-x: provider not found: sms-x]",
   "data": {
     "notification_id": "550e8400-e29b-41d4-a716-446655440000",
     "accepted": [],
     "failed": [
-      { "channel": "aliunsms", "error": "factory not found" }
+      { "channel": "sms-x", "error": "provider not found: sms-x" }
     ]
   }
 }
@@ -169,7 +230,7 @@ Content-Type: application/json
         "since": "2026-05-18T08:00:00Z"
       },
       {
-        "name": "aliunsms",
+        "name": "aliyunsms",
         "type": "builtin",
         "status": "available",
         "enabled": false,
@@ -233,20 +294,19 @@ POST /api/v1/providers/telegram/disable
     "workers": [
       {
         "worker_id": "wechat-worker-01",
-        "platform": "linux",
-        "version": "1.0.0",
+        "mode": "remote",
         "capabilities": ["wechat", "sms"],
         "connected_at": "2026-05-18T08:00:00Z",
         "last_heartbeat": "2026-05-18T08:05:00Z",
-        "status": {
-          "tasks_sent": 100,
-          "tasks_done": 98
-        }
+        "status": "online"
       }
     ]
   }
 }
 ```
+
+`mode` 为 `local` / `remote`；`status` 为字符串 `online` / `offline`。未接入远程
+Worker 的部署返回空列表（`count` 0）。
 
 ## GET /api/v1/queue {#get-queue}
 
@@ -274,7 +334,7 @@ POST /api/v1/providers/telegram/disable
 | -------- | ------ | ----- |
 | offset   | int    | 偏移量 |
 | limit    | int    | 每页数量（默认 50，最大 500） |
-| status   | string | 按状态过滤（success/failed） |
+| status   | string | 按状态过滤（`success` / `failed` / `pending` / `shadow`，与 wire 词汇一致） |
 | provider | string | 按 Provider 过滤 |
 | level    | string | 按级别过滤 |
 | since    | string | 起始时间（RFC3339） |
@@ -499,6 +559,116 @@ POST /api/v1/providers/telegram/disable
 ## DELETE /api/v1/rosters/{id} {#roster-delete}
 
 删除值班表，不存在返回 404。删除不会改写引用它的规则——引用它的静默立即失效（fail-open：缺日程数据绝不等于该静默），恢复投递比悄悄静默安全。
+
+## GET /api/v1/alerts/{id} {#alert-get}
+
+查询告警的确认状态。ack 存储未配置返回 503。
+
+### alert-get-响应 {#alert-get-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "alert_id": "alert-42",
+    "acknowledged": true,
+    "ack": {
+      "alert_id": "alert-42",
+      "acked_by": "alice",
+      "source": "api",
+      "acked_at": "2026-10-04T08:00:00Z"
+    }
+  }
+}
+```
+
+未确认时 `acknowledged` 为 `false` 且省略 `ack` 字段。
+
+## POST /api/v1/alerts/{id}/ack {#alert-ack}
+
+确认告警。**幂等**：同一告警首条确认生效，重复确认返回同一条记录。及时确认会
+取消该告警待触发的升级（`escalation`），并把事件账本上的对应事件标为已确认。
+ack 存储未配置返回 503。
+
+### alert-ack-请求 {#alert-ack-request}
+
+```json
+{ "acked_by": "alice" }
+```
+
+`acked_by` 可省略（认领人为空）。响应为确认记录本体（同上例的 `ack` 字段）。
+
+## GET /api/v1/incidents {#incidents-list}
+
+查询事件账本（规则路由的投递打开的事件，确认与恢复关闭），最新在前。事件存储
+未配置返回 503。
+
+### incidents-参数 {#incidents-params}
+
+| 参数       | 类型     | 描述    |
+| -------- | ------ | ----- |
+| status   | string | 按状态过滤：`open` / `acked` / `resolved`（省略或 `all` 为全部；其他值 400） |
+| rule_id  | string | 按规则过滤 |
+| alert_id | string | 按告警过滤 |
+| limit    | int    | 返回条数（默认 100，最大 1000，越界 400） |
+
+状态不是响应里的字段：`open` / `acked` / `resolved` 由 `resolved_at` / `acked_at`
+是否存在**派生**，过滤按派生状态执行。
+
+### incidents-响应 {#incidents-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "incidents": [
+      {
+        "id": "incident-1",
+        "rule_id": "prod-payment-failure",
+        "alert_id": "alert-42",
+        "title": "支付失败率过高",
+        "level": "error",
+        "opened_at": "2026-10-04T08:00:00Z",
+        "events": 7,
+        "channels": ["feishu-oncall"]
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+## GET /api/v1/incidents/{id} {#incident-get}
+
+查询单个事件及其完整时间线（`timeline`），不存在返回 404。
+
+## POST /api/v1/callbacks/feishu {#feishu-callback}
+
+飞书互动卡片回调入口（卡片上的确认按钮）。**不走 Bearer 认证**——调用方是飞书
+的服务器，凭 `card_callback.encrypt_key` 认证：应答飞书的 `url_verification`
+挑战；加密回调（`encrypt` 字段，AES-256-CBC）在配置了加密密钥时解密处理，未
+配置返回 501；明文回调始终可处理。确认动作与 `POST /alerts/{id}/ack` 走同一套
+存储：首条确认生效、取消待触发升级、事件账本落账。ack 存储未配置返回 503。
+
+### feishu-callback-响应 {#feishu-callback-response}
+
+挑战应答：
+
+```json
+{ "code": 0, "message": "ok", "data": { "challenge": "..." } }
+```
+
+确认动作：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": { "alert_id": "alert-42", "acknowledged": true, "acked_by": "ou_xxx" }
+}
+```
 
 ## GET /api/v1/templates {#templates-list}
 

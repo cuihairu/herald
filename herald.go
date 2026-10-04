@@ -27,6 +27,7 @@ import (
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
@@ -103,7 +104,7 @@ func New(cfg *config.Config) (*App, error) {
 		}
 	}
 
-	router := route.NewRouter(&route.Config{Routes: cfg.Routes})
+	router := route.NewRouter(&route.Config{Routes: cfg.Routes, LevelRoutes: cfg.LevelRoutes, Channels: cfg.ChannelRoutes()})
 
 	var d *dedup.Dedup
 	if cfg.Dedup.Enabled {
@@ -119,6 +120,10 @@ func New(cfg *config.Config) (*App, error) {
 	}
 
 	svc := service.NewNotificationService(templateMgr, router, manager, d, aq)
+	// Plain channel names that are not provider instances resolve through
+	// the router's channels block (an explicit provider always wins) —
+	// the same priority chain the CLI wires.
+	svc.SetChannelResolver(router)
 
 	// Rule engine: seeded from cfg.Rules (empty by default), evaluated
 	// after dedup and before routing. Shadow hits are observed by the
@@ -201,6 +206,17 @@ func New(cfg *config.Config) (*App, error) {
 		}
 	}
 	svc.SetGroupResolver(groupsManager.Resolver())
+
+	// User-level audience tables: "user:" channel references resolve
+	// through audiences/recipients to provider endpoints. An invalid
+	// table is configuration drift and aborts construction — the same
+	// refusal the CLI performs at startup.
+	audienceManager, err := audience.NewManager(cfg.Audiences, cfg.Recipients)
+	if err != nil {
+		_ = backend.Close()
+		return nil, fmt.Errorf("load audiences/recipients: %w", err)
+	}
+	svc.SetUserResolver(audienceManager)
 
 	// Ack-gated escalation: the ack store and the pending-upgrade manager
 	// share the alert identity space; the service both arms upgrades on

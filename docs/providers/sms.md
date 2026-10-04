@@ -56,14 +56,32 @@ providers:
 
 ### 发送模板短信
 
+短信 Provider 只支持服务商模板载荷——直发 `title`/`body` 会被 planner 拒掉（`no compatible payload kind`）。先在配置里定义带 Binding 的模板：
+
+```yaml
+templates:
+  verify_code:
+    name: "验证码"
+    fields:
+      - label: "code"
+        value: "{{.Code}}"
+    bindings:
+      aliyunsms:
+        template_code: "SMS_123456789"
+        params:
+          code: "code"
+```
+
+再发：
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "验证码",
-    "body": "您的验证码是123456",
+    "template": "verify_code",
+    "params": {"Code": "123456"},
     "channels": ["aliyunsms"],
-    "level": "info"
+    "recipients": {"aliyunsms": ["+8613800138000"]}
   }'
 ```
 
@@ -152,14 +170,14 @@ task := &core.DeliveryTask{
 
 ## 错误处理
 
-Herald 会自动重试可恢复的错误：
+网络与 HTTP 层的分类三个短信 Provider 一致，业务码失败按渠道不同：
 
 | 错误类型 | 是否重试 | 说明 |
 |----------|----------|------|
-| 网络超时 | 是 | 自动重试 |
-| 频率限制 | 是 | 指数退避重试 |
-| 参数错误 | 否 | 需要修正配置 |
-| 余额不足 | 否 | 需要充值 |
+| 网络超时/传输失败 | 是 | 归 `timeout`/`temporary`，指数退避重试 |
+| HTTP 429 / 5xx | 是 | 归 `rate_limited`/`temporary` |
+| HTTP 200 但业务码失败 | 按渠道 | 腾讯云/网易云信给业务错误套 `WithRetry`（业务码失败也重试）；阿里云返回裸错误（不重试） |
+| 配置缺失 | 否 | Provider 创建时直接报错 |
 
 ## 最佳实践
 

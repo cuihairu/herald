@@ -218,7 +218,7 @@ curl http://127.0.0.1:8080/api/v1/providers   # Provider 列表与状态
 curl "http://127.0.0.1:8080/api/v1/logs?limit=10"  # 投递日志（送达/失败/重试）
 ```
 
-发送接口的完整字段（`recipients`、`template`、`params` 等）见[配置参考](/guide/configuration)。出了问题先看[排错指南](/guide/troubleshooting)。
+发送接口的完整字段（`recipients`、`template`、`params` 等）见 [REST API](/api/rest)。出了问题先看[排错指南](/guide/troubleshooting)。
 
 ## 下一步
 

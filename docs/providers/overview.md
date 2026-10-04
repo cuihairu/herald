@@ -89,7 +89,7 @@ providers:
   custom-provider:
     type: worker
     config:
-      worker_id: "custom-worker-01"
+      target: "custom-worker-01"   # 等价 name 键
 ```
 
 ## 启用/禁用 Provider
@@ -146,8 +146,8 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `authentication` | 凭据无效 | ❌ 立即 failed |
 | `invalid_request` | 请求本身不合法 | ❌ 立即 failed |
 
-- 走内置 HTTP 客户端的 Provider（飞书/钉钉/Telegram/短信等）自动获得分类：408/429/5xx 与传输错误归可重试类，其余 4xx 不分类（不重试）——与分类引入前的重试语义一致，只是显式化
-- 短信类「HTTP 200 但业务码失败」由 Provider 判定响应体后归类，各渠道差异见对应 Provider 页
+- 走内置 HTTP 客户端（`core/httpclient`）的 Provider 自动获得分类：408 归 `timeout`、429 归 `rate_limited`、5xx 与传输错误归 `temporary`（三类可重试），其余 4xx 不分类也重试不了（`classifyStatus` 注释原话：retrying them cannot succeed）
+- 「HTTP 200 但业务码失败」不在自动分类范围内，由 Provider 自己决定：腾讯云/网易云信给业务错误整体套 `httpclient.WithRetry`（业务码失败也重试），阿里云业务码只返回裸错误（不重试）——各渠道差异见对应 Provider 页
 - 可重试类耗尽 `retry.max` 后任务进入 dead，终态错误留在任务的 `last_error`；日志（`/api/v1/logs`）的 `status` 始终是 `success/failed` 二值 wire 词汇
 
 ## 最佳实践

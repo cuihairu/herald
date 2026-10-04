@@ -79,7 +79,8 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 |------|------|
 | `error` | `[错误] ` |
 | `warning` | `[警告] ` |
-| `info` 及其他 | `[信息] ` |
+| `info` | `[信息] ` |
+| 其他 | 无前缀 |
 
 **交互卡片**（`interactive_cards: true` 且通知关联了告警 ID 时）：
 

@@ -35,7 +35,6 @@ type Provider interface {
     Name() string
     Type() string
     Status() *ProviderStatus
-    Close() error
 }
 ```
 
@@ -68,11 +67,11 @@ manager.RegisterProvider("telegram", provider, true)
 │  │            Runtime Manager                         │  │
 │  │                                                     │  │
 │  │  ┌──────────────────┐      ┌──────────────────┐    │  │
-│  │  │ Builtin         │      │ Worker           │    │  │
+│  │  │ Builtin         │      │ Worker 代理       │    │  │
 │  │  │ Providers       │      │ Providers        │    │  │
 │  │  │                 │      │                  │    │  │
-│  │  │ • Telegram      │      │ • WeChatMP       │    │  │
-│  │  │ • Email         │      │ • WeChat         │    │  │
+│  │  │ • Telegram      │      │ • type: worker   │    │  │
+│  │  │ • Email         │      │   的转发渠道      │    │  │
 │  │  │ • SMS           │      │                  │    │  │
 │  │  └─────────────────┘      └────────┬─────────┘    │  │
 │  └─────────────────────────────────────────┼────────────┘  │
@@ -114,13 +113,14 @@ Worker 通过 WebSocket 与核心通信，支持以下消息类型：
 | `heartbeat` | Worker → Core | 心跳 |
 | `dispatch` | Core → Worker | 任务分发 |
 | `ack` | Worker → Core | 任务确认 |
-| `event` | Worker → Core | 事件通知 |
+| `error` | 双向 | 错误通报 |
+| `event` | Worker → Core | 事件通知（online/offline/error） |
 
 #### Worker 配置
 
 ```yaml
 providers:
-  wechatmp:
+  ops-mp:
     type: worker
     enabled: true
     config:
@@ -135,6 +135,7 @@ Worker 启动时发送注册消息：
 {
   "type": "register",
   "worker_id": "wechat-worker-01",
+  "mode": "remote",
   "platform": "linux",
   "version": "1.0.0",
   "capabilities": ["wechatmp", "wechat"]
@@ -190,42 +191,29 @@ err := manager.Deliver(ctx, task)
 
 ## WebSocket Hub
 
-Hub 管理 Worker 连接和任务分发。
+Hub 只管 Worker 的注册与生命周期，不管任务分发——任务走队列（`core/websocket/hub.go` 顶部注释明确写了这条边界）。
 
 ### 核心功能
 
-1. **Worker 注册**：记录 Worker 的 capabilities
-2. **任务分发**：根据 capability 或 worker_id 分发任务
-3. **连接管理**：处理 Worker 连接、断开、重连
+1. **注册**：`OnRegister` 把远程 Worker（capabilities、Remote 模式）记入 worker.Registry
+2. **心跳**：`OnHeartbeat` 刷新存活时间，过期条目由 Registry 定期清理
+3. **连接管理**：`OnDisconnect` 注销；`OnTaskAck` / `OnWorkerEvent` 目前为空实现（任务结果走队列 Ack/Nack）
 
-### 能力映射
+## Dispatcher 与 Worker Pool
 
-Hub 维护 `capability → worker_id` 的映射：
-
-```go
-workerByCap: map[string]string
-{
-    "wechatmp": "wechat-worker-01",
-    "wechat":   "wechat-worker-01",
-}
-```
-
-## Dispatcher
-
-Dispatcher 从队列消费任务并分发给 Runtime。
+Dispatcher 是 Worker Pool 的薄封装（`core/dispatch/dispatcher.go` 注释原话，新代码直接用 `worker.Pool`）。
 
 ### 分发逻辑
 
+所有任务都从队列 Pop，然后统一交给 `runtime.Manager.Deliver`：
+
 ```
-Queue → Dispatcher
-                 │
-                 ├─ Provider Type == "builtin" ?
-                 │   ├─ Yes → Runtime Manager.Deliver()
-                 │   └─ No  → Hub.Dispatch()
-                 │
-                 └─ Worker Provider → Hub.DispatchToWorker()
+Queue → worker.Pool (N 个本地 goroutine)
+                      │
+                      └─ runtime.Manager.Deliver(task)
+                             │
+                             ├─ Builtin Provider → 进程内 Deliver()
+                             └─ type: worker 代理  → WebSocket 发给目标 Worker
 ```
 
-### 源码位置
-
-`core/dispatch/dispatcher.go`
+本地与远程的分流点在 Provider 实例的 `type` 上：`type: worker` 的代理渠道把任务经 WebSocket 转发给 `target` 指定的远程 Worker；其余类型全部进程内直发。Pool 在投递失败时对队列 Nack，成功时 Ack。

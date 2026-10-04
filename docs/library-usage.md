@@ -56,15 +56,21 @@ func main() {
 
 ## Facade API
 
-`github.com/cuihairu/herald`（根包）是库用户的推荐入口，只暴露六个成员：
+`github.com/cuihairu/herald`（根包）是库用户的推荐入口，暴露一个构造函数与 App 上的十个访问器：
 
 | API | 语义 |
 | --- | --- |
-| `New(cfg *config.Config) (*App, error)` | 构建 App 并在后台启动投递池。`cfg` 为 `nil` 时全部走默认值；`cfg.Providers` 中声明的渠道会在返回前创建并注册，任一失败则中止构建（已创建的资源会被回收） |
+| `New(cfg *config.Config) (*App, error)` | 构建 App 并在后台启动投递池。`cfg` 为 `nil` 时全部走默认值；`cfg.Providers` 中声明的渠道会在返回前创建并注册，任一失败则中止构建（已创建的资源会被回收）。`audiences`/`recipients` 表非法同样中止构建 |
 | `(*App).Dispatch(ctx, n *core.Notification) (*service.ProcessResult, error)` | 异步投递：渠道解析、模板渲染、去重在调用内同步完成并在此报错，实际发送由后台池执行 |
 | `(*App).DispatchSync(ctx, n) (*service.ProcessResult, error)` | 同步投递：在 `Dispatch` 语义之上，阻塞直到该通知产生的每个任务都被 Ack（成功）或 Nack（失败），或 `ctx` 结束 |
 | `(*App).Runtime() *core/runtime.Manager` | Provider 管理器，用于注册自定义渠道、启停渠道、查询投递日志 |
 | `(*App).Queue() core.Queue` | 底层队列，一般仅在需要旁路观测（如积压深度）时使用 |
+| `(*App).Groups() *core/groups.Manager` | 通知群组管理器：`group:` 引用的运行时 CRUD 入口 |
+| `(*App).Rules() *core/rules.Engine` | 规则引擎：保存时编译表达式，`Put`/`Delete` 对下一次投递生效 |
+| `(*App).Acks() *core/ack.MemoryStore` | 告警确认存储（升级定时器查阅同一份） |
+| `(*App).AckAlert(ctx, alertID, ackedBy, source)` | 确认告警：写确认存储并在事件账本上落账——与 HTTP ack API 同一对齐 |
+| `(*App).Escalation() *core/escalation.Manager` | 未确认升级管理器 |
+| `(*App).Incidents() *core/incident.Store` | 事件账本：规则路由的投递开事件、确认与恢复关事件 |
 | `(*App).Close() error` | 优雅关闭：停止投递池并等待其排空，再关队列、关渠道。关闭后 `Dispatch` 返回错误 |
 
 `App` 对并发 `Dispatch` 安全；`Close` 只应调用一次。
@@ -92,7 +98,7 @@ cfg := config.Default()   // 代码内改字段
 cfg, err := config.Load("herald.yaml") // 从 YAML 文件读取
 ```
 
-`config.Config` 的字段与 CLI 形态的配置文件完全一致（`Server`、`Providers`、`Routes`、`Queue`、`Retry`、`Dedup`、`Templates` 等），因此同一份 YAML 既可用于 `cmd/heraldd` 也可用于库形态。库形态下 `Server`/`WebSocket`/`Auth` 等面向 HTTP 服务的字段不生效，忽略即可。另有 `cfg.ExpandEnv()`（展开 `$VAR` 形式的环境变量）与 `cfg.Validate()` 可按需调用。
+`config.Config` 的字段与 CLI 形态的配置文件完全一致（`Server`、`Providers`、`Routes`、`Queue`、`Retry`、`Dedup`、`Templates` 等），因此同一份 YAML 既可用于 `cmd/heraldd` 也可用于库形态。投递相关的键（`Providers`/`Routes`/`level_routes`/`channels`/`audiences`/`recipients`/`groups`/`rules`/`templates`/`dedup`/`retry`/队列与升级、事件账本存储）在两种形态下接线一致；库形态下只有面向 HTTP 服务的字段不生效：`Server`/`WebSocket`/`Auth`/`Worker`/`card_callback`/`rosters_store`（值班表是外部排班系统推送进来的，库形态没有该入口，规则的 `silence.roster` 门一律放行）。另有 `cfg.ExpandEnv()`（展开 `$VAR` 形式的环境变量）与 `cfg.Validate()` 可按需调用。
 
 渠道声明示例：
 
@@ -108,8 +114,8 @@ cfg.Providers["feishu-ops"] = config.ProviderConfig{
 
 一条 `core.Notification` 到达目标渠道的解析顺序：
 
-1. `n.Channels` 非空：直接使用列出的渠道名（必须与 `Providers` 键或 `Runtime()` 注册名一致）。
-2. `n.Channels` 为空：查静态路由 `cfg.Routes[n.Type]`。
+1. `n.Channels` 非空：逐项解析列出的引用——provider 实例名（`Providers` 键或 `Runtime()` 注册名）直接使用；`group:<id>` 展开为群组成员；`user:<id>` 展开为该受众/收件人的端点；普通名字先查 `channels` 渠道块（展开成 provider 列表），都不是则按字面渠道名处理并在入队前报「provider not found」。
+2. `n.Channels` 为空：先查静态路由 `cfg.Routes[n.Type]`，未命中再查 `cfg.LevelRoutes[n.Level]`。
 3. 两者皆无：`Dispatch` 返回 `no route found` 错误——**注册了渠道不等于会被路由到**。
 
 ## 去重
@@ -161,20 +167,26 @@ _ = app.Runtime().RegisterProvider("echo", echoProvider{}, true)
 
 | 包 | 角色 | 关键导出 |
 | --- | --- | --- |
-| `github.com/cuihairu/herald` | facade（推荐入口） | `App`、`New`、`Dispatch`、`DispatchSync`、`Runtime`、`Queue`、`Close` |
-| `config` | 配置模型 | `Config`、`Default`、`Load`、`Validate`、`ExpandEnv`；`ProviderConfig`、`QueueConfig`、`RetryConfig`、`DedupConfig` 等 |
+| `github.com/cuihairu/herald` | facade（推荐入口） | `App`、`New`、`Dispatch`、`DispatchSync`、`Runtime`、`Queue`、`Groups`、`Rules`、`Acks`、`AckAlert`、`Escalation`、`Incidents`、`Close` |
+| `config` | 配置模型 | `Config`、`Default`、`Load`、`Validate`、`ExpandEnv`；`ProviderConfig`、`QueueConfig`、`RetryConfig`、`DedupConfig`、`ChannelConfig` 等 |
 | `core` | 领域模型与接口 | `Notification`、`DirectContent`、`DeliveryTask`、`DeliveryPayload`、`RenderedContent`、`Provider`、`ProviderFactory`、`ProviderStatus`、`ProviderCapability`、`Queue`、`BuiltinProvider`、`CapableProvider`、`WorkerProvider`、`MaskConfig` |
 | `core/service` | 处理管道 | `NotificationService`、`ProcessResult`、`ChannelError`、`DeliveryPlanner` |
 | `core/runtime` | Provider 管理 | `Manager`（`RegisterProvider`、`RegisterFactory`、`Enable`/`Disable`、`GetLogs` 等投递日志查询） |
 | `core/queue` | 队列实现 | `NewQueue`、`NewMemoryQueue`、`NewRedisQueue`、`QueueConfig` |
-| `core/route` | 静态路由 | `Router` |
+| `core/route` | 静态路由 | `Router`（type 表、`level_routes` 表、`channels` 渠道块） |
 | `core/dedup` | 内容去重 | `Dedup` |
 | `core/retry` | 重试策略 | `Config` |
+| `core/errclass` | 错误六分类 | `Of`、`Class`（temporary/permanent/rate_limited/authentication/invalid_request/timeout） |
 | `core/logstore` | 投递日志存储 | `TaskLog`、`Filter`、`Stats` |
 | `core/template` | 模板系统 | `Manager`、`TemplateConfig` |
+| `core/audience` | `user:` 受众 | `Manager`、`Audience`、`Recipient`、`Endpoint` |
+| `core/groups` | 通知群组 | `Group`、`Manager` |
+| `core/rules` | 规则引擎 | `Engine`、`Rule`、`PolicyAllow`/`PolicyDeny` |
+| `core/roster` | 值班表 | `Manager`（silence 静默日程读面） |
+| `core/ack` / `core/escalation` / `core/incident` | 告警确认与事件账本 | `Store`、`Manager`、`Store` |
 | `core/worker` | 本地投递池 | `Pool`、`Registry` |
 | `providers/builtin/registry` | 内置渠道注册 | `RegisterBuiltinProviders` |
-| `providers/builtin/*` | 内置渠道实现 | `log`、`webhook`、`email`、`slack`、`telegram`、`discord`、`feishu`、`dingtalk`、`wecom`、`wechat`、`wechatmp`、`aliyunsms`、`tencentsms`、`neteasesms`，以及转发远程 Worker 的 `worker` 类型 |
+| `providers/builtin/*` | 内置渠道实现 | `log`、`webhook`、`email`、`slack`、`telegram`、`discord`、`feishu`、`dingtalk`、`wecom`、`wechat`、`wechatmp`、`aliyunsms`、`tencentsms`、`neteasesms`、`fcm`、`apns`、`jpush`、`getui`，以及转发远程 Worker 的 `worker` 类型 |
 | `worker-sdk/go`（包 `sdk`） | 远程 Worker 客户端 | 自定义 Runtime 侧对接 Herald 的 SDK |
 
 版本兼容承诺：facade（根包）与上表公开包的导出签名遵循 Go 模块语义化版本；`internal/` 与各包未导出成员随时可能调整。
