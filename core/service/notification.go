@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
@@ -77,6 +78,12 @@ type GroupResolver interface {
 	ExpandGroup(name string) ([]groups.Member, bool)
 }
 
+// UserResolver expands user references (the "user:" prefix on channel
+// names) into their endpoints. audience.Manager implements it.
+type UserResolver interface {
+	ExpandUser(name string) ([]audience.Endpoint, bool)
+}
+
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
 	templates  *template.Manager
@@ -90,6 +97,7 @@ type NotificationService struct {
 	escalation EscalationScheduler
 	incidents  *incident.Store
 	groups     GroupResolver
+	users      UserResolver
 }
 
 // NewNotificationService creates a new NotificationService
@@ -141,6 +149,14 @@ func (s *NotificationService) SetIncidentStore(store *incident.Store) {
 // notification.
 func (s *NotificationService) SetGroupResolver(gr GroupResolver) {
 	s.groups = gr
+}
+
+// SetUserResolver attaches the user reference expander. nil (the
+// default) keeps channel references literal; a "user:" reference with no
+// resolver fails that one channel at delivery time, not the whole
+// notification.
+func (s *NotificationService) SetUserResolver(ur UserResolver) {
+	s.users = ur
 }
 
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
@@ -363,23 +379,57 @@ type deliveryTarget struct {
 
 // expandRef resolves one channel reference. Plain names pass through as
 // themselves; "group:" references expand to the group's members (each
-// carrying its optional recipient pins).
+// carrying its optional recipient pins); "user:" references expand to
+// their endpoints, merged per provider instance.
 func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
-	if !groups.IsRef(ref) {
-		return []deliveryTarget{{channel: ref}}, nil
+	if groups.IsRef(ref) {
+		if s.groups == nil {
+			return nil, fmt.Errorf("group reference %q but no group resolver is configured", ref)
+		}
+		members, ok := s.groups.ExpandGroup(strings.TrimPrefix(ref, groups.RefPrefix))
+		if !ok {
+			return nil, fmt.Errorf("unknown group %q", strings.TrimPrefix(ref, groups.RefPrefix))
+		}
+		out := make([]deliveryTarget, 0, len(members))
+		for _, m := range members {
+			out = append(out, deliveryTarget{channel: m.Channel, targets: m.Recipients})
+		}
+		return out, nil
 	}
-	if s.groups == nil {
-		return nil, fmt.Errorf("group reference %q but no group resolver is configured", ref)
+	if audience.IsUserRef(ref) {
+		if s.users == nil {
+			return nil, fmt.Errorf("user reference %q but no user resolver is configured", ref)
+		}
+		name := strings.TrimPrefix(ref, audience.UserPrefix)
+		eps, ok := s.users.ExpandUser(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown user %q", name)
+		}
+		return mergeUserEndpoints(eps), nil
 	}
-	members, ok := s.groups.ExpandGroup(strings.TrimPrefix(ref, groups.RefPrefix))
-	if !ok {
-		return nil, fmt.Errorf("unknown group %q", strings.TrimPrefix(ref, groups.RefPrefix))
+	return []deliveryTarget{{channel: ref}}, nil
+}
+
+// mergeUserEndpoints folds endpoints onto their provider instance so a
+// user fan-out is one task per provider (all targets bundled in it),
+// never one task per endpoint — several recipients sharing an instance
+// still produce a single delivery. Deterministic order keeps tasks and
+// logs stable across runs.
+func mergeUserEndpoints(eps []audience.Endpoint) []deliveryTarget {
+	byType := make(map[string][]string)
+	for _, ep := range eps {
+		byType[ep.Type] = append(byType[ep.Type], ep.Target)
 	}
-	out := make([]deliveryTarget, 0, len(members))
-	for _, m := range members {
-		out = append(out, deliveryTarget{channel: m.Channel, targets: m.Recipients})
+	types := make([]string, 0, len(byType))
+	for t := range byType {
+		types = append(types, t)
 	}
-	return out, nil
+	sort.Strings(types)
+	out := make([]deliveryTarget, 0, len(types))
+	for _, t := range types {
+		out = append(out, deliveryTarget{channel: t, targets: byType[t]})
+	}
+	return out
 }
 
 // enqueueOne plans and pushes the delivery to one concrete channel.

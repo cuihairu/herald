@@ -49,6 +49,7 @@ func (p *DeliveryPlanner) Plan(
 		Payload:   *payload,
 		Level:     notification.Level,
 		AlertID:   alertIDOf(notification),
+		Status:    core.StatusQueued,
 		CreatedAt: time.Now(),
 	}, nil
 }

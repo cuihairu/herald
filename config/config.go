@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/queue"
@@ -43,6 +44,13 @@ type Config struct {
 	// GroupsStore points at the persistent groups file. Empty keeps groups
 	// in memory only (seeds from Groups are still honored).
 	GroupsStore string `yaml:"groups_store"`
+	// Audiences seeds the user-level audience table (core/audience): named
+	// sets of recipient ids that "user:" channel references can name.
+	Audiences map[string]audience.Audience `yaml:"audiences"`
+	// Recipients seeds the user-level recipient table: each named person
+	// holds the provider endpoints they receive on. "user:<id>" in any
+	// channel list resolves through Audiences first, then Recipients.
+	Recipients map[string]audience.Recipient `yaml:"recipients"`
 	// RostersStore points at the persistent duty-roster file (the push
 	// target of the silence schedule placeholder). Empty keeps rosters in
 	// memory only.

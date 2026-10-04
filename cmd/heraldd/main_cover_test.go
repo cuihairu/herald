@@ -58,6 +58,12 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"rosters store is a dir": fmt.Sprintf("rosters_store: %s\n", dir),
 		// A rosters store that opens but fails validation aborts the load.
 		"rosters reload failure": fmt.Sprintf("rosters_store: %s\n", badRosters),
+		// An audience referencing an unknown recipient is configuration
+		// drift and refuses to start (user-level audience tables).
+		"audience references unknown recipient": "audiences:\n  ops:\n    recipients: [ghost]\n",
+		// A recipient with no endpoints can receive nothing and must not
+		// start either.
+		"recipient without endpoints": "recipients:\n  alice:\n    endpoints: []\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -71,9 +77,9 @@ func TestServeCmdStartupFailures(t *testing.T) {
 
 // TestServeCmdFullFeaturedLifecycle starts the server with every optional
 // subsystem enabled — persistent rules, redis rule state, persistent
-// notification groups, card-callback encryption, a rate limit, and a broken
-// escalation store (which must only be logged) — and shuts it down via
-// SIGTERM.
+// notification groups, the user-level audience tables, card-callback
+// encryption, a rate limit, and a broken escalation store (which must
+// only be logged) — and shuts it down via SIGTERM.
 func TestServeCmdFullFeaturedLifecycle(t *testing.T) {
 	httpPort := freePort(t)
 	wsPort := freePort(t)
@@ -123,6 +129,14 @@ groups:
     description: the webhook audience
     members:
       - channel: hook
+recipients:
+  alice:
+    endpoints:
+      - type: hook
+        target: alice
+audiences:
+  ops:
+    recipients: [alice]
 `, httpPort, wsPort, rulesPath, mr.Addr(), groupsPath, rostersPath, escStore)
 	path := writeTestConfig(t, cfgYAML)
 

@@ -54,7 +54,7 @@ Telegram / Feishu / Email / Log ...
 
 Notification 与 Delivery 分离：一条 Notification 可能展开成多条 Delivery（多渠道），各 Delivery 独立状态、独立重试。`accepted` 只代表 Herald 受理，不代表已送达。
 
-> 实现现状：`Notification / Template / Channel（routes）/ Delivery / Queue / Worker / Provider` 以及通知群组（Audience 的 `group:` 形态）当前版本已落地；`user:` 级 Recipient 与多 Endpoint 属规划中的细分粒度，落地计划与拆解见 [Audience 领域模型](/design-audience-model)。
+> 实现现状：`Notification / Template / Channel（routes）/ Delivery / Queue / Worker / Provider` 以及通知群组（Audience 的 `group:` 形态）当前版本已落地；`user:` 级 Recipient 与多 Endpoint 已以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"），Delivery 状态机已枚举化（queued/delivering/retrying/delivered/failed/dead）。差异详情与剩余计划的拆解见 [Audience 领域模型](/design-audience-model) 与 [现状审计](/design-audience-audit)。
 
 ## 安装
 

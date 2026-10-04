@@ -55,6 +55,12 @@ type Config struct {
 	MaxDelay     time.Duration `yaml:"max_delay"`
 }
 
+// ErrMaxRetries marks a delivery that retryable errors exhausted: every
+// attempt failed and the last error was retryable. errors.Is lets the
+// runtime distinguish "dead" (retries owed but spent) from "failed"
+// (nothing to retry).
+var ErrMaxRetries = errors.New("max retries exceeded")
+
 // Retryer handles retry logic
 type Retryer struct {
 	policy Policy
@@ -97,14 +103,28 @@ func (r *Retryer) Execute(ctx context.Context, task *core.DeliveryTask, fn func(
 	for i := 0; i <= r.policy.MaxRetries(); i++ {
 		err := fn()
 		if err == nil {
+			task.RetryCount = i
 			return nil
 		}
 
+		// The attempt that just finished: 0 on the initial try, otherwise
+		// how many retries it took to get here.
+		task.RetryCount = i
 		lastErr = err
 
 		if !r.policy.ShouldRetry(err, i) {
+			// Retryable errors that spent every attempt are dead, not
+			// failed: retries were owed but exhausted. errors.Is tells the
+			// runtime apart; the message text keeps its historical shape.
+			if i >= r.policy.MaxRetries() && isRetryable(err) {
+				return fmt.Errorf("%w: %w", ErrMaxRetries, err)
+			}
 			return err
 		}
+
+		// A retry is owed: the task leaves "delivering" and waits on its
+		// backoff under StatusRetrying; the next attempt flips it back.
+		task.Status = core.StatusRetrying
 
 		delay := r.policy.NextDelay(i)
 		select {
@@ -114,7 +134,7 @@ func (r *Retryer) Execute(ctx context.Context, task *core.DeliveryTask, fn func(
 		}
 	}
 
-	return fmt.Errorf("max retries exceeded: %w", lastErr)
+	return fmt.Errorf("%w: %w", ErrMaxRetries, lastErr)
 }
 
 // ExponentialPolicy implements exponential backoff

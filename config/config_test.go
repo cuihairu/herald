@@ -562,3 +562,39 @@ func TestToQueueConfig(t *testing.T) {
 		t.Errorf("expected redis group group, got %s", qc.Redis.Group)
 	}
 }
+
+func TestLoadAudiencesAndRecipients(t *testing.T) {
+	path := writeConfigFile(t, `
+providers:
+  feishu:
+    type: webhook
+    config:
+      url: http://example.com/hook
+recipients:
+  alice:
+    endpoints:
+      - type: feishu
+        target: "@alice"
+audiences:
+  ops:
+    recipients: [alice]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	alice, ok := cfg.Recipients["alice"]
+	if !ok {
+		t.Fatalf("recipients table not parsed: %+v", cfg.Recipients)
+	}
+	if len(alice.Endpoints) != 1 || alice.Endpoints[0].Type != "feishu" || alice.Endpoints[0].Target != "@alice" {
+		t.Errorf("recipient parse: %+v", alice)
+	}
+	ops, ok := cfg.Audiences["ops"]
+	if !ok {
+		t.Fatalf("audiences table not parsed: %+v", cfg.Audiences)
+	}
+	if len(ops.Recipients) != 1 || ops.Recipients[0] != "alice" {
+		t.Errorf("audience parse: %+v", ops)
+	}
+}

@@ -1,7 +1,9 @@
 # Audience 领域模型：Herald 完整架构改进计划书
 
-> 状态：**规划中（未实施）**。本文是把 Audience 正式纳入 Herald 核心模型的完整改造计划，
-> 供后续 Code Agent 按此执行：**先分析现状 → 再按模型改造 → 保持兼容 → 测试 → 文档同步更新**。
+> 状态：**执行中**。Phase 0 审计已完成（见 [现状审计](/design-audience-audit)）；Phase 1 的
+> `user:` 级受众配置化 MVP 与 Phase 3 的 Delivery 状态机枚举化（同步重试）已落地
+> （执行记录见[审计文档](/design-audience-audit#五执行记录)），其余 Phase 待后续 Code Agent
+> 按此计划推进：**先分析现状 → 再按模型改造 → 保持兼容 → 测试 → 文档同步更新**。
 > 执行起点是各 Phase 前的代码审计（第 33 节 Phase 0），本文本身不改代码。
 
 ## 1. 改造目标

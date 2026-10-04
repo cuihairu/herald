@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -421,6 +422,7 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 				entry := logstore.NewTaskLog(task)
 				m.logStore.Add(entry)
 				m.logStore.UpdateStatus(task.ID, "failed", err.Error())
+				task.Status = core.StatusFailed
 				return err
 			}
 		}
@@ -429,7 +431,10 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	logEntry := logstore.NewTaskLog(task)
 	m.logStore.Add(logEntry)
 
+	// Every attempt re-enters "delivering"; a retrying attempt was marked
+	// "retrying" by the retryer between attempts.
 	deliverFn := func() error {
+		task.Status = core.StatusDelivering
 		return provider.Deliver(ctx, task)
 	}
 
@@ -441,10 +446,19 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	}
 
 	if deliverErr != nil {
+		// Retryable errors that used up every attempt are dead, not
+		// failed: a dead delivery is a config/provider problem worth a
+		// distinct signal, a failed one was never going to retry.
+		if errors.Is(deliverErr, retry.ErrMaxRetries) {
+			task.Status = core.StatusDead
+		} else {
+			task.Status = core.StatusFailed
+		}
 		m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
 		return deliverErr
 	}
 
+	task.Status = core.StatusDelivered
 	m.logStore.UpdateStatus(task.ID, "success", "")
 	return nil
 }

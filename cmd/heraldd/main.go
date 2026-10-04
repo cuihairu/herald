@@ -15,6 +15,7 @@ import (
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
@@ -250,6 +251,19 @@ func serveCmd(args []string) int {
 		logger.Info("groups loaded", "count", len(cfg.Groups))
 	}
 
+	// Create the user-level audience tables: "user:" channel references
+	// resolve through audiences/recipients to provider endpoints. The MVP
+	// is config-only — unlike groups there is no runtime API yet. An
+	// invalid table is configuration drift and refuses to start.
+	audienceManager, err := audience.NewManager(cfg.Audiences, cfg.Recipients)
+	if err != nil {
+		logger.Error("failed to load audiences/recipients", "error", err)
+		return 1
+	}
+	if len(cfg.Audiences) > 0 || len(cfg.Recipients) > 0 {
+		logger.Info("audiences loaded", "audiences", len(cfg.Audiences), "recipients", len(cfg.Recipients))
+	}
+
 	// Create duty rosters: externally pushed schedules (值班表) that
 	// silence rules can name; persisted via rosters_store, read by the
 	// silence gate from the in-memory live table.
@@ -294,6 +308,7 @@ func serveCmd(args []string) int {
 		WorkerRegistry:  registry,
 		Rules:           rulesEngine,
 		Groups:          groupsManager,
+		Users:           audienceManager,
 		Rosters:         rostersManager,
 		AckStore:        ackStore,
 		Escalation:      escalations,

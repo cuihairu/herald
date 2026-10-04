@@ -7,6 +7,7 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
@@ -45,6 +46,9 @@ type Config struct {
 	WorkerRegistry  *worker.Registry
 	Rules           *rules.Engine       // optional; nil keeps static routing only
 	Groups          *groups.Manager     // optional; nil keeps group endpoints off
+	// Users carries the user-level audience tables (core/audience);
+	// optional, nil keeps "user:" references unresolvable.
+	Users *audience.Manager
 	// Rosters supplies the silence schedule placeholder: nil keeps roster
 	// endpoints off and every roster-named silence gate open (fail open).
 	Rosters *roster.Manager
@@ -91,6 +95,11 @@ func NewServer(config *Config) *Server {
 		// Group references in any channel list resolve through the
 		// manager's live table.
 		notificationSvc.SetGroupResolver(config.Groups.Resolver())
+	}
+	if config.Users != nil {
+		// "user:" references in any channel list resolve through the
+		// manager's audience/recipient tables.
+		notificationSvc.SetUserResolver(config.Users)
 	}
 	if config.Rosters != nil {
 		handler.SetRosterManager(config.Rosters)

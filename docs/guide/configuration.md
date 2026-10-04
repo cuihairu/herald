@@ -654,9 +654,32 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `routes` / `level_routes` | Channel → Provider 的路由映射 | ✅ 已实现 |
 | `groups` | Audience 的 `group:` 形态（命名受众） | ✅ 已实现 |
 | `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | 🚧 规划中 |
-| `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | 🚧 规划中 |
+| `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | ✅ 已实现 |
 
-规划中的配置块当前版本**不会生效**（配置解析为宽松模式，未知键被静默忽略、不会报错——误以为生效是常见坑），落地节奏按设计文档 Phase 实施顺序执行。
+`audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，第一期只做**配置化**、无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**——同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。
+
+```yaml
+recipients:
+  alice:
+    endpoints:
+      - type: feishu
+        target: "@alice"
+      - type: email
+        target: alice@example.com
+  bob:
+    endpoints:
+      - type: feishu
+        target: "@bob"
+      - type: sms-duty
+        target: "13900000000"
+audiences:
+  ops:
+    recipients: [alice, bob]
+```
+
+例如 `channels: ["user:ops"]` 展开为 3 个投递任务：feishu（@alice 与 @bob 捆绑）、email、sms-duty。
+
+仍在规划中的配置块当前版本**不会生效**（配置解析为宽松模式，未知键被静默忽略、不会报错——误以为生效是常见坑），落地节奏按设计文档 Phase 实施顺序执行。
 
 ## Provider 类型
 
