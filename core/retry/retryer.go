@@ -70,7 +70,16 @@ var ErrMaxRetries = errors.New("max retries exceeded")
 // Retryer handles retry logic
 type Retryer struct {
 	policy Policy
+	// maxDelay caps a server-advised Retry-After wait so an upstream
+	// asking for days can't park a delivery task indefinitely. Zero means
+	// no cap (honour the advice as stated).
+	maxDelay time.Duration
 }
+
+// after is the backoff wait, a package variable so tests can assert the
+// delay without actually sleeping it (same seam pattern as the SDK's
+// writeControl).
+var after = time.After
 
 // NewRetryer creates a new retryer
 func NewRetryer(config *Config) *Retryer {
@@ -99,7 +108,7 @@ func NewRetryer(config *Config) *Retryer {
 		}
 	}
 
-	return &Retryer{policy: policy}
+	return &Retryer{policy: policy, maxDelay: config.MaxDelay}
 }
 
 // MaxAttempts is the total number of delivery attempts the policy allows:
@@ -141,8 +150,17 @@ func (r *Retryer) Execute(ctx context.Context, task *core.DeliveryTask, fn func(
 		task.Status = core.StatusRetrying
 
 		delay := r.policy.NextDelay(i)
+		// A server-stated wait (Retry-After on a rate-limited failure)
+		// beats the backoff curve — the upstream knows when to come back.
+		// Capped by MaxDelay so the advice can't park the task forever.
+		if hint, ok := errclass.RetryAfterOf(err); ok {
+			if r.maxDelay > 0 && hint > r.maxDelay {
+				hint = r.maxDelay
+			}
+			delay = hint
+		}
 		select {
-		case <-time.After(delay):
+		case <-after(delay):
 		case <-ctx.Done():
 			return ctx.Err()
 		}

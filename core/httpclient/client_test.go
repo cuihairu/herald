@@ -614,3 +614,102 @@ func TestClassifiedStatusErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestRetryAfterHintOn429 pins the rate-limit advice: a Retry-After on a
+// 429 rides the error as a server-advised wait; other statuses ignore the
+// header, and unparsable or non-positive advice carries no wait.
+func TestRetryAfterHintOn429(t *testing.T) {
+	future := time.Now().Add(time.Hour).UTC().Format(http.TimeFormat)
+	cases := []struct {
+		name     string
+		header   string
+		wantHint bool
+		want     time.Duration
+	}{
+		{"delay seconds", "2", true, 2 * time.Second},
+		{"http date in the future", future, true, 0}, // want>0 asserted loosely below
+		{"zero seconds", "0", false, 0},
+		{"negative seconds", "-3", false, 0},
+		{"garbage", "soon", false, 0},
+		{"empty", "", false, 0},
+		{"past http date", "Mon, 02 Jan 2006 15:04:05 GMT", false, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Retry-After", tc.header)
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte("slow down"))
+			}))
+			defer server.Close()
+
+			_, err := NewClient(nil).PostJSON(context.Background(), server.URL, map[string]string{"k": "v"})
+			if err == nil {
+				t.Fatal("expected a 429 error")
+			}
+			if class, ok := errclass.Of(err); !ok || class != errclass.RateLimited {
+				t.Fatalf("class = %q/%v, want rate_limited", class, ok)
+			}
+			d, ok := errclass.RetryAfterOf(err)
+			if tc.name == "http date in the future" {
+				if !ok || d <= 0 || d > 2*time.Hour {
+					t.Errorf("future date: hint = %v/%v, want a positive wait under 2h", d, ok)
+				}
+				return
+			}
+			if ok != tc.wantHint || (tc.wantHint && d != tc.want) {
+				t.Errorf("Retry-After %q: hint = %v/%v, want %v/%v", tc.header, d, ok, tc.want, tc.wantHint)
+			}
+		})
+	}
+}
+
+// TestRetryAfterIgnoredOutside429: the header only advises on rate-limit
+// failures; a 503 with Retry-After stays a plain temporary error.
+func TestRetryAfterIgnoredOutside429(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	_, err := NewClient(nil).PostJSON(context.Background(), server.URL, map[string]string{"k": "v"})
+	if err == nil {
+		t.Fatal("expected a 503 error")
+	}
+	if class, ok := errclass.Of(err); !ok || class != errclass.Temporary {
+		t.Fatalf("class = %q/%v, want temporary", class, ok)
+	}
+	if _, ok := errclass.RetryAfterOf(err); ok {
+		t.Error("expected no hint on a non-429 response")
+	}
+}
+
+// TestParseRetryAfter covers the decoder directly: trimming, both wire
+// forms, and every no-advice shape.
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"empty", "", 0},
+		{"whitespace trimmed", "  5  ", 5 * time.Second},
+		{"seconds", "120", 2 * time.Minute},
+		{"zero", "0", 0},
+		{"negative", "-1", 0},
+		{"not a number or date", "soon", 0},
+		{"date in the past", now.Add(-time.Hour).UTC().Format(http.TimeFormat), 0},
+	}
+	for _, tc := range cases {
+		if got := parseRetryAfter(tc.value, now); got != tc.want {
+			t.Errorf("%s: parseRetryAfter(%q) = %v, want %v", tc.name, tc.value, got, tc.want)
+		}
+	}
+
+	future := now.Add(time.Hour).UTC()
+	if got := parseRetryAfter(future.Format(http.TimeFormat), now); got > time.Hour || got < 55*time.Minute {
+		t.Errorf("future date: got %v, want roughly an hour", got)
+	}
+}

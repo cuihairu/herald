@@ -4,7 +4,10 @@
 // lives in the provider.
 package errclass
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Class is the failure category of a provider error.
 type Class string
@@ -25,6 +28,10 @@ const (
 type Error struct {
 	Class Class
 	Err   error
+	// RetryAfter is a server-advised wait (RFC 7231 Retry-After), set on
+	// rate-limited failures when the upstream states one. The retry layer
+	// prefers it over its backoff curve; 0 means no advice.
+	RetryAfter time.Duration
 }
 
 func (e *Error) Error() string { return e.Err.Error() }
@@ -47,6 +54,31 @@ func Of(err error) (Class, bool) {
 		return e.Class, true
 	}
 	return "", false
+}
+
+// NewWithRetryAfter wraps err under class and attaches a server-advised
+// wait (the same semantics as New otherwise). Non-positive hints carry no
+// information, so they are stored as zero — RetryAfterOf then reports "no
+// advice" for them. A nil err stays nil.
+func NewWithRetryAfter(class Class, err error, retryAfter time.Duration) error {
+	if err == nil {
+		return nil
+	}
+	if retryAfter < 0 {
+		retryAfter = 0
+	}
+	return &Error{Class: class, Err: err, RetryAfter: retryAfter}
+}
+
+// RetryAfterOf reports the server-advised wait carried by err, if any.
+// Zero hints and unclassified errors both report false, so callers can
+// treat the boolean as "the upstream stated a wait".
+func RetryAfterOf(err error) (time.Duration, bool) {
+	var e *Error
+	if errors.As(err, &e) && e.RetryAfter > 0 {
+		return e.RetryAfter, true
+	}
+	return 0, false
 }
 
 // Retryable says whether a classified failure is worth a later attempt:

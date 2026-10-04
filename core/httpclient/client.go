@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,14 +85,45 @@ func classifyStatus(code int) (errclass.Class, bool) {
 }
 
 // statusError builds the error for a non-2xx response, classifying it
-// when the status is transient. The response itself is still returned so
-// callers can inspect the body for diagnostics.
-func statusError(code int, body []byte) error {
+// when the status is transient. Rate-limited responses that carry a
+// Retry-After header attach it to the error as a server-advised wait, so
+// the retry layer can sleep exactly as long as the upstream asked. The
+// response itself is still returned so callers can inspect the body for
+// diagnostics.
+func statusError(code int, body []byte, header http.Header) error {
 	err := fmt.Errorf("unexpected status code: %d, body: %s", code, string(body))
-	if class, ok := classifyStatus(code); ok {
-		return errclass.New(class, err)
+	class, ok := classifyStatus(code)
+	if !ok {
+		return err
 	}
-	return err
+	if code == http.StatusTooManyRequests {
+		if d := parseRetryAfter(header.Get("Retry-After"), time.Now()); d > 0 {
+			return errclass.NewWithRetryAfter(class, err, d)
+		}
+	}
+	return errclass.New(class, err)
+}
+
+// parseRetryAfter decodes a Retry-After value (delay-seconds or HTTP-date
+// per RFC 9110 §10.2.3). Anything empty, non-positive, unparsable or
+// already past returns 0 — no advice rather than wrong advice.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(value); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // sendError classifies a request-transport failure: network timeouts get
@@ -162,7 +194,7 @@ func (c *Client) PostJSONWithHeaders(ctx context.Context, url string, body inter
 		return &Response{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
-		}, statusError(resp.StatusCode, respBody)
+		}, statusError(resp.StatusCode, respBody, resp.Header)
 	}
 
 	return &Response{
@@ -195,7 +227,7 @@ func (c *Client) PostForm(ctx context.Context, reqURL string, data url.Values) (
 		return &Response{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
-		}, statusError(resp.StatusCode, respBody)
+		}, statusError(resp.StatusCode, respBody, resp.Header)
 	}
 
 	return &Response{
@@ -226,7 +258,7 @@ func (c *Client) Get(ctx context.Context, url string) (*Response, error) {
 		return &Response{
 			StatusCode: resp.StatusCode,
 			Body:       respBody,
-		}, statusError(resp.StatusCode, respBody)
+		}, statusError(resp.StatusCode, respBody, resp.Header)
 	}
 
 	return &Response{

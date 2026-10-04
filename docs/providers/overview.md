@@ -140,7 +140,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | 分类 | 触发 | 是否重试 |
 |------|------|---------|
 | `temporary` | 上游 5xx、一般网络错误 | ✅ 按 `retry` 配置退避重投 |
-| `rate_limited` | 上游 429 | ✅ 同上 |
+| `rate_limited` | 上游 429 | ✅ 带 `Retry-After` 时按其等待（封顶 `retry.max_delay`），否则同上 |
 | `timeout` | 请求超时（408 或传输超时） | ✅ 同上 |
 | `permanent` | 上游明确拒绝且重试无意义 | ❌ 立即 failed |
 | `authentication` | 凭据无效 | ❌ 立即 failed |

@@ -144,6 +144,7 @@ POST /api/v1/notify
 - `core/retry` 判定接入：`isRetryable` 改为 **errclass 优先**（有分类看分类、无分类回落），`RetryableError` / `httpclient.RetryableError` 旧标记保留兼容（既有测试原样通过）。
 - 测试：errclass 单元（nil 透传 / 文本保真 / 穿透包装 / 8 例分类表）；`TestClassifiedStatusErrors`（7 状态码→类 + IsRetryable 与类一致性）；`TestRetryerClassifiedErrors`（生产形状策略：temporary/rate_limited/timeout 耗尽→ErrMaxRetries 共 3 次调用；permanent/authentication/invalid_request→1 次即败、非 dead）；`TestDeliverClassifiedErrorTerminals`（端到端：authentication→failed 不重试、rate_limited→重试耗尽→dead）。
 - 未做（护栏 5 留批）：401 等 4xx 依旧不重试（语义与历史一致）；RateLimited 尚无 per-class 退避（Retry-After 未用，沿用统一退避策略）。
+  - **后批补齐（2026-10-05）**：Retry-After 已接入——`errclass.Error` 增 `RetryAfter` 提示，`httpclient.statusError` 在 429 时解析 `Retry-After`（delay-seconds / HTTP-date，非正值与过去时点不算建议），retry 侧提示优先于退避曲线、`retry.max_delay` 封顶（MaxDelay 为 0 不封顶）；`NewWithRetryAfter` / `RetryAfterOf` / `parseRetryAfter` 各分支单测 + retryer 提示路径 seam 测试。
 
 ### Phase 7 MVP：Configuration（`channels` 独立配置块 + 三优先级叠加）
 
@@ -200,5 +201,6 @@ POST /api/v1/notify
 1. `next_retry_at` / 异步重新入队——同步重试在单次 Deliver 内完成、无排队语义；改动会变更端到端耗时与日志时序，需独立设计（护栏 5）。
 2. Logs 与 Delivery 状态分离——计划 §25 的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
 3. audiences/recipients/channels 的运行时 API——一期口径为纯配置化（Phase 1/7 记录在案）。
-4. RateLimited per-class 退避（Retry-After）——沿用统一退避策略（Phase 5 留批）。
-5. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
+4. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
+
+> 2026-10-05 更新：原第 4 项「RateLimited per-class 退避（Retry-After）」已落地（见 Phase 5 记录的后批补齐），清单余 4 项。
