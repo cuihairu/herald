@@ -4,44 +4,25 @@
 
 ### HTTP REST + JSON
 
-这是 **唯一公开协议**。
-
-**原因：**
-
-- curl
-- shell
-- automation
-- CI/CD
-- webhook
-- 任意语言兼容
+这是 **唯一公开协议**。curl、shell 脚本、CI/CD、监控系统的 webhook、任何语言，都直接调 REST 接口，不需要额外的客户端约定。
 
 ## 为什么没有业务 SDK
 
-因为：
-
-> notify API 太简单
-
-例如：
+notify API 一个 POST 就能调：
 
 ```bash
 curl /notify
 ```
 
-已经足够。业务 SDK 的收益很低。
+任何语言都够用，业务 SDK 的收益很低。
 
 ## 内部协议
 
-Herald 内部使用 **Persistent Session Protocol**，用于：
-
-- Worker Runtime
-- Runtime Dispatch
-- Heartbeat
-- Reconnect
-- Streaming
+Herald 内部使用 **Persistent Session Protocol**，承载 Worker 注册、任务分发、心跳、重连与事件流五类交互。
 
 ### 实际实现
 
-线上跑的线格式是 **WebSocket + JSON**：传输用 `gorilla/websocket`（go.mod 依赖），消息体由 `protocol.MarshalMessage` 编码——`Message{Type, Payload}` 序列化后注入 type 字段。选型时曾对比过下表，protobuf / Raw TCP 两条都未实现：
+线上跑的线格式是 **WebSocket + JSON**。传输用 `gorilla/websocket`（go.mod 依赖），消息体由 `protocol.MarshalMessage` 编码，`Message{Type, Payload}` 序列化后注入 type 字段。选型时曾对比过下表，protobuf / Raw TCP 两条都未实现：
 
 | 协议                       | 选型结论 | 实现状态 |
 | ------------------------ | --- | --- |

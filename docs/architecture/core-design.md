@@ -2,15 +2,7 @@
 
 ## 系统定位
 
-Herald 是：
-- **事件驱动的投递基础设施**
-- **统一 Worker 模型**
-- **Queue 为骨干的任务分发平台**
-
-Herald 不是：
-- Plugin 系统
-- 简单的 Webhook 聚合工具
-- 消息推送 SDK
+Herald 是事件驱动的投递基础设施：统一 Worker 模型，任务分发以 Queue 为骨干。它不是 Plugin 系统，不是 Webhook 聚合工具，也不是给业务代码用的推送 SDK。
 
 ## 核心概念
 
@@ -18,8 +10,7 @@ Herald 不是：
 
 所有 Worker 都是同一种东西，只通过 `mode` 区分部署方式：
 
-- **local**：进程内 goroutine，直接调用内置 Provider
-- **remote**：独立进程（`heraldd worker`），从共享 Queue 消费任务
+local worker 是进程内 goroutine，直接调用内置 Provider；remote worker 是独立进程（`heraldd worker`），从共享 Queue 消费任务。
 
 **"谁来做" 是部署问题，"怎么做" 是 Provider 问题。** Queue 是唯一的任务分发通道。
 

@@ -304,6 +304,18 @@ make docs-dev
 make dashboard-dev
 ```
 
+## 底座来源
+
+Herald 基于开源组件构建，核心外部依赖见 [go.mod](./go.mod)：
+
+- [gorilla/websocket](https://github.com/gorilla/websocket) - 远程 Worker 的 WebSocket 传输
+- [redis/go-redis](https://github.com/redis/go-redis) - Redis Stream 分布式队列客户端
+- [expr-lang/expr](https://github.com/expr-lang/expr) - 规则引擎的表达式求值
+- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - 配置文件解析
+- Dashboard 基于 React + Ant Design（Vite 构建），文档站基于 VitePress
+
+路由、规则引擎、队列抽象、模板与 18 个渠道 Provider 的业务代码在仓库内实现。
+
 ## 许可证
 
 [Apache License 2.0](./LICENSE)

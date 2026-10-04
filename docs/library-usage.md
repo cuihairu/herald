@@ -5,7 +5,7 @@ Herald 有两种使用形态，二者共享同一套核心管道（队列、路�
 - **CLI 网关**（`cmd/heraldd`）：独立进程，REST API + Dashboard，适合作为组织级通知网关部署，见[快速开始](/guide/getting-started)。
 - **Go 库**（本篇）：在你的进程里 `import "github.com/cuihairu/herald"`，用一个 `App` 实例完成入队与投递，适合把通知能力直接嵌进自己的服务。
 
-库形态不需要任何外部依赖即可运行：默认使用内存队列（in-memory queue）加本地 worker 池，进程退出时优雅排空。
+库形态默认不依赖任何外部服务：内存队列加本地 worker 池，进程退出时优雅排空。
 
 ## 安装
 
@@ -56,7 +56,7 @@ func main() {
 
 ## Facade API
 
-`github.com/cuihairu/herald`（根包）是库用户的推荐入口，暴露一个构造函数与 App 上的十个访问器：
+`github.com/cuihairu/herald`（根包）是库用户的推荐入口，暴露一个构造函数与 App 上的 11 个方法：
 
 | API | 语义 |
 | --- | --- |
@@ -68,7 +68,7 @@ func main() {
 | `(*App).Groups() *core/groups.Manager` | 通知群组管理器：`group:` 引用的运行时 CRUD 入口 |
 | `(*App).Rules() *core/rules.Engine` | 规则引擎：保存时编译表达式，`Put`/`Delete` 对下一次投递生效 |
 | `(*App).Acks() *core/ack.MemoryStore` | 告警确认存储（升级定时器查阅同一份） |
-| `(*App).AckAlert(ctx, alertID, ackedBy, source)` | 确认告警：写确认存储并在事件账本上落账——与 HTTP ack API 同一对齐 |
+| `(*App).AckAlert(ctx, alertID, ackedBy, source)` | 确认告警：写确认存储并在事件账本上落账，与 HTTP ack API 同一对齐 |
 | `(*App).Escalation() *core/escalation.Manager` | 未确认升级管理器 |
 | `(*App).Incidents() *core/incident.Store` | 事件账本：规则路由的投递开事件、确认与恢复关事件 |
 | `(*App).Close() error` | 优雅关闭：停止投递池并等待其排空，再关队列、关渠道。关闭后 `Dispatch` 返回错误 |
@@ -114,9 +114,9 @@ cfg.Providers["feishu-ops"] = config.ProviderConfig{
 
 一条 `core.Notification` 到达目标渠道的解析顺序：
 
-1. `n.Channels` 非空：逐项解析列出的引用——provider 实例名（`Providers` 键或 `Runtime()` 注册名）直接使用；`group:<id>` 展开为群组成员；`user:<id>` 展开为该受众/收件人的端点；普通名字先查 `channels` 渠道块（展开成 provider 列表），都不是则按字面渠道名处理并在入队前报「provider not found」。
+1. `n.Channels` 非空：逐项解析列出的引用：provider 实例名（`Providers` 键或 `Runtime()` 注册名）直接使用；`group:<id>` 展开为群组成员；`user:<id>` 展开为该受众/收件人的端点；普通名字先查 `channels` 渠道块（展开成 provider 列表），都不是则按字面渠道名处理并在入队前报「provider not found」。
 2. `n.Channels` 为空：先查静态路由 `cfg.Routes[n.Type]`，未命中再查 `cfg.LevelRoutes[n.Level]`。
-3. 两者皆无：`Dispatch` 返回 `no route found` 错误——**注册了渠道不等于会被路由到**。
+3. 两者皆无：`Dispatch` 返回 `no route found` 错误。**注册了渠道不等于会被路由到**。
 
 ## 去重
 
@@ -158,7 +158,7 @@ _ = app.Runtime().RegisterProvider("echo", echoProvider{}, true)
 ## 生命周期与并发
 
 - `New` 返回即代表投递池已在后台运行，可直接 `Dispatch`。
-- `Close` 的顺序是先停池、等排空，再关队列、关渠道——保证不会丢失已接受的任务，也不会在关闭中的队列上取到零值任务。
+- `Close` 的顺序是先停池、等排空，再关队列、关渠道，保证不会丢失已接受的任务，也不会在关闭中的队列上取到零值任务。
 - 典型嵌入模式：`New` 一次、随服务进程存活，`http.Server` 关闭后 `defer app.Close()`。
 
 ## 导出面清单

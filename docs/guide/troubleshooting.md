@@ -53,7 +53,7 @@ curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / 
 2. **查 worker**：`queue.workers` 是否为 0、worker 是否起了（启动日志有 `worker pool started`）
 3. **查路由**：请求带的 `channels` 是否真是配置里的实例名（`curl /api/v1/providers` 可列出）
 4. **查去重**：`dedup.enabled` 窗口内重复通知会被折叠（这是预期行为），换个 `type` 或关掉 dedup 验证
-5. **查通道侧错误**：按 provider 查各自的常见错误表——
+5. **查通道侧错误**：按 provider 查各自的常见错误表：
 
 | 通道 | 常见错误表 |
 |------|-----------|
@@ -81,6 +81,6 @@ curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / 
 
 ## 还是不行
 
-1. 开 debug：把 provider `enabled: false` 时不会被选中；用 `log` provider 旁路验证链路本身（见[快速开始](/guide/getting-started)第 1 步）
+1. 旁路验证：把可疑 provider `enabled: false`，它就不会被选中；再用 `log` provider 验证链路本身（见[快速开始](/guide/getting-started)第 1 步）
 2. 查日志与运行时状态：`heraldd` 的结构化日志 + `curl /api/v1/status`
 3. 提 issue：带上 config（脱敏）、`/api/v1/logs` 的相关条目、heraldd 版本

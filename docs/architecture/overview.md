@@ -46,21 +46,13 @@ Routing      ≠ Delivery           —— 展开决策与执行任务分离
 Provider     ≠ Business Logic     —— Provider 只做请求构造/调用/错误转换
 ```
 
-各边界的落地现状与逐批执行记录见 [Audience 领域模型](/design-audience-model)与[现状审计](/design-audience-audit)（计划 Phase 0-9 已全批落地）：Notification / Channel（routes 路由 + `channels` 独立配置块，显式 provider > channels 块 > routes 表）/ Delivery Task（显式状态机 queued/delivering/retrying/delivered/failed/dead + MaxAttempts/LastError，同步重试）/ Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Provider 错误六类分类（ Temporary/Permanent/RateLimited/Authentication/InvalidRequest/Timeout，分类骑错误链、wire 文本不变）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）。明确留批：异步重新入队（`next_retry_at`，同步重试无排队语义）与 Logs/Delivery 事件流分离，均已在审计中记录留批理由。
+各边界的落地现状与逐批执行记录见 [Audience 领域模型](/design-audience-model)与[现状审计](/design-audience-audit)（计划 Phase 0-9 已全批落地）：Notification / Channel（routes 路由 + `channels` 独立配置块，显式 provider > channels 块 > routes 表）/ Delivery Task（显式状态机 queued/delivering/retrying/delivered/failed/dead + MaxAttempts/LastError，同步重试）/ Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Provider 错误六类分类（Temporary/Permanent/RateLimited/Authentication/InvalidRequest/Timeout，分类骑错误链、wire 文本不变）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）。明确留批：异步重新入队（`next_retry_at`，同步重试无排队语义）与 Logs/Delivery 事件流分离，均已在审计中记录留批理由。
 
 ## 核心设计思想
 
 ### 1. HTTP First
 
-Herald 的主要用户接口是 **HTTP REST API**，而不是 SDK。
-
-**原因：**
-
-- curl 即可使用
-- 自动化友好
-- CI/CD 友好
-- 多语言天然兼容
-- 降低接入成本
+Herald 的主要用户接口是 **HTTP REST API**，而不是 SDK。curl 就能调，脚本、CI/CD 和任何语言都不用装依赖，接入成本压到一个 HTTP 请求。
 
 ### 2. Queue as Backbone
 
@@ -83,7 +75,7 @@ API → Queue → Worker Pool
 
 ### 4. Event First
 
-Herald 不只是"发送消息"，而是"处理事件"。
+Herald 的核心职责是处理事件，发送消息只是事件处理链条的最后一环。
 
 **示例事件：**
 
@@ -157,11 +149,4 @@ heraldd worker --config worker.yaml
 
 ## 最终定位
 
-Herald：**Lightweight, Provider-agnostic Notification Delivery Infrastructure**
-
-**核心价值：**
-
-- 业务只描述「发生了什么、通知什么、通知谁」，不关心渠道细节
-- 统一路由（受众 / 通道 / 规则）
-- 统一队列与 Worker
-- 统一投递生命周期（Delivery 独立状态、独立重试）
+**Lightweight, Provider-agnostic Notification Delivery Infrastructure**。落到使用上：业务侧只描述「发生了什么、通知什么、通知谁」；受众/通道/规则的路由、队列与 Worker、投递的独立状态与独立重试，全部由 Herald 收口。

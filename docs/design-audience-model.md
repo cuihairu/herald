@@ -1,15 +1,12 @@
 # Audience 领域模型：Herald 完整架构改进计划书
 
-> 状态：**执行中**。Phase 0 审计已完成（见 [现状审计](/design-audience-audit)）；Phase 1 的
-> `user:` 级受众配置化 MVP、Phase 3 的 Delivery 状态机枚举化（同步重试）与 Phase 6 的
-> notify API 领域字段（`channel` / `audience` / `data` / `idempotency_key`）已落地
-> （执行记录见[审计文档](/design-audience-audit#五执行记录)），其余 Phase 待后续 Code Agent
-> 按此计划推进：**先分析现状 → 再按模型改造 → 保持兼容 → 测试 → 文档同步更新**。
-> 执行起点是各 Phase 前的代码审计（第 33 节 Phase 0），本文本身不改代码。
+> 状态：**收官（2026-10-04）**。Phase 0-9 全批落地，执行记录与留批清单见
+> [现状审计](/design-audience-audit#五执行记录)。本文保留为计划书原貌：各 Phase 前的
+> 代码审计（第 33 节 Phase 0）是执行起点的存档，本文本身不改代码。
 
 ## 1. 改造目标
 
-本次改造的目标不是重写 Herald，而是对现有实现进行一次**领域模型收敛和架构边界明确化**。
+本次改造不重写 Herald，做的是对现有实现的**领域模型收敛和架构边界明确化**。
 
 Herald 的最终定位：
 
@@ -130,7 +127,7 @@ Webhook URL
 
 ### 4.1 定义
 
-Audience 是 Herald 中非常重要的核心概念：
+Audience 是 Herald 的核心概念：
 
 > **Audience 表示一条 Notification 所面向的受众集合，即"这条通知应该通知谁"。**
 
@@ -1008,7 +1005,7 @@ recipients:
         target: "alice@example.com"
 ```
 
-这样配置关系非常清晰：
+配置关系如下：
 
 ```text
 Channel
@@ -1515,7 +1512,7 @@ RabbitMQ
 
 ### ⑤ 不删除当前 Log Provider
 
-Log Provider 是非常好的：
+Log Provider 的用途：
 
 ```text
 开发
@@ -1645,7 +1642,7 @@ Retry Policy
 
 ## 37. 最终判断标准
 
-这次改造不是看"代码增加了多少"，而是看 Herald 是否真正做到：
+这次改造的验收不看"代码增加了多少"，看 Herald 是否真正做到：
 
 > **业务系统只需要描述"发生了什么、通知什么、通知谁"，而不需要关心消息最终通过什么渠道、由哪个 Worker、什么时候以及如何重试送达。**
 

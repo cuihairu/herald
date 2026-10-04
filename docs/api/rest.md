@@ -61,7 +61,7 @@ token。token 缺失、无效或过期返回 401。
 
 发送通知。
 
-模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**——`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。请求按 `type` + `level` 路由，也可显式命名接收方（`channels` / `channel` / `audience`）；`template` + `params`/`data` 走模板渲染，`title`/`body` 走直接内容。幂等语义见 [接收方与幂等](#notify-receivers)，字段演进依据 [Audience 领域模型](/design-audience-model)。
+模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**。`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。请求按 `type` + `level` 路由，也可显式命名接收方（`channels` / `channel` / `audience`）；`template` + `params`/`data` 走模板渲染，`title`/`body` 走直接内容。幂等语义见 [接收方与幂等](#notify-receivers)，字段演进依据 [Audience 领域模型](/design-audience-model)。
 
 ### notify-请求 {#notify-request}
 
@@ -170,7 +170,7 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 
 ### 接收方与幂等 {#notify-receivers}
 
-**接收方拼集**：`channels`、`channel`、`audience` 三个字段并列、可任意混用，最终接收方为三者合并：`audience` 的每一项按受众引用展开——`group:` 解析为群组成员、`user:` 解析为[配置化接收人](/guide/configuration#领域模型与配置块)、裸名字按渠道名处理。`data` 与 `params` 同为模板数据、合并生效，重名时 `params` 优先。
+**接收方拼集**：`channels`、`channel`、`audience` 三个字段并列、可任意混用，最终接收方为三者合并。`audience` 的每一项按受众引用展开：`group:` 解析为群组成员、`user:` 解析为[配置化接收人](/guide/configuration#领域模型与配置块)、裸名字按渠道名处理。`data` 与 `params` 同为模板数据、合并生效，重名时 `params` 优先。
 
 ```json
 {
@@ -184,7 +184,7 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 }
 ```
 
-**幂等**：携带 `idempotency_key` 的请求，在 **进程生命周期内**重复发送同键请求时，返回首次请求的记录结果（同样的 `notification_id` / `task_ids`），且**不产生新的投递**。只有成功受理（`code` 0）的请求会被记录；全部失败（422）的请求不记录、可修正后重试同键。幂等表为内存实现（约 1000 条 FIFO 逐出，服务重启即清空）——需要跨重启幂等的场景请由调用方自行去重。
+**幂等**：携带 `idempotency_key` 的请求，在 **进程生命周期内**重复发送同键请求时，返回首次请求的记录结果（同样的 `notification_id` / `task_ids`），且**不产生新的投递**。只有成功受理（`code` 0）的请求会被记录；全部失败（422）的请求不记录、可修正后重试同键。幂等表为内存实现（约 1000 条 FIFO 逐出，服务重启即清空）。需要跨重启幂等的场景请由调用方自行去重。
 
 ## GET /api/v1/status {#get-status}
 
@@ -400,7 +400,7 @@ Worker 的部署返回空列表（`count` 0）。
 
 `mode` 是启停载体：`active` 生效、`shadow` 只观察不动作、`off` 停用（省略时按 `shadow` 处理）。`action` 是决策层动词：`route` 改道（默认）、`allow` 放行、`suppress` 抑制；`route` 步骤只属于 `action=route`，带上会被拒。`priority` 从高到低排序，同级保持写入顺序，第一条命中的生效规则决定结果并停止求值。
 
-`shadow_hits` 是该规则在影子期累计的命中次数（`GET /api/v1/rules/{id}` 也带这个字段）：只统计"本会触发"的影子命中，因 `for` 挂起、组折叠、抑制、静默、丢弃而扣下的事件各记各的、不计入其中。它是**进程内观测状态**——重启归零、不随规则持久化；把规则切到 `active` 后计数停止增长，切回 `shadow` 继续。切之前先看这个数：它就是激活后真实会发出去的量。列表只带累计计数；近 24 小时/近 7 天窗口与最近命中样本在**规则详情**的 `shadow_stats` 里（见 `GET /api/v1/rules/{id}`）。
+`shadow_hits` 是该规则在影子期累计的命中次数（`GET /api/v1/rules/{id}` 也带这个字段）：只统计"本会触发"的影子命中，因 `for` 挂起、组折叠、抑制、静默、丢弃而扣下的事件各记各的、不计入其中。它是**进程内观测状态**：重启归零、不随规则持久化；把规则切到 `active` 后计数停止增长，切回 `shadow` 继续。切之前先看这个数：它就是激活后真实会发出去的量。列表只带累计计数；近 24 小时/近 7 天窗口与最近命中样本在**规则详情**的 `shadow_stats` 里（见 `GET /api/v1/rules/{id}`）。
 
 ## POST /api/v1/rules {#rule-create}
 
@@ -443,7 +443,7 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-`samples` 是最近命中（最新在前，最多 20 条，从未命中时省略）——独立于投递日志的采样与环形缓冲，每条影子命中都进环。窗口按整点小时桶累计（`last_24h`/`last_7d`）。与 `shadow_hits` 一样是进程内观测状态：重启归零。未接 Runtime 的部署省略 `shadow_stats` 字段。
+`samples` 是最近命中（最新在前，最多 20 条，从未命中时省略），来自独立于投递日志的采样环形缓冲，每条影子命中都进环。窗口按整点小时桶累计（`last_24h`/`last_7d`）。与 `shadow_hits` 一样是进程内观测状态：重启归零。未接 Runtime 的部署省略 `shadow_stats` 字段。
 
 ## PUT /api/v1/rules/{id} {#rule-update}
 
@@ -505,7 +505,7 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## DELETE /api/v1/groups/{id} {#group-delete}
 
-删除群组，不存在返回 404。删除**不会**清理规则里对它的引用——仍在引用它的规则会在派发时因未知群组显式失败，这胜过悄悄改写用户的规则。
+删除群组，不存在返回 404。删除**不会**清理规则里对它的引用：仍在引用它的规则会在派发时因未知群组显式失败，这胜过悄悄改写用户的规则。
 
 ## GET /api/v1/rosters {#rosters-list}
 
@@ -558,7 +558,7 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## DELETE /api/v1/rosters/{id} {#roster-delete}
 
-删除值班表，不存在返回 404。删除不会改写引用它的规则——引用它的静默立即失效（fail-open：缺日程数据绝不等于该静默），恢复投递比悄悄静默安全。
+删除值班表，不存在返回 404。删除不会改写引用它的规则：引用它的静默立即失效（fail-open，缺日程数据不等于该静默生效），恢复投递比悄悄静默安全。
 
 ## GET /api/v1/alerts/{id} {#alert-get}
 
@@ -646,7 +646,7 @@ ack 存储未配置返回 503。
 
 ## POST /api/v1/callbacks/feishu {#feishu-callback}
 
-飞书互动卡片回调入口（卡片上的确认按钮）。**不走 Bearer 认证**——调用方是飞书
+飞书互动卡片回调入口（卡片上的确认按钮）。**不走 Bearer 认证**，调用方是飞书
 的服务器，凭 `card_callback.encrypt_key` 认证：应答飞书的 `url_verification`
 挑战；加密回调（`encrypt` 字段，AES-256-CBC）在配置了加密密钥时解密处理，未
 配置返回 501；明文回调始终可处理。确认动作与 `POST /alerts/{id}/ack` 走同一套

@@ -4,20 +4,11 @@ Builtin Runtime 直接运行在 Core 内，适合简单的 HTTP API 类 Provider
 
 ## 适合场景
 
-- Telegram Bot API
-- Discord Webhook
-- 飞书机器人
-- 企业微信机器人
-- Email SMTP
-- 通用 Webhook
-- SMS（阿里云、腾讯云、网易云）
+Telegram Bot API、Discord Webhook、飞书/企业微信机器人、Email SMTP、通用 Webhook、SMS（阿里云、腾讯云、网易云）——一个 HTTP 调用能发出去的渠道都适合。
 
 ## 特点
 
-- 轻量
-- 无 IPC
-- 高性能
-- 配置简单
+投递是进程内一次函数调用，没有 IPC 和额外进程；接一个新渠道就是一段 `providers:` 配置。
 
 ## 接口
 

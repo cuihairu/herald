@@ -40,7 +40,7 @@
 
 ## Worker Provider
 
-Worker Provider 不是具体渠道，而是一个代理类型（`type: worker`），把任务按 `target`（等价 `name`）转发给匹配的远程 Worker，由 Worker 进程去执行真正渠道的发送。业务渠道（含微信公众号）跑在哪个 Runtime 由部署决定：内置渠道默认走 Builtin Runtime，同一个渠道也可以由远程 Worker 承接——配置里换 `type: worker` 即可。
+Worker Provider 是一个代理类型（`type: worker`），本身不实现任何渠道：把任务按 `target`（等价 `name`）转发给匹配的远程 Worker，发送动作在 Worker 进程里完成。业务渠道（含微信公众号）跑在哪个 Runtime 由部署决定：内置渠道默认走 Builtin Runtime；同一个渠道也可以交由远程 Worker 承接，配置里换 `type: worker` 即可。
 
 ## 配置格式
 

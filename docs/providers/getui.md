@@ -20,7 +20,7 @@
 2. **记下 AppID**：应用唯一标识，也是接口路径的一段（`BaseUrl` 里的 `$appId`）
 3. **记下 AppKey**：创建应用时生成，用于 `/auth` 的 `appkey` 与签名
 4. **记下 MasterSecret**：应用详情页可查，等同推送全权凭据，只在服务端使用
-5. **设备 CID**：App 集成[个推 SDK](https://docs.getui.com/getui/mobile/android/androidstudio/)后拿到——Android 在 `onReceiveClientId` 回调、iOS 在 `GeTuiSdkDidRegisterClient` 回调——由你的业务服务端存进花名册/用户表，投递时作为收件人传入。Herald 不负责从个推获取 CID。
+5. **设备 CID**：App 集成[个推 SDK](https://docs.getui.com/getui/mobile/android/androidstudio/)后拿到，Android 在 `onReceiveClientId` 回调、iOS 在 `GeTuiSdkDidRegisterClient` 回调。CID 由你的业务服务端存进花名册/用户表，投递时作为收件人传入；Herald 不负责从个推获取。
 
 ## 发第一条消息
 

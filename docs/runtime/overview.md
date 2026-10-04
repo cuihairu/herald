@@ -1,31 +1,20 @@
 # Runtime 概述
 
-## Provider Runtime Architecture
-
-这是 Herald 的核心。
+Provider 跑在哪个进程里，由 Runtime 决定。Herald 分两类：Builtin（进程内直调）和 Worker（独立进程经 WebSocket 接入）。
 
 ## Runtime 类型
 
 ### Builtin Runtime
 
-直接运行在 Herald 核心进程内。
+直接运行在 Herald 核心进程内，投递就是一次函数调用，没有 IPC。
 
 #### 适合场景
 
-- Telegram
-- Discord
-- 飞书
-- 企业微信 Bot
-- Email
-- Webhook
-- SMS（阿里云、腾讯云、网易云）
+Telegram、Discord、飞书、企业微信 Bot、Email、Webhook、SMS（阿里云、腾讯云、网易云）——纯 HTTP API 类渠道都算。
 
 #### 特点
 
-- 轻量
-- 无 IPC
-- 高性能
-- 配置简单
+任务不出进程：延迟就是 Provider 本身的 HTTP 往返，配置一个 `providers:` 块即可注册，没有独立的进程要管。
 
 #### 接口
 
@@ -96,11 +85,7 @@ manager.RegisterProvider("telegram", provider, true)
 
 #### 特点
 
-- 崩溃隔离
-- 独立权限
-- 特殊 OS 环境
-- GUI Session 支持
-- 独立进程隔离
+渠道代码跑在独立进程里：崩溃不波及调度器，可以用到 GUI Session、特殊 OS 权限这类主进程没有的环境。代价是多一条 WebSocket 链路要维护心跳与重连。
 
 #### Worker 协议
 
@@ -160,11 +145,7 @@ Runtime Manager 是所有 Provider 的管理中心。
 
 ### 核心功能
 
-1. **Provider 注册**：注册 Provider Factory 和实例
-2. **Provider 创建**：从配置创建 Provider 实例
-3. **任务投递**：将任务分发给指定的 Provider
-4. **重试机制**：处理失败任务的重试
-5. **日志记录**：记录投递日志
+Provider 的 Factory 与实例都注册在 Manager 上；投递时按名字找到实例调用 `Deliver`，失败交给重试机制，每次尝试写入投递日志。
 
 ### 使用示例
 

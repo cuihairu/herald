@@ -68,7 +68,7 @@ Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送�
 
 ### Builtin Providers
 
-Builtin Providers 直接在 Herald 核心进程中运行，配置简单：
+Builtin Providers 直接在 Herald 核心进程中运行，配置块长这样：
 
 ```yaml
 providers:
@@ -152,10 +152,10 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 ## 最佳实践
 
-1. **敏感信息**：使用环境变量存储 API 密钥
-2. **多服务商**：配置多个同类型 Provider 提高可用性
-3. **按需启用**：根据环境启用不同的 Provider
-4. **监控状态**：定期检查 Provider 健康状态
+1. 凭据走环境变量，配置文件里写 `$VAR` 占位
+2. 同类型配多个实例（如两个 webhook 指向不同接收端），故障时切路由不换业务代码
+3. `enabled: false` 只是关掉投递，Provider 仍会按配置创建、凭据照常校验；临时下线走 API 或 Dashboard 的动态开关
+4. 排查投递问题先查 `/api/v1/logs`，失败原因带渠道原始报错
 
 ## 注册机制与 worker 占位
 

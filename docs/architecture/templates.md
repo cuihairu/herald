@@ -204,9 +204,7 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 
 ### 2. 渲染分离
 
-- **模板引擎**：处理变量替换
-- **渲染器**：处理格式转换
-- **Provider**：处理实际发送
+变量替换在模板引擎，格式转换在渲染器，实际发送在 Provider，三层互不掺和。
 
 ### 3. 向后兼容
 
