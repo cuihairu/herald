@@ -54,6 +54,26 @@ Herald 是一个**事件驱动的消息通知分发平台**：业务方把通知
 - **多通道兜底重试**：同一事件可路由到多个渠道，主通道故障自动重试、换道送达，指数退避直到成功或达到重试上限。
 - **CI/CD 与自动化接入**：curl 一行接入，无 SDK 依赖；构建、部署、备份任务的结束状态直接进群，或经 Webhook 联动自建系统。
 
+## 界面速览
+
+管理台（Dashboard）长什么样，一眼看全——自动轮播，也可用两侧箭头、下方圆点或键盘 ←/→ 翻看，点击任意一屏可看大图：
+
+<script setup>
+const showcaseSlides = [
+  { image: '/screenshots/overview.png', title: '仪表盘', caption: '仪表盘：系统状态、通知计数与 Provider 健康一览' },
+  { image: '/screenshots/providers.png', title: 'Providers', caption: 'Providers：渠道实例的启用、健康与配置入口' },
+  { image: '/screenshots/rules.png', title: '通知规则', caption: '通知规则：优先级、生效/观察模式与影子命中统计' },
+  { image: '/screenshots/groups.png', title: '通知群组', caption: '通知群组：命名受众与渠道收件人花名册' },
+  { image: '/screenshots/workers.png', title: 'Workers', caption: 'Workers：本地/远端 Runtime 节点与心跳状态' },
+  { image: '/screenshots/logs.png', title: '投递日志', caption: '投递日志：每条通知的渠道、级别、状态与耗时' },
+  { image: '/screenshots/send.png', title: '发送消息', caption: '发送消息：控制台手工发一条通知调试链路' },
+]
+</script>
+
+<ShowcaseCarousel :slides="showcaseSlides" />
+
+以上截图来自本地实际运行的实例（内存队列 + 日志 Provider），数据为演示种子。
+
 ## 快速入口
 
 - [快速开始](/guide/getting-started) —— 60 秒零凭据发出第一条通知

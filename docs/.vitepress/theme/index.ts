@@ -1,6 +1,13 @@
 // herald docs theme — 默认主题 + 品牌配色（custom.css 见同目录）
 // VitePress 会自动发现本文件，无需在 config.mts 里引用。
 import DefaultTheme from 'vitepress/theme'
+import ShowcaseCarousel from './ShowcaseCarousel.vue'
 import './custom.css'
+import type { Theme } from 'vitepress'
 
-export default DefaultTheme
+export default {
+  extends: DefaultTheme,
+  enhanceApp({ app }) {
+    app.component('ShowcaseCarousel', ShowcaseCarousel)
+  },
+} satisfies Theme
