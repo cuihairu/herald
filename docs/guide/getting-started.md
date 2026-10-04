@@ -7,6 +7,55 @@
 
 之后再到[场景与接入](/guide/use-cases)挑你的业务场景照抄配置。
 
+## Herald 是什么
+
+> Herald receives notifications from applications and reliably delivers them to one or more notification providers.
+
+中文定位：
+
+> **Herald 是一个轻量、Provider 无关的统一通知投递基础设施**，为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力。
+
+业务侧只描述「发生了什么、通知什么、通知谁」；消息最终通过什么渠道、由哪个 Worker、何时以及如何重试送达，全部由 Herald 完成（受众 - 渠道 - Provider 的解耦模型见 [Audience 领域模型](/design-audience-model)）。
+
+## 核心概念
+
+| 概念 | 一句话 | 举例 |
+|------|--------|------|
+| **Notification** | 一次需要被 Herald 处理和投递的通知 | 一条 `type=server.alert, level=error` 的告警 |
+| **Audience** | 一条通知所面向的受众集合（通知谁） | `group:ops` |
+| **Recipient** | Audience 中的具体接收者 | `user:alice` |
+| **Endpoint** | Recipient 的具体投递地址 | `telegram:123456` |
+| **Channel** | 业务定义的通知逻辑通道（哪类通知） | `ci` / `ops` / `security` |
+| **Template** | 通知内容如何生成 | `server_alert` 模板渲染标题与字段 |
+| **Routing** | 决定通知展开成哪些投递 | 受众解析 + 通道路由 → Delivery Task |
+| **Delivery Task** | 一次具体的渠道投递任务 | `T001 → Alice → Telegram` |
+| **Queue / Worker** | 何时执行 / 谁执行 | memory 队列 + 本地 worker 池 |
+| **Provider** | 实际调用外部服务的投递实现 | Telegram / Feishu / Email / Log |
+
+## 架构
+
+```text
+Client
+ ↓ (HTTP POST /api/v1/notify)
+Notification API
+ ↓
+Routing（受众解析 / 通道路由 / 规则引擎）
+ ↓
+Delivery Task
+ ↓
+Queue
+ ↓
+Worker
+ ↓
+Provider
+ ↓
+Telegram / Feishu / Email / Log ...
+```
+
+Notification 与 Delivery 分离：一条 Notification 可能展开成多条 Delivery（多渠道），各 Delivery 独立状态、独立重试。`accepted` 只代表 Herald 受理，不代表已送达。
+
+> 实现现状：`Notification / Template / Channel（routes）/ Delivery / Queue / Worker / Provider` 以及通知群组（Audience 的 `group:` 形态）当前版本已落地；`user:` 级 Recipient 与多 Endpoint 属规划中的细分粒度，落地计划与拆解见 [Audience 领域模型](/design-audience-model)。
+
 ## 安装
 
 ### 源码构建（推荐，需 Go 1.26+）

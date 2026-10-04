@@ -138,6 +138,7 @@ export default defineConfig({
             { text: '通知规则引擎', link: '/rule-engine-design' },
             { text: '规则引擎决策层', link: '/design-rule-engine' },
             { text: '通知群组', link: '/design-notification-groups' },
+            { text: 'Audience 领域模型', link: '/design-audience-model' },
           ]
         }
       ],

@@ -4,13 +4,49 @@
 
 Herald 是一个：
 
-> **事件驱动的通知投递基础设施**（Event-driven Delivery Infrastructure）
+> **轻量、Provider 无关的通知投递基础设施**（Lightweight, Provider-agnostic Notification Delivery Infrastructure）
+
+为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力——事件驱动（Event-driven Delivery Infrastructure）是其工作方式，Provider 无关是其边界承诺。
 
 **核心流程：**
 
 ```
-Event → Route → Render → Queue → Worker → Provider
+Event → Notification → Routing → Delivery Task → Queue → Worker → Provider
 ```
+
+- **Notification** 描述「通知什么、面向谁、用什么模板」，不知道任何 Provider 细节；
+- **Routing** 把 Notification 展开成若干 **Delivery Task**（受众解析 + 通道路由）；
+- 每条 Delivery 独立状态、独立重试，与 Notification 的受理状态分离；
+- 完整领域模型与落地计划见 [Audience 领域模型](/design-audience-model)。
+
+## 领域模型与边界
+
+Herald 的领域模型围绕一条通知在系统内的完整旅程展开：
+
+```text
+Audience（通知谁）── group:ops / user:alice
+    ↓
+Recipient（具体是谁）      Channel（哪类通知：ci / ops / security）
+    ↓
+Endpoint（什么地址）       Template（内容如何生成）
+    ↓
+Routing（展开成哪些投递）
+    ↓
+Delivery Task（一次具体渠道投递）→ Queue → Worker → Provider
+```
+
+模型必须守住以下边界，它们是本架构的核心：
+
+```text
+Notification ≠ Delivery Task      —— 一条通知可展开成多条投递，状态互不混淆
+Audience     ≠ Channel            —— 「通知谁」与「哪类通知」是两个维度
+Channel      ≠ Provider           —— 逻辑通道与投递实现解耦，通道可换渠道
+Recipient    ≠ Endpoint           —— 一个人可拥有多个地址，地址可换渠道
+Routing      ≠ Delivery           —— 展开决策与执行任务分离
+Provider     ≠ Business Logic     —— Provider 只做请求构造/调用/错误转换
+```
+
+各边界的落地现状与缺口拆解见 [Audience 领域模型](/design-audience-model)（规划中，未实施）：当前版本已实现 Notification / Channel（routes 路由）/ Delivery Task / Queue / Worker / Provider 与通知群组（`group:` 形态受众）；`user:` 级 Recipient、多 Endpoint、Channel 独立配置块与 Delivery 显式状态机为规划项。
 
 ## 核心设计思想
 
@@ -121,11 +157,11 @@ heraldd worker --config worker.yaml
 
 ## 最终定位
 
-Herald：**Event-driven Delivery Infrastructure**
+Herald：**Lightweight, Provider-agnostic Notification Delivery Infrastructure**
 
 **核心价值：**
 
-- 统一事件
-- 统一队列
-- 统一 Worker
-- 统一投递
+- 业务只描述「发生了什么、通知什么、通知谁」，不关心渠道细节
+- 统一路由（受众 / 通道 / 规则）
+- 统一队列与 Worker
+- 统一投递生命周期（Delivery 独立状态、独立重试）
