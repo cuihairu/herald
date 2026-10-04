@@ -354,18 +354,12 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 // routes, static routes, group summaries, escalations, recoveries — so
 // group expansion semantics exist exactly once.
 func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification, channels []string, renderedData *template.RenderedData, result *ProcessResult) {
-	for _, ref := range channels {
-		targets, err := s.expandRef(ref)
-		if err != nil {
-			// An unknown group (or a group reference with no resolver) is
-			// configuration drift: that reference fails, visibly, and the
-			// remaining channels still go out.
-			result.Failed = append(result.Failed, ChannelError{Channel: ref, Error: err.Error()})
-			continue
-		}
-		for _, dt := range targets {
-			s.enqueueOne(ctx, n, dt, renderedData, result)
-		}
+	// Routing decision first (pure), delivery execution after: the queue
+	// is only touched by the execution half.
+	targets, failed := s.expandRefs(channels)
+	result.Failed = append(result.Failed, failed...)
+	for _, dt := range targets {
+		s.enqueueOne(ctx, n, dt, renderedData, result)
 	}
 }
 
@@ -375,6 +369,29 @@ func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification,
 type deliveryTarget struct {
 	channel string
 	targets []string
+}
+
+// expandRefs resolves a batch of channel references into concrete
+// delivery targets. It is the pure decision step of routing: it never
+// touches the queue, so Routing (decide who gets what) stays separable
+// from Delivery (Plan, Push, retry). A reference that fails to resolve
+// is recorded as a per-channel failure and the rest still expand — no
+// single bad reference takes the notification down.
+func (s *NotificationService) expandRefs(refs []string) ([]deliveryTarget, []ChannelError) {
+	targets := make([]deliveryTarget, 0, len(refs))
+	var failed []ChannelError
+	for _, ref := range refs {
+		expanded, err := s.expandRef(ref)
+		if err != nil {
+			// An unknown group (or a group reference with no resolver) is
+			// configuration drift: that reference fails, visibly, and the
+			// remaining channels still go out.
+			failed = append(failed, ChannelError{Channel: ref, Error: err.Error()})
+			continue
+		}
+		targets = append(targets, expanded...)
+	}
+	return targets, failed
 }
 
 // expandRef resolves one channel reference. Plain names pass through as

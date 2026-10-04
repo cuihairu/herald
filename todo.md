@@ -8,10 +8,10 @@
 - [x] **Phase 1 · 领域模型（user: 受众配置化 MVP）** — `3b56660`：`core/audience` 包（Endpoint/Recipient/Audience/Manager 启动校验）、config `audiences`/`recipients` 块、service `expandRef` 新增 `user:` 分支 + 按 provider 合并端点；未知 user 单通道显式失败
 - [x] **Phase 3 · Delivery 状态机（枚举化 + 同步重试）** — `3b56660`：`DeliveryStatus` 枚举、`ErrMaxRetries` sentinel（errors.Is 判定 dead）、retrying 驱动 `RetryCount`、TaskLog wire 字符串不变
 - [x] **Phase 6 · API 领域字段** — `8dddeb8`：notify 新增 `channel`/`audience`/`data`/`idempotency_key`（全部可选、兼容）；内存幂等表（cap 1000 FIFO、仅记录成功结果）；`audience` 逐项走既有展开链
+- [x] **Phase 2 · Routing** — Routing ≠ Delivery 边界显式化：`expandRefs` 纯决策步骤（引用集合 → 目标，不触队列；单引用失败不阻断批量），`enqueue` 只消费决策结果执行入队；行为零变化 + 决策层直接单测（routing_test.go 5 场景）
 
 ## 待办（按序执行）
 
-- [ ] **Phase 2 · Routing** — Routing ≠ Delivery 边界显式化：把「引用集合 → 展开决策」抽为纯函数步骤（`expandRefs`），enqueue 只消费决策结果执行入队；行为零变化，补展开决策边界测试
 - [ ] **Phase 4 · Queue / Worker** — 按计划核对 enqueue/dequeue/ack/worker/retry 五项现状（MemoryQueue 已具备），补齐缺口与测试
 - [ ] **Phase 5 · Provider** — 错误分类接口（计划 §29）：Temporary/Permanent/RateLimited/Authentication/InvalidRequest/Timeout 分类接入 retrying/dead 判定
 - [ ] **Phase 7 · Configuration** — `channels` 独立配置块（优先级：channel 显式 > channels 块 > routes 表）；配置参考文档补全

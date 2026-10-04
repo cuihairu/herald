@@ -84,7 +84,7 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1 + Phase 3 + Phase 6 落地）
+## 五、执行记录（2026-10-04：Phase 1/2/3/6 分批落地）
 
 前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
@@ -113,6 +113,13 @@ POST /api/v1/notify
 - 幂等语义：仅记录**成功受理**（`code 0`）的结果；命中 → 直接返回首次的 `notification_id` / `task_ids`，**不触碰投递管线**（队列零增长）；失败请求（422）不记录、同键可修正重试。进程生命周期内有效，重启即清空（MVP 无持久化，已在文档明示）。
 - 覆盖：`handler_notify_test.go` 新增 7 个子测试（channels+channel 并集、channel 单用、audience 展开 `user:` 引用、data 并入 params、params 重名优先、data 独用、幂等 replay/键独立/失败不记录）+ `idempotency_test.go` 表驱动直测（miss/roundtrip/重复 put 保首条/FIFO 逐出/容量回退/自定义容量）。
 - 设计取舍：幂等放 handler 层而非 service 层——键是请求字段、命中路径短路在 Process 之前（dedup 是内容指纹去重、幂等是请求键回放，两者语义不同、互不替代）；表内不存请求原文，只存 `service.ProcessResult`。
+
+### Phase 2 MVP：Routing 边界显式化（决策与执行分离）
+
+计划 Phase 2 的链路（Notification → Audience resolution → Channel routing → Delivery Task）在上一批已具备能力（`expandRef` 的 group:/user: 展开 + Router/rules 的渠道路由），本批补齐的是**边界本身**：
+
+- `core/service/notification.go`：新增 `expandRefs(refs)` —— 引用集合 → 投递目标的**纯决策**步骤（不触碰队列）；单条引用解析失败记录为该引用的 `ChannelError`、其余照常展开。`enqueue` 改为先取决策、后执行入队（`enqueueOne`），Routing（决定谁收到什么）与 Delivery（Plan/Push/重试）在代码上有明确分割点。行为零变化。
+- `core/service/routing_test.go`（新）：`expandRefs` 决策层直接单测——空引用集、裸渠道透传、group:+user: 混合展开（`user:alice` 按 provider 合并端点）、失败引用不阻断批量、无 resolver 时显式失败；`ctx`/queue 零接触（纯函数可测性即边界证明）。
 
 ### 差异总表回填（本批后）
 
