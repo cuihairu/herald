@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cuihairu/herald/core/errclass"
 )
 
 func TestNewClient(t *testing.T) {
@@ -569,5 +571,46 @@ func TestGetTransportErrorIsRetryable(t *testing.T) {
 	c := NewClient(&Config{Timeout: 2 * time.Second})
 	if _, err := c.Get(context.Background(), url); !IsRetryable(err) {
 		t.Fatalf("expected transport error to be retryable, got %v", err)
+	}
+}
+
+// TestClassifiedStatusErrors pins the §15 mapping: transient statuses
+// land in the shared error vocabulary with their own class, deterministic
+// 4xx stay unclassified.
+func TestClassifiedStatusErrors(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		class  errclass.Class
+		has    bool
+	}{
+		{"request timeout", http.StatusRequestTimeout, errclass.Timeout, true},
+		{"rate limited", http.StatusTooManyRequests, errclass.RateLimited, true},
+		{"internal", http.StatusInternalServerError, errclass.Temporary, true},
+		{"bad gateway", http.StatusBadGateway, errclass.Temporary, true},
+		{"bad request", http.StatusBadRequest, "", false},
+		{"unauthorized", http.StatusUnauthorized, "", false},
+		{"too large", http.StatusRequestEntityTooLarge, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte("nope"))
+			}))
+			defer server.Close()
+
+			_, err := NewClient(nil).PostJSON(context.Background(), server.URL, map[string]string{"k": "v"})
+			if err == nil {
+				t.Fatalf("status %d: expected error", tc.status)
+			}
+			class, ok := errclass.Of(err)
+			if ok != tc.has || (tc.has && class != tc.class) {
+				t.Errorf("status %d: class = %q has=%v, want %q has=%v", tc.status, class, ok, tc.class, tc.has)
+			}
+			if IsRetryable(err) != errclass.Retryable(class) {
+				t.Errorf("status %d: IsRetryable inconsistent with its class", tc.status)
+			}
+		})
 	}
 }

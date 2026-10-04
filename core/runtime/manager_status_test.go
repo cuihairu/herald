@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/errclass"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/retry"
 )
@@ -205,5 +206,44 @@ func TestDeliverRateLimitAbortMarksStatusFailed(t *testing.T) {
 	}
 	if !strings.Contains(task.LastError, "rate limit wait aborted") {
 		t.Errorf("LastError = %q, want the rate-limit abort residue", task.LastError)
+	}
+}
+
+// TestDeliverClassifiedErrorTerminals settles the §15 end-to-end story:
+// a provider error classified by the shared vocabulary decides the task's
+// terminal state — deterministic classes fail immediately, transient
+// classes retry to exhaustion into dead.
+func TestDeliverClassifiedErrorTerminals(t *testing.T) {
+	m := newRetryTestManager() // Max 2 -> three attempts
+	if err := m.RegisterProvider("bad-creds", &failingProvider{name: "bad-creds", err: errclass.New(errclass.Authentication, errors.New("bad key"))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RegisterProvider("throttled", &failingProvider{name: "throttled", err: errclass.New(errclass.RateLimited, errors.New("429"))}); err != nil {
+		t.Fatal(err)
+	}
+
+	authTask := &core.DeliveryTask{ID: "p5-auth", Provider: "bad-creds", Status: core.StatusQueued}
+	if err := m.Deliver(context.Background(), authTask); err == nil {
+		t.Fatal("expected the authentication failure to propagate")
+	}
+	if authTask.Status != core.StatusFailed {
+		t.Errorf("Status = %q, want %q (authentication never retries)", authTask.Status, core.StatusFailed)
+	}
+	if authTask.RetryCount != 0 {
+		t.Errorf("RetryCount = %d, want 0 (single attempt)", authTask.RetryCount)
+	}
+	if !strings.Contains(authTask.LastError, "bad key") {
+		t.Errorf("LastError = %q, want the vendor error text", authTask.LastError)
+	}
+
+	deadTask := &core.DeliveryTask{ID: "p5-dead", Provider: "throttled", Status: core.StatusQueued}
+	if err := m.Deliver(context.Background(), deadTask); !errors.Is(err, retry.ErrMaxRetries) {
+		t.Fatalf("Deliver() = %v, want ErrMaxRetries after the budget is spent", err)
+	}
+	if deadTask.Status != core.StatusDead {
+		t.Errorf("Status = %q, want %q (rate-limited exhausts)", deadTask.Status, core.StatusDead)
+	}
+	if deadTask.RetryCount != 2 {
+		t.Errorf("RetryCount = %d, want 2 retries performed", deadTask.RetryCount)
 	}
 }

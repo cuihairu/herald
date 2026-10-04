@@ -5,13 +5,16 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/cuihairu/herald/core/errclass"
 	"github.com/cuihairu/herald/internal/logger"
 )
 
@@ -62,23 +65,43 @@ func NewClient(config *Config) *Client {
 	}
 }
 
-// retryableStatus reports whether an HTTP status code represents a
-// transient failure worth retrying: request timeout, rate limiting, or
-// a server-side error. Other 4xx codes are deterministic client errors
-// (bad payload, bad credentials) — retrying them cannot succeed.
-func retryableStatus(code int) bool {
-	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
+// classifyStatus maps an HTTP status onto the shared error vocabulary
+// (§15): request timeout, rate limiting and server-side errors are
+// transient classes; other 4xx codes are deterministic client errors
+// (bad payload, bad credentials) — retrying them cannot succeed, so they
+// stay unclassified.
+func classifyStatus(code int) (errclass.Class, bool) {
+	switch {
+	case code == http.StatusRequestTimeout:
+		return errclass.Timeout, true
+	case code == http.StatusTooManyRequests:
+		return errclass.RateLimited, true
+	case code >= 500:
+		return errclass.Temporary, true
+	default:
+		return "", false
+	}
 }
 
-// statusError builds the error for a non-2xx response, wrapping it as
-// retryable when the status is transient. The response itself is still
-// returned so callers can inspect the body for diagnostics.
+// statusError builds the error for a non-2xx response, classifying it
+// when the status is transient. The response itself is still returned so
+// callers can inspect the body for diagnostics.
 func statusError(code int, body []byte) error {
 	err := fmt.Errorf("unexpected status code: %d, body: %s", code, string(body))
-	if retryableStatus(code) {
-		return WithRetry(err)
+	if class, ok := classifyStatus(code); ok {
+		return errclass.New(class, err)
 	}
 	return err
+}
+
+// sendError classifies a request-transport failure: network timeouts get
+// their own class (§15), everything else on the wire is temporary.
+func sendError(err error) error {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return errclass.New(errclass.Timeout, fmt.Errorf("failed to send request: %w", err))
+	}
+	return errclass.New(errclass.Temporary, fmt.Errorf("failed to send request: %w", err))
 }
 
 // WithClientCert returns a copy of the client that presents the given
@@ -124,7 +147,7 @@ func (c *Client) PostJSONWithHeaders(ctx context.Context, url string, body inter
 	// Send request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, WithRetry(fmt.Errorf("failed to send request: %w", err))
+		return nil, sendError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -159,7 +182,7 @@ func (c *Client) PostForm(ctx context.Context, reqURL string, data url.Values) (
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, WithRetry(fmt.Errorf("failed to send request: %w", err))
+		return nil, sendError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -190,7 +213,7 @@ func (c *Client) Get(ctx context.Context, url string) (*Response, error) {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, WithRetry(fmt.Errorf("failed to send request: %w", err))
+		return nil, sendError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -254,8 +277,13 @@ func (e *RetryableError) Unwrap() error {
 	return e.Err
 }
 
-// IsRetryable returns true if the error is retryable
+// IsRetryable returns true if the error is retryable. A classified error
+// (core/errclass) decides by its class; the legacy WithRetry marker stays
+// accepted for compatibility.
 func IsRetryable(err error) bool {
+	if class, ok := errclass.Of(err); ok {
+		return errclass.Retryable(class)
+	}
 	if _, ok := err.(*RetryableError); ok {
 		return true
 	}

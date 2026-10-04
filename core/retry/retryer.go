@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/errclass"
 	"github.com/cuihairu/herald/core/httpclient"
 )
 
@@ -28,10 +29,15 @@ func NewRetryableError(err error) error {
 	return &RetryableError{Err: err}
 }
 
-// isRetryable reports whether err is marked retryable. Providers mark
-// transient failures (network errors, HTTP 408/429/5xx) with
-// httpclient.WithRetry; errors.As sees through any additional wrapping.
+// isRetryable reports whether err is worth a later attempt. A classified
+// error (core/errclass, §15) speaks for itself: the class decides.
+// Otherwise providers mark transient failures (network errors, HTTP
+// 408/429/5xx) with httpclient.WithRetry; errors.As sees through any
+// additional wrapping.
 func isRetryable(err error) bool {
+	if class, ok := errclass.Of(err); ok {
+		return errclass.Retryable(class)
+	}
 	var local *RetryableError
 	if errors.As(err, &local) {
 		return true

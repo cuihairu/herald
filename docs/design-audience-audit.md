@@ -84,7 +84,7 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1/2/3/4/6 分批落地）
+## 五、执行记录（2026-10-04：Phase 1/2/3/4/5/6 分批落地）
 
 前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
@@ -135,6 +135,16 @@ POST /api/v1/notify
 - **核对测试**：`core/worker/pool_phase4_test.go`（新）——真 runtime + 真 worker loop 的 §16/§17 全链路核对（成功→delivered+ack、失败→failed+nack+last_error、retryable 耗尽→dead+预算/重试数/错误残留断言；经队列 mutex 观察点同步、race 干净）；`manager_status_test.go` 四个终态测试补 MaxAttempts/LastError 断言；`retryer_test.go` 补 MaxAttempts 预算测试。
 - 外部依赖零新增（§16：维持 MemoryQueue 为第一队列，Redis 队列不动、不引新后端）。
 
+### Phase 5 MVP：Provider 错误分类（§15 六类词汇接入 retrying/dead 判定）
+
+落点：共享错误词汇 **core/errclass** + httpclient / retry 两处**单点接入**——所有走 httpclient 的 provider（aliyunsms/neteasesms/tencentsms）零改动获得分类。
+
+- `core/errclass`（新包）：`Class` 六类常量（temporary / permanent / rate_limited / authentication / invalid_request / timeout）+ `Error{Class, Err}` 包装。**分类骑错误链、不骑马甲**：`Error()` 原样返回被包装文本（任务日志与 API 响应保持历史形状），`Of()` 经 errors.As 穿透多层 `%w` 包装，`Retryable()` 判定——前三类可重试、后三类立即失败。
+- `core/httpclient` 单点接入：非 2xx → `classifyStatus`（408→timeout、429→rate_limited、≥500→temporary；其余 4xx 保持**不分类**——坏请求/坏凭据重试不可能成功，语义未变只是显式化）；传输层错误 → `sendError`（net.Error 超时→timeout、其余→temporary）；错误文本不变。
+- `core/retry` 判定接入：`isRetryable` 改为 **errclass 优先**（有分类看分类、无分类回落），`RetryableError` / `httpclient.RetryableError` 旧标记保留兼容（既有测试原样通过）。
+- 测试：errclass 单元（nil 透传 / 文本保真 / 穿透包装 / 8 例分类表）；`TestClassifiedStatusErrors`（7 状态码→类 + IsRetryable 与类一致性）；`TestRetryerClassifiedErrors`（生产形状策略：temporary/rate_limited/timeout 耗尽→ErrMaxRetries 共 3 次调用；permanent/authentication/invalid_request→1 次即败、非 dead）；`TestDeliverClassifiedErrorTerminals`（端到端：authentication→failed 不重试、rate_limited→重试耗尽→dead）。
+- 未做（护栏 5 留批）：401 等 4xx 依旧不重试（语义与历史一致）；RateLimited 尚无 per-class 退避（Retry-After 未用，沿用统一退避策略）。
+
 ### 差异总表回填（本批后）
 
 | 目标（design-audience-model.md） | 落地后状态 |
@@ -143,6 +153,6 @@ POST /api/v1/notify
 | user:/Recipient/Endpoint | ✅ 配置化 MVP（audiences/recipients YAML + user: 引用展开合并） |
 | 配置块 audiences/recipients | ✅ 已生效 + 启动校验（宽松解析"落地即生效"先例） |
 | notify 领域字段 channel/audience/data/idempotency_key（§21/§24） | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
-| Provider 错误分类接口 | 保持二元 RetryableError（计划 §29 细分分类未做——当前语义已够支持 retrying/dead 区分） |
+| Provider 错误分类接口 | ✅ core/errclass 六类词汇（§15）接入 httpclient 分类与 retry 判定（Phase 5：408/429/5xx/传输错误显式分类，其余 4xx 不分类不重试，wire 文本不变） |
 | Logs 与 Delivery 状态分离 | 未动（成本最高项，按 §25 需独立 Phase 设计事件流） |
 | Channel 独立配置块 | 未做（计划内后续 Phase） |

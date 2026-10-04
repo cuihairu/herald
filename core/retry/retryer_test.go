@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/errclass"
 	"github.com/cuihairu/herald/core/httpclient"
 )
 
@@ -216,5 +217,64 @@ func TestRetryerMaxAttempts(t *testing.T) {
 	// nil config falls back to the default policy (Max 3).
 	if got := NewRetryer(nil).MaxAttempts(); got != 4 {
 		t.Errorf("MaxAttempts with default policy = %d, want 4", got)
+	}
+}
+
+// TestRetryerClassifiedErrors pins the §15 classification channel: the
+// policies consult isRetryable, which a classified error answers by its
+// class (core/errclass) — transient classes retry to exhaustion (dead);
+// deterministic classes fail immediately with no retry.
+func TestRetryerClassifiedErrors(t *testing.T) {
+	// The production-shaped policy: ShouldRetry = count<Max && isRetryable.
+	newPolicy := func() *Retryer {
+		return NewRetryer(&Config{Max: 2, Backoff: "fixed", InitialDelay: time.Millisecond, MaxDelay: time.Millisecond})
+	}
+
+	retryableClasses := []struct {
+		class errclass.Class
+	}{
+		{errclass.Temporary},
+		{errclass.RateLimited},
+		{errclass.Timeout},
+	}
+	for _, tc := range retryableClasses {
+		t.Run("retries "+string(tc.class), func(t *testing.T) {
+			r := newPolicy()
+			calls := 0
+			err := r.Execute(context.Background(), &core.DeliveryTask{}, func() error {
+				calls++
+				return errclass.New(tc.class, errors.New("vendor said no"))
+			})
+			if !errors.Is(err, ErrMaxRetries) {
+				t.Fatalf("Execute() = %v, want ErrMaxRetries after exhaustion", err)
+			}
+			if calls != 3 {
+				t.Errorf("calls = %d, want 3 (initial + 2 retries)", calls)
+			}
+		})
+	}
+
+	deterministicClasses := []struct {
+		class errclass.Class
+	}{
+		{errclass.Permanent},
+		{errclass.Authentication},
+		{errclass.InvalidRequest},
+	}
+	for _, tc := range deterministicClasses {
+		t.Run("fails immediately "+string(tc.class), func(t *testing.T) {
+			r := newPolicy()
+			calls := 0
+			err := r.Execute(context.Background(), &core.DeliveryTask{}, func() error {
+				calls++
+				return errclass.New(tc.class, errors.New("do not retry"))
+			})
+			if errors.Is(err, ErrMaxRetries) {
+				t.Fatalf("Execute() = %v, want a plain failure, not dead", err)
+			}
+			if calls != 1 {
+				t.Errorf("calls = %d, want 1 (no retry for %s)", calls, tc.class)
+			}
+		})
 	}
 }
