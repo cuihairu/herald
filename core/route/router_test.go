@@ -79,3 +79,36 @@ func TestRouterSetLevelRoute(t *testing.T) {
 		t.Errorf("expected telegram, got %s", providers[0])
 	}
 }
+
+func TestRouterExpandChannel(t *testing.T) {
+	router := NewRouter(&Config{
+		Channels: map[string][]string{
+			"ci":  {"telegram", "feishu"},
+			"ops": {},
+		},
+	})
+
+	t.Run("named channel expands to its providers in order", func(t *testing.T) {
+		providers, ok := router.ExpandChannel("ci")
+		if !ok {
+			t.Fatal("expected ci to expand")
+		}
+		if len(providers) != 2 || providers[0] != "telegram" || providers[1] != "feishu" {
+			t.Errorf("providers = %v, want [telegram feishu]", providers)
+		}
+	})
+
+	t.Run("unknown channel reports false", func(t *testing.T) {
+		if _, ok := router.ExpandChannel("nonexistent"); ok {
+			t.Error("expected false for an unknown channel")
+		}
+	})
+
+	t.Run("channel with no providers reports false", func(t *testing.T) {
+		// An empty entry must not silently expand to nothing: the caller
+		// falls through to the literal provider target and its failure.
+		if _, ok := router.ExpandChannel("ops"); ok {
+			t.Error("expected false for an empty channels entry")
+		}
+	})
+}

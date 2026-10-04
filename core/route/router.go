@@ -8,12 +8,17 @@ import (
 type Router struct {
 	routes      map[string][]string
 	levelRoutes map[string][]string
+	channels    map[string][]string
 }
 
 // Config is the router configuration
 type Config struct {
 	Routes      map[string][]string `yaml:"routes"`
 	LevelRoutes map[string][]string `yaml:"level_routes"`
+	// Channels is the channels block: a named channel and the provider
+	// instances that deliver for it. It sits below explicit provider
+	// channels and above the routes table.
+	Channels map[string][]string `yaml:"channels"`
 }
 
 // NewRouter creates a new router
@@ -21,6 +26,7 @@ func NewRouter(config *Config) *Router {
 	r := &Router{
 		routes:      make(map[string][]string),
 		levelRoutes: make(map[string][]string),
+		channels:    make(map[string][]string),
 	}
 
 	if config != nil {
@@ -29,6 +35,9 @@ func NewRouter(config *Config) *Router {
 		}
 		for k, v := range config.LevelRoutes {
 			r.levelRoutes[k] = v
+		}
+		for k, v := range config.Channels {
+			r.channels[k] = v
 		}
 	}
 
@@ -66,4 +75,17 @@ func (r *Router) SetRoute(eventType string, providers []string) {
 // SetLevelRoute sets a level route
 func (r *Router) SetLevelRoute(level string, providers []string) {
 	r.levelRoutes[level] = providers
+}
+
+// ExpandChannel resolves a channel name from the channels block to its
+// provider list, in configured order. An unknown name — or an entry that
+// lists no providers — reports false, so the caller falls through to the
+// plain provider target and its familiar "not found" failure instead of
+// silently delivering to nothing.
+func (r *Router) ExpandChannel(name string) ([]string, bool) {
+	providers, ok := r.channels[name]
+	if !ok || len(providers) == 0 {
+		return nil, false
+	}
+	return providers, true
 }

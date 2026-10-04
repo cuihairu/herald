@@ -521,6 +521,62 @@ func TestValidate(t *testing.T) {
 			t.Error("expected error for provider missing type")
 		}
 	})
+
+	t.Run("channel without providers", func(t *testing.T) {
+		cfg := Default()
+		cfg.Channels["ci"] = ChannelConfig{}
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for a channel with no providers")
+		}
+	})
+
+	t.Run("channel references unknown provider", func(t *testing.T) {
+		cfg := Default()
+		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"ghost"}}
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for a channel referencing an unknown provider")
+		}
+	})
+
+	t.Run("channel naming a real provider", func(t *testing.T) {
+		cfg := Default()
+		cfg.Providers["feishu"] = ProviderConfig{Type: "webhook"}
+		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"feishu"}}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+}
+
+func TestLoadChannels(t *testing.T) {
+	path := writeConfigFile(t, `
+providers:
+  telegram:
+    type: webhook
+  feishu:
+    type: webhook
+channels:
+  ci:
+    providers: [telegram, feishu]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ci, ok := cfg.Channels["ci"]
+	if !ok {
+		t.Fatalf("channels table not parsed: %+v", cfg.Channels)
+	}
+	if len(ci.Providers) != 2 || ci.Providers[0] != "telegram" || ci.Providers[1] != "feishu" {
+		t.Errorf("channel parse: %+v", ci)
+	}
+
+	flat := cfg.ChannelRoutes()
+	if len(flat) != 1 || len(flat["ci"]) != 2 || flat["ci"][1] != "feishu" {
+		t.Errorf("ChannelRoutes: %+v", flat)
+	}
 }
 
 func TestToQueueConfig(t *testing.T) {

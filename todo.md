@@ -14,7 +14,7 @@
 
 ## 待办（按序执行）
 
-- [ ] **Phase 7 · Configuration** — `channels` 独立配置块（优先级：channel 显式 > channels 块 > routes 表）；配置参考文档补全
+- [x] **Phase 7 · Configuration** — `channels` 独立配置块（`channels: {ci: {providers: [...]}}`，启动校验拒起：零 providers/未知 provider）；优先级「channel 显式 > channels 块 > routes 表」在 expandRef 落地（显式 provider 实例压过块、`routes` 键未删）；router.ExpandChannel + service ChannelResolver；配置参考文档 channels 节；channels 运行时 API 按受众一期口径留批
 - [ ] **Phase 8 · 测试** — Integration / Provider / Routing / Retry / Idempotency Test 补全
 - [ ] **Phase 9 · Documentation** — 全站文档与代码最终对齐、差异总表清零
 

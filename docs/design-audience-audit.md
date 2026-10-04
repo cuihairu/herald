@@ -84,7 +84,7 @@ POST /api/v1/notify
 5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
 6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
 7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 1/2/3/4/5/6 分批落地）
+## 五、执行记录（2026-10-04：Phase 1/2/3/4/5/6/7 分批落地）
 
 前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
 
@@ -145,6 +145,17 @@ POST /api/v1/notify
 - 测试：errclass 单元（nil 透传 / 文本保真 / 穿透包装 / 8 例分类表）；`TestClassifiedStatusErrors`（7 状态码→类 + IsRetryable 与类一致性）；`TestRetryerClassifiedErrors`（生产形状策略：temporary/rate_limited/timeout 耗尽→ErrMaxRetries 共 3 次调用；permanent/authentication/invalid_request→1 次即败、非 dead）；`TestDeliverClassifiedErrorTerminals`（端到端：authentication→failed 不重试、rate_limited→重试耗尽→dead）。
 - 未做（护栏 5 留批）：401 等 4xx 依旧不重试（语义与历史一致）；RateLimited 尚无 per-class 退避（Retry-After 未用，沿用统一退避策略）。
 
+### Phase 7 MVP：Configuration（`channels` 独立配置块 + 三优先级叠加）
+
+落点：设计 §27 的 `channels` 块（`channels: {ci: {providers: [...]}}`）落地，护栏 4 的「channel 显式 > channels 块 > routes 表」优先级显式化，routes/level_routes 键原样保留。
+
+- `config.ChannelConfig`（新）：`channels` 顶层块——命名渠道 → providers 列表；`Validate()` 启动校验：渠道零 providers、引用未配置的 provider → **拒起**（与 Phase 1 受众表同纪律）；`ChannelRoutes()` 展平为 router 形状。
+- `core/route.Router.ExpandChannel`（新）：渠道块查找（configured 顺序返回；空条目按未命中处理——回落裸 provider 目标与其「provider not found」熟悉失败，绝不停静默投空）。
+- `core/service` 解析链（`expandRef`）：裸渠道名按优先级——**显式 provider 实例 > channels 块**；都不中维持字面 provider 目标（投递时失败，语义不变）。`routes` 表在其下：只路由未命名任何渠道的通知（既有行为）。`group:`/`user:` 引用与合成投递（概括/升级/恢复）全走同一解析链，零特判。
+- 装配：`cmd/heraldd` 建 router 时注入展平块 + `channels loaded` 日志；`api/server.go` 挂 `SetChannelResolver(config.Router)`。
+- 测试：router 展开（命中顺序/未知/空条目回 false）；config 校验（无 providers/未知 provider/合法）+ yaml 解析 + 展平；service 决策层（块展开有序、provider 压过块、双不中回落字面）+ 全链路（`channels: [ci]` → 每 provider 一任务）；heraldd 拒起两例 + FullFeaturedLifecycle 带 channels 块。
+- 未做（护栏 5 留批/超纲）：channels 运行时 API（配置化即 MVP，与 audiences 一期口径一致）；group 成员渠道名不走块展开（成员语义是 provider 实例名，保持原样）。
+
 ### 差异总表回填（本批后）
 
 | 目标（design-audience-model.md） | 落地后状态 |
@@ -155,4 +166,4 @@ POST /api/v1/notify
 | notify 领域字段 channel/audience/data/idempotency_key（§21/§24） | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
 | Provider 错误分类接口 | ✅ core/errclass 六类词汇（§15）接入 httpclient 分类与 retry 判定（Phase 5：408/429/5xx/传输错误显式分类，其余 4xx 不分类不重试，wire 文本不变） |
 | Logs 与 Delivery 状态分离 | 未动（成本最高项，按 §25 需独立 Phase 设计事件流） |
-| Channel 独立配置块 | 未做（计划内后续 Phase） |
+| Channel 独立配置块 | ✅ `channels: {name: {providers: [...]}}` 落地（Phase 7：启动校验拒起、provider 显式 > channels 块 > routes 表优先级、routes 键未删） |

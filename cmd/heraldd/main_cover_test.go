@@ -64,6 +64,12 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// A recipient with no endpoints can receive nothing and must not
 		// start either.
 		"recipient without endpoints": "recipients:\n  alice:\n    endpoints: []\n",
+		// A channel that lists no providers can deliver nothing and must
+		// not start.
+		"channel without providers": "providers:\n  webhook:\n    type: webhook\nchannels:\n  ci:\n    providers: []\n",
+		// A channel referencing a provider that is not configured is
+		// configuration drift and refuses to start.
+		"channel references unknown provider": "channels:\n  ci:\n    providers: [ghost]\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -119,6 +125,9 @@ providers:
       type: token_bucket
       rate: 10
       burst: 10
+channels:
+  ci:
+    providers: [hook]
 rules:
   - id: r-hook
     match: "type == 'quickstart'"

@@ -109,7 +109,10 @@ func serveCmd(args []string) int {
 	defer func() { _ = q.Close() }()
 
 	// Create router
-	router := route.NewRouter(&route.Config{Routes: cfg.Routes})
+	router := route.NewRouter(&route.Config{Routes: cfg.Routes, Channels: cfg.ChannelRoutes()})
+	if len(cfg.Channels) > 0 {
+		logger.Info("channels loaded", "count", len(cfg.Channels))
+	}
 
 	// Create runtime manager with retry
 	retryCfg := &retry.Config{

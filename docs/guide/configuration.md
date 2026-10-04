@@ -653,7 +653,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `providers` | Channel 的投递实现（Provider） | ✅ 已实现 |
 | `routes` / `level_routes` | Channel → Provider 的路由映射 | ✅ 已实现 |
 | `groups` | Audience 的 `group:` 形态（命名受众） | ✅ 已实现 |
-| `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | 🚧 规划中 |
+| `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | ✅ 已实现 |
 | `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | ✅ 已实现 |
 
 `audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，第一期只做**配置化**、无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**——同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。
@@ -679,7 +679,17 @@ audiences:
 
 例如 `channels: ["user:ops"]` 展开为 3 个投递任务：feishu（@alice 与 @bob 捆绑）、email、sms-duty。
 
-仍在规划中的配置块当前版本**不会生效**（配置解析为宽松模式，未知键被静默忽略、不会报错——误以为生效是常见坑），落地节奏按设计文档 Phase 实施顺序执行。
+`channels` 块为命名渠道声明其投递 providers（设计 §27）。渠道位上的**裸名称按优先级解析**：显式 provider 实例 > `channels` 块 > `routes` 表（`routes` 只在通知未指定任何渠道时按 type/level 路由）。名字既不是 provider 实例、也不在任何配置块中时，保持原有的「投递时按 provider 缺失失败」语义：
+
+```yaml
+channels:
+  ci:
+    providers: [telegram, feishu]   # channels: [ci] → 两个投递任务
+```
+
+配置非法（渠道没有 providers、引用了未配置的 provider 名）会在**启动时报错拒起**——`channels` 块只展开一层，其条目必须是 provider 实例而非其他渠道。
+
+配置解析为宽松模式：未知键被静默忽略、不会报错——配置键拼写错误不会在启动时暴露（上表已落地各块的**内部**结构错误会在启动校验时报错拒起）。
 
 ## Provider 类型
 

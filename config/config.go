@@ -22,6 +22,10 @@ type Config struct {
 	Worker    WorkerConfig                       `yaml:"worker"`
 	Auth      AuthConfig                         `yaml:"auth"`
 	Providers map[string]ProviderConfig          `yaml:"providers"`
+	// Channels seeds the channel table: a named channel mapping to the
+	// provider instances that deliver for it. A plain channel reference
+	// that is not itself a provider instance resolves through it.
+	Channels  map[string]ChannelConfig           `yaml:"channels"`
 	Routes    map[string][]string                `yaml:"routes"`
 	Queue     QueueConfig                        `yaml:"queue"`
 	Retry     RetryConfig                        `yaml:"retry"`
@@ -130,6 +134,12 @@ type ProviderConfig struct {
 	RateLimit *limiter.Config `yaml:"rate_limit"`
 }
 
+// ChannelConfig maps one named channel onto the provider instances that
+// deliver for it (design §27: `channels: {ci: {providers: [...]}}`).
+type ChannelConfig struct {
+	Providers []string `yaml:"providers"`
+}
+
 // QueueConfig is the queue configuration
 type QueueConfig struct {
 	Type    string        `yaml:"type"`
@@ -227,6 +237,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Providers == nil {
 		cfg.Providers = make(map[string]ProviderConfig)
 	}
+	if cfg.Channels == nil {
+		cfg.Channels = make(map[string]ChannelConfig)
+	}
 	if cfg.Templates == nil {
 		cfg.Templates = make(map[string]template.TemplateConfig)
 	}
@@ -283,6 +296,7 @@ func Default() *Config {
 			},
 		},
 		Providers: make(map[string]ProviderConfig),
+		Channels: make(map[string]ChannelConfig),
 		Routes: map[string][]string{
 			"error": {},
 		},
@@ -329,6 +343,16 @@ func expandEnv(s string) string {
 	return s
 }
 
+// ChannelRoutes flattens the channels block into the router's
+// name -> providers shape (route.Config.Channels).
+func (c *Config) ChannelRoutes() map[string][]string {
+	out := make(map[string][]string, len(c.Channels))
+	for name, ch := range c.Channels {
+		out[name] = ch.Providers
+	}
+	return out
+}
+
 // Validate validates the configuration
 func (c *Config) Validate() error {
 	if c.Server.Addr == "" {
@@ -340,6 +364,19 @@ func (c *Config) Validate() error {
 	for name, provider := range c.Providers {
 		if provider.Type == "" {
 			return fmt.Errorf("provider %s type is required", name)
+		}
+	}
+	// The channels block is one level deep by construction: its entries are
+	// provider instances, never other channels — an unknown name is
+	// configuration drift and refuses to start, like the audience tables.
+	for name, channel := range c.Channels {
+		if len(channel.Providers) == 0 {
+			return fmt.Errorf("channel %s has no providers", name)
+		}
+		for _, p := range channel.Providers {
+			if _, ok := c.Providers[p]; !ok {
+				return fmt.Errorf("channel %s references unknown provider %s", name, p)
+			}
 		}
 	}
 	return nil

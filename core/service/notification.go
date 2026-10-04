@@ -84,6 +84,13 @@ type UserResolver interface {
 	ExpandUser(name string) ([]audience.Endpoint, bool)
 }
 
+// ChannelResolver expands plain channel names from the channels
+// configuration block into their provider lists. route.Router implements
+// it. nil (the default) keeps plain names literal.
+type ChannelResolver interface {
+	ExpandChannel(name string) ([]string, bool)
+}
+
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
 	templates  *template.Manager
@@ -98,6 +105,7 @@ type NotificationService struct {
 	incidents  *incident.Store
 	groups     GroupResolver
 	users      UserResolver
+	channels   ChannelResolver
 }
 
 // NewNotificationService creates a new NotificationService
@@ -157,6 +165,13 @@ func (s *NotificationService) SetGroupResolver(gr GroupResolver) {
 // notification.
 func (s *NotificationService) SetUserResolver(ur UserResolver) {
 	s.users = ur
+}
+
+// SetChannelResolver attaches the channels-block expander. nil (the
+// default) keeps plain channel names literal — an unknown provider name
+// fails at delivery time exactly as before.
+func (s *NotificationService) SetChannelResolver(cr ChannelResolver) {
+	s.channels = cr
 }
 
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
@@ -394,10 +409,15 @@ func (s *NotificationService) expandRefs(refs []string) ([]deliveryTarget, []Cha
 	return targets, failed
 }
 
-// expandRef resolves one channel reference. Plain names pass through as
-// themselves; "group:" references expand to the group's members (each
-// carrying its optional recipient pins); "user:" references expand to
-// their endpoints, merged per provider instance.
+// expandRef resolves one channel reference. Plain names resolve by
+// priority: an explicit provider instance wins over the channels block
+// (channel 显式 > channels 块); a name in neither stays a literal
+// provider target whose miss fails that channel at delivery time, as
+// before. The routes table sits below both — it only routes
+// notifications that named no channels at all. "group:" references
+// expand to the group's members (each carrying its optional recipient
+// pins); "user:" references expand to their endpoints, merged per
+// provider instance.
 func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
 	if groups.IsRef(ref) {
 		if s.groups == nil {
@@ -423,6 +443,15 @@ func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
 			return nil, fmt.Errorf("unknown user %q", name)
 		}
 		return mergeUserEndpoints(eps), nil
+	}
+	if _, err := s.runtime.GetProvider(ref); err != nil && s.channels != nil {
+		if providers, ok := s.channels.ExpandChannel(ref); ok {
+			out := make([]deliveryTarget, 0, len(providers))
+			for _, p := range providers {
+				out = append(out, deliveryTarget{channel: p})
+			}
+			return out, nil
+		}
 	}
 	return []deliveryTarget{{channel: ref}}, nil
 }

@@ -101,6 +101,9 @@ func NewServer(config *Config) *Server {
 		// manager's audience/recipient tables.
 		notificationSvc.SetUserResolver(config.Users)
 	}
+	// Plain channel names that are not provider instances resolve through
+	// the router's channels block (an explicit provider always wins).
+	notificationSvc.SetChannelResolver(config.Router)
 	if config.Rosters != nil {
 		handler.SetRosterManager(config.Rosters)
 	}
