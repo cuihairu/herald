@@ -219,4 +219,4 @@ POST /api/v1/notify
 >
 > 2026-10-05 拍板：余 3 项确认维持现状——「Logs 与 Delivery 状态分离」与「audiences/recipients/channels 运行时 API」继续留批不做，「group 成员渠道块展开」维持既定不做；队列至此清零，后续新方向另行指派。
 >
-> 2026-10-05 显式决策记录：经用户拍板，**② Logs 与 Delivery 状态分离**（审计第 1 项）与 **③ audiences/recipients/channels 运行时 API**（审计第 2 项）明确 **不实施**；第 3 项 **group 成员渠道块展开** 既定不做（Phase 7 记录在案）。三项均为显式设计决策，非遗漏；本审计文档与 todo.md 已同步收口，队列清零。
+> 2026-10-05 显式决策记录：经用户拍板，**① Logs 与 Delivery 状态分离**（清单第 1 项）与 **② audiences/recipients/channels 运行时 API**（清单第 2 项）明确 **不实施**；第 3 项 **group 成员渠道块展开** 既定不做（Phase 7 记录在案）。三项均为显式设计决策，非遗漏；本审计文档与 todo.md 已同步收口，队列清零。
