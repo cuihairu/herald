@@ -61,6 +61,29 @@ func (s *LogStore) Add(log *TaskLog) {
 	}
 }
 
+// AddIfAbsent adds the entry only when no log with the same ID exists yet,
+// and reports whether it was added. Async re-enqueue calls Deliver once per
+// attempt — the first attempt opens the row, later attempts of the same
+// task keep it, so one delivery keeps exactly one row (which stays
+// "pending" until the final attempt settles it).
+func (s *LogStore) AddIfAbsent(log *TaskLog) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, existing := range s.logs {
+		if existing.ID == log.ID {
+			return false
+		}
+	}
+
+	s.logs = append(s.logs, log)
+
+	if len(s.logs) > s.limit {
+		s.logs = s.logs[len(s.logs)-s.limit:]
+	}
+	return true
+}
+
 // UpdateStatus updates the status of a log entry
 func (s *LogStore) UpdateStatus(id, status, errMsg string) {
 	s.mu.Lock()

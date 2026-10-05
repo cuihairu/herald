@@ -20,6 +20,12 @@ type fakeEntry struct {
 	values []string
 }
 
+// fakeZEntry is one sorted-set member; a set is kept score-ascending.
+type fakeZEntry struct {
+	score  float64
+	member string
+}
+
 type fakeRedis struct {
 	t     *testing.T
 	ln    net.Listener
@@ -29,12 +35,24 @@ type fakeRedis struct {
 	entries []fakeEntry
 	seq     int
 	groups  map[string]int
+	zsets   map[string][]fakeZEntry
 
 	failXGroup bool
 	failXAdd   bool
 	failXAck   bool
 	emptyXRead bool
 	closed     bool
+	// failZRange makes ZRANGEBYSCORE error, so callers see a broken
+	// delayed-set lookup.
+	failZRange bool
+	// stealZRem makes ZREM report 0 without removing — the "another
+	// process won the entry" outcome, deterministic for a single caller.
+	stealZRem bool
+	// failZRem makes ZREM error outright.
+	failZRem bool
+	// failXRead makes XREADGROUP error (not the redis.Nil empty reply —
+	// a hard failure on the read itself).
+	failXRead bool
 
 	// holdXRead, when non-nil, makes the fake delay its XREADGROUP reply
 	// until the channel is closed, so a test can cancel the caller's context
@@ -55,6 +73,7 @@ func newFakeRedis(t *testing.T) *fakeRedis {
 		ln:     ln,
 		conns:  make(map[net.Conn]struct{}),
 		groups: make(map[string]int),
+		zsets:  make(map[string][]fakeZEntry),
 	}
 	t.Cleanup(f.stop)
 	go f.acceptLoop()
@@ -219,6 +238,12 @@ func (f *fakeRedis) handle(w *bufio.Writer, args []string) error {
 		return f.handleXRange(w, args)
 	case "xinfo":
 		return f.handleXInfo(w, args)
+	case "zadd":
+		return f.handleZAdd(w, args)
+	case "zrange":
+		return f.handleZRange(w, args)
+	case "zrem":
+		return f.handleZRem(w, args)
 	default:
 		writeError(w, "ERR unknown command '"+args[0]+"'")
 	}
@@ -303,6 +328,14 @@ func (f *fakeRedis) handleXReadGroup(w *bufio.Writer, args []string) error {
 	f.noteXReadArrived()
 	if f.holdXRead != nil {
 		<-f.holdXRead
+	}
+
+	f.mu.Lock()
+	failRead := f.failXRead
+	f.mu.Unlock()
+	if failRead {
+		writeError(w, "ERR XREADGROUP failed")
+		return nil
 	}
 
 	f.mu.Lock()
@@ -395,6 +428,119 @@ func (f *fakeRedis) handleXInfo(w *bufio.Writer, args []string) error {
 	writeArrayLen(w, 2)
 	writeBulk(w, "length")
 	writeInt(w, n)
+	return nil
+}
+
+func (f *fakeRedis) handleZAdd(w *bufio.Writer, args []string) error {
+	// ZADD key score member
+	if len(args) != 4 {
+		writeError(w, "ERR bad ZADD")
+		return nil
+	}
+	score, err := strconv.ParseFloat(args[2], 64)
+	if err != nil {
+		writeError(w, "ERR bad score")
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	set := f.zsets[args[1]]
+	inserted := false
+	for _, e := range set {
+		if e.member == args[3] {
+			inserted = true
+			break
+		}
+	}
+	if !inserted {
+		i := len(set)
+		for i > 0 && set[i-1].score > score {
+			i--
+		}
+		set = append(set, fakeZEntry{})
+		copy(set[i+1:], set[i:])
+		set[i] = fakeZEntry{score: score, member: args[3]}
+		f.zsets[args[1]] = set
+	}
+	writeInt(w, 1)
+	return nil
+}
+
+func (f *fakeRedis) handleZRange(w *bufio.Writer, args []string) error {
+	// ZRANGE key start stop BYSCORE LIMIT offset count
+	f.mu.Lock()
+	fail := f.failZRange
+	f.mu.Unlock()
+	if fail {
+		writeError(w, "ERR ZRANGE failed")
+		return nil
+	}
+	if len(args) != 8 || strings.ToLower(args[4]) != "byscore" || strings.ToLower(args[5]) != "limit" {
+		writeError(w, "ERR bad ZRANGE")
+		return nil
+	}
+	min, errMin := strconv.ParseFloat(args[2], 64)
+	max, errMax := strconv.ParseFloat(args[3], 64)
+	if (args[2] != "-inf" && errMin != nil) || errMax != nil {
+		writeError(w, "ERR bad range")
+		return nil
+	}
+	offset, _ := strconv.Atoi(args[6])
+	count, _ := strconv.Atoi(args[7])
+	f.mu.Lock()
+	set := f.zsets[args[1]]
+	var hits []string
+	for _, e := range set {
+		if args[2] != "-inf" && e.score < min {
+			continue
+		}
+		if e.score > max {
+			break
+		}
+		hits = append(hits, e.member)
+	}
+	f.mu.Unlock()
+	if offset > len(hits) {
+		offset = len(hits)
+	}
+	hits = hits[offset:]
+	if count >= 0 && count < len(hits) {
+		hits = hits[:count]
+	}
+	writeArrayLen(w, len(hits))
+	for _, m := range hits {
+		writeBulk(w, m)
+	}
+	return nil
+}
+
+func (f *fakeRedis) handleZRem(w *bufio.Writer, args []string) error {
+	// ZREM key member
+	if len(args) != 3 {
+		writeError(w, "ERR bad ZREM")
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failZRem {
+		writeError(w, "ERR ZREM failed")
+		return nil
+	}
+	if f.stealZRem {
+		// Report the entry as already taken, leaving it in place.
+		writeInt(w, 0)
+		return nil
+	}
+	set := f.zsets[args[1]]
+	for i, e := range set {
+		if e.member == args[2] {
+			set = append(set[:i], set[i+1:]...)
+			f.zsets[args[1]] = set
+			writeInt(w, 1)
+			return nil
+		}
+	}
+	writeInt(w, 0)
 	return nil
 }
 

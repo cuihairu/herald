@@ -429,6 +429,18 @@ func (q *awaitingQueue) Ack(ctx context.Context, taskID string) error {
 	return err
 }
 
+// Schedule forwards the inner queue's Scheduler capability so the worker
+// pool still sees it through this decorator: without the forwarding the
+// pool would silently fall back to sleeping retries inside the worker even
+// on a queue that supports holding them.
+func (q *awaitingQueue) Schedule(ctx context.Context, task *core.DeliveryTask, delay time.Duration) error {
+	s, ok := q.Queue.(core.Scheduler)
+	if !ok {
+		return fmt.Errorf("queue does not support scheduled delivery")
+	}
+	return s.Schedule(ctx, task, delay)
+}
+
 func (q *awaitingQueue) Nack(ctx context.Context, taskID string, reason error) error {
 	err := q.Queue.Nack(ctx, taskID, reason)
 	q.resolve(taskID, reason)

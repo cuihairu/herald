@@ -398,44 +398,16 @@ func (m *Manager) lookupEnabled(name string) (core.Provider, error) {
 
 // Deliver delivers a task through the named provider, honoring the
 // provider's rate limiter (if configured) and the retry policy (if
-// configured), and records the outcome into the delivery log.
+// configured), and records the outcome into the delivery log. Retryable
+// failures wait out their backoff inside this call (sync path).
 func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if task == nil {
 		return fmt.Errorf("task is nil")
 	}
 
-	provider, err := m.lookupEnabled(task.Provider)
+	provider, err := m.deliverPrologue(ctx, task)
 	if err != nil {
 		return err
-	}
-
-	// Snapshot the delivery budget onto the task before any attempt:
-	// MaxAttempts is the policy total (retries + initial try), or a single
-	// attempt with no retryer configured.
-	if m.retryer != nil {
-		task.MaxAttempts = m.retryer.MaxAttempts()
-	} else {
-		task.MaxAttempts = 1
-	}
-
-	// Channel rate limiting: the rule engine can fan one notification out
-	// to many channels, so a misconfigured rule must not turn into a
-	// provider-side storm. Wait BEFORE any delivery attempt.
-	m.mu.RLock()
-	limiters := m.limiters
-	m.mu.RUnlock()
-	if limiters != nil {
-		if lm, ok := limiters.Get(task.Provider); ok {
-			if err := lm.Wait(ctx); err != nil {
-				err = fmt.Errorf("rate limit wait aborted: %w", err)
-				entry := logstore.NewTaskLog(task)
-				m.logStore.Add(entry)
-				m.logStore.UpdateStatus(task.ID, "failed", err.Error())
-				task.Status = core.StatusFailed
-				task.LastError = err.Error()
-				return err
-			}
-		}
 	}
 
 	logEntry := logstore.NewTaskLog(task)
@@ -455,26 +427,108 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		deliverErr = deliverFn()
 	}
 
-	if deliverErr != nil {
-		// Retryable errors that used up every attempt are dead, not
-		// failed: a dead delivery is a config/provider problem worth a
-		// distinct signal, a failed one was never going to retry.
-		if errors.Is(deliverErr, retry.ErrMaxRetries) {
-			task.Status = core.StatusDead
-		} else {
-			task.Status = core.StatusFailed
-		}
-		// The task carries its own last_error: observers read the settled
-		// error off the task; the log store keeps the full history.
-		task.LastError = deliverErr.Error()
-		m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
-		return deliverErr
+	return m.settle(task, deliverErr)
+}
+
+// DeliverOnce is the async-path attempt: exactly one provider try. A
+// retryable failure with budget left does not sleep here — the task leaves
+// under StatusRetrying with NextRetryAt stamped, and the returned *retry.
+// Deferred tells the worker how long the queue should hold it. Terminal
+// failures settle exactly like Deliver. The delivery log holds one entry
+// per task (AddIfAbsent), so a task's retries keep a single row that stays
+// "pending" until the final attempt settles it.
+func (m *Manager) DeliverOnce(ctx context.Context, task *core.DeliveryTask) error {
+	if task == nil {
+		return fmt.Errorf("task is nil")
 	}
 
-	task.Status = core.StatusDelivered
-	task.LastError = ""
-	m.logStore.UpdateStatus(task.ID, "success", "")
-	return nil
+	provider, err := m.deliverPrologue(ctx, task)
+	if err != nil {
+		return err
+	}
+
+	m.logStore.AddIfAbsent(logstore.NewTaskLog(task))
+
+	// The stamped wait is over: this attempt is happening now.
+	task.NextRetryAt = nil
+	task.Status = core.StatusDelivering
+	deliverErr := provider.Deliver(ctx, task)
+	if deliverErr == nil {
+		return m.settle(task, nil)
+	}
+	if m.retryer == nil {
+		return m.settle(task, deliverErr)
+	}
+	deferErr := m.retryer.Defer(task, deliverErr)
+	var deferred *retry.Deferred
+	if errors.As(deferErr, &deferred) {
+		// Retry owed: nothing settles yet — the log row stays "pending"
+		// and the task comes back through the queue for the next attempt.
+		return deferErr
+	}
+	return m.settle(task, deferErr)
+}
+
+// deliverPrologue is the shared setup before any attempt: provider lookup,
+// budget snapshot, and the channel rate-limiter wait (the rule engine can
+// fan one notification out to many channels, so a misconfigured rule must
+// not turn into a provider-side storm). A non-nil error aborts delivery; a
+// limiter failure additionally settles the task as failed before returning.
+func (m *Manager) deliverPrologue(ctx context.Context, task *core.DeliveryTask) (core.Provider, error) {
+	provider, err := m.lookupEnabled(task.Provider)
+	if err != nil {
+		return nil, err
+	}
+
+	// Snapshot the delivery budget onto the task before any attempt:
+	// MaxAttempts is the policy total (retries + initial try), or a single
+	// attempt with no retryer configured.
+	if m.retryer != nil {
+		task.MaxAttempts = m.retryer.MaxAttempts()
+	} else {
+		task.MaxAttempts = 1
+	}
+
+	m.mu.RLock()
+	limiters := m.limiters
+	m.mu.RUnlock()
+	if limiters != nil {
+		if lm, ok := limiters.Get(task.Provider); ok {
+			if err := lm.Wait(ctx); err != nil {
+				err = fmt.Errorf("rate limit wait aborted: %w", err)
+				m.logStore.Add(logstore.NewTaskLog(task))
+				m.logStore.UpdateStatus(task.ID, "failed", err.Error())
+				task.Status = core.StatusFailed
+				task.LastError = err.Error()
+				return nil, err
+			}
+		}
+	}
+	return provider, nil
+}
+
+// settle maps a delivery outcome onto the task and its log row: nil is
+// delivered, an ErrMaxRetries-wrapped error is dead (retries owed but
+// spent — a config/provider problem worth a distinct signal), anything
+// else failed (nothing was ever going to retry).
+func (m *Manager) settle(task *core.DeliveryTask, deliverErr error) error {
+	if deliverErr == nil {
+		task.Status = core.StatusDelivered
+		task.LastError = ""
+		m.logStore.UpdateStatus(task.ID, "success", "")
+		return nil
+	}
+
+	if errors.Is(deliverErr, retry.ErrMaxRetries) {
+		task.Status = core.StatusDead
+	} else {
+		task.Status = core.StatusFailed
+	}
+	// The task carries its own last_error: observers read the settled
+	// error off the task; the log store keeps the full history.
+	task.LastError = deliverErr.Error()
+	m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
+	return deliverErr
 }
 
 // Enable enables a provider instance.

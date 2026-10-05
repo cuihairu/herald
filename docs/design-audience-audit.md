@@ -146,6 +146,19 @@ POST /api/v1/notify
 - 未做（护栏 5 留批）：401 等 4xx 依旧不重试（语义与历史一致）；RateLimited 尚无 per-class 退避（Retry-After 未用，沿用统一退避策略）。
   - **后批补齐（2026-10-05）**：Retry-After 已接入——`errclass.Error` 增 `RetryAfter` 提示，`httpclient.statusError` 在 429 时解析 `Retry-After`（delay-seconds / HTTP-date，非正值与过去时点不算建议），retry 侧提示优先于退避曲线、`retry.max_delay` 封顶（MaxDelay 为 0 不封顶）；`NewWithRetryAfter` / `RetryAfterOf` / `parseRetryAfter` 各分支单测 + retryer 提示路径 seam 测试。
 
+### 后批：异步重新入队（2026-10-05）
+
+留批第 1 项按护栏 5 独立设计后落地：可重试失败不再占住 worker 睡完退避曲线，任务带 `next_retry_at` 回到队列，到点由队列放行、worker 立即去取下一个任务。
+
+- `core/types.go`：`DeliveryTask` 增 `NextRetryAt *time.Time`（defer 时戳、下次尝试开始即清空，wire 字段 `next_retry_at` omitempty，worker 协议向后兼容）；新增 `Scheduler` 可选能力接口（`Schedule(task, delay)`），不进 `Queue` 主接口——没有延迟持留能力的自定义队列原样保留同步语义。
+- `core/retry`：`Defer(task, err)` 单发决策——retryable 且预算未尽 → `RetryCount++`、`Status=retrying`、`NextRetryAt=now+delay`、返回 `*Deferred{Delay, Err}`；预算尽 → `ErrMaxRetries` 包装（dead）；不可重试 → 原样返回（failed）。`waitFor` 抽出共享：Retry-After 提示与 `max_delay` 封顶规则同步/异步两路一致。预算（`RetryCount`）随任务走，跨重新入队累计，跨 redis 序列化存活。
+- `core/queue`：memory 实现延迟持留（最小堆；Pop 先放行到期项再看就绪 channel，退避任务不被新流量饿死；延迟堆独立互斥锁——Push 持 RLock 阻塞在满 channel 上，Pop 热路径拿写锁会自我死锁）；redis 实现有序集 `<stream>:delayed`（score=到期 UnixNano；ZREM 先行仲裁多进程，输家不动条目；不可解码成员丢弃防读循环；ZRANGEBYSCORE 失败上抛为 Pop 错误）。两实现非正延迟直落就绪队列；Close 均不排空未到期任务。
+- `core/logstore.AddIfAbsent`：同一任务只开一行日志——重试期间停在 `pending`，终态才翻 success/failed。日志 wire 词汇（success/failed/pending/shadow）零变化，落实设计 §25「不要把日志直接当状态」。
+- `core/runtime`：`Deliver` 的 provider 查找/预算快照/限流等待抽为 `deliverPrologue`、终态映射抽为 `settle`，共享骨架上新增 `DeliverOnce`（恰一次尝试；Deferred 不结算，日志行 AddIfAbsent）。
+- `core/worker`：`NewPool` 探测队列能力——有 `Scheduler` 走 `DeliverOnce` + `Schedule`（无 Nack：延迟重试不是失败）；Schedule 被拒 → Nack 兜底结算，任务不进 limbo。无能力回落 `Deliver`（同步退避，历史行为原样）。`herald.go` 的 `awaitingQueue` 装饰器转发 `Schedule`，库模式不因包装误判降级。
+- 语义变化（护栏 5 点名的时序变化，如实记录）：重试等待不再占 worker；`DispatchSync` 的 wait 跨 defer 挂起、终态 Ack/Nack 才解析（阻塞总时长不变）；redis 队列的等待跨进程重启存活（memory 队列随进程消亡，与原语义同）。
+- 测试：Defer 表（提示/封顶/不封顶/终态两路/跨调用预算耗尽）、memory Schedule（时钟 seam：到期先后/到期项优先于就绪/取消/关闭拒绝）、redis Schedule（持留/到期搬运/抢输仲裁/毒成员/读失败）、manager `DeliverOnce`（defer→恢复同日志行结算/终态表/无 retryer 即败）、pool 异步全链路（重入队/拒绝 Nack/同步回落/能力探测）、logstore `AddIfAbsent`、awaitingQueue 转发。
+
 ### Phase 7 MVP：Configuration（`channels` 独立配置块 + 三优先级叠加）
 
 落点：设计 §27 的 `channels` 块（`channels: {ci: {providers: [...]}}`）落地，护栏 4 的「channel 显式 > channels 块 > routes 表」优先级显式化，routes/level_routes 键原样保留。
@@ -177,7 +190,7 @@ POST /api/v1/notify
 
 | 目标（design-audience-model.md） | 落地后状态 |
 |----------------------------------|-----------|
-| Delivery 独立状态机 + attempts | ✅ 枚举化 + `RetryCount` 实测驱动；`next_retry_at` 未做（同步重试无排队语义） |
+| Delivery 独立状态机 + attempts | ✅ 枚举化 + `RetryCount` 实测驱动；`next_retry_at` + 异步重新入队已落地（2026-10-05 后批：`Scheduler` 能力队列持留重试等待，worker 不再睡退避） |
 | user:/Recipient/Endpoint | ✅ 配置化 MVP（audiences/recipients YAML + user: 引用展开合并） |
 | 配置块 audiences/recipients | ✅ 已生效 + 启动校验（宽松解析"落地即生效"先例） |
 | notify 领域字段 channel/audience/data/idempotency_key（§21/§24） | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
@@ -198,9 +211,8 @@ POST /api/v1/notify
 - **API**（api/rest.md）：Phase 6 批已同步（notify 领域字段 + 幂等节），本批复核无新增。
 
 **差异总表收官**：全部行收敛为「✅ 已落地」或「留批 + 理由」，无未定性缺口。留批清单（均为显式设计决策，非遗漏）：
-1. `next_retry_at` / 异步重新入队——同步重试在单次 Deliver 内完成、无排队语义；改动会变更端到端耗时与日志时序，需独立设计（护栏 5）。
-2. Logs 与 Delivery 状态分离——计划 §25 的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
-3. audiences/recipients/channels 的运行时 API——一期口径为纯配置化（Phase 1/7 记录在案）。
-4. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
+1. Logs 与 Delivery 状态分离——计划 §25 的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
+2. audiences/recipients/channels 的运行时 API——一期口径为纯配置化（Phase 1/7 记录在案）。
+3. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
 
-> 2026-10-05 更新：原第 4 项「RateLimited per-class 退避（Retry-After）」已落地（见 Phase 5 记录的后批补齐），清单余 4 项。
+> 2026-10-05 更新：原清单中的「RateLimited per-class 退避（Retry-After）」与「`next_retry_at` / 异步重新入队」均已落地（分别见 Phase 5 记录的后批补齐与本日新增的后批节），清单余 3 项。

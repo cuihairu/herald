@@ -213,7 +213,7 @@ queue:
   workers: 0    # 自动：CPU核心数*2+1
 ```
 
-**分布式**（redis 队列，调度器和 Worker 独立部署，需要 Redis 5.0+）：
+**分布式**（redis 队列，调度器和 Worker 独立部署，需要 Redis 6.2+）：
 
 ```yaml
 queue:

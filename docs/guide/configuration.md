@@ -380,8 +380,7 @@ providers:
 
 ### Redis 队列要求
 
-- **最低版本**：Redis 5.0+（需要 Streams 和 Consumer Groups 支持）
-- 推荐使用 Redis 6.0+ 以获得更好的稳定性
+- **最低版本**：Redis 6.2+（Streams 与 Consumer Groups 需 5.0+，延迟重试的 `ZRANGE ... BYSCORE` 需 6.2+）
 - Redis Streams 的 `XADD`、`XREADGROUP`、`XACK` 命令是核心依赖
 
 ## 环境变量
@@ -625,7 +624,7 @@ curl http://localhost:8080/api/v1/incidents/6f1c...
 | HTTP 其它 4xx（400/401/403/404） | ❌ | 确定性客户端错误，重试无意义 |
 | 渠道业务失败（如短信 body 错误码） | 视 provider | 各渠道自行标记 |
 
-重试按 `retry` 配置退避（默认指数退避，最多 3 次）。注意：短信类渠道「HTTP 200 但业务码失败」的错误由 provider 判定 body 后返回，部分渠道标记为可重试（如腾讯云 API 错误），部分不重试（如发送状态中运营商拒收）。
+重试按 `retry` 配置退避（默认指数退避，最多 3 次）；429 附带 `Retry-After` 时按其等待、封顶 `max_delay`。退避等待发生在队列侧——任务带 `next_retry_at` 重新入队，到点再投，期间 worker 不被占住。注意：短信类渠道「HTTP 200 但业务码失败」的错误由 provider 判定 body 后返回，部分渠道标记为可重试（如腾讯云 API 错误），部分不重试（如发送状态中运营商拒收）。
 
 ## 动态配置
 

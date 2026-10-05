@@ -544,3 +544,62 @@ func TestLogStoreShadowEntries(t *testing.T) {
 		t.Fatalf("unexpected status stats: %+v", stats.ByStatus)
 	}
 }
+
+func TestLogStoreAddIfAbsent(t *testing.T) {
+	s := New(100)
+	now := time.Now()
+	first := &TaskLog{ID: "task-1", Provider: "log", Status: "pending", CreatedAt: now}
+
+	// The first attempt opens the row; a re-enqueued attempt of the same
+	// task must not duplicate it.
+	if !s.AddIfAbsent(first) {
+		t.Fatal("first AddIfAbsent = false, want the row opened")
+	}
+	if s.AddIfAbsent(&TaskLog{ID: "task-1", Provider: "log", Status: "pending"}) {
+		t.Error("second AddIfAbsent = true, want the existing row kept")
+	}
+	if got := s.Count(nil); got != 1 {
+		t.Fatalf("Count = %d, want 1 (one row per task)", got)
+	}
+
+	// A different task opens its own row.
+	if !s.AddIfAbsent(&TaskLog{ID: "task-2", Provider: "log", Status: "pending"}) {
+		t.Error("AddIfAbsent(task-2) = false, want a new row")
+	}
+	if got := s.Count(nil); got != 2 {
+		t.Fatalf("Count = %d, want 2", got)
+	}
+}
+
+// TestLogStoreAddIfAbsentTrimsAtLimit: a store already at its limit keeps
+// the newest entries when AddIfAbsent opens another row — the trim follows
+// the plain Add path.
+func TestLogStoreAddIfAbsentTrimsAtLimit(t *testing.T) {
+	s := New(2)
+	base := time.Now()
+	if !s.AddIfAbsent(&TaskLog{ID: "task-1", Provider: "log", Status: "pending", CreatedAt: base}) {
+		t.Fatal("AddIfAbsent(task-1) = false, want the row opened")
+	}
+	if !s.AddIfAbsent(&TaskLog{ID: "task-2", Provider: "log", Status: "pending", CreatedAt: base.Add(time.Second)}) {
+		t.Fatal("AddIfAbsent(task-2) = false, want the row opened")
+	}
+	if !s.AddIfAbsent(&TaskLog{ID: "task-3", Provider: "log", Status: "pending", CreatedAt: base.Add(2 * time.Second)}) {
+		t.Fatal("AddIfAbsent(task-3) = false, want the row opened")
+	}
+	if got := s.Count(nil); got != 2 {
+		t.Fatalf("Count = %d, want the limit 2", got)
+	}
+	// Get is newest-first: task-1 was evicted, task-3 outranks task-2.
+	logs := s.Get(0, 10, nil)
+	if len(logs) != 2 || logs[0].ID != "task-3" || logs[1].ID != "task-2" {
+		t.Fatalf("logs = %v, want task-3 then task-2 after the trim", idsOf(logs))
+	}
+}
+
+func idsOf(logs []*TaskLog) []string {
+	out := make([]string, len(logs))
+	for i, l := range logs {
+		out[i] = l.ID
+	}
+	return out
+}

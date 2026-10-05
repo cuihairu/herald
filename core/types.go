@@ -84,6 +84,11 @@ type DeliveryTask struct {
 	// its own last_error; the log keeps the full history).
 	LastError string    `json:"last_error,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+	// NextRetryAt is set while the task waits out a retry in the queue
+	// (async re-enqueue): it is stamped when the attempt is deferred,
+	// cleared when the next attempt starts. Nil on tasks that have never
+	// been deferred (including everything on the sync path).
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider
@@ -126,6 +131,16 @@ type Queue interface {
 	Nack(ctx context.Context, taskID string, reason error) error
 	Size() int
 	Close() error
+}
+
+// Scheduler is an optional Queue capability: holding a task aside until a
+// future time instead of delivering it immediately. Pop only returns
+// scheduled tasks once their delay has elapsed. The worker pool enables
+// async re-enqueue (retry waits live in the queue, not in the worker) when
+// its queue implements this; queues without it keep the synchronous
+// in-worker backoff.
+type Scheduler interface {
+	Schedule(ctx context.Context, task *DeliveryTask, delay time.Duration) error
 }
 
 // SensitiveFields returns a set of field names that should be masked in API responses

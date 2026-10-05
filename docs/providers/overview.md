@@ -148,6 +148,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 - 走内置 HTTP 客户端（`core/httpclient`）的 Provider 自动获得分类：408 归 `timeout`、429 归 `rate_limited`、5xx 与传输错误归 `temporary`（三类可重试），其余 4xx 不分类也重试不了（`classifyStatus` 注释原话：retrying them cannot succeed）
 - 「HTTP 200 但业务码失败」不在自动分类范围内，由 Provider 自己决定：腾讯云/网易云信给业务错误整体套 `httpclient.WithRetry`（业务码失败也重试），阿里云业务码只返回裸错误（不重试）——各渠道差异见对应 Provider 页
+- 重试等待发生在队列侧：可重试失败的任务带 `next_retry_at` 重新入队，到点再投，期间 worker 去投别的任务；`Retry-After` 的等待同样在队列侧消化（封顶 `retry.max_delay`）。日志（`/api/v1/logs`）里该任务只有一行，重试期间停在 `pending`
 - 可重试类耗尽 `retry.max` 后任务进入 dead，终态错误留在任务的 `last_error`；日志（`/api/v1/logs`）的 `status` 始终是 `success/failed` 二值 wire 词汇
 
 ## 最佳实践

@@ -1551,3 +1551,51 @@ func TestNewRejectsUnwritableRulesStore(t *testing.T) {
 		t.Fatal("New() with an unwritable rules store must fail")
 	}
 }
+
+func TestAwaitingQueueScheduleForwarding(t *testing.T) {
+	backend, err := queue.NewMemoryQueue(&queue.QueueConfig{Type: "memory", Size: 10})
+	if err != nil {
+		t.Fatalf("NewMemoryQueue() error = %v", err)
+	}
+	aq := newAwaitingQueue(backend)
+	ctx := context.Background()
+
+	// The capability must survive the decorator: the worker pool probes
+	// the wrapped queue, not the inner one.
+	if _, ok := core.Queue(aq).(core.Scheduler); !ok {
+		t.Fatal("awaitingQueue does not expose the Scheduler capability")
+	}
+
+	// Zero-delay scheduling forwards onto the ready queue.
+	task := &core.DeliveryTask{ID: "t-now"}
+	if err := aq.Schedule(ctx, task, 0); err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	got, err := backend.Pop(ctx)
+	if err != nil || got.ID != "t-now" {
+		t.Fatalf("backend Pop() = %v/%v, want the forwarded task", got, err)
+	}
+
+	// A queue without the capability is refused rather than silently
+	// degraded.
+	bare := newAwaitingQueue(&noScheduleQueue{})
+	if err := bare.Schedule(ctx, task, time.Second); err == nil {
+		t.Fatal("Schedule() on a plain queue = nil, want an error")
+	}
+}
+
+// noScheduleQueue is the smallest Queue with no Scheduler capability.
+type noScheduleQueue struct {
+	core.Queue
+}
+
+func (q *noScheduleQueue) Push(_ context.Context, _ *core.DeliveryTask) error { return nil }
+func (q *noScheduleQueue) Pop(_ context.Context) (*core.DeliveryTask, error) {
+	return nil, nil
+}
+func (q *noScheduleQueue) Ack(_ context.Context, _ string) error   { return nil }
+func (q *noScheduleQueue) Nack(_ context.Context, _ string, _ error) error {
+	return nil
+}
+func (q *noScheduleQueue) Size() int    { return 0 }
+func (q *noScheduleQueue) Close() error { return nil }

@@ -67,6 +67,28 @@ type Config struct {
 // (nothing to retry).
 var ErrMaxRetries = errors.New("max retries exceeded")
 
+// Deferred is not a failure: it reports a failed attempt whose retry was
+// pushed back into the queue instead of slept through in the worker
+// (async re-enqueue). Delay is how long the queue should hold the task;
+// Err is the underlying attempt failure. The pool schedules the task for
+// Delay and moves on; errors.As distinguishes it from a terminal error.
+type Deferred struct {
+	Delay time.Duration
+	Err   error
+}
+
+func (d *Deferred) Error() string {
+	return fmt.Sprintf("retry deferred for %v: %v", d.Delay, d.Err)
+}
+
+func (d *Deferred) Unwrap() error {
+	return d.Err
+}
+
+// now is the wall clock, a package variable so tests can pin the
+// NextRetryAt stamp without real-time flake.
+var now = time.Now
+
 // Retryer handles retry logic
 type Retryer struct {
 	policy Policy
@@ -149,24 +171,50 @@ func (r *Retryer) Execute(ctx context.Context, task *core.DeliveryTask, fn func(
 		// backoff under StatusRetrying; the next attempt flips it back.
 		task.Status = core.StatusRetrying
 
-		delay := r.policy.NextDelay(i)
-		// A server-stated wait (Retry-After on a rate-limited failure)
-		// beats the backoff curve — the upstream knows when to come back.
-		// Capped by MaxDelay so the advice can't park the task forever.
-		if hint, ok := errclass.RetryAfterOf(err); ok {
-			if r.maxDelay > 0 && hint > r.maxDelay {
-				hint = r.maxDelay
-			}
-			delay = hint
-		}
 		select {
-		case <-after(delay):
+		case <-after(r.waitFor(err, r.policy.NextDelay(i))):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 
 	return fmt.Errorf("%w: %w", ErrMaxRetries, lastErr)
+}
+
+// waitFor returns how long to wait before the next attempt: a server-stated
+// wait (Retry-After on a rate-limited failure) beats the backoff curve —
+// the upstream knows when to come back — capped by MaxDelay so the advice
+// can't park the task forever. fallback is the policy's own delay.
+func (r *Retryer) waitFor(err error, fallback time.Duration) time.Duration {
+	if hint, ok := errclass.RetryAfterOf(err); ok {
+		if r.maxDelay > 0 && hint > r.maxDelay {
+			return r.maxDelay
+		}
+		return hint
+	}
+	return fallback
+}
+
+// Defer settles one failed attempt on the async path: a retryable failure
+// with budget left is pushed back to the queue (the task leaves with
+// StatusRetrying and a stamped NextRetryAt; RetryCount counts the attempt
+// that just failed) and Defer returns a *Deferred carrying the wait;
+// anything else is terminal — plain error for failed, ErrMaxRetries-wrapped
+// for dead. Sync Execute and Defer share waitFor, so both paths honour the
+// same Retry-After and capping rules.
+func (r *Retryer) Defer(task *core.DeliveryTask, err error) error {
+	if !isRetryable(err) {
+		return err
+	}
+	if task.RetryCount >= r.policy.MaxRetries() {
+		return fmt.Errorf("%w: %w", ErrMaxRetries, err)
+	}
+	task.RetryCount++
+	task.Status = core.StatusRetrying
+	delay := r.waitFor(err, r.policy.NextDelay(task.RetryCount-1))
+	stamp := now().Add(delay)
+	task.NextRetryAt = &stamp
+	return &Deferred{Delay: delay, Err: err}
 }
 
 // ExponentialPolicy implements exponential backoff
