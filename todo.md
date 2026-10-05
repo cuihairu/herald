@@ -17,6 +17,22 @@
 - [x] **Phase 8 · 测试** — §31 逐块核对：Notification（创建/参数 422）、Audience（group→recipients、user→recipient→endpoints）、Routing（refs→tasks）、Retry（Temporary 重试/Permanent 立败）、State（queued→delivering→delivered、failed→retrying→delivered）、Idempotency（键回放不重复创建）**均有既有测试底稿**；唯一真实缺口 **Multi Provider 隔离**（同一 fan-out 中 telegram 恰投一次不被兄弟失败带偏、feishu 可重试落地）补 `pool_phase8_test.go` 全真链路测试（service 路由→计划→队列→worker→provider）
 - [x] **Phase 9 · Documentation** — 七个文档面对齐（Getting Started/Architecture/Configuration/Provider/Audience/Delivery/API）：终态改写 + providers/overview 新增错误分类与重试节 + troubleshooting 修正 logs status 词汇错误（success/failed/pending/shadow）；差异总表收官——全部行收敛为「✅ 已落地」或「留批 + 理由」，无未定性缺口
 
+## 进行中：受众层改进（统一订阅与投递中枢）
+
+设计与实现详见 [design-audience-relations](design-audience-relations)。三阶段推进（2026-10-05 立项）：① 文档优先（本篇，写全再动码）；② 代码实现按文档落；③ ferry 对接验证（告警/通知真实触发走一遍）。全部扩在既有受众层上，不另立「订阅者」实体；关系类型显式（subscription 主动订阅 / enrollment 被动指派），接口 Subscribe/Enroll 分名。
+
+- [ ] **1. 关系模型与受众注册表** — RelationType 枚举、关系存储（类型/来源/策略位字段）、Subscribe/Enroll 分名接口、查询/审计按类型分
+- [ ] **2. 联系面与绑定 API** — ContactSurface（pending/active/invalid）、一次性 token 签发核销（15 分钟过期）、换绑旧渠道确认、RSS 私密 token 随绑签发
+- [ ] **3. 偏好中心** — 品类×渠道×频率模型与校验、默认策略表（系统必收/营销默认低频）、偏好读写 API
+- [ ] **4. 投递管道关系过滤** — expandRef 后置过滤（关系允许×联系面绑定交集）、渠道×关系矩阵校验、系统必达/营销退订策略位
+- [ ] **5. 投递审计补齐** — 关系类型/入口来源快照进任务与 TaskLog、关系变更审计流水、去重折叠明细
+- [ ] **6. Digest 聚合器** — 受众+品类+时间窗、定时翻转（redis 锁选主）、摘要模板与投递、实时豁免
+- [ ] **7. RSS 拉式渠道** — 公共/私密 feed 生成、品类可见性校验（token 归属）、多地址容灾
+- [ ] **8. 来源适配器** — bot /start /stop、公众号关注/取关事件、应用内勾选 API、取关回流全停、外部状态定期对账
+- [ ] **9. 渠道强度与投递模式** — Intensity/Urgency 枚举、品类→紧急度映射、三方交集匹配策略件、三模式执行器（升级链/固定单渠道/多渠道并行）、升级链 ack 应答即停
+- [ ] **10. 去重与频控** — event_id 幂等、内容折叠（计数+原始事件保留）、状态机去重、三档频控（once/throttle/always）与品类默认档
+- [ ] **11. 集成者 API 与 Go SDK** — app 命名空间与 token 权限分级（config/trigger/query）、配置/触发/查询 API、webhook 回调（投递结果/退订回流）、SDK 与 docs/guide/integration.md
+
 ## 说明
 
 - 本文件 2026-10-04 首次建立（此前计划只存在于设计/审计文档）；无历史待办条目需要清理，源文档中已被执行记录覆盖的过程性草稿（如早期审计稿的错误表述）均已在 [design-audience-audit.md](/design-audience-audit) 就地修正，不在此重复。

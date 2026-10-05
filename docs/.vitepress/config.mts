@@ -140,6 +140,7 @@ export default defineConfig({
             { text: '通知群组', link: '/design-notification-groups' },
             { text: 'Audience 领域模型', link: '/design-audience-model' },
             { text: 'Audience 现状审计', link: '/design-audience-audit' },
+            { text: '受众订阅与投递中枢', link: '/design-audience-relations' },
           ]
         }
       ],
