@@ -216,3 +216,5 @@ POST /api/v1/notify
 3. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
 
 > 2026-10-05 更新：原清单中的「RateLimited per-class 退避（Retry-After）」与「`next_retry_at` / 异步重新入队」均已落地（分别见 Phase 5 记录的后批补齐与本日新增的后批节），清单余 3 项。
+>
+> 2026-10-05 拍板：余 3 项确认维持现状——「Logs 与 Delivery 状态分离」与「audiences/recipients/channels 运行时 API」继续留批不做，「group 成员渠道块展开」维持既定不做；队列至此清零，后续新方向另行指派。

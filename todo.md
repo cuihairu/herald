@@ -2,7 +2,7 @@
 
 跟踪 [design-audience-model.md](/design-audience-model) 计划的落地批次，事实底稿与差异详见 [design-audience-audit.md](/design-audience-audit)（含逐批执行记录）。执行规则（硬约束）：每批提交前全量门禁全绿（race + 覆盖 gate 100 + golangci-lint + dashboard 100% + docs build）；push 仅当前分支；单批小步提交。
 
-> **计划已收官（2026-10-04）**：Phase 0-9 全批落地。留批项（Logs 事件流分离、受众/渠道运行时 API、group 成员渠道块展开）均为显式设计决策，理由见 audit 差异总表收官节。原留批两项 2026-10-05 已补齐落地并从清单移除：RateLimited 专项退避（Retry-After）、`next_retry_at` / 异步重新入队（重试等待移入队列侧持留，worker 不再睡退避）。
+> **计划已收官（2026-10-04）**：Phase 0-9 全批落地。留批项（Logs 事件流分离、受众/渠道运行时 API、group 成员渠道块展开）均为显式设计决策，理由见 audit 差异总表收官节。原留批两项 2026-10-05 已补齐落地并从清单移除：RateLimited 专项退避（Retry-After，`39979bb`）、`next_retry_at` / 异步重新入队（重试等待移入队列侧持留，worker 不再睡退避，`20e25d4`）。同日拍板：余 3 项留批维持不做，队列清零。
 
 ## 已完成
 
