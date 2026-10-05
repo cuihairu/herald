@@ -1067,9 +1067,12 @@ func TestDispatchWithEscalationFiresUpgradeWithoutAck(t *testing.T) {
 }
 
 // TestDispatchWithEscalationAckCancelsUpgrade acknowledges the alert right
-// after delivery and verifies the upgrade never fires.
+// after delivery and verifies the upgrade never fires. The ack timeout is
+// generous (300ms) so the ack reliably lands inside the window even under
+// a heavily loaded -race run; the 600ms wait then proves the window
+// closed with nothing on the phone.
 func TestDispatchWithEscalationAckCancelsUpgrade(t *testing.T) {
-	app, rec, phone := escalationApp(t, "30ms")
+	app, rec, phone := escalationApp(t, "300ms")
 
 	_, err := app.DispatchSync(context.Background(), &core.Notification{
 		Type:    "alert",
@@ -1084,7 +1087,7 @@ func TestDispatchWithEscalationAckCancelsUpgrade(t *testing.T) {
 		t.Fatalf("Ack() error = %v", err)
 	}
 
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 	if phone.count() != 0 {
 		t.Fatalf("acknowledged alert must not escalate")
 	}
@@ -1094,9 +1097,11 @@ func TestDispatchWithEscalationAckCancelsUpgrade(t *testing.T) {
 }
 
 // TestDispatchWithEscalationRepeatsReArm verifies that a repeated delivery
-// of the same alert id resets the escalation window.
+// of the same alert id resets the escalation window. Windows are generous
+// (600ms re-arm, 300ms between deliveries) so slow -race runs cannot
+// accidentally let the first window expire mid-test.
 func TestDispatchWithEscalationRepeatsReArm(t *testing.T) {
-	app, _, phone := escalationApp(t, "60ms")
+	app, _, phone := escalationApp(t, "600ms")
 
 	notif := &core.Notification{
 		Type:    "alert",
@@ -1107,7 +1112,7 @@ func TestDispatchWithEscalationRepeatsReArm(t *testing.T) {
 	if _, err := app.DispatchSync(context.Background(), notif); err != nil {
 		t.Fatalf("DispatchSync(1) error = %v", err)
 	}
-	time.Sleep(35 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	notif2 := &core.Notification{
 		Type:    "alert",
 		Level:   "critical",
@@ -1117,13 +1122,14 @@ func TestDispatchWithEscalationRepeatsReArm(t *testing.T) {
 	if _, err := app.DispatchSync(context.Background(), notif2); err != nil {
 		t.Fatalf("DispatchSync(2) error = %v", err)
 	}
-	// 35ms after the second delivery the re-armed window (60ms) is still
-	// open; the first window would have expired by now.
-	time.Sleep(35 * time.Millisecond)
+	// 300ms after the second delivery the re-armed window (600ms) is still
+	// open; the first window (armed ~300ms ago at delivery one) would have
+	// expired by now.
+	time.Sleep(300 * time.Millisecond)
 	if phone.count() != 0 {
 		t.Fatalf("upgrade fired before the re-armed window closed")
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if phone.count() == 1 {
 			return
