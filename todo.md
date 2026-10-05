@@ -21,7 +21,7 @@
 
 设计与实现详见 [design-audience-relations](design-audience-relations)。三阶段推进（2026-10-05 立项）：① 文档优先（本篇，写全再动码）；② 代码实现按文档落；③ ferry 对接验证（告警/通知真实触发走一遍）。全部扩在既有受众层上，不另立「订阅者」实体；关系类型显式（subscription 主动订阅 / enrollment 被动指派），接口 Subscribe/Enroll 分名。
 
-- [ ] **1. 关系模型与受众注册表** — RelationType 枚举、关系存储（类型/来源/策略位字段）、Subscribe/Enroll 分名接口、查询/审计按类型分
+- [x] **1. 关系模型与受众注册表** — `3fc1a82`：RelationType 枚举（subscription/enrollment）、来源标记、策略位（AllowUnsubscribe/MustDeliver 互斥底线在 Enroll 强制、Subscribe 强制可退订形态）；Subscribe/Enroll/Terminate/Lookup/RelationsByType；同槽位最新登记为准，Terminate 返回被移除关系供审计
 - [ ] **2. 联系面与绑定 API** — ContactSurface（pending/active/invalid）、一次性 token 签发核销（15 分钟过期）、换绑旧渠道确认、RSS 私密 token 随绑签发
 - [ ] **3. 偏好中心** — 品类×渠道×频率模型与校验、默认策略表（系统必收/营销默认低频）、偏好读写 API
 - [ ] **4. 投递管道关系过滤** — expandRef 后置过滤（关系允许×联系面绑定交集）、渠道×关系矩阵校验、系统必达/营销退订策略位
