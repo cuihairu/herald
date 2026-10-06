@@ -98,7 +98,12 @@ func (q *memoryQueue) Pop(ctx context.Context) (*core.DeliveryTask, error) {
 		q.delayedMu.Lock()
 		var fire <-chan time.Time
 		if len(q.delayed) > 0 {
-			fire = after(time.Until(q.delayed[0].due))
+			// due.Sub(now()) rather than time.Until: the wait must be
+			// measured on the same clock that stamped the deadline, or a
+			// pinned test clock drifts against the real one and the
+			// deadline never arrives. In production now == time.Now, so
+			// this is exactly time.Until.
+			fire = after(q.delayed[0].due.Sub(now()))
 		}
 		q.delayedMu.Unlock()
 
@@ -159,10 +164,10 @@ type delayedEntry struct {
 
 type delayedHeap []*delayedEntry
 
-func (h delayedHeap) Len() int            { return len(h) }
-func (h delayedHeap) Less(i, j int) bool  { return h[i].due.Before(h[j].due) }
-func (h delayedHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *delayedHeap) Push(x any) { *h = append(*h, x.(*delayedEntry)) }
+func (h delayedHeap) Len() int           { return len(h) }
+func (h delayedHeap) Less(i, j int) bool { return h[i].due.Before(h[j].due) }
+func (h delayedHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *delayedHeap) Push(x any)        { *h = append(*h, x.(*delayedEntry)) }
 func (h *delayedHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
