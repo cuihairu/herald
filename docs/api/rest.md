@@ -61,7 +61,7 @@ token。token 缺失、无效或过期返回 401。
 
 发送通知。
 
-模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**。`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。请求按 `type` + `level` 路由，也可显式命名接收方（`channels` / `channel` / `audience`）；`template` + `params`/`data` 走模板渲染，`title`/`body` 走直接内容。幂等语义见 [接收方与幂等](#notify-receivers)，字段演进依据 [Audience 领域模型](/design-audience-model)。
+模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**。`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。请求按 `type` + `level` 路由，也可显式命名接收方（`channels` / `channel` / `audience`）；`template` + `params`/`data` 走模板渲染，`title`/`body` 走直接内容。幂等语义见 [接收方与幂等](#notify-receivers)，字段演进依据 [受众领域模型总纲](/design-audience-model)。
 
 ### notify-请求 {#notify-request}
 

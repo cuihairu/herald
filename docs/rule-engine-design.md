@@ -4,11 +4,11 @@
 
 ## 一、定位：从"事件驱动投递"到"可编程告警平台"
 
-**现状**：herald 今天约等于 **ntfy + 多渠道矩阵**。调用方（CI、监控脚本、业务代码）带着一个明确意图 `POST /api/notify`（`api/handler_notify.go` 的 `HandleNotify`），herald 的职责是把这条 `Notification`（`core/types.go`）经过去重、路由、模板渲染、任务拆分（`core/service/notification.go` 的 `Process`），推入队列，最后由 worker 池投递到 14 类内置渠道（`providers/builtin/`：aliyunsms、dingtalk、discord、email、feishu、log、neteasesms、slack、telegram、tencentsms、webhook、wechat、wechatmp、wecom，支持同名多实例）。这条链路里**每一件事都是"事件来了做什么"**：herald 自己不做任何判断，判断全部在调用方。
+**现状**：herald 今天约等于 **ntfy + 渠道广度**。调用方（CI、监控脚本、业务代码）带着一个明确意图 `POST /api/notify`（`api/handler_notify.go` 的 `HandleNotify`），herald 的职责是把这条 `Notification`（`core/types.go`）经过去重、路由、模板渲染、任务拆分（`core/service/notification.go` 的 `Process`），推入队列，最后由 worker 池投递到 14 类内置渠道（`providers/builtin/`：aliyunsms、dingtalk、discord、email、feishu、log、neteasesms、slack、telegram、tencentsms、webhook、wechat、wechatmp、wecom，支持同名多实例）。这条链路里**每一件事都是"事件来了做什么"**：herald 自己不做任何判断，判断全部在调用方。
 
 **为什么这是问题**：告警场景的判断逻辑（"失败率超 5% 且在生产环境"、"持续 3 分钟才算真故障"）被迫前移到每一个调用方。十个团队接入就要把同一套判断写十遍，阈值改一次要发十次版。调用方通常是不懂告警纪律的 CI 脚本，结果就是告警风暴。风暴的代价由渠道承担（飞书刷屏、短信烧钱）。
 
-**升级目标**：做成"**可以在后台配规则的 Alertmanager，但渠道矩阵是自己的**"。Alertmanager 的路由树/抑制/静默模型经过十年生产验证，但它的规则写死在配置文件里，改一条路由要走一次发布；herald 已有的渠道广度（含国内 IM/短信）是 Alertmanager 不具备的。两者结合点就是：**把 Alertmanager 的判断模型搬进来，把判断的配置权从配置文件搬到数据库后台**。
+**升级目标**：做成"**可以在后台配规则的 Alertmanager，但渠道广度是自己的**"。Alertmanager 的路由树/抑制/静默模型经过十年生产验证，但它的规则写死在配置文件里，改一条路由要走一次发布；herald 已有的渠道广度（含国内 IM/短信）是 Alertmanager 不具备的。两者结合点就是：**把 Alertmanager 的判断模型搬进来，把判断的配置权从配置文件搬到数据库后台**。
 
 **演进路径分四层**，每层独立产生价值，不做大爆炸式重写：
 
@@ -137,7 +137,7 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 | 配置方式 | CLI/配置文件 | **配置文件写死，改路由要发布** | 后台 UI 但规则模型不可编程 | yaml 静态 | **DB CRUD + 热加载 + 影子模式** |
 | 部署形态 | 自托管，免费 | 自托管，免费 | SaaS，按人/按事件计费，贵 | 自托管，免费 | 不变 |
 
-三个参照物正好是三种取舍：ntfy 把判断完全留给客户端（所以轻）；Alertmanager 有完整判断模型但配置冻结在文件里（所以运维恨发布）；PagerDuty 把判断模型与响应闭环做成 SaaS（所以全但贵）。herald 的位置：**Alertmanager 的判断深度 + 后台化配置 + 自有渠道矩阵 + ACK 闭环**，全部自托管。
+三个参照物正好是三种取舍：ntfy 把判断完全留给客户端（所以轻）；Alertmanager 有完整判断模型但配置冻结在文件里（所以运维恨发布）；PagerDuty 把判断模型与响应闭环做成 SaaS（所以全但贵）。herald 的位置：**Alertmanager 的判断深度 + 后台化配置 + 自有渠道广度 + ACK 闭环**，全部自托管。
 
 ## 六、分阶段实施
 
@@ -162,7 +162,7 @@ rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 ### P3 —— ACK 闭环
 
 - ACK 回调：飞书卡片按钮回调（复用 `providers/builtin/feishu` 的应用配置，新增回调 HTTP 端点）+ 通用 `POST /api/alerts/{id}/ack`；
-- `escalation` 生效：ack_timeout 到期未确认 → 升级链投递（电话渠道以 webhook 桥接外部电话网关实现，herald 不内置电话运营商集成。为什么：电话通道的合规与运营商接入是独立业务，webhook 桥接保持渠道矩阵可插拔）；
+- `escalation` 生效：ack_timeout 到期未确认 → 升级链投递（电话渠道以 webhook 桥接外部电话网关实现，herald 不内置电话运营商集成。为什么：电话通道的合规与运营商接入是独立业务，webhook 桥接保持渠道面可插拔）；
 - 事故记录：组告警从触发到 ack 到 resolve 的全时间线落库，logstore 从"投递日志"升级为"事故台账"的查询视图。
 
 ### 明确不做的

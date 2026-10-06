@@ -652,7 +652,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 ### 领域模型与配置块
 
-配置与领域模型一一对应（关系与边界见 [Audience 领域模型](/design-audience-model)）：
+配置与领域模型一一对应（关系与边界见 [受众领域模型总纲](/design-audience-model)）：
 
 | 配置块 | 领域角色 | 状态 |
 |--------|---------|------|
@@ -663,7 +663,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | ✅ 已实现 |
 | `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | ✅ 已实现 |
 
-`audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，第一期只做**配置化**、无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。
+`audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，接收人/端点表本身无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
 
 ```yaml
 recipients:

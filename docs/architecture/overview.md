@@ -4,9 +4,9 @@
 
 Herald 是一个：
 
-> **轻量、Provider 无关的通知投递基础设施**（Lightweight, Provider-agnostic Notification Delivery Infrastructure）
+> **轻量、Provider 无关的统一订阅与投递中枢**（Lightweight, Provider-agnostic Subscription & Delivery Hub）
 
-为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力——事件驱动（Event-driven Delivery Infrastructure）是其工作方式，Provider 无关是其边界承诺。
+为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定。事件驱动（Event-driven Delivery Infrastructure）是其工作方式，Provider 无关是其边界承诺。
 
 **核心流程：**
 
@@ -17,7 +17,7 @@ Event → Notification → Routing → Delivery Task → Queue → Worker → Pr
 - **Notification** 描述「通知什么、面向谁、用什么模板」，不知道任何 Provider 细节；
 - **Routing** 把 Notification 展开成若干 **Delivery Task**（受众解析 + 通道路由）；
 - 每条 Delivery 独立状态、独立重试，与 Notification 的受理状态分离；
-- 完整领域模型与落地计划见 [Audience 领域模型](/design-audience-model)。
+- 完整领域模型（术语契约、受众层扩展、落地状态）见 [受众领域模型总纲](/design-audience-model)。
 
 ## 领域模型与边界
 
@@ -46,7 +46,7 @@ Routing      ≠ Delivery           —— 展开决策与执行任务分离
 Provider     ≠ Business Logic     —— Provider 只做请求构造/调用/错误转换
 ```
 
-各边界的落地现状与逐批执行记录见 [Audience 领域模型](/design-audience-model)与[现状审计](/design-audience-audit)（计划 Phase 0-9 已全批落地）：Notification / Channel（routes 路由 + `channels` 独立配置块，显式 provider > channels 块 > routes 表）/ Delivery Task（显式状态机 queued/delivering/retrying/delivered/failed/dead + MaxAttempts/LastError + NextRetryAt）/ Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Provider 错误六类分类（Temporary/Permanent/RateLimited/Authentication/InvalidRequest/Timeout，分类骑错误链、wire 文本不变）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）。可重试失败的等待在队列侧：任务带 `next_retry_at` 重新入队（队列实现 `Scheduler` 能力时），worker 不睡退避。明确留批：Logs/Delivery 事件流分离，已在审计中记录留批理由。
+各边界的落地现状见 [受众领域模型总纲](/design-audience-model) §13；逐批执行记录与留批拍板见[现状审计](/design-audience-audit)（Phase 0-9 已全批落地）：Notification / Channel（routes 路由 + `channels` 独立配置块，显式 provider > channels 块 > routes 表）/ Delivery Task（显式状态机 queued/delivering/retrying/delivered/failed/dead + MaxAttempts/LastError + NextRetryAt）/ Queue / Worker / Provider、通知群组（`group:` 形态受众）、`user:` 级 Recipient 与多 Endpoint（配置化：`audiences` / `recipients` 配置块 + `user:` 引用展开）、Provider 错误六类分类（Temporary/Permanent/RateLimited/Authentication/InvalidRequest/Timeout，分类骑错误链、wire 文本不变）以及 notify API 的领域字段（`channel` / `audience` / `data` / `idempotency_key`，见 [REST API](/api/rest#notify-receivers)）。可重试失败的等待在队列侧：任务带 `next_retry_at` 重新入队（队列实现 `Scheduler` 能力时），worker 不睡退避。明确留批：Logs/Delivery 事件流分离，已在审计中记录留批理由。受众层的订阅侧扩展（关系/联系面/偏好/Digest/RSS/集成 API）按[关系详设](/design-audience-relations)分批推进。
 
 ## 核心设计思想
 
@@ -149,4 +149,4 @@ heraldd worker --config worker.yaml
 
 ## 最终定位
 
-**Lightweight, Provider-agnostic Notification Delivery Infrastructure**。落到使用上：业务侧只描述「发生了什么、通知什么、通知谁」；受众/通道/规则的路由、队列与 Worker、投递的独立状态与独立重试，全部由 Herald 收口。
+**Lightweight, Provider-agnostic Subscription & Delivery Hub**。落到使用上：业务侧只描述「发生了什么、通知什么、通知谁」；受众/通道/规则的路由、队列与 Worker、投递的独立状态与独立重试，全部由 Herald 收口；投给谁、投到哪个渠道、以什么频率，由受众的关系与偏好做主。

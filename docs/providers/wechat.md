@@ -12,7 +12,7 @@
 | `pushplus` | [PushPlus](http://www.pushplus.plus/) | `POST https://www.pushplus.plus/send` |
 | `wxpusher` | [WxPusher](https://wxpusher.zjiecode.com/) | `POST https://wxpusher.zjiecode.com/api/send/message` |
 
-三个服务都是「推到我的微信」而非「推给某个用户」，因此 `recipients`（投递目标）对本 Provider **不生效**——消息统一发给该凭据对应的账号或其全部订阅者。要按人定向推送请用 [FCM](./fcm.md) / [APNs](./apns.md) / [微信公众号模板消息](./wechatmp.md)。
+三个服务都是「推到我的微信」而非「推给某个用户」，因此 `recipients`（投递目标）对本 Provider **不生效**——消息统一发给该凭据对应的账号或其全部关注者。要按人定向推送请用 [FCM](./fcm.md) / [APNs](./apns.md) / [微信公众号模板消息](./wechatmp.md)。
 
 ## 申请凭据
 
@@ -34,7 +34,7 @@
 
 1. 访问 [wxpusher.zjiecode.com](https://wxpusher.zjiecode.com/) 微信扫码登录
 2. 左侧「应用管理」→ 新建应用，填名称与描述 → 创建后得到 **AppToken**（形如 `AT_xxxxxxxx`）
-3. 关注应用后可在「用户列表」看到自己的 **UID**；不配 UID 则推给全部订阅者
+3. 关注应用后可在「用户列表」看到自己的 **UID**；不配 UID 则推给全部关注者
 4. 免费额度 1000 条/天
 
 ## 发第一条消息
@@ -76,7 +76,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
 | `send_key` | 条件必填 | Server酱 SendKey（`service: serverchan` 时必填） | 无 |
 | `token` | 条件必填 | PushPlus Token（`service: pushplus` 时必填） | 无 |
 | `app_token` | 条件必填 | WxPusher AppToken（`service: wxpusher` 时必填） | 无 |
-| `uid` | ❌ | WxPusher 定向 UID；留空推给全部订阅者，多个用英文逗号分隔 | 无 |
+| `uid` | ❌ | WxPusher 定向 UID；留空推给全部关注者，多个用英文逗号分隔 | 无 |
 
 值里不含 `service` 时默认走 Server酱——**只填 `send_key` 之外的服务凭据而忘了写 `service`，会以 `send_key is required for serverchan` 启动失败**。
 
@@ -115,7 +115,7 @@ providers:
     config:
       service: wxpusher
       app_token: "$WECHAT_WXPUSHER_APP_TOKEN"
-      uid: "$WECHAT_WXPUSHER_UID"   # 可留空，留空则推给全部订阅者
+      uid: "$WECHAT_WXPUSHER_UID"   # 可留空，留空则推给全部关注者
 ```
 
 高可用可以配多个 `wechat` 实例（不同 provider 名）指向不同服务，某家限流或宕机时换道：
@@ -183,7 +183,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
 
 ### 发送语义
 
-- 一次投递只发一条消息，目标固定为凭据对应账号/订阅者，`recipients` 不参与
+- 一次投递只发一条消息，目标固定为凭据对应账号/关注者，`recipients` 不参与
 - 正文末尾自动追加 `---\n2026-10-03 10:20:30` 形式的时间戳，方便回看
 - Server酱 `short` 摘要按 **64 个字符**截断；正文完整保留
 

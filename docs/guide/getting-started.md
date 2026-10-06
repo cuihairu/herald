@@ -13,9 +13,9 @@
 
 中文定位：
 
-> **Herald 是一个轻量、Provider 无关的统一通知投递基础设施**，为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力。
+> **Herald 是轻量、Provider 无关的统一订阅与投递中枢**，为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力。
 
-业务侧只描述「发生了什么、通知什么、通知谁」；消息最终通过什么渠道、由哪个 Worker、何时以及如何重试送达，全部由 Herald 完成（受众 - 渠道 - Provider 的解耦模型见 [Audience 领域模型](/design-audience-model)）。
+业务侧只描述「发生了什么、通知什么、通知谁」；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定；消息最终通过什么渠道、由哪个 Worker、何时以及如何重试送达，全部由 Herald 完成（模型见 [受众领域模型总纲](/design-audience-model)）。
 
 ## 核心概念
 
@@ -23,8 +23,10 @@
 |------|--------|------|
 | **Notification** | 一次需要被 Herald 处理和投递的通知 | 一条 `type=server.alert, level=error` 的告警 |
 | **Audience** | 一条通知所面向的受众集合（通知谁） | `group:ops` |
-| **Recipient** | Audience 中的具体接收者 | `user:alice` |
-| **Endpoint** | Recipient 的具体投递地址 | `telegram:123456` |
+| **Recipient** | Audience 中的具体接收人 | `user:alice` |
+| **Endpoint** | Recipient 的具体投递地址（静态配置） | `telegram:123456` |
+| **ContactSurface** | 受众的联系面：运行时绑定、带状态的渠道凭据 | `alice` 绑定的 telegram（`active`） |
+| **Relation** | 受众对品类的收发关系，投递的唯一合法依据 | `alice × alerts × telegram`（subscription） |
 | **Channel** | 业务定义的通知逻辑通道（哪类通知） | `ci` / `ops` / `security` |
 | **Template** | 通知内容如何生成 | `server_alert` 模板渲染标题与字段 |
 | **Routing** | 决定通知展开成哪些投递 | 受众解析 + 通道路由 → Delivery Task |
@@ -54,7 +56,7 @@ Telegram / Feishu / Email / Log ...
 
 Notification 与 Delivery 分离：一条 Notification 可能展开成多条 Delivery（多渠道），各 Delivery 独立状态、独立重试。`accepted` 只代表 Herald 受理，不代表已送达。
 
-> 实现现状：[Audience 领域模型](/design-audience-model)计划（Phase 0-9）已全批落地——`Notification / Template / Channel（routes + channels 块）/ Delivery（枚举状态机 + MaxAttempts/LastError + NextRetryAt）/ Queue / Worker / Provider` 全部就位；`user:` 级 Recipient 与多 Endpoint 以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"）；Provider 错误按六类词汇分类（可重试类带 `next_retry_at` 回队列重投、确定性类立即失败）；notify API 支持 `channel` / `audience` / `data` / `idempotency_key` 领域字段（见 [REST API](/api/rest#notify-receivers)）。逐批执行记录见 [现状审计](/design-audience-audit)；明确留批的项（Logs 与 Delivery 事件流分离、受众与渠道的运行时 API）在审计差异总表中各有留批理由。
+> 实现现状：Phase 0-9 管道改造已全批落地——`Notification / Template / Channel（routes + channels 块）/ Delivery（枚举状态机 + MaxAttempts/LastError + NextRetryAt）/ Queue / Worker / Provider` 全部就位；`user:` 级 Recipient 与多 Endpoint 以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"）；Provider 错误按六类词汇分类（可重试类带 `next_retry_at` 回队列重投、确定性类立即失败）；notify API 支持 `channel` / `audience` / `data` / `idempotency_key` 领域字段（见 [REST API](/api/rest#notify-receivers)）。逐批执行记录见 [现状审计](/design-audience-audit)；明确留批的项（Logs 与 Delivery 事件流分离、受众与渠道的运行时 API）在审计差异总表中各有留批理由。受众层正按[关系详设](/design-audience-relations)扩展为统一订阅与投递中枢：关系模型、联系面绑定、偏好中心已落地，关系过滤、审计补齐、Digest、RSS、集成者 API 在途（落地状态见[总纲 §13](/design-audience-model#_13-落地状态-诚实口径)）。
 
 ## 安装
 

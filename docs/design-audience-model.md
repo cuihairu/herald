@@ -1,1687 +1,198 @@
-# Audience 领域模型：Herald 完整架构改进计划书
+# 受众领域模型（总纲）
 
-> 状态：**收官（2026-10-04）**。Phase 0-9 全批落地，执行记录与留批清单见
-> [现状审计](/design-audience-audit#五执行记录)。本文保留为计划书原貌：各 Phase 前的
-> 代码审计（第 33 节 Phase 0）是执行起点的存档，本文本身不改代码。
+> 状态：**现行模型**（2026-10-07 重写）。本文是 Herald 领域模型的唯一总纲：术语、边界、
+> 受众层扩展全貌。关系的逐项详设（流程图 / 矩阵 / 参数表）在
+> [受众订阅与投递中枢](./design-audience-relations)（下称「关系详设」）；Phase 0-9
+> 管道改造的执行历史在[现状审计](./design-audience-audit)（存档）。
+> 铁律：方案变了先改本文——代码与本文不一致时，以本文为口径提批修正。
 
-## 1. 改造目标
+## 1. 定位
 
-本次改造不重写 Herald，做的是对现有实现的**领域模型收敛和架构边界明确化**。
+Herald 的基础面是通知投递管道：业务只描述「发生了什么、通知什么、通知谁」，渠道路由、队列、重试、状态全部由 Herald 收口。这一面已经落地（见[现状审计](./design-audience-audit)）。
 
-Herald 的最终定位：
-
-> **Herald is a lightweight, provider-agnostic notification delivery infrastructure for applications, operations, CI/CD and automation.**
-
-中文：
-
-> **Herald 是一个轻量、Provider 无关的统一通知投递基础设施，为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力。**
-
-核心链路：
+在此之上，Herald 的定位是**统一订阅与投递中枢**：从「应用主动推送」补全为「**被通知者做主**」。应用（ferry、sinomed 等）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定，而不是由调用方写死。
 
 ```text
-Event
-  │
-  ▼
-Notification
-  │
-  ├──────────────┐
-  ▼              ▼
-Audience       Template
-  │
-  ▼
-Routing
-  │
-  ▼
-Delivery Task
-  │
-  ▼
-Queue
-  │
-  ▼
-Worker
-  │
-  ▼
-Provider
-  │
-  ├── Telegram
-  ├── Feishu
-  ├── Email
-  ├── Webhook
-  └── Log
+旧：应用 ──「发到 telegram:123456」──> Herald ──> 渠道
+新：应用 ──「告警品类，通知 user:alice」──> Herald ──> 关系过滤 ──> 联系面 ──> 渠道
+                                                        ▲
+                              受众自己的订阅/偏好/退订决定这里放行什么
 ```
 
-其中：
+## 2. 术语契约（唯一口径）
 
-* **Event**：发生了什么
-* **Notification**：要通知什么
-* **Audience**：通知面向谁
-* **Recipient**：Audience 中具体的接收者
-* **Endpoint**：Recipient 的具体投递地址
-* **Template**：通知内容如何生成
-* **Channel**：业务定义的通知逻辑通道
-* **Routing**：决定通知如何展开成 Delivery
-* **Delivery Task**：一次具体的渠道投递任务
-* **Queue**：等待执行的任务
-* **Worker**：执行投递
-* **Provider**：实际调用 Telegram / Feishu / Email 等外部服务
+文档与代码术语一一对应，一个词只有一个含义。全站文档（指南 / 架构 / API / 设计）一律按本表用词：
 
-## 2. 本次改造最重要的架构原则
+| 术语 | 代码标识 | 含义 |
+| --- | --- | --- |
+| 受众 | `audience`（引用 `group:<id>` / `user:<id>`） | 身份主体，全系统唯一；应用只持受众 ID，不碰渠道凭据 |
+| 接收人 | `recipient` | 受众成员的具名个人（`recipients` 静态配置实体）。注意与指派关系里的「接收者**角色**」区分——接收人是身份，接收者是关系角色 |
+| 端点 | `Endpoint` | 接收人的静态投递地址（type + target） |
+| 联系面 | `ContactSurface` | 受众在运行时绑定的可达渠道凭据（TG chat_id、邮箱、公众号 openid、RSS 私密 token），带 pending/active/invalid 状态 |
+| 订阅关系 | `RelationSubscription` / `Subscribe()` | 受众**主动**勾选的关系：品类×渠道×频率，完全自主可退订；关系中的受众角色叫**订阅者**（subscriber） |
+| 指派关系 | `RelationEnrollment` / `Enroll()` | **被动**纳入的关系：管理员分组广播、运营触达、系统通知；关系中的受众角色叫**接收者**（recipient role） |
+| 策略位 | `Policy`（`AllowUnsubscribe` / `MustDeliver`） | 挂在关系上的权利位：退订权、必达标记 |
+| 入口来源 | `Source`（`bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`） | 关系与绑定经由哪个入口适配器进来，审计按此记 |
+| 品类 | category | 业务通知的分类维度（告警 / 账单 / 域名 / 公告 / 系统 / 营销），关系的分类轴 |
+| 渠道 | channel | 触达手段（telegram / email / 站内信 / RSS / 短信 / 电话），带侵扰度与实时性两个属性 |
+| 渠道块 | `channels` 配置块 | 命名渠道 → provider 实例集合的静态展开（既有投递配置；与品类维度正交，见 §6） |
+| 偏好 | `Preference` | 订阅关系上的品类×渠道×频率三元组选择 |
+| 聚合 | `Digest` | 按受众+品类+时间窗把多条事件收成一条摘要 |
+| 紧急度 | `Urgency`（routine / normal / urgent / critical） | 消息的紧急级别，决定允许的渠道强度区间 |
+| 侵扰度 | `Intensity`（L0–L5） | 渠道的打扰强度阶梯：拉式 < 邮件 < 站内信 < IM < 短信 < 电话 |
+| 投递模式 | escalation / fixed / parallel | 升级链 / 固定单渠道 / 多渠道并行，三选一可配 |
+| 频控 | once / throttle / always | 去重频控三档：仅一次 / 窗口节流 / 允许重复 |
 
-必须明确以下边界：
+受众是**身份**；订阅者/接收者是受众在某条**关系**里的角色。不存在平行的「订阅者」身份实体——应用侧只对接一套受众 ID。
+
+## 3. 核心链路
 
 ```text
-Notification ≠ Delivery Task
-
-Audience ≠ Channel
-
-Channel ≠ Provider
-
-Recipient ≠ Endpoint
-
-Routing ≠ Delivery
-
-Provider ≠ Business Logic
+Event ──> Rule ──> Notification ──┬──> Audience（受众引用）
+                                  └──> Template（渲染）
+                                        │
+                 受众层（§5）：关系过滤（订阅/指派 × 渠道矩阵）
+                              └──> 联系面（可达凭据，§5.2）
+                                        │
+                                        ▼
+                    Routing（展开成投递任务）──> 去重/频控（§8）──> 投递模式（§7）
+                                        │
+                                        ▼
+                    Delivery Task ──> Queue ──> Worker ──> Provider
+                                        │
+                    旁路：Digest 时间窗聚合（§10）／RSS 拉式出口（§10）
 ```
 
-这些边界是本次改造的核心。
-
-## 3. Notification
-
-### 3.1 定义
-
-Notification 表示：
-
-> **一次需要被 Herald 处理和投递的通知。**
-
-例如：
-
-```json
-{
-  "type": "ci.build.failed",
-  "level": "error",
-  "title": "Build Failed",
-  "body": "CI #123 failed"
-}
-```
-
-Notification 不应该知道：
+## 4. 概念边界
 
 ```text
-Telegram API
-Feishu API
-SMTP
-Webhook URL
+Notification ≠ Delivery Task        一次通知 ≠ 一次渠道投递
+Audience ≠ Channel ≠ Provider       通知谁 / 触达手段 / 怎么发送，三件事
+接收人 ≠ 端点                        具名个人 ≠ 一条静态投递地址
+端点 ≠ 联系面                        Endpoint 是静态配置地址；ContactSurface 是
+                                    运行时绑定、带状态、可失效重绑的凭据
+订阅 ≠ 指派                          主动勾选与被动纳入同表不同义：退订权、
+                                    渠道矩阵、审计全部分开（关系详设 §4）
+关系 ≠ 联系面                        意愿/义务（能不能收）≠ 可达性（收得到吗）
+Routing ≠ Delivery                  决策（谁收到什么）≠ 执行（投出去、重试）
+规则升级 ≠ 强度升级                  规则引擎升级回答「叫谁」；强度升级链回答
+                                    「怎么叫得更响」，两者正交可叠加
 ```
 
-它只描述：
+## 5. 受众层
 
-```text
-发生了什么
-通知内容是什么
-通知级别是什么
-面向什么受众
-使用什么模板
-```
+### 5.1 身份：受众 → 接收人 → 端点
 
-## 4. Audience
-
-### 4.1 定义
-
-Audience 是 Herald 的核心概念：
-
-> **Audience 表示一条 Notification 所面向的受众集合，即"这条通知应该通知谁"。**
-
-例如：
-
-```text
-group:ops
-group:backend
-group:developers
-user:alice
-user:bob
-```
-
-Audience 不负责描述具体的通知技术。
-
-### 4.2 为什么需要 Audience
-
-如果没有 Audience，业务很容易直接写：
-
-```json
-{
-  "provider": "telegram",
-  "chat_id": "123456"
-}
-```
-
-这样业务系统就开始管理：
-
-```text
-Telegram
-Feishu
-Email
-Webhook
-```
-
-导致业务与通知渠道耦合。
-
-引入 Audience 后：
-
-```text
-Notification
-      │
-      ▼
-Audience: group:ops
-      │
-      ▼
-具体接收者
-```
-
-业务只关心：
-
-> "通知运维团队。"
-
-而不是：
-
-> "调用 Telegram 给某个 chat_id 发消息。"
-
-## 5. Recipient
-
-Audience 是"受众集合"，Recipient 是其中的具体接收者。
-
-例如：
-
-```text
-Audience
-  group:ops
-       │
-       ├── user:alice
-       ├── user:bob
-       └── user:charlie
-```
-
-所以：
-
-```text
-Audience = 谁这一群人
-Recipient = 具体是谁
-```
-
-## 6. Endpoint
-
-Recipient 不应该直接等于 Telegram / Email。
-
-一个 Recipient 可能拥有多个 Endpoint：
-
-```text
-user:alice
-   │
-   ├── telegram:123456
-   ├── email:alice@example.com
-   └── feishu:ou_xxx
-```
-
-因此：
-
-```text
-Audience
-    ↓
-Recipient
-    ↓
-Endpoint
-    ↓
-Provider
-```
-
-这是 Herald 后续支持多渠道、多用户偏好的基础。
-
-## 7. Audience 的 MVP 实现
-
-不要一开始做复杂用户系统。
-
-建议第一阶段只实现轻量模型：
+受众有两级引用形态：`group:<id>`（群组，成员解析见[通知群组设计](./design-notification-groups)）与 `user:<id>`（具名个人）。静态配置模型：
 
 ```yaml
-audiences:
+audiences:            # 受众 → 接收人
   ops:
-    recipients:
-      - alice
-      - bob
-
-  backend:
-    recipients:
-      - alice
-      - charlie
-```
-
-然后：
-
-```yaml
-recipients:
+    recipients: [alice, bob]
+recipients:           # 接收人 → 端点
   alice:
     endpoints:
-      - type: telegram
-        target: "123456"
-      - type: email
-        target: "alice@example.com"
-
-  bob:
-    endpoints:
-      - type: feishu
-        target: "ou_xxx"
+      - { type: telegram, target: "123456" }
+      - { type: email, target: "alice@example.com" }
 ```
 
-这样已经可以形成完整链路。
+配置在启动时校验，非法即拒起（`user:` 引用绝不静默落空）。这张静态表是联系面的**种子**（见下节）；无联系面扩展的既有用法行为完全不变。
 
-## 8. Channel
+### 5.2 联系面（ContactSurface）
 
-Audience 解决：
+渠道凭据的运行时挂点。应用侧只经手受众 ID 与一次性绑定 token，**永不接触凭据明文**；换绑需旧渠道确认，防止一条深链抢走别人的通知渠道。
 
-> **通知谁？**
+| 状态 | 含义 | 投递行为 |
+| --- | --- | --- |
+| `pending` | 绑定发起未核销 / 换绑待旧渠道确认 | 不投 |
+| `active` | 已核销可用 | 按关系投递 |
+| `invalid` | 外部平台判定失效（对账 / chat 不可达 / 取关回流） | 不投，等待重新绑定 |
 
-Channel 解决：
+绑定走 bot deep-link 一次性 token（15 分钟过期、单次有效）；每个受众随注册自动持有一份 RSS 私密 token（零绑定成本）。流程图与规则细节见关系详设 §3。**已落地**：`core/audience.SurfaceRegistry`（批次 2）。
 
-> **这是哪类业务通知/逻辑通知通道？**
+### 5.3 关系（Relation）
 
-例如：
+投递的唯一合法依据：发送时校验「**关系允许 × 联系面绑定**」的交集，交集为空不投并审计。两种关系即使实现同表，语义、退订策略、审计也必须分开：
 
-```text
-ops
-ci
-security
-backend
-game
-agent
-```
-
-Channel 可以作为 Routing 的输入。
-
-例如：
-
-```yaml
-channels:
-  ci:
-    providers:
-      - telegram
-      - feishu
-
-  security:
-    providers:
-      - telegram
-      - email
-```
-
-因此：
-
-```text
-Audience = 谁
-Channel = 哪一类通知通道
-Provider = 怎么发送
-```
-
-三者不要混淆。
-
-## 9. Provider
-
-Provider 表示具体的投递实现：
-
-```text
-TelegramProvider
-FeishuProvider
-EmailProvider
-WebhookProvider
-LogProvider
-```
-
-Provider 负责：
-
-```text
-请求构造
-认证
-调用第三方 API
-响应解析
-错误转换
-```
-
-Provider 不负责：
-
-```text
-Audience
-Routing
-Queue
-Retry Policy
-业务逻辑
-Template 选择
-```
-
-## 10. Routing
-
-Routing 是 Herald 的核心协调层。
-
-它负责：
-
-> **根据 Notification、Audience、Channel、Template 等信息，计算最终需要创建哪些 Delivery Task。**
-
-例如：
-
-```text
-Notification
-type = ci.build.failed
-level = error
-
-Audience
-group:ops
-
-Channel
-ci
-```
-
-经过 Routing：
-
-```text
-group:ops
-      │
-      ▼
-alice
-bob
-      │
-      ▼
-Endpoints
-      │
-      ├── Telegram
-      ├── Feishu
-      └── Email
-```
-
-最终产生：
-
-```text
-DeliveryTask #1 → Alice → Telegram
-DeliveryTask #2 → Alice → Email
-DeliveryTask #3 → Bob → Feishu
-```
-
-## 11. Delivery Task
-
-Delivery Task 表示：
-
-> **一次具体的通知投递。**
-
-例如：
-
-```text
-Notification N001
-
-Delivery T001
-  recipient = alice
-  provider = telegram
-
-Delivery T002
-  recipient = alice
-  provider = email
-
-Delivery T003
-  recipient = bob
-  provider = feishu
-```
-
-## 12. 为什么 Notification 与 Delivery 必须分离
-
-因为：
-
-```text
-Notification N001
-```
-
-可能出现：
-
-```text
-Telegram → SUCCESS
-Email    → SUCCESS
-Feishu   → FAILED
-```
-
-所以：
-
-```text
-Notification 状态
-```
-
-和：
-
-```text
-Delivery 状态
-```
-
-不能混为一谈。
-
-Delivery 必须拥有独立生命周期。
-
-## 13. Delivery 状态机
-
-建议标准化：
-
-```text
-accepted
-    ↓
-queued
-    ↓
-delivering
-    ├── delivered
-    │
-    └── failed
-          ↓
-       retrying
-          ↓
-       delivering
-          │
-          ├── delivered
-          └── dead
-```
-
-至少支持：
-
-```text
-accepted
-queued
-delivering
-delivered
-failed
-retrying
-dead
-```
-
-## 14. Retry
-
-Retry 属于 Delivery。
-
-例如：
-
-```text
-T001 Telegram
-    delivered
-
-T002 Feishu
-    failed
-      ↓
-    retrying
-      ↓
-    delivered
-```
-
-建议 Delivery 保存：
-
-```text
-attempts
-max_attempts
-last_error
-next_retry_at
-```
-
-## 15. Provider 错误分类
-
-不同 Provider 的错误应该统一转换为 Herald 错误类型。
-
-建议至少：
-
-```text
-TemporaryError
-PermanentError
-RateLimitedError
-AuthenticationError
-InvalidRequestError
-TimeoutError
-```
-
-例如：
-
-```text
-HTTP 429
-    ↓
-RateLimitedError
-    ↓
-Retry
-
-HTTP 401
-    ↓
-AuthenticationError
-    ↓
-不应该无限 Retry
-```
-
-Retry Policy 不应该由 Provider 自己决定。
-
-## 16. Queue
-
-当前：
-
-```yaml
-queue:
-  type: memory
-  workers: 2
-```
-
-继续保留。
-
-Queue 只负责：
-
-```text
-enqueue
-dequeue
-ack
-```
-
-暂时不要增加：
-
-```text
-Redis
-Kafka
-NATS
-RabbitMQ
-```
-
-等外部依赖。
-
-未来可以实现：
-
-```text
-Queue
- ├── MemoryQueue
- ├── RedisQueue
- ├── NATSQueue
- └── KafkaQueue
-```
-
-但第一阶段只需要 MemoryQueue。
-
-## 17. Worker
-
-Worker 负责：
-
-```text
-从 Queue 获取 Delivery Task
-        ↓
-调用 Provider
-        ↓
-成功 → delivered
-失败 → retry / dead
-```
-
-Worker 不应该决定：
-
-```text
-发给谁
-使用哪个 Provider
-使用什么模板
-```
-
-这些应该已经由 Routing 完成。
-
-## 18. Template
-
-Template 解决：
-
-> **通知内容如何生成。**
-
-例如：
-
-```yaml
-templates:
-  ci.build.failed:
-    title: "Build Failed"
-    body: |
-      Repository: {{repository}}
-      Build: {{build_id}}
-      Branch: {{branch}}
-```
-
-Template 与 Provider 解耦。
-
-例如同一个 Notification：
-
-```text
-Template
-    ↓
-统一 Notification 内容
-    ↓
-Telegram → Markdown
-Feishu   → Card
-Email    → HTML
-```
-
-Provider 只负责最终格式适配，不负责业务模板逻辑。
-
-## 19. Event
-
-长期支持：
-
-```text
-Event
-   ↓
-Rule
-   ↓
-Notification
-```
-
-例如：
-
-```json
-{
-  "event": "github.pull_request.merged",
-  "repository": "cuihairu/herald",
-  "number": 123
-}
-```
-
-然后：
-
-```text
-Rule
-github.pull_request.merged
-        ↓
-Notification
-        ↓
-Audience: group:developers
-```
-
-但是：
-
-> **Event 当前不要变成 Herald 的强制核心依赖。**
-
-Herald 的核心仍然是 Notification Delivery。
-
-## 20. 推荐完整生命周期
-
-最终 Herald 的完整生命周期应该是：
-
-```text
-                    Event
-                      │
-                      ▼
-                     Rule
-                      │
-                      ▼
-                Notification
-                 /         \
-                /           \
-               ▼             ▼
-          Audience         Template
-               │
-               ▼
-          Recipients
-               │
-               ▼
-           Endpoints
-               │
-               ▼
-            Routing
-               │
-               ▼
-         Delivery Tasks
-               │
-               ▼
-             Queue
-               │
-               ▼
-            Workers
-               │
-               ▼
-           Providers
-          /    |     \
-         ▼     ▼      ▼
-    Telegram Feishu  Email
-```
-
-## 21. API 设计
-
-现有：
-
-```http
-POST /api/v1/notify
-```
-
-可以继续保留。
-
-请求建议逐步演进为：
-
-```json
-{
-  "type": "ci.build.failed",
-  "level": "error",
-
-  "channel": "ci",
-
-  "audience": [
-    "group:ops"
-  ],
-
-  "template": "ci.build.failed",
-
-  "data": {
-    "repository": "cuihairu/herald",
-    "build_id": "123",
-    "branch": "main"
-  }
-}
-```
-
-如果允许直接发送简单文本，也应该继续支持：
-
-```json
-{
-  "title": "Build Failed",
-  "body": "CI #123 failed",
-  "channel": "ci",
-  "audience": ["group:ops"]
-}
-```
-
-这样：
-
-```text
-Template
-```
-
-是可选的，而不是强制。
-
-## 22. API 返回
-
-建议继续保留现在的：
-
-```json
-{
-  "code": 0,
-  "message": "accepted",
-  "data": {
-    "notification_id": "N001",
-    "task_ids": [
-      "T001",
-      "T002"
-    ]
-  }
-}
-```
-
-注意：
-
-```text
-accepted
-```
-
-表示：
-
-> Herald 已经接受通知。
-
-不代表：
-
-> 所有 Provider 都已经成功送达。
-
-## 23. ID 模型
-
-至少区分：
-
-```text
-notification_id
-delivery_id
-```
-
-例如：
-
-```text
-N001
-
-T001 → Telegram
-T002 → Feishu
-T003 → Email
-```
-
-以后还可以支持：
-
-```text
-attempt_id
-event_id
-```
-
-但不要现在增加不必要的 ID。
-
-## 24. Idempotency
-
-建议增加：
-
-```text
-idempotency_key
-```
-
-原因是：
-
-```text
-GitHub webhook
-CI callback
-Agent
-网络重试
-```
-
-都可能导致同一个 Notification 被提交多次。
-
-例如：
-
-```json
-{
-  "idempotency_key": "github:repo:pr:123:merged"
-}
-```
-
-Herald 可以保证：
-
-```text
-同一个业务事件
-不会重复创建多个 Delivery
-```
-
-第一阶段可以先完成模型和接口设计，再决定持久化实现。
-
-## 25. Logs 与 Delivery State 分离
-
-不要把日志直接当状态。
-
-Delivery 保存：
-
-```text
-status
-attempts
-last_error
-next_retry_at
-created_at
-updated_at
-```
-
-日志保存历史：
-
-```text
-created
-queued
-delivering
-failed
-retrying
-delivered
-```
-
-例如：
-
-```text
-T001
-
-10:00 created
-10:00 queued
-10:01 delivering
-10:01 failed
-10:02 retrying
-10:03 delivering
-10:03 delivered
-```
-
-这样后续做：
-
-```text
-Dashboard
-Audit
-Debug
-Metrics
-```
-
-都比较自然。
-
-## 26. Provider Capability
-
-未来不同 Provider 能力不同：
-
-```text
-Telegram
-  text
-  markdown
-  image
-
-Feishu
-  text
-  markdown
-  card
-
-Email
-  text
-  html
-  attachment
-```
-
-建议 Provider 暴露 Capability。
+| | 订阅 subscription | 指派 enrollment |
+| --- | --- | --- |
+| 发起方 | 受众自己勾选 | 管理员 / 运营 / 系统 |
+| 退订权 | 完全自主 | 底线保留（见下） |
+| 接口 | `Subscribe()` | `Enroll()` |
 
-但当前只建立接口，不要过度设计。
+指派关系的底线：营销/运营类必须可退订；系统必达类明示标记且仅限法定/合同/安全义务内容；渠道与频率上限用户始终可管。关系行带 `type` + `source` + `policy`，查询与审计按类型分，不做万能关系接口。**已落地**：`core/audience.Registry`（批次 1）。数据模型与流程图见关系详设 §4。
 
-## 27. Configuration
+## 6. 渠道与渠道×关系矩阵
 
-建议逐步形成：
+渠道（触达手段）与 provider（发送实现）分开：渠道是受众视角的词，provider 是集成视角的词；既有 `channels` 配置块承担「命名渠道 → provider 集合」的静态展开，品类维度（告警/账单/…）随集成者 API 落地注册（关系详设 §13.2）。
 
-```yaml
-server:
+可用渠道随关系类型走，不是一套。发送时校验三方交集：
 
-queue:
-
-providers:
-
-channels:
-
-audiences:
-
-recipients:
-
-templates:
-
-routes:
-
-retry:
-```
-
-例如：
-
-```yaml
-channels:
-  ci:
-    providers:
-      - telegram
-      - feishu
-
-audiences:
-  ops:
-    recipients:
-      - alice
-      - bob
-
-recipients:
-  alice:
-    endpoints:
-      - provider: telegram
-        target: "123456"
-
-      - provider: email
-        target: "alice@example.com"
-```
-
-配置关系如下：
-
-```text
-Channel
-    ↓
-Provider
-
-Audience
-    ↓
-Recipient
-    ↓
-Endpoint
-```
-
-## 28. Getting Started 文档改造
-
-Getting Started 需要明确解释：
-
-## What is Herald?
-
-一句话说明：
-
-> Herald receives notifications from applications and reliably delivers them to one or more notification providers.
-
-## Core concepts
-
-增加：
-
-```text
-Notification
-Audience
-Recipient
-Endpoint
-Channel
-Provider
-Delivery
-```
-
-## Architecture
-
-增加：
-
-```text
-Client
- ↓
-Notification API
- ↓
-Routing
- ↓
-Delivery
- ↓
-Queue
- ↓
-Worker
- ↓
-Provider
-```
-
-## First notification
-
-继续保留当前 `log` Provider。
-
-这个设计很好，不要删除。
-
-用户可以：
-
-```text
-启动 Herald
- ↓
-发送 Notification
- ↓
-log Provider
- ↓
-立即看到结果
-```
-
-然后再配置：
-
-```text
-Telegram
-Feishu
-Email
-```
-
-## 29. 文档结构建议
-
-建议：
-
-```text
-docs/
-├── guide/
-│   ├── getting-started
-│   ├── configuration
-│   └── providers
-│
-├── concepts/
-│   ├── notification
-│   ├── audience
-│   ├── recipient
-│   ├── endpoint
-│   ├── channel
-│   ├── delivery
-│   └── routing
-│
-├── architecture/
-│   ├── overview
-│   ├── queue
-│   ├── worker
-│   ├── retry
-│   └── provider
-│
-└── api/
-    └── notification
-```
-
-不要求一次全部完成，可以按照实现进度逐步增加。
-
-## 30. Observability
-
-建议增加基础指标：
-
-```text
-notifications_total
-deliveries_total
-deliveries_success_total
-deliveries_failed_total
-
-delivery_latency
-queue_depth
-retry_total
-
-provider_requests_total
-provider_errors_total
-provider_latency
-```
-
-特别关注：
-
-```text
-Queue Depth
-Delivery Success Rate
-Provider Latency
-Retry Count
-```
-
-## 31. 测试要求
-
-必须覆盖：
-
-## Notification
-
-```text
-创建 Notification
-参数验证
-```
-
-## Audience
-
-```text
-group → recipients
-user → recipient
-recipient → endpoints
-```
-
-## Routing
-
-```text
-Notification
-+
-Audience
-+
-Channel
-→
-Delivery Tasks
-```
-
-## Multi Provider
-
-```text
-Telegram success
-Feishu failure
-
-Telegram 不重复
-Feishu 可以 retry
-```
-
-## Retry
-
-```text
-TemporaryError
-→ retry
-
-PermanentError
-→ dead
-```
-
-## State
-
-```text
-queued
-→ delivering
-→ delivered
-```
-
-以及：
-
-```text
-failed
-→ retrying
-→ delivered
-```
-
-## Idempotency
-
-```text
-相同 idempotency_key
-→ 不重复创建 Delivery
-```
-
-## 32. 当前阶段明确不做
-
-虽然架构需要为未来留下空间，但当前实现不要直接引入：
-
-```text
-❌ Kafka
-❌ Redis
-❌ RabbitMQ
-❌ NATS
-❌ Kubernetes
-❌ Complex Event Bus
-❌ Complex Rule Engine
-❌ IAM
-❌ 完整用户系统
-❌ Multi-tenant
-❌ 大型 Dashboard
-```
-
-尤其不要因为 Audience 而自行引入复杂的：
-
-```text
-LDAP
-OAuth
-User Directory
-Identity Provider
-```
-
-Audience 当前只需要一个简单、可扩展的本地配置模型。
-
-## 33. 实施顺序
-
-Code Agent 必须按照以下顺序执行。
-
-## Phase 0：代码审计
-
-**禁止直接修改代码。**
-
-先分析当前：
-
-```text
-Notification
-Provider
-Channel
-Router
-Queue
-Worker
-Logs
-API
-Configuration
-Tests
-```
-
-输出：
-
-```text
-当前实现
-↓
-目标模型
-↓
-差异
-↓
-改动文件
-↓
-兼容性风险
-```
-
-## Phase 1：领域模型
-
-优先确定：
-
-```text
-Notification
-Audience
-Recipient
-Endpoint
-Channel
-Delivery
-Provider
-```
-
-确认对象关系：
-
-```text
-Notification
-   │
-   ├── Audience
-   │      └── Recipient
-   │             └── Endpoint
-   │
-   ├── Channel
-   │
-   └── Template
-```
-
-## Phase 2：Routing
-
-实现：
-
-```text
-Notification
-     ↓
-Audience resolution
-     ↓
-Channel routing
-     ↓
-Delivery Task
-```
-
-## Phase 3：Delivery
-
-实现：
-
-```text
-Delivery Task
-status
-attempts
-last_error
-next_retry_at
-```
-
-并明确状态机。
-
-## Phase 4：Queue / Worker
-
-保持：
-
-```text
-MemoryQueue
-```
-
-实现：
-
-```text
-enqueue
-dequeue
-ack
-worker
-retry
-```
-
-## Phase 5：Provider
-
-整理 Provider interface。
-
-确保：
-
-```text
-Provider
-    ↓
-Deliver()
-```
-
-不包含：
-
-```text
-Routing
-Audience
-Queue
-Retry Policy
-Business Logic
-```
-
-## Phase 6：API
-
-更新：
-
-```text
-POST /api/v1/notify
-```
-
-支持：
-
-```text
-type
-level
-channel
-audience
-template
-data
-idempotency_key
-```
-
-同时保持简单文本通知的兼容能力。
-
-> ✅ 已落地（2026-10-04）：`channel` / `audience` / `data` / `idempotency_key` 四个可选字段
-> 全部兼容上线（护栏 1"新增字段全部可选"）；`audience` 逐项走既有展开链（`group:` /
-> `user:` / 裸渠道名）；`data` 与 `params` 合并、`params` 优先；幂等为进程生命周期内的
-> 内存表（约 1000 条 FIFO，仅记录成功结果，命中返回首次结果的 replay、不产生新投递）。
-> 落地细节与文档同步见[现状审计](/design-audience-audit#五执行记录)。
-
-## Phase 7：Configuration
-
-完善：
-
-```text
-providers
-channels
-audiences
-recipients
-templates
-routes
-queue
-retry
-```
-
-## Phase 8：测试
-
-补充：
-
-```text
-Unit Test
-Integration Test
-Provider Test
-Routing Test
-Retry Test
-Idempotency Test
-```
-
-## Phase 9：Documentation
-
-同步修改：
-
-```text
-Getting Started
-Architecture
-Configuration
-Provider
-Audience
-Delivery
-API
-```
-
-确保文档与代码完全一致。
-
-## 34. Code Agent 工作要求
-
-执行时必须遵守：
-
-### ① 先分析，再修改
-
-不要看到任务就直接重构。
-
-### ② 尽量保持 API 兼容
-
-已有：
-
-```text
-/api/v1/notify
-```
-
-以及现有 Provider 配置，应尽可能保持兼容。
-
-如果必须 Breaking Change：
-
-```text
-明确说明原因
-给出迁移方式
-更新文档
-增加测试
-```
-
-### ③ 不要过度抽象
-
-不要为了：
-
-```text
-未来可能存在的需求
-```
-
-创建大量 interface。
-
-只抽象真正存在的领域边界。
-
-### ④ 不引入无必要的外部依赖
-
-尤其：
-
-```text
-Redis
-Kafka
-NATS
-RabbitMQ
-```
-
-本次不需要。
-
-### ⑤ 不删除当前 Log Provider
-
-Log Provider 的用途：
-
-```text
-开发
-测试
-Getting Started
-```
-
-基础 Provider。
-
-必须保留。
-
-## 35. 最终架构验收
-
-改造完成后，必须能够清晰回答以下问题：
-
-### "通知什么？"
-
-```text
-Notification
-```
-
-### "通知谁？"
-
 ```text
-Audience
+投递目标 = 受众绑定的联系面 ∩ 关系类型允许的渠道 ∩ 紧急度允许的强度区间
 ```
 
-### "具体是谁？"
+| 渠道类 | 订阅型 | 指派·系统必达 | 指派·营销/运营 |
+| --- | --- | --- | --- |
+| 即时类（IM/短信/推送） | ✅ 用户自选 | ✅ 多渠道并行保必达 | ❌ 禁用 |
+| 邮件 | ✅ 用户自选 | ✅ 兜底并行 | ✅ 默认渠道，低频可退订 |
+| 应用侧（webhook→站内信） | ✅ 用户自选 | ✅ | ✅ 默认渠道，低频可退订 |
+| 拉式（RSS） | ✅ 仅订阅型 | ❌ | ❌ |
 
-```text
-Recipient
-```
+每格默认策略、校验时机与违规报错见关系详设 §5。**在途**（批次 4：投递管道关系过滤）。
 
-### "这个人通过什么地址接收？"
+## 7. 强度×紧急度与投递模式
 
-```text
-Endpoint
-```
+渠道不是平的。侵扰度 L0–L5 阶梯（RSS 拉取 → 邮件 → 站内信 → IM → 短信 → 电话）配消息紧急度四级（例行/一般/紧急/关键），紧急度决定允许的强度区间；匹配规则独立成策略件，不散落在 provider 里。
 
-### "属于什么业务通知通道？"
+用户偏好**可降不可升**：可以在紧急度区间内往下关渠道，不能往上开；关键级有保底渠道（配置指定、偏好中心明示）。三种投递模式按品类/关系类型/单次触发可配，策略件同一入口不同执行器：
 
-```text
-Channel
-```
+| 模式 | 行为 | 默认 |
+| --- | --- | --- |
+| 升级链 escalation | 未应答逐级升强度，应答即停 | 紧急/关键 |
+| 固定单渠道 fixed | 只走指定的一种渠道 | 例行/一般 |
+| 多渠道并行 parallel | 一次全发保必达 | 系统必达类强制 |
 
-### "应该产生哪些投递？"
+阶梯图、匹配矩阵、升级链参数与去重折叠的先后关系见关系详设 §6。**在途**（批次 9）。
 
-```text
-Routing
-```
+## 8. 去重与频控
 
-### "具体一次投递是什么？"
+与聚合分工：**Digest = 时间窗聚合不同消息；去重 = 相同消息折叠**。去重发生在投递管道之前、升级链之前——10 条重复告警先折叠成 1 条再计应答与升级。
 
-```text
-Delivery Task
-```
+三层：事件幂等（`event_id` 重复触发只投一次）、内容折叠（同品类同内容窗口内折叠带计数「×10」，原始事件列表保留可审计）、状态机去重（状态型告警按翻转发，挂→恢复→再挂才再发）。频控三档可配（once / throttle / always，按品类/关系类型），用户偏好**可收窄不可放宽**。
 
-### "什么时候执行？"
+既有能力：内容指纹去重与请求幂等键已上线；事件幂等/折叠/状态机/三档频控**在途**（批次 10）。细节见关系详设 §11。
 
-```text
-Queue
-```
+## 9. 偏好与入口
 
-### "谁执行？"
+订阅者在偏好中心自助勾选「什么品类 → 什么渠道 → 什么频率」，默认策略随品类给（系统必收、营销默认每周汇总、告警可降频不可静默）。偏好修改入口不唯一——bot 命令、公众号关注事件、应用内勾选、偏好中心都是**来源适配器**；Herald 是关系的**权威登记处**，所有入口收敛为注册表里的关系变更，取关必须回流（停止一切投递），外部平台状态定期对账。默认策略表与适配器规则见关系详设 §7-8。偏好模型**已落地**（批次 3，`core/audience` 的 Frequency/Preference/DefaultPolicy 与读写 API）；来源适配器**在途**（批次 8）。
 
-```text
-Worker
-```
+## 10. 触达形态：Digest 与 RSS
 
-### "通过什么技术发送？"
+**Digest**（批次 6，在途）：按受众×品类×时间窗（每日/每周）把零散事件收成一条摘要，走既有投递管道（摘要也享受重试/审计）；实时类豁免直投，系统必达永不聚合。
 
-```text
-Provider
-```
+**RSS 拉式**（批次 7，在途）：零绑定零推送的天然偏好通道。公共 feed 每品类一个；私密 feed 带受众的 `rss_token`，账单等个人内容走这里；频率=阅读器轮询，Herald 不推，天然无骚扰；仅订阅型关系可用——指派内容不进 feed。
 
-### "失败怎么办？"
+## 11. 投递与审计
 
-```text
-Retry Policy
-```
+投递侧已经落地的形状：任务状态枚举（delivered / failed / dead，重试中 retrying）、错误六类词汇（temporary / permanent / rate_limited / authentication / invalid_request / timeout）决定重试与终态、429 带 Retry-After 退避、可重试失败异步重新入队（`next_retry_at` 队列侧持留，worker 不睡退避）。审计侧按关系详设 §12 补齐：关系类型与入口来源快照进任务、关系/联系面变更流水、去重折叠明细，审计回答「这条订阅从哪个入口来、这次投递依据哪条关系、为什么失败、谁在何时改了什么」。**审计补齐在途**（批次 5）。
 
-## 36. 最终核心模型
+## 12. 集成者 API
 
-最终希望 Herald 形成下面这个稳定模型：
+全部模型能力配可编程配置 API：每个集成应用一个 app 命名空间（品类/模板/策略互相隔离），app token 按权限分级（config / trigger / query）；配置、触发、查询三组端点与升级链、去重、渠道矩阵等策略件同口径；Go SDK 首发，webhook 回调带回投递结果与退订事件。契约草案见关系详设 §13，集成指南随批次 11 落地 `docs/guide/integration.md`。**在途**（批次 11）。
 
-```text
-                         ┌──────────────┐
-                         │    Event     │
-                         │   optional   │
-                         └──────┬───────┘
-                                │
-                                ▼
-                         ┌──────────────┐
-                         │ Notification │
-                         └──────┬───────┘
-                                │
-              ┌─────────────────┼─────────────────┐
-              │                 │                 │
-              ▼                 ▼                 ▼
-         Audience            Channel          Template
-              │
-              ▼
-         Recipients
-              │
-              ▼
-          Endpoints
-              │
-              └──────────────┐
-                             ▼
-                          Routing
-                             │
-                             ▼
-                     Delivery Tasks
-                             │
-                             ▼
-                           Queue
-                             │
-                             ▼
-                          Workers
-                             │
-                             ▼
-                         Provider
-                    ┌────────┼────────┐
-                    ▼        ▼        ▼
-                 Telegram  Feishu   Email
-```
+## 13. 落地状态（诚实口径）
 
-## 37. 最终判断标准
-
-这次改造的验收不看"代码增加了多少"，看 Herald 是否真正做到：
-
-> **业务系统只需要描述"发生了什么、通知什么、通知谁"，而不需要关心消息最终通过什么渠道、由哪个 Worker、什么时候以及如何重试送达。**
-
-最终业务侧应该尽可能接近：
-
-```json
-{
-  "type": "ci.build.failed",
-  "level": "error",
-  "channel": "ci",
-  "audience": [
-    "group:ops"
-  ],
-  "template": "ci.build.failed",
-  "data": {
-    "repository": "cuihairu/herald",
-    "build_id": "123"
-  }
-}
-```
+| 能力 | 状态 | 证据 |
+| --- | --- | --- |
+| 通知管道（路由/队列/worker/重试/错误分类/请求幂等） | ✅ 落地 | [现状审计](./design-audience-audit) Phase 0-9 |
+| 关系模型与受众注册表 | ✅ 落地 | 批次 1（`3fc1a82`），`core/audience.Registry` |
+| 联系面与绑定（token/换绑/RSS token） | ✅ 落地 | 批次 2（`19cf16c`），`core/audience.SurfaceRegistry` |
+| 偏好中心（品类×渠道×频率、默认策略表） | ✅ 落地 | 批次 3（`4df837a`），`core/audience.PreferenceRegistry` |
+| 关系过滤 / 审计补齐 / Digest / RSS / 来源适配器 / 强度与模式 / 去重频控 / 集成者 API | ◑ 在途 | 关系详设 §15 批次 4-11，进度见 todo |
 
-然后 Herald 自己完成：
+在途能力的配置项与端点尚不存在，勿据本文档配置生产；落地一批，本文状态表与对应详设同步更新一批。
 
-```text
-Audience Resolution
-       ↓
-Routing
-       ↓
-Delivery Creation
-       ↓
-Queue
-       ↓
-Worker
-       ↓
-Provider
-       ↓
-Retry
-       ↓
-Delivery Status
-```
+## 14. 沿革
 
-这就是本次 Herald 架构改造最终应该达到的状态。
+Phase 0-9 管道改造的原计划书（「Audience 领域模型：架构改进计划书」）已收官，执行记录与留批拍板在[现状审计](./design-audience-audit)存档，计划原文由 git 历史保存。2026-10-05 立项受众层扩展（统一订阅与投递中枢），2026-10-07 本页由计划书重写为现行模型总纲；关系详设承接全部新增能力的逐项设计。

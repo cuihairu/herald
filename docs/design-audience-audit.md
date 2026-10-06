@@ -1,8 +1,10 @@
-# Audience 领域模型：Phase 0 现状审计
+# Audience 领域模型：Phase 0-9 改造审计（存档）
 
-> 状态：Phase 0 审计结论（只读，未改代码）。承接 [design-audience-model.md](./design-audience-model) 的
-> 改造计划：本文按计划第 33 节 Phase 0 的输出要求（当前实现 → 目标模型 → 差异 → 改动文件 → 兼容性风险）
-> 记录事实底稿。所有结论带 file:line，供 Phase 1 起的 Code Agent 以此为起点，不要重新发散。
+> 状态：**存档**。承接原「Audience 领域模型：架构改进计划书」（Phase 0-9，已收官；
+> 该页 2026-10-07 已重写为[受众领域模型总纲](./design-audience-model)，计划原文由 git
+> 历史保存）。本文按计划 Phase 0 的输出要求（当前实现 → 目标模型 → 差异 → 改动文件 →
+> 兼容性风险）记录事实底稿与逐批执行记录，所有结论带 file:line。受众层扩展
+> （统一订阅与投递中枢）不在此文跟踪，见[关系详设](./design-audience-relations)与 todo。
 
 ## 一、当前实现：通知的完整旅程
 
@@ -49,16 +51,16 @@ POST /api/v1/notify
 
 ## 二、目标模型 → 现状差异总表
 
-| 目标（design-audience-model.md） | 现状 | 差距 |
+| 目标（原计划书） | 现状 | 差距 |
 |----------------------------------|------|------|
 | Notification ≠ Delivery Task | 已分离（core.Notification / core.DeliveryTask） | ✅ 语义成立；TaskLog 把状态挂到 task 上 ✓ |
 | Delivery 独立状态机（accepted/queued/delivering/delivered/failed/retrying/dead）+ attempts/max_attempts/last_error/next_retry_at | Status 字符串 4 值（pending/success/failed/shadow）；RetryCount 已存在；重试同步不排队 | ❌ 状态机枚举化 + 状态挂 Delivery（或等价物）→ 另需 next_retry_at 才能支撑「Nack 重新入队」式异步重试 |
 | Retry 属 Delivery、错误统一分类（Temporary/Permanent/RateLimited/Auth/InvalidRequest/Timeout） | 错误为裸 error；retryer 对所有错误一视同仁 | ❌ Provider 错误分类接口缺失 |
 | Audience = group + user 两级 | 只有 group: 形态 | ❌ user:/Recipient/Endpoint 需新增（MVP：本地配置模型） |
 | Channel 独立配置块（channels: {ci: {providers: [...]}}） | routes/level_routes map 承担静态映射 | ◑ 能力等价但模型不同；可选择性演进 |
-| Logs 与 Delivery 状态分离（日志=历史事件流） | 日志即状态（一份数据） | ❌ 按计划 §25 演进的成本最高点（需引入事件流或拆分存储） |
+| Logs 与 Delivery 状态分离（日志=历史事件流） | 日志即状态（一份数据） | ❌ 按「日志与状态分离」演进的成本最高点（需引入事件流或拆分存储） |
 | Idempotency（idempotency_key） | dedup 按内容 key 窗口去重（非显式幂等键） | ◑ 语义不同：dedup 防重复投递，幂等键防重复创建 |
-| Provider Capability | 已有 format 选择能力（selectFormat/getCapability） | ✅ 部分满足计划 §26 |
+| Provider Capability | 已有 format 选择能力（selectFormat/getCapability） | ✅ 部分满足计划建议的 Provider Capability |
 | 配置块：audiences/recipients/endpoints | 不存在（宽松解析静默忽略） | ❌ 新增 |
 
 ## 三、改动文件清单（Phase 1+ 参考，勿视为已承诺）
@@ -66,18 +68,18 @@ POST /api/v1/notify
 | 文件 | 改动方向 |
 |------|---------|
 | core/types.go | Delivery 状态枚举常量、TaskLog 字段扩展（attempts/next_retry_at）、Audience 引用类型（group:/user: 前缀统一） |
-| core/logstore/logstore.go | 状态值枚举化（保持 JSON 序列化兼容）；如做 §25 则拆事件流存储 |
+| core/logstore/logstore.go | 状态值枚举化（保持 JSON 序列化兼容）；如做「日志与状态分离」则拆事件流存储 |
 | core/runtime/manager.go | 状态写入点对齐新枚举；错误分类转换（Temporary/Permanent/...） |
 | core/retry/retryer.go | 按错误分类决定重试/放弃（RateLimited 退避、Permanent 直接 dead）；可选：异步重新入队 |
 | core/service/notification.go、planner.go | expandRef 增加 user: 解析；Channel 解析层（显式 channels → Channel 块 → routes 兼容） |
 | core/groups/ → core/audience/（新建） | 承载 recipients/endpoints 一级（group 保留为 audience 聚合） |
 | config/config.go | channels/audiences/recipients 配置块（宽松解析现存语义：未落地前静默忽略） |
-| api/handler_notify.go | **本次不强制改**（§21 的 channel/audience/idempotency_key 字段全部可选新增，向后兼容） |
+| api/handler_notify.go | **本次不强制改**（notify 的 channel/audience/idempotency_key 字段全部可选新增，向后兼容） |
 | api/server.go、handler_groups.go | 如新增 audience/recipient 端点（第一期可只做配置化，不做 API） |
 
 ## 四、兼容性风险与护栏
 
-1. **notify 请求/响应保持兼容**：新增字段全部可选；`channels` 显式语义、`code/message/data` 响应壳、`notification_id/task_ids/accepted/failed` 不变。Breaking Change 需按计划 §34② 走（说明+迁移+文档+测试）。
+1. **notify 请求/响应保持兼容**：新增字段全部可选；`channels` 显式语义、`code/message/data` 响应壳、`notification_id/task_ids/accepted/failed` 不变。Breaking Change 需按原计划的破坏性变更规程走（说明+迁移+文档+测试）。
 2. **TaskLog Status 字符串**：从 4 值向枚举扩展时**只增不删不改名**（`pending/success/failed/shadow` 全保留，新增状态为补充），保证既有 dashboard 与 API 消费者不破。
 3. **groups API 与 group: 引用**保持现状（`group:` 不改语义；`user:` 为全新前缀，各走各的解析路径）。
 4. **routes/level_routes** 保留为静态路由的等价物，引入 channels 块时以「channel 显式 > channels 块 > routes 表」的优先级叠加，不删除既有键。
@@ -94,7 +96,7 @@ POST /api/v1/notify
 - `config` 新增 `audiences` / `recipients` 顶层块（宽松解析由此落地生效；见 [configuration.md「领域模型与配置块」](/guide/configuration#领域模型与配置块)）。
 - `core/service/notification.go`：`expandRef` 新增 `user:` 分支（`UserResolver` 接口 + `SetUserResolver`，与 GroupResolver 同构）；`mergeUserEndpoints` **按 provider 合并端点**——同一 provider 的所有目标捆绑进一次投递，provider 顺序排序保证任务/日志跨运行稳定。未知 user / 无 resolver → 该通道显式失败，其余照发（与 group: 行为一致）。
 - `cmd/heraldd/main.go` 装配 `audience.NewManager`（非法表退出码 1）；`api.Config.Users` 透传。
-- 按计划 §7 轻量原则**未做**：channels 独立配置块、audiences/recipients 运行时 API（idempotency 请求字段已由第三批 Phase 6 补齐，见下）。
+- 按轻量原则**未做**：channels 独立配置块、audiences/recipients 运行时 API（idempotency 请求字段已由第三批 Phase 6 补齐，见下）。
 
 ### Phase 3 MVP：Delivery 状态机（枚举化 + 同步重试）
 
@@ -106,7 +108,7 @@ POST /api/v1/notify
 
 ### Phase 6 MVP：notify API 领域字段（channel / audience / data / idempotency_key）
 
-按计划 §21/§24 与护栏 1（新增字段全部可选）落地，全部向后兼容：
+按原计划的 notify 字段设计与幂等设计、护栏 1（新增字段全部可选）落地，全部向后兼容：
 
 - `api/handler_notify.go`：`NotifyRequest` 新增 `channel`（单数写法，与 `channels` 并集）、`audience`（受众引用数组，逐项走既有 `expandRef` 链——`group:` / `user:` / 裸渠道名）、`data`（模板数据，与 `params` 合并、`params` 重名优先）、`idempotency_key`；合并逻辑抽为 `notifyChannels` / `notifyParams` 两个纯函数，成功响应抽 `notifyData` 复用（首次投递与幂等 replay 同一构造）。
 - `api/idempotency.go`（新）：`notifyIdempotency` 内存表——mutex + map + FIFO 队列，容量 1000（`defaultNotifyIdempotencyCap`，按需逐出最旧）；`get` / `put`，重复 put 保留首条记录。`NewHandler` 即挂载，零配置。
@@ -121,21 +123,21 @@ POST /api/v1/notify
 - `core/service/notification.go`：新增 `expandRefs(refs)` —— 引用集合 → 投递目标的**纯决策**步骤（不触碰队列）；单条引用解析失败记录为该引用的 `ChannelError`、其余照常展开。`enqueue` 改为先取决策、后执行入队（`enqueueOne`），Routing（决定谁收到什么）与 Delivery（Plan/Push/重试）在代码上有明确分割点。行为零变化。
 - `core/service/routing_test.go`（新）：`expandRefs` 决策层直接单测——空引用集、裸渠道透传、group:+user: 混合展开（`user:alice` 按 provider 合并端点）、失败引用不阻断批量、无 resolver 时显式失败；`ctx`/queue 零接触（纯函数可测性即边界证明）。
 
-### Phase 4 MVP：Queue / Worker 五项核对 + §14 字段回填
+### Phase 4 MVP：Queue / Worker 五项核对 + 投递字段回填
 
-按计划 §16/§17 逐项核对（enqueue/dequeue/ack/worker/retry）：
+按原计划逐项核对（enqueue/dequeue/ack/worker/retry）：
 
 - **enqueue / dequeue / ack**：`core.Queue` 接口（Push/Pop/Ack/Nack/Size/Close）与 memory 队列实现齐全（buffered chan、closed 守卫、ctx 取消；内存队列 ack 语义 = Pop 即出队，Ack/Nack 按设计为 no-op）；worker 成功→Ack、失败→Nack 已接线。**无缺口**。
-- **worker**：Pool.workerLoop 只做「取任务 → 调 Provider → Ack/Nack」，不携带路由/模板/接收人知识（§17 边界成立，路由决策在 Phase 2 已独立）。**无缺口**。
+- **worker**：Pool.workerLoop 只做「取任务 → 调 Provider → Ack/Nack」，不携带路由/模板/接收人知识（worker 边界成立，路由决策在 Phase 2 已独立）。**无缺口**。
 - **retry**：同步重试在 runtime.Deliver 内（Phase 3），一次 Pop 覆盖整个重试周期，耗尽→dead。**无缺口**。
-- **§14 字段核对回填**：计划建议 Delivery 保存 `attempts` / `max_attempts` / `last_error` / `next_retry_at`。检查发现 `last_error` 与 `max_attempts` 只存在于重试策略/任务日志、不在任务对象上。本批补齐：
-  - `core.DeliveryTask` 新增 `MaxAttempts int`（投递预算快照：retry 策略轮数 + 首试；无 retryer 时为 1，由 runtime 在首次尝试前钉入）与 `LastError string`（终态错误：failed/dead 写最终错误、delivered 清空、限流中止同样记录；与任务日志的完整历史并存，§14 "Delivery 自带 last_error"）；
+- **投递字段核对回填**：计划建议 Delivery 保存 `attempts` / `max_attempts` / `last_error` / `next_retry_at`。检查发现 `last_error` 与 `max_attempts` 只存在于重试策略/任务日志、不在任务对象上。本批补齐：
+  - `core.DeliveryTask` 新增 `MaxAttempts int`（投递预算快照：retry 策略轮数 + 首试；无 retryer 时为 1，由 runtime 在首次尝试前钉入）与 `LastError string`（终态错误：failed/dead 写最终错误、delivered 清空、限流中止同样记录；与任务日志的完整历史并存，即计划所言「Delivery 自带 last_error」）；
   - `core/retry.Retryer.MaxAttempts()`（= MaxRetries()+1）暴露预算；
   - `next_retry_at` 依旧不做：同步重试在单次 Deliver 内完成、无排队语义（Phase 3 执行记录已声明，留异步批次）。
-- **核对测试**：`core/worker/pool_phase4_test.go`（新）——真 runtime + 真 worker loop 的 §16/§17 全链路核对（成功→delivered+ack、失败→failed+nack+last_error、retryable 耗尽→dead+预算/重试数/错误残留断言；经队列 mutex 观察点同步、race 干净）；`manager_status_test.go` 四个终态测试补 MaxAttempts/LastError 断言；`retryer_test.go` 补 MaxAttempts 预算测试。
-- 外部依赖零新增（§16：维持 MemoryQueue 为第一队列，Redis 队列不动、不引新后端）。
+- **核对测试**：`core/worker/pool_phase4_test.go`（新）——真 runtime + 真 worker loop 的投递五项全链路核对（成功→delivered+ack、失败→failed+nack+last_error、retryable 耗尽→dead+预算/重试数/错误残留断言；经队列 mutex 观察点同步、race 干净）；`manager_status_test.go` 四个终态测试补 MaxAttempts/LastError 断言；`retryer_test.go` 补 MaxAttempts 预算测试。
+- 外部依赖零新增（原计划：维持 MemoryQueue 为第一队列，Redis 队列不动、不引新后端）。
 
-### Phase 5 MVP：Provider 错误分类（§15 六类词汇接入 retrying/dead 判定）
+### Phase 5 MVP：Provider 错误分类（六类词汇接入 retrying/dead 判定）
 
 落点：共享错误词汇 **core/errclass** + httpclient / retry 两处**单点接入**——所有走 httpclient 的 provider（aliyunsms/neteasesms/tencentsms）零改动获得分类。
 
@@ -153,7 +155,7 @@ POST /api/v1/notify
 - `core/types.go`：`DeliveryTask` 增 `NextRetryAt *time.Time`（defer 时戳、下次尝试开始即清空，wire 字段 `next_retry_at` omitempty，worker 协议向后兼容）；新增 `Scheduler` 可选能力接口（`Schedule(task, delay)`），不进 `Queue` 主接口——没有延迟持留能力的自定义队列原样保留同步语义。
 - `core/retry`：`Defer(task, err)` 单发决策——retryable 且预算未尽 → `RetryCount++`、`Status=retrying`、`NextRetryAt=now+delay`、返回 `*Deferred{Delay, Err}`；预算尽 → `ErrMaxRetries` 包装（dead）；不可重试 → 原样返回（failed）。`waitFor` 抽出共享：Retry-After 提示与 `max_delay` 封顶规则同步/异步两路一致。预算（`RetryCount`）随任务走，跨重新入队累计，跨 redis 序列化存活。
 - `core/queue`：memory 实现延迟持留（最小堆；Pop 先放行到期项再看就绪 channel，退避任务不被新流量饿死；延迟堆独立互斥锁——Push 持 RLock 阻塞在满 channel 上，Pop 热路径拿写锁会自我死锁）；redis 实现有序集 `<stream>:delayed`（score=到期 UnixNano；ZREM 先行仲裁多进程，输家不动条目；不可解码成员丢弃防读循环；ZRANGEBYSCORE 失败上抛为 Pop 错误）。两实现非正延迟直落就绪队列；Close 均不排空未到期任务。
-- `core/logstore.AddIfAbsent`：同一任务只开一行日志——重试期间停在 `pending`，终态才翻 success/failed。日志 wire 词汇（success/failed/pending/shadow）零变化，落实设计 §25「不要把日志直接当状态」。
+- `core/logstore.AddIfAbsent`：同一任务只开一行日志——重试期间停在 `pending`，终态才翻 success/failed。日志 wire 词汇（success/failed/pending/shadow）零变化，落实「不要把日志直接当状态」原则。
 - `core/runtime`：`Deliver` 的 provider 查找/预算快照/限流等待抽为 `deliverPrologue`、终态映射抽为 `settle`，共享骨架上新增 `DeliverOnce`（恰一次尝试；Deferred 不结算，日志行 AddIfAbsent）。
 - `core/worker`：`NewPool` 探测队列能力——有 `Scheduler` 走 `DeliverOnce` + `Schedule`（无 Nack：延迟重试不是失败）；Schedule 被拒 → Nack 兜底结算，任务不进 limbo。无能力回落 `Deliver`（同步退避，历史行为原样）。`herald.go` 的 `awaitingQueue` 装饰器转发 `Schedule`，库模式不因包装误判降级。
 - 语义变化（护栏 5 点名的时序变化，如实记录）：重试等待不再占 worker；`DispatchSync` 的 wait 跨 defer 挂起、终态 Ack/Nack 才解析（阻塞总时长不变）；redis 队列的等待跨进程重启存活（memory 队列随进程消亡，与原语义同）。
@@ -161,7 +163,7 @@ POST /api/v1/notify
 
 ### Phase 7 MVP：Configuration（`channels` 独立配置块 + 三优先级叠加）
 
-落点：设计 §27 的 `channels` 块（`channels: {ci: {providers: [...]}}`）落地，护栏 4 的「channel 显式 > channels 块 > routes 表」优先级显式化，routes/level_routes 键原样保留。
+落点：`channels` 独立配置块（`channels: {ci: {providers: [...]}}`）落地，护栏 4 的「channel 显式 > channels 块 > routes 表」优先级显式化，routes/level_routes 键原样保留。
 
 - `config.ChannelConfig`（新）：`channels` 顶层块——命名渠道 → providers 列表；`Validate()` 启动校验：渠道零 providers、引用未配置的 provider → **拒起**（与 Phase 1 受众表同纪律）；`ChannelRoutes()` 展平为 router 形状。
 - `core/route.Router.ExpandChannel`（新）：渠道块查找（configured 顺序返回；空条目按未命中处理——回落裸 provider 目标与其「provider not found」熟悉失败，绝不停静默投空）。
@@ -170,11 +172,11 @@ POST /api/v1/notify
 - 测试：router 展开（命中顺序/未知/空条目回 false）；config 校验（无 providers/未知 provider/合法）+ yaml 解析 + 展平；service 决策层（块展开有序、provider 压过块、双不中回落字面）+ 全链路（`channels: [ci]` → 每 provider 一任务）；heraldd 拒起两例 + FullFeaturedLifecycle 带 channels 块。
 - 未做（护栏 5 留批/超纲）：channels 运行时 API（配置化即 MVP，与 audiences 一期口径一致）；group 成员渠道名不走块展开（成员语义是 provider 实例名，保持原样）。
 
-### Phase 8 MVP：测试补全（§31 逐块核对 + Multi Provider 隔离）
+### Phase 8 MVP：测试补全（七个测试块逐块核对 + Multi Provider 隔离）
 
-按 §31 七个块逐一核对既有测试底稿，**六块已有**、一块真缺口：
+按原计划的七个测试块逐一核对既有测试底稿，**六块已有**、一块真缺口：
 
-| §31 块 | 要求 | 底稿（核对证据） |
+| 测试块 | 要求 | 底稿（核对证据） |
 |--------|------|-----------------|
 | Notification | 创建 + 参数验证 | `TestNotificationService_Process`；handler_notify_test 的 invalid body / 422 / 未知渠道与模板 |
 | Audience | group→recipients、user→recipient、recipient→endpoints | `TestProcessGroupReferences`（成员+recipient 钉选）；`TestExpandUser`/`TestExpandUserAudiencePrecedence`；`TestProcessUserReferences`/`TestMergeUserEndpoints`（端点按 provider 合并） |
@@ -184,7 +186,7 @@ POST /api/v1/notify
 | State | queued→delivering→delivered；failed→retrying→delivered | Phase 3/4：`TestDeliverMarksStatusDelivered` + `TestDeliverMarksEveryAttemptDelivering` + pool_phase4 |
 | Idempotency | 相同 idempotency_key → 不重复创建 Delivery | Phase 6：handler replay（队列零增长）+ `idempotency_test` 表驱动 |
 
-补的测试走**全真链路**（service 路由 → planner 计划 → 队列 → worker → provider）：一次 fan-out 两个 provider 各自独立终态——telegram 首试即成且恰投一次（兄弟任务的失败不复制它），feishu 首试可重试失败、次试落地（delivered 而非 dead，RetryCount 1，LastError 交付时清空），两任务日志各自 success。计数断言钉住 §31 的「不重复 / 可以 retry」语义。
+补的测试走**全真链路**（service 路由 → planner 计划 → 队列 → worker → provider）：一次 fan-out 两个 provider 各自独立终态——telegram 首试即成且恰投一次（兄弟任务的失败不复制它），feishu 首试可重试失败、次试落地（delivered 而非 dead，RetryCount 1，LastError 交付时清空），两任务日志各自 success。计数断言钉住原计划的「不重复 / 可以 retry」语义。
 
 ### 差异总表回填（本批后）
 
@@ -193,9 +195,9 @@ POST /api/v1/notify
 | Delivery 独立状态机 + attempts | ✅ 枚举化 + `RetryCount` 实测驱动；`next_retry_at` + 异步重新入队已落地（2026-10-05 后批：`Scheduler` 能力队列持留重试等待，worker 不再睡退避） |
 | user:/Recipient/Endpoint | ✅ 配置化 MVP（audiences/recipients YAML + user: 引用展开合并） |
 | 配置块 audiences/recipients | ✅ 已生效 + 启动校验（宽松解析"落地即生效"先例） |
-| notify 领域字段 channel/audience/data/idempotency_key（§21/§24） | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
-| Provider 错误分类接口 | ✅ core/errclass 六类词汇（§15）接入 httpclient 分类与 retry 判定（Phase 5：408/429/5xx/传输错误显式分类，其余 4xx 不分类不重试，wire 文本不变） |
-| Logs 与 Delivery 状态分离 | 未动（成本最高项，按 §25 需独立 Phase 设计事件流） |
+| notify 领域字段 channel/audience/data/idempotency_key | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
+| Provider 错误分类接口 | ✅ core/errclass 六类词汇接入 httpclient 分类与 retry 判定（Phase 5：408/429/5xx/传输错误显式分类，其余 4xx 不分类不重试，wire 文本不变） |
+| Logs 与 Delivery 状态分离 | 未动（成本最高项，「日志与状态分离」需独立 Phase 设计事件流） |
 | Channel 独立配置块 | ✅ `channels: {name: {providers: [...]}}` 落地（Phase 7：启动校验拒起、provider 显式 > channels 块 > routes 表优先级、routes 键未删） |
 
 ### Phase 9 MVP：Documentation（全站对齐 + 差异总表收官）
@@ -211,7 +213,7 @@ POST /api/v1/notify
 - **API**（api/rest.md）：Phase 6 批已同步（notify 领域字段 + 幂等节），本批复核无新增。
 
 **差异总表收官**：全部行收敛为「✅ 已落地」或「留批 + 理由」，无未定性缺口。留批清单（均为显式设计决策，非遗漏）：
-1. Logs 与 Delivery 状态分离——计划 §25 的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
+1. Logs 与 Delivery 状态分离——「日志与状态分离」的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
 2. audiences/recipients/channels 的运行时 API——一期口径为纯配置化（Phase 1/7 记录在案）。
 3. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
 
@@ -220,3 +222,18 @@ POST /api/v1/notify
 > 2026-10-05 拍板：余 3 项确认维持现状——「Logs 与 Delivery 状态分离」与「audiences/recipients/channels 运行时 API」继续留批不做，「group 成员渠道块展开」维持既定不做；队列至此清零，后续新方向另行指派。
 >
 > 2026-10-05 显式决策记录：经用户拍板，**① Logs 与 Delivery 状态分离**（清单第 1 项）与 **② audiences/recipients/channels 运行时 API**（清单第 2 项）明确 **不实施**；第 3 项 **group 成员渠道块展开** 既定不做（Phase 7 记录在案）。三项均为显式设计决策，非遗漏；本审计文档与 todo.md 已同步收口，队列清零。
+
+## 六、对照新模型的状态行（2026-10-07）
+
+上表针对 Phase 0-9 管道改造，全部行仍成立。2026-10-05 起定位升级为「统一订阅与投递中枢」，受众层按[关系详设](./design-audience-relations) §15 的 11 个原子批次继续扩展，术语以[总纲](./design-audience-model#_2-术语契约-唯一口径) §2 为口径。新维度状态行：
+
+| 新模型能力 | 状态 | 证据 |
+| --- | --- | --- |
+| 关系模型与受众注册表（subscription/enrollment、策略位、Subscribe/Enroll 分名） | ✅ 落地（批次 1） | `core/audience.Registry`，提交 `3fc1a82` |
+| 联系面与绑定（ContactSurface 三态、一次性 token、换绑旧渠道确认、RSS 私密 token） | ✅ 落地（批次 2） | `core/audience.SurfaceRegistry`，提交 `19cf16c`；队列到期等待同批改注入时钟（`342caa1`） |
+| 偏好中心（Frequency/Preference/DefaultPolicy、默认策略表、读写 API） | ✅ 落地（批次 3） | `core/audience` 偏好模型，提交 `4df837a` |
+| 投递管道关系过滤（三方交集校验、渠道×关系矩阵） | ◑ 在途（批次 4） | 关系详设 §5、§14 |
+| 投递审计补齐 / Digest / RSS 拉式 / 来源适配器 / 强度与投递模式 / 去重频控（三档）/ 集成者 API 与 Go SDK | ◑ 在途（批次 5-11） | 关系详设 §15 |
+| 去重（既有部分） | ◑ 内容指纹去重与请求幂等键已上线 | 审计 §一#13、Phase 6 记录 |
+
+本文至此封存为管道改造存档；新批次的执行记录记入 todo 与关系详设对应节，不再回写本表。

@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Herald',
-  description: 'Event-driven Delivery Infrastructure',
+  description: '统一订阅与投递中枢',
   lang: 'zh-CN',
   base: '/herald/',
 
@@ -138,9 +138,9 @@ export default defineConfig({
             { text: '通知规则引擎', link: '/rule-engine-design' },
             { text: '规则引擎决策层', link: '/design-rule-engine' },
             { text: '通知群组', link: '/design-notification-groups' },
-            { text: 'Audience 领域模型', link: '/design-audience-model' },
-            { text: 'Audience 现状审计', link: '/design-audience-audit' },
-            { text: '受众订阅与投递中枢', link: '/design-audience-relations' },
+            { text: '受众领域模型（总纲）', link: '/design-audience-model' },
+            { text: '受众订阅与投递中枢（关系详设）', link: '/design-audience-relations' },
+            { text: 'Audience 改造审计（存档）', link: '/design-audience-audit' },
           ]
         }
       ],

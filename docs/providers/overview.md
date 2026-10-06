@@ -135,7 +135,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 
 ## 错误分类与重试
 
-投递失败是否重试由**错误分类**决定（六类词汇，见 [Audience 领域模型](/design-audience-model)）：
+投递失败是否重试由**错误分类**决定（六类词汇，见 [受众领域模型总纲](/design-audience-model)）：
 
 | 分类 | 触发 | 是否重试 |
 |------|------|---------|

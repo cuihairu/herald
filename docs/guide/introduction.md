@@ -15,7 +15,7 @@
 
 ## 它长什么样
 
-Herald 是单个二进制（或 Docker 容器），**轻量、Provider 无关**：业务方描述「发生了什么、通知什么、通知谁」，渠道细节（Telegram / 飞书 / 邮件 / 短信… 具体是哪个、怎么送达、失败怎么重试）全部交给 Herald。核心是一条通知流水线：
+Herald 是单个二进制（或 Docker 容器），**轻量、Provider 无关**的统一订阅与投递中枢：业务方描述「发生了什么、通知什么、通知谁」，渠道细节（Telegram / 飞书 / 邮件 / 短信… 具体是哪个、怎么送达、失败怎么重试）全部交给 Herald；谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系决定。核心是一条通知流水线：
 
 ```
 Notification → 受众解析(通知谁) → 路由(走哪条通道) → Delivery Task → Queue → Worker → Provider
@@ -23,7 +23,7 @@ Notification → 受众解析(通知谁) → 路由(走哪条通道) → Deliver
 ```
 
 - **Notification ≠ Delivery**：一条通知可展开成多条投递（多渠道扇出），每条 Delivery 独立状态、独立重试
-- **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分（Recipient/Endpoint，配置化）与 `channels` 渠道块见 [Audience 领域模型](/design-audience-model)与[配置参考](/guide/configuration)
+- **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分（接收人/端点，配置化）与 `channels` 渠道块见 [受众领域模型总纲](/design-audience-model)与[配置参考](/guide/configuration)；运行时的联系面绑定与订阅/指派关系同见总纲
 
 - **HTTP First**：`POST /api/v1/notify` 一条 curl 即可发通知，curl 友好、无业务 SDK 依赖
 - **多渠道 Provider**：内置即时通讯（飞书、企微、钉钉、Slack、Discord、Telegram、微信）、邮件、短信（阿里云、腾讯云、网易）、Webhook 等十余个通道，统一接口面，见 [Provider 手册](/providers/overview)
