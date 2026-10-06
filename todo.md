@@ -23,7 +23,7 @@
 
 - [x] **1. 关系模型与受众注册表** — `3fc1a82`：RelationType 枚举（subscription/enrollment）、来源标记、策略位（AllowUnsubscribe/MustDeliver 互斥底线在 Enroll 强制、Subscribe 强制可退订形态）；Subscribe/Enroll/Terminate/Lookup/RelationsByType；同槽位最新登记为准，Terminate 返回被移除关系供审计
 - [x] **2. 联系面与绑定 API** — `19cf16c`：SurfaceRegistry（pending/active/invalid 三态，invalid 槽位重绑免确认、仅 active 收投递）、IssueBinding/RedeemBinding 一次性 token（15 分钟 TTL、未知/已用与过期分报错）、换绑守卫（同槽换目标挂 pending 等旧渠道 ConfirmRebind，窗口同 TTL、超窗保在位者）、RSSToken 随受众稳定签发；时钟注入全确定性，core/audience 100% 覆盖。另修 `342caa1`：queue 到期等待改用注入时钟（due.Sub(now())），钉钟测试不再与真实时钟漂移自旋超时
-- [ ] **3. 偏好中心** — 品类×渠道×频率模型与校验、默认策略表（系统必收/营销默认低频）、偏好读写 API
+- [x] **3. 偏好中心** — `4df837a`：Frequency 枚举（realtime/daily/weekly/none）、Preference 品类×渠道×频率三元组（同槽最新为准）、DefaultPolicy 默认策略表（system/alerts 实时+禁静默底线、marketing 每周汇总、未知品类实时+可退）；Set/Get/Effective/List/Clear 读写 API（Set 校验字段与静默底线、Clear 瞄空报错、List 稳定序）；绑定×关系交集校验留批次 4
 - [ ] **4. 投递管道关系过滤** — expandRef 后置过滤（关系允许×联系面绑定交集）、渠道×关系矩阵校验、系统必达/营销退订策略位
 - [ ] **5. 投递审计补齐** — 关系类型/入口来源快照进任务与 TaskLog、关系变更审计流水、去重折叠明细
 - [ ] **6. Digest 聚合器** — 受众+品类+时间窗、定时翻转（redis 锁选主）、摘要模板与投递、实时豁免
