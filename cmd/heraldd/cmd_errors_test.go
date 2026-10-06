@@ -400,13 +400,38 @@ func TestRunControlPlaneHeartbeatDrop(t *testing.T) {
 		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	registry := worker.NewRegistry()
 	done := make(chan struct{})
 	go func() {
-		runRemoteWorkerControlPlane(ctx, cfg, worker.NewRegistry())
+		runRemoteWorkerControlPlane(ctx, cfg, registry)
 		close(done)
 	}()
 
-	time.Sleep(100 * time.Millisecond) // register, then fail the first heartbeat
+	// Track register → deregister rather than sleeping a fixed 100ms: a
+	// deadline-driven sleep under load can lose the race against the fast
+	// heartbeat failure, letting cancel win before the loop reaches its
+	// post-disconnect reconnect sleep (main.go's `if !sleepOrDone(...)`).
+	// Deregister runs first on that path, so once the registration has come
+	// and gone the loop is past its ctx-check early return and heading into
+	// the 10s sleep, where cancel deterministically ends it on the
+	// sleepOrDone-false branch.
+	deadline := time.Now().Add(5 * time.Second)
+	registered := false
+	for {
+		_, err := registry.Get("w-drop")
+		if err == nil {
+			registered = true
+		} else if registered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("control plane never reached register → deregister for w-drop")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Grace period so cancel cannot become visible during the handful of
+	// instructions between Deregister and the ctx check above the sleep.
+	time.Sleep(500 * time.Millisecond)
 	cancel()
 	select {
 	case <-done:
