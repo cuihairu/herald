@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/cuihairu/herald/core/audit"
 )
 
 // SurfaceStatus is the lifecycle state of a contact surface (§3.2): a
@@ -104,6 +106,22 @@ type SurfaceRegistry struct {
 	rss      map[string]string                    // audienceID -> private RSS feed token
 	ttl      time.Duration                        // token and confirm-window lifetime (15 min by default)
 	now      func() time.Time
+	recorder audit.Recorder
+}
+
+// SetRecorder wires the audit trail: every accepted bind / rebind /
+// invalidate lands one event there. Nil clears it.
+func (s *SurfaceRegistry) SetRecorder(r audit.Recorder) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recorder = r
+}
+
+// emit reports one accepted surface change to the audit trail.
+func (s *SurfaceRegistry) emit(kind audit.EventKind, audienceID, channel, detail string) {
+	if s.recorder != nil {
+		s.recorder.Record(audit.Event{Kind: kind, AudienceID: audienceID, Channel: channel, Detail: detail})
+	}
 }
 
 // BindingTTL is how long a binding token — and a pending rebind's confirm
@@ -191,6 +209,7 @@ func (s *SurfaceRegistry) RedeemBinding(token, target string) (RedeemResult, err
 	slot[rec.channel] = fresh
 	// A conflicting parked rebind cannot survive its incumbent changing.
 	delete(s.rebinds[rec.audienceID], rec.channel)
+	s.emit(audit.SurfaceBind, rec.audienceID, rec.channel, "")
 	return RedeemResult{Outcome: OutcomeActivated, Surface: fresh}, nil
 }
 
@@ -212,6 +231,7 @@ func (s *SurfaceRegistry) ConfirmRebind(audienceID, channel string) (ContactSurf
 	}
 	surface := ContactSurface{AudienceID: audienceID, Channel: channel, Target: pending.target, Status: SurfaceActive}
 	s.slot(audienceID)[channel] = surface
+	s.emit(audit.SurfaceRebind, audienceID, channel, "")
 	return surface, nil
 }
 
@@ -250,6 +270,7 @@ func (s *SurfaceRegistry) Invalidate(audienceID, channel string) error {
 	}
 	surface.Status = SurfaceInvalid
 	slot[channel] = surface
+	s.emit(audit.SurfaceInvalidate, audienceID, channel, "")
 	return nil
 }
 

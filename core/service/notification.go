@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/escalation"
@@ -97,6 +98,7 @@ type NotificationService struct {
 	router     *route.Router
 	runtime    ProviderRuntime
 	dedup      *dedup.Dedup
+	foldAudit  audit.Recorder
 	queue      core.Queue
 	planner    *DeliveryPlanner
 	rules      RuleEvaluator
@@ -124,6 +126,13 @@ func NewNotificationService(
 		queue:     queue,
 		planner:   NewDeliveryPlanner(templates),
 	}
+}
+
+// SetFoldAudit wires the audit trail receiving one row per dedup-suppressed
+// notification — the「为什么这条没投」answer for folded duplicates. nil (the
+// default) keeps processing unchanged.
+func (s *NotificationService) SetFoldAudit(r audit.Recorder) {
+	s.foldAudit = r
 }
 
 // SetRuleEngine attaches the rule engine evaluated after dedup and before
@@ -306,11 +315,22 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 	// this event: a repeat delivery is suppressed, but the alert's story
 	// (for/group/recovery) is not interrupted by it.
 	if s.dedup != nil && s.dedup.Check(dedupKey(n)) {
+		if s.foldAudit != nil {
+			s.foldAudit.Record(audit.Event{
+				Kind:         audit.DeliveryDeduped,
+				AudienceID:   n.AudienceID,
+				Category:     n.Type,
+				RelationType: n.RelationType,
+				Source:       n.Source,
+				Detail:       dedupKey(n),
+			})
+		}
 		return &ProcessResult{NotificationID: n.ID}, nil
 	}
 
 	// Generate DeliveryTasks for each channel, collecting errors
 	result := &ProcessResult{NotificationID: n.ID}
+
 	s.enqueue(ctx, n, channels, renderedData, result)
 
 	// The summary of a finished group round rides along with the event

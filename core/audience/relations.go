@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/cuihairu/herald/core/audit"
 )
 
 // RelationType marks how an audience came to receive a category: actively
@@ -86,6 +88,15 @@ func (r Relation) key() relationKey {
 type Registry struct {
 	mu        sync.RWMutex
 	relations map[relationKey]Relation
+	recorder  audit.Recorder
+}
+
+// SetRecorder wires the audit trail: every accepted Subscribe/Enroll/
+// Terminate lands one event there. Nil clears it.
+func (g *Registry) SetRecorder(r audit.Recorder) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.recorder = r
 }
 
 // NewRegistry creates an empty relation registry.
@@ -107,7 +118,9 @@ func (g *Registry) Subscribe(rel Relation) error {
 	if err := validateRelation(rel); err != nil {
 		return err
 	}
-	return g.store(rel)
+	g.store(rel)
+	g.emit(audit.RelationSubscribe, rel, "")
+	return nil
 }
 
 // Enroll records a passive assignment. The §4 bottom lines are enforced
@@ -135,7 +148,9 @@ func (g *Registry) Enroll(rel Relation) error {
 	if !MatrixAllows(RelationEnrollment, rel.Policy, class) {
 		return fmt.Errorf("audience: relation %s/%s/%s: channel class %q is not permitted for this enrollment by the channel×relation matrix", rel.AudienceID, rel.Category, rel.Channel, class)
 	}
-	return g.store(rel)
+	g.store(rel)
+	g.emit(audit.RelationEnroll, rel, "")
+	return nil
 }
 
 // validateRelation checks the fields every relation carries, with the
@@ -154,11 +169,10 @@ func validateRelation(rel Relation) error {
 
 // store writes the relation, replacing any previous relation on the same
 // audience×category×channel slot. Callers validate first.
-func (g *Registry) store(rel Relation) error {
+func (g *Registry) store(rel Relation) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.relations[rel.key()] = rel
-	return nil
 }
 
 // Terminate removes one relation at the audience's word. Only relations
@@ -178,7 +192,27 @@ func (g *Registry) Terminate(audienceID, category, channel string) (Relation, er
 		return Relation{}, fmt.Errorf("audience: relation %s/%s/%s is must-deliver and cannot be unsubscribed", audienceID, category, channel)
 	}
 	delete(g.relations, key)
+	if g.recorder != nil {
+		g.recorder.Record(audit.Event{
+			Kind: audit.RelationTerminate, AudienceID: rel.AudienceID, Category: rel.Category,
+			Channel: rel.Channel, RelationType: string(rel.Type), Source: rel.Source,
+		})
+	}
 	return rel, nil
+}
+
+// emit reports one accepted write to the audit trail, if one is wired.
+func (g *Registry) emit(kind audit.EventKind, rel Relation, detail string) {
+	g.mu.RLock()
+	r := g.recorder
+	g.mu.RUnlock()
+	if r == nil {
+		return
+	}
+	r.Record(audit.Event{
+		Kind: kind, AudienceID: rel.AudienceID, Category: rel.Category,
+		Channel: rel.Channel, RelationType: string(rel.Type), Source: rel.Source, Detail: detail,
+	})
 }
 
 // Lookup returns the relation on one audience×category×channel slot.

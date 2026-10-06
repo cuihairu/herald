@@ -19,12 +19,21 @@ type Notification struct {
 	ID          string              `json:"id"`
 	Type        string              `json:"type"`
 	Level       string              `json:"level,omitempty"`
+	AudienceID  string              `json:"audience_id,omitempty"` // the audience this notification is for; empty for broadcast
 	Channels    []string            `json:"channels"`
 	Recipients  map[string][]string `json:"recipients,omitempty"`
 	TemplateRef string              `json:"template,omitempty"`
 	Params      map[string]any      `json:"params,omitempty"`
 	Content     *DirectContent      `json:"content,omitempty"`
 	CreatedAt   time.Time           `json:"created_at"`
+	// RelationType is the audience relation type that triggered this
+	// notification delivery — subscription (主动订阅) or enrollment
+	// (被动指派). Set when the notification was planned from an
+	// audience relation context.
+	RelationType string `json:"relation_type,omitempty"`
+	// Source is the entry adapter/source that created this relation,
+	// if any — e.g. "bot", "preference_center", "admin", "wechat_mp".
+	Source string `json:"source,omitempty"`
 }
 
 // DirectContent holds inline content when no template is used
@@ -89,6 +98,13 @@ type DeliveryTask struct {
 	// cleared when the next attempt starts. Nil on tasks that have never
 	// been deferred (including everything on the sync path).
 	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
+	// RelationType is the relation type that triggered this delivery task,
+	// if any — subscription (主动订阅) or enrollment (被动指派). Set when
+	// the task is planned from an audience relation context.
+	RelationType string `json:"relation_type,omitempty"`
+	// Source is the entry adapter/source that created this relation,
+	// if any — e.g. "bot", "preference_center", "admin", "wechat_mp".
+	Source string `json:"source,omitempty"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/cuihairu/herald/core/audit"
 )
 
 // TestSubscribeEnforcesContract: the subscription contract is forced, not
@@ -207,5 +209,46 @@ func TestQueriesByType(t *testing.T) {
 	}
 	if all := g.Relations("ghost"); len(all) != 0 {
 		t.Errorf("Relations(unknown) = %d, want 0", len(all))
+	}
+}
+
+// TestRegistryAuditTrail: accepted writes emit typed events; rejected
+// ones emit nothing. Terminate reports the removed relation's kind.
+func TestRegistryAuditTrail(t *testing.T) {
+	g := NewRegistry()
+	st := audit.New(0)
+	g.SetRecorder(st)
+
+	sub := Relation{AudienceID: "alice", Category: "alerts", Channel: "telegram", Type: RelationSubscription, Source: SourceBot}
+	if err := g.Subscribe(sub); err != nil {
+		t.Fatal(err)
+	}
+	enr := Relation{AudienceID: "alice", Category: "system", Channel: "email", Type: RelationEnrollment, Source: SourceAdmin, Policy: Policy{MustDeliver: true}}
+	if err := g.Enroll(enr); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Subscribe(Relation{AudienceID: "alice", Category: "x", Channel: "email", Type: RelationEnrollment, Source: SourceBot}); err == nil {
+		t.Fatal("want door error")
+	}
+	if _, err := g.Terminate("alice", "alerts", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := st.ListByRelationType("subscription"); len(got) != 2 || got[0].Kind != audit.RelationSubscribe || got[1].Kind != audit.RelationTerminate {
+		t.Errorf("subscription trail = %+v, want subscribe then terminate", got)
+	}
+	if got := st.ListByRelationType("enrollment"); len(got) != 1 || got[0].Kind != audit.RelationEnroll {
+		t.Errorf("enrollment trail = %+v, want exactly one enroll", got)
+	}
+	if got := st.List(); len(got) != 3 {
+		t.Errorf("total events = %d, want 3 (rejected write recorded nothing)", len(got))
+	}
+
+	g.SetRecorder(nil)
+	if err := g.Subscribe(Relation{AudienceID: "bob", Category: "a", Channel: "email", Type: RelationSubscription, Source: SourceBot}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.List(); len(got) != 3 {
+		t.Errorf("events after recorder cleared = %d, want still 3", len(got))
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/template"
@@ -884,6 +885,88 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		}
 		if result2.NotificationID != result1.NotificationID {
 			t.Error("expected same notification ID for deduplicated call")
+		}
+	})
+
+	t.Run("dedup fold lands one audit row", func(t *testing.T) {
+		templates := template.NewManager()
+		router := route.NewRouter(&route.Config{})
+		runtime := newMockProviderRuntime()
+		dedupMgr := dedup.NewDedup(&dedup.Config{Window: 100 * time.Second})
+		queue := newMockQueue()
+
+		provider := &mockProvider{
+			providerType: "email",
+			capability: core.ProviderCapability{
+				PayloadKinds:   []core.PayloadKind{core.PayloadContent},
+				ContentFormats: []string{"plain"},
+			},
+		}
+		runtime.RegisterProvider("email", provider, true)
+
+		trail := audit.New(0)
+		service := NewNotificationService(templates, router, runtime, dedupMgr, queue)
+		service.SetFoldAudit(trail)
+
+		n := &core.Notification{
+			Channels:     []string{"email"},
+			Type:         "alert",
+			Level:        "high",
+			AudienceID:   "user:alice",
+			RelationType: "subscription",
+			Source:       "bot",
+			Content: &core.DirectContent{
+				Title: "Folded Alert",
+				Body:  "same body",
+			},
+		}
+
+		if _, err := service.Process(context.Background(), n); err != nil {
+			t.Fatalf("first process: %v", err)
+		}
+		// A different notification must not fold.
+		other := &core.Notification{Channels: []string{"email"}, Type: "alert", Level: "low",
+			Content: &core.DirectContent{Title: "Other", Body: "other"}}
+		if _, err := service.Process(context.Background(), other); err != nil {
+			t.Fatalf("other process: %v", err)
+		}
+		// The repeat folds and lands exactly one audit row.
+		res, err := service.Process(context.Background(), n)
+		if err != nil {
+			t.Fatalf("folded process: %v", err)
+		}
+		if len(res.TaskIDs) != 0 {
+			t.Errorf("folded call produced %d tasks, want 0", len(res.TaskIDs))
+		}
+
+		rows := trail.List()
+		if len(rows) != 1 {
+			t.Fatalf("audit rows = %d, want exactly 1 (the fold)", len(rows))
+		}
+		ev := rows[0]
+		if ev.Kind != audit.DeliveryDeduped {
+			t.Errorf("kind = %v, want %v", ev.Kind, audit.DeliveryDeduped)
+		}
+		if ev.AudienceID != "user:alice" || ev.Category != "alert" {
+			t.Errorf("audience/category = %q/%q, want user:alice/alert", ev.AudienceID, ev.Category)
+		}
+		if ev.RelationType != "subscription" || ev.Source != "bot" {
+			t.Errorf("relation/source = %q/%q, want subscription/bot", ev.RelationType, ev.Source)
+		}
+		if ev.Detail != dedupKey(n) {
+			t.Error("Detail should carry the content fingerprint (dedup key)")
+		}
+		if ev.At.IsZero() {
+			t.Error("fold row must be timestamped")
+		}
+
+		// Clearing the recorder silences further rows without failing.
+		service.SetFoldAudit(nil)
+		if _, err := service.Process(context.Background(), n); err != nil {
+			t.Fatalf("folded process after clear: %v", err)
+		}
+		if got := len(trail.List()); got != 1 {
+			t.Errorf("rows after recorder cleared = %d, want still 1", got)
 		}
 	})
 

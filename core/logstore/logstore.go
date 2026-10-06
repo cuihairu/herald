@@ -36,6 +36,11 @@ type TaskLog struct {
 	// Channels is only set on shadow entries: the channels the rule
 	// would have routed to had it been active.
 	Channels []string `json:"channels,omitempty"`
+
+	// Relation type and source for audit trail — snapped from the
+	// audience relation that triggered this delivery.
+	RelationType string `json:"relation_type,omitempty"`
+	Source       string   `json:"source,omitempty"`
 }
 
 // New creates a new log store
@@ -220,6 +225,8 @@ func NewTaskLog(task *core.DeliveryTask) *TaskLog {
 		Level:       task.Level,
 		Status:      "pending",
 		CreatedAt:   task.CreatedAt,
+		RelationType: task.RelationType,
+		Source:      task.Source,
 	}
 }
 

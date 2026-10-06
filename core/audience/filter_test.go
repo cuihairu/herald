@@ -84,16 +84,12 @@ func TestFilterRechecksMatrixAtSendTime(t *testing.T) {
 		AudienceID: "bob", Category: "marketing", Channel: "telegram",
 		Type: RelationEnrollment, Source: "app:seed", Policy: Policy{AllowUnsubscribe: true},
 	}
-	if err := relations.store(marketing); err != nil {
-		t.Fatal(err)
-	}
+	relations.store(marketing)
 	mustFeed := Relation{
 		AudienceID: "bob", Category: "system", Channel: "rss",
 		Type: RelationEnrollment, Source: "app:seed", Policy: Policy{MustDeliver: true},
 	}
-	if err := relations.store(mustFeed); err != nil {
-		t.Fatal(err)
-	}
+	relations.store(mustFeed)
 	f := NewFilter(relations, surfaces)
 
 	if f.Allow("bob", "marketing", "telegram") {
@@ -106,9 +102,7 @@ func TestFilterRechecksMatrixAtSendTime(t *testing.T) {
 	// The lawful twin of the seeded marketing relation passes.
 	lawful := marketing
 	lawful.Channel = "webhook"
-	if err := relations.store(lawful); err != nil {
-		t.Fatal(err)
-	}
+	relations.store(lawful)
 	if !f.Allow("bob", "marketing", "webhook") {
 		t.Error("Allow() = false for a seeded marketing×app relation, want the matrix to pass it")
 	}

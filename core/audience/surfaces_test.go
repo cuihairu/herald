@@ -1,6 +1,8 @@
 package audience
 
 import (
+	"github.com/cuihairu/herald/core/audit"
+
 	"errors"
 	"strings"
 	"testing"
@@ -337,5 +339,46 @@ func TestTokenEntropyFailure(t *testing.T) {
 	}
 	if _, err := s.RSSToken("alice"); err == nil {
 		t.Error("RSSToken() = nil, want the entropy error")
+	}
+}
+
+// TestSurfaceAuditTrail: bind / rebind / invalidate each emit one event;
+// a rejected invalidate emits none.
+func TestSurfaceAuditTrail(t *testing.T) {
+	s := NewSurfaceRegistry()
+	st := audit.New(0)
+	s.SetRecorder(st)
+
+	token, err := s.IssueBinding("alice", "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RedeemBinding(token, "chat-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Park a rebind, confirm it, then invalidate.
+	token2, _ := s.IssueBinding("alice", "telegram")
+	if res, _ := s.RedeemBinding(token2, "chat-2"); res.Outcome != OutcomePendingConfirm {
+		t.Fatalf("Outcome = %v, want pending confirm", res.Outcome)
+	}
+	if _, err := s.ConfirmRebind("alice", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Invalidate("alice", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Invalidate("alice", "sms"); err == nil {
+		t.Fatal("want not-found error")
+	}
+
+	got := st.ListByAudience("alice")
+	wantKinds := []audit.EventKind{audit.SurfaceBind, audit.SurfaceRebind, audit.SurfaceInvalidate}
+	if len(got) != len(wantKinds) {
+		t.Fatalf("events = %+v, want %d", got, len(wantKinds))
+	}
+	for i, ev := range got {
+		if ev.Kind != wantKinds[i] {
+			t.Errorf("event %d kind = %v, want %v", i, ev.Kind, wantKinds[i])
+		}
 	}
 }
