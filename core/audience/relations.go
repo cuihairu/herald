@@ -96,19 +96,28 @@ func NewRegistry() *Registry {
 // Subscribe records an active subscription. The subscription contract is
 // enforced, not trusted: the relation is always unsubscribable and never
 // must-deliver, whatever the caller passed. Calling it with an enrollment
-// relation is a caller bug — Enroll is the explicit counterpart.
+// relation is a caller bug — Enroll is the explicit counterpart. The §5
+// channel×relation matrix needs no check here: the subscription row
+// allows every channel family.
 func (g *Registry) Subscribe(rel Relation) error {
 	if rel.Type != RelationSubscription {
 		return fmt.Errorf("audience: Subscribe requires a %q relation, got %q (use Enroll for passive assignment)", RelationSubscription, rel.Type)
 	}
 	rel.Policy = Policy{AllowUnsubscribe: true, MustDeliver: false}
-	return g.put(rel)
+	if err := validateRelation(rel); err != nil {
+		return err
+	}
+	return g.store(rel)
 }
 
 // Enroll records a passive assignment. The §4 bottom lines are enforced
 // here: a must-deliver relation may not claim unsubscribability, and any
 // enrollment that is not must-deliver must be unsubscribable — there is no
-// lawful enrollment the audience can neither leave nor counts on.
+// lawful enrollment the audience can neither leave nor counts on. The §5
+// channel×relation matrix is enforced at the same door: a marketing
+// enrollment may only land on a low-disturbance family (email/app), a
+// must-deliver enrollment on anything but RSS (subscriptions allow every
+// family, so Subscribe has nothing to check here).
 func (g *Registry) Enroll(rel Relation) error {
 	if rel.Type != RelationEnrollment {
 		return fmt.Errorf("audience: Enroll requires an %q relation, got %q (use Subscribe for active opt-in)", RelationEnrollment, rel.Type)
@@ -119,12 +128,19 @@ func (g *Registry) Enroll(rel Relation) error {
 	if !rel.Policy.MustDeliver && !rel.Policy.AllowUnsubscribe {
 		return fmt.Errorf("audience: relation %s/%s/%s: an enrollment that is not must-deliver must be unsubscribable", rel.AudienceID, rel.Category, rel.Channel)
 	}
-	return g.put(rel)
+	if err := validateRelation(rel); err != nil {
+		return err
+	}
+	class := ClassifyChannel(rel.Channel)
+	if !MatrixAllows(RelationEnrollment, rel.Policy, class) {
+		return fmt.Errorf("audience: relation %s/%s/%s: channel class %q is not permitted for this enrollment by the channel×relation matrix", rel.AudienceID, rel.Category, rel.Channel, class)
+	}
+	return g.store(rel)
 }
 
-// put validates the common fields and stores the relation, replacing any
-// previous relation on the same audience×category×channel slot.
-func (g *Registry) put(rel Relation) error {
+// validateRelation checks the fields every relation carries, with the
+// same bounds as the other audience tables.
+func validateRelation(rel Relation) error {
 	if !idPattern.MatchString(rel.AudienceID) {
 		return fmt.Errorf("audience: invalid audience id %q (want 1-64 chars of letters, digits, dot, dash, underscore)", rel.AudienceID)
 	}
@@ -133,7 +149,12 @@ func (g *Registry) put(rel Relation) error {
 			return fmt.Errorf("audience: relation %s: %s must be 1-%d chars", rel.AudienceID, label, maxNameChars)
 		}
 	}
+	return nil
+}
 
+// store writes the relation, replacing any previous relation on the same
+// audience×category×channel slot. Callers validate first.
+func (g *Registry) store(rel Relation) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.relations[rel.key()] = rel
