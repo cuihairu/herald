@@ -233,7 +233,8 @@ POST /api/v1/notify
 | 联系面与绑定（ContactSurface 三态、一次性 token、换绑旧渠道确认、RSS 私密 token） | ✅ 落地（批次 2） | `core/audience.SurfaceRegistry`，提交 `19cf16c`；队列到期等待同批改注入时钟（`342caa1`） |
 | 偏好中心（Frequency/Preference/DefaultPolicy、默认策略表、读写 API） | ✅ 落地（批次 3） | `core/audience` 偏好模型，提交 `4df837a` |
 | 渠道×关系矩阵与投递过滤（四族分类、Enroll 门强制、发送前复核、Filter.Allow 交集） | ✅ 落地（批次 4） | `core/audience.Filter`/`MatrixAllows`，提交 `4b18b4a`；expandRef 挂接随批次 11 触发面 |
-| 投递审计补齐 / Digest / RSS 拉式 / 来源适配器 / 强度与投递模式 / 去重频控（三档）/ 集成者 API 与 Go SDK | ◑ 在途（批次 5-11） | 关系详设 §15 |
+| 投递审计补齐（关系/联系面变更流水、去重折叠明细、关系快照进任务与日志） | ✅ 落地（批次 5） | `core/audit`，`SetRecorder`/`SetFoldAudit`，提交 `de05e94`；发送侧关系上下文随批次 8/11 |
+| Digest / RSS 拉式 / 来源适配器 / 强度与投递模式 / 去重频控（三档）/ 集成者 API 与 Go SDK | ◑ 在途（批次 6-11） | 关系详设 §15 |
 | 去重（既有部分） | ◑ 内容指纹去重与请求幂等键已上线 | 审计 §一#13、Phase 6 记录 |
 
 本文至此封存为管道改造存档；新批次的执行记录记入 todo 与关系详设对应节，不再回写本表。

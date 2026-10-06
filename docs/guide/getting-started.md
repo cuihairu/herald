@@ -56,7 +56,7 @@ Telegram / Feishu / Email / Log ...
 
 Notification 与 Delivery 分离：一条 Notification 可能展开成多条 Delivery（多渠道），各 Delivery 独立状态、独立重试。`accepted` 只代表 Herald 受理，不代表已送达。
 
-> 实现现状：Phase 0-9 管道改造已全批落地——`Notification / Template / Channel（routes + channels 块）/ Delivery（枚举状态机 + MaxAttempts/LastError + NextRetryAt）/ Queue / Worker / Provider` 全部就位；`user:` 级 Recipient 与多 Endpoint 以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"）；Provider 错误按六类词汇分类（可重试类带 `next_retry_at` 回队列重投、确定性类立即失败）；notify API 支持 `channel` / `audience` / `data` / `idempotency_key` 领域字段（见 [REST API](/api/rest#notify-receivers)）。逐批执行记录见 [现状审计](/design-audience-audit)；明确留批的项（Logs 与 Delivery 事件流分离、受众与渠道的运行时 API）在审计差异总表中各有留批理由。受众层正按[关系详设](/design-audience-relations)扩展为统一订阅与投递中枢：关系模型、联系面绑定、偏好中心、渠道×关系矩阵与投递过滤已落地，审计补齐、Digest、RSS、集成者 API 在途（落地状态见[总纲 §13](/design-audience-model#_13-落地状态-诚实口径)）。
+> 实现现状：Phase 0-9 管道改造已全批落地——`Notification / Template / Channel（routes + channels 块）/ Delivery（枚举状态机 + MaxAttempts/LastError + NextRetryAt）/ Queue / Worker / Provider` 全部就位；`user:` 级 Recipient 与多 Endpoint 以配置化形态落地（`audiences` / `recipients` 配置块，见 [配置参考](/guide/configuration) 的"领域模型与配置块"）；Provider 错误按六类词汇分类（可重试类带 `next_retry_at` 回队列重投、确定性类立即失败）；notify API 支持 `channel` / `audience` / `data` / `idempotency_key` 领域字段（见 [REST API](/api/rest#notify-receivers)）。逐批执行记录见 [现状审计](/design-audience-audit)；明确留批的项（Logs 与 Delivery 事件流分离、受众与渠道的运行时 API）在审计差异总表中各有留批理由。受众层正按[关系详设](/design-audience-relations)扩展为统一订阅与投递中枢：关系模型、联系面绑定、偏好中心、渠道×关系矩阵与投递过滤、投递审计补齐已落地，Digest、RSS、集成者 API 在途（落地状态见[总纲 §13](/design-audience-model#_13-落地状态-诚实口径)）。
 
 ## 安装
 

@@ -175,7 +175,7 @@ recipients:           # 接收人 → 端点
 
 ## 11. 投递与审计
 
-投递侧已经落地的形状：任务状态枚举（delivered / failed / dead，重试中 retrying）、错误六类词汇（temporary / permanent / rate_limited / authentication / invalid_request / timeout）决定重试与终态、429 带 Retry-After 退避、可重试失败异步重新入队（`next_retry_at` 队列侧持留，worker 不睡退避）。审计侧按关系详设 §12 补齐：关系类型与入口来源快照进任务、关系/联系面变更流水、去重折叠明细，审计回答「这条订阅从哪个入口来、这次投递依据哪条关系、为什么失败、谁在何时改了什么」。**审计补齐在途**（批次 5）。
+投递侧已经落地的形状：任务状态枚举（delivered / failed / dead，重试中 retrying）、错误六类词汇（temporary / permanent / rate_limited / authentication / invalid_request / timeout）决定重试与终态、429 带 Retry-After 退避、可重试失败异步重新入队（`next_retry_at` 队列侧持留，worker 不睡退避）。审计侧已按关系详设 §12 补齐：关系类型与入口来源快照进通知→任务→投递日志全链、关系/联系面变更流水（`core/audit`，订阅/指派/退订与绑定/换绑/失效六类事件，按类型与受众分读）、去重折叠明细（`delivery.deduped`，带内容指纹）——审计回答「这条订阅从哪个入口来、这次投递依据哪条关系、为什么失败、谁在何时改了什么」。**审计补齐已落地**（批次 5）；发送侧关系上下文随批次 8/11 触发面填充。
 
 ## 12. 集成者 API
 
@@ -190,7 +190,8 @@ recipients:           # 接收人 → 端点
 | 联系面与绑定（token/换绑/RSS token） | ✅ 落地 | 批次 2（`19cf16c`），`core/audience.SurfaceRegistry` |
 | 偏好中心（品类×渠道×频率、默认策略表） | ✅ 落地 | 批次 3（`4df837a`），`core/audience.PreferenceRegistry` |
 | 渠道×关系矩阵与投递过滤（四族分类、Enroll 门强制、发送前复核） | ✅ 落地 | 批次 4（`4b18b4a`），`core/audience.Filter`；expandRef 挂接随批次 11 |
-| 审计补齐 / Digest / RSS / 来源适配器 / 强度与模式 / 去重频控 / 集成者 API | ◑ 在途 | 关系详设 §15 批次 5-11，进度见 todo |
+| 投递审计补齐（变更流水、去重折叠明细、关系快照进任务与日志） | ✅ 落地 | 批次 5（`de05e94`），`core/audit` + `SetRecorder`/`SetFoldAudit` |
+| Digest / RSS / 来源适配器 / 强度与模式 / 去重频控 / 集成者 API | ◑ 在途 | 关系详设 §15 批次 6-11，进度见 todo |
 
 在途能力的配置项与端点尚不存在，勿据本文档配置生产；落地一批，本文状态表与对应详设同步更新一批。
 
