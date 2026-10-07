@@ -30,6 +30,12 @@ func NewDedup(config *Config) *Dedup {
 	}
 }
 
+// Window exposes the fold window the dedup was built with (the §11
+// throttle tier redelivers a key only after it expires).
+func (d *Dedup) Window() time.Duration {
+	return d.window
+}
+
 // Check checks if a key should be deduplicated.
 // The caller is responsible for generating a stable, content-derived key.
 func (d *Dedup) Check(key string) bool {

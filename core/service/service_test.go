@@ -953,8 +953,11 @@ func TestNotificationService_ProcessWithRouter(t *testing.T) {
 		if ev.RelationType != "subscription" || ev.Source != "bot" {
 			t.Errorf("relation/source = %q/%q, want subscription/bot", ev.RelationType, ev.Source)
 		}
-		if ev.Detail != dedupKey(n) {
-			t.Error("Detail should carry the content fingerprint (dedup key)")
+		// Detail names the suppression layer, the content fingerprint and
+		// the running fold count (§11 折叠产物: the ×N is auditable).
+		wantDetail := fmt.Sprintf("%s: %s (×%d)", dedup.ReasonThrottled, dedupKey(n), 1)
+		if ev.Detail != wantDetail {
+			t.Errorf("Detail = %q, want %q", ev.Detail, wantDetail)
 		}
 		if ev.At.IsZero() {
 			t.Error("fold row must be timestamped")

@@ -34,6 +34,18 @@ type Notification struct {
 	// Source is the entry adapter/source that created this relation,
 	// if any — e.g. "bot", "preference_center", "admin", "wechat_mp".
 	Source string `json:"source,omitempty"`
+	// EventID is the §11.1 event identity for the idempotency layer: a
+	// repeat submission of the same event delivers once, whatever the
+	// content drift. Empty skips the layer.
+	EventID string `json:"event_id,omitempty"`
+	// DedupKey is the explicit §11 去重键 for the fold and frequency
+	// stages. Empty derives the key from notification content as before.
+	DedupKey string `json:"dedup_key,omitempty"`
+	// State is the state-machine dimension for state-type alerts
+	// (§11.1: down/ok/…) — the gate delivers the first sighting and
+	// every flip, folding repeats of the current state. Empty treats
+	// the event as non-stateful.
+	State string `json:"state,omitempty"`
 }
 
 // DirectContent holds inline content when no template is used
@@ -83,7 +95,7 @@ type DeliveryTask struct {
 	// RetryCount counts retry attempts actually performed beyond the first
 	// (the retryer sets it between attempts; 0 means none so far, so
 	// attempts = RetryCount + 1).
-	RetryCount int       `json:"retry_count"`
+	RetryCount int `json:"retry_count"`
 	// MaxAttempts is the delivery budget snapped onto the task when the
 	// first attempt starts (retry policy retries + 1; 1 with no retryer).
 	MaxAttempts int `json:"max_attempts,omitempty"`

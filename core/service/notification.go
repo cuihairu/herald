@@ -96,10 +96,13 @@ type ChannelResolver interface {
 
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
-	templates   *template.Manager
-	router      *route.Router
-	runtime     ProviderRuntime
-	dedup       *dedup.Dedup
+	templates *template.Manager
+	router    *route.Router
+	runtime   ProviderRuntime
+	// gate is the §11 dedup layer (幂等 → 折叠/状态 → 频控三档). Built
+	// from the Dedup window handed to the constructor; nil only when no
+	// dedup was configured at all, which passes every event through.
+	gate        *dedup.Gate
 	foldAudit   audit.Recorder
 	digestAgg   *digest.Aggregator
 	digestPrefs *audience.PreferenceRegistry
@@ -115,19 +118,25 @@ type NotificationService struct {
 	channels    ChannelResolver
 }
 
-// NewNotificationService creates a new NotificationService
+// NewNotificationService creates a new NotificationService. The dedup
+// argument supplies the fold window for the §11 gate (nil keeps the
+// gate off, passing every event through, same as before).
 func NewNotificationService(
 	templates *template.Manager,
 	router *route.Router,
 	runtime ProviderRuntime,
-	dedup *dedup.Dedup,
+	dedupMgr *dedup.Dedup,
 	queue core.Queue,
 ) *NotificationService {
+	var gate *dedup.Gate
+	if dedupMgr != nil {
+		gate = dedup.NewGate(dedupMgr.Window(), nil)
+	}
 	return &NotificationService{
 		templates: templates,
 		router:    router,
 		runtime:   runtime,
-		dedup:     dedup,
+		gate:      gate,
 		queue:     queue,
 		planner:   NewDeliveryPlanner(templates),
 	}
@@ -336,22 +345,33 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		}
 	}
 
-	// Dedup — the last gate before delivery (key derived from notification
-	// content, not auto-generated ID). Rule state has already advanced for
-	// this event: a repeat delivery is suppressed, but the alert's story
-	// (for/group/recovery) is not interrupted by it.
-	if s.dedup != nil && s.dedup.Check(dedupKey(n)) {
-		if s.foldAudit != nil {
-			s.foldAudit.Record(audit.Event{
-				Kind:         audit.DeliveryDeduped,
-				AudienceID:   n.AudienceID,
-				Category:     n.Type,
-				RelationType: n.RelationType,
-				Source:       n.Source,
-				Detail:       dedupKey(n),
-			})
+	// §11 dedup gate — the last gate before delivery: 事件幂等 → 状态机
+	// → 频控三档. The key derives from the explicit dedup_key when given,
+	// else from notification content (not the auto-generated ID). Rule
+	// state has already advanced for this event: a repeat delivery is
+	// suppressed, but the alert's story (for/group/recovery) is not
+	// interrupted by it.
+	if s.gate != nil {
+		out := s.gate.Decide(dedup.Event{
+			EventID:     n.EventID,
+			Key:         gateKey(n),
+			State:       n.State,
+			Category:    n.Type,
+			Fingerprint: n.ID,
+		})
+		if out.Decision == dedup.Suppress {
+			if s.foldAudit != nil {
+				s.foldAudit.Record(audit.Event{
+					Kind:         audit.DeliveryDeduped,
+					AudienceID:   n.AudienceID,
+					Category:     n.Type,
+					RelationType: n.RelationType,
+					Source:       n.Source,
+					Detail:       fmt.Sprintf("%s: %s (×%d)", out.Reason, gateKey(n), out.Count),
+				})
+			}
+			return &ProcessResult{NotificationID: n.ID}, nil
 		}
-		return &ProcessResult{NotificationID: n.ID}, nil
 	}
 
 	// Digest aggregation (§10): an event whose preference folds is
@@ -917,6 +937,16 @@ func formatChannelErrors(errs []ChannelError) string {
 		msgs = append(msgs, fmt.Sprintf("%s: %s", e.Channel, e.Error))
 	}
 	return fmt.Sprintf("%v", msgs)
+}
+
+// gateKey is the §11 dedup key: the explicit dedup_key when the event
+// carries one, else the content-derived fingerprint (which stays the
+// fallback for events that never name a key).
+func gateKey(n *core.Notification) string {
+	if n.DedupKey != "" {
+		return n.DedupKey
+	}
+	return dedupKey(n)
 }
 
 // dedupKey generates a stable, canonical key from notification content
