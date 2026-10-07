@@ -188,3 +188,158 @@ func TestAppCategories(t *testing.T) {
 		}
 	})
 }
+
+// TestAppPolicies walks the §13.2 policy override face: per-family PUT
+// with refuse-not-clamp validation, PUT-is-replace semantics, family
+// isolation and the aggregate read-back.
+func TestAppPolicies(t *testing.T) {
+	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+	put := func(t *testing.T, path, body string) (int, map[string]any) {
+		t.Helper()
+		return e.do(t, "PUT", "/api/v1/apps/ferry"+path, body, map[string]string{"Authorization": "Bearer ferry-full"})
+	}
+
+	t.Run("write needs config scope", func(t *testing.T) {
+		code, _ := e.do(t, "PUT", "/api/v1/apps/ferry/policies/intensity", `{"sms":"L4"}`, map[string]string{"Authorization": "Bearer ferry-trigger"})
+		if code != 403 {
+			t.Fatalf("code = %d, want 403", code)
+		}
+	})
+
+	t.Run("read needs query scope", func(t *testing.T) {
+		code, _ := e.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-config"})
+		if code != 403 {
+			t.Fatalf("code = %d, want 403", code)
+		}
+	})
+
+	t.Run("broken json is 400", func(t *testing.T) {
+		code, _ := put(t, "/policies/intensity", `{oops`)
+		if code != 400 {
+			t.Fatalf("code = %d, want 400", code)
+		}
+	})
+
+	t.Run("intensity bad value refuses naming the channel", func(t *testing.T) {
+		code, body := put(t, "/policies/intensity", `{"sms":"L9"}`)
+		if code != 422 {
+			t.Fatalf("code = %d, want 422", code)
+		}
+		if msg, _ := body["message"].(string); !strings.Contains(msg, "sms") {
+			t.Errorf("message = %q, want the channel named", msg)
+		}
+	})
+
+	t.Run("mode bad value refuses naming the category", func(t *testing.T) {
+		code, body := put(t, "/policies/delivery-mode", `{"alerts":"cascade"}`)
+		if code != 422 {
+			t.Fatalf("code = %d, want 422", code)
+		}
+		if msg, _ := body["message"].(string); !strings.Contains(msg, "alerts") {
+			t.Errorf("message = %q, want the category named", msg)
+		}
+	})
+
+	t.Run("escalation validates the duration", func(t *testing.T) {
+		code, _ := put(t, "/policies/escalation", `{}`)
+		if code != 422 {
+			t.Fatalf("missing ack_timeout = %d, want 422", code)
+		}
+		code, _ = put(t, "/policies/escalation", `{"ack_timeout":"later"}`)
+		if code != 422 {
+			t.Fatalf("bad ack_timeout = %d, want 422", code)
+		}
+		code, _ = put(t, "/policies/escalation", `{"ack_timeout":"-5m"}`)
+		if code != 422 {
+			t.Fatalf("negative ack_timeout = %d, want 422", code)
+		}
+		code, _ = put(t, "/policies/escalation", `{"ack_timeout":"3m"}`)
+		if code != 200 {
+			t.Fatalf("ack_timeout 3m = %d, want 200", code)
+		}
+	})
+
+	t.Run("dedup validates tiers and windows", func(t *testing.T) {
+		code, body := put(t, "/policies/dedup", `{"tiers":{"alerts":"hourly"}}`)
+		if code != 422 {
+			t.Fatalf("bad tier = %d, want 422", code)
+		}
+		if msg, _ := body["message"].(string); !strings.Contains(msg, "alerts") {
+			t.Errorf("message = %q, want the category named", msg)
+		}
+		code, _ = put(t, "/policies/dedup", `{"windows":{"alerts":"0s"}}`)
+		if code != 422 {
+			t.Fatalf("non-positive window = %d, want 422", code)
+		}
+		code, _ = put(t, "/policies/dedup", `{"tiers":{"alerts":"always","bills":"once"},"windows":{"alerts":"30m"}}`)
+		if code != 200 {
+			t.Fatalf("dedup put = %d, want 200", code)
+		}
+	})
+
+	t.Run("mode put succeeds and non-string value refuses", func(t *testing.T) {
+		code, _ := put(t, "/policies/delivery-mode", `{"alerts":3}`)
+		if code != 422 {
+			t.Fatalf("non-string mode = %d, want 422", code)
+		}
+		code, _ = put(t, "/policies/delivery-mode", `{"alerts":"escalation","marketing":"fixed"}`)
+		if code != 200 {
+			t.Fatalf("mode put = %d, want 200", code)
+		}
+	})
+
+	t.Run("families accumulate and read back", func(t *testing.T) {
+		code, _ := put(t, "/policies/intensity", `{"telegram":"L0"}`)
+		if code != 200 {
+			t.Fatalf("intensity put = %d, want 200", code)
+		}
+		code, body := e.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		if code != 200 {
+			t.Fatalf("read = %d, want 200", code)
+		}
+		data, _ := body["data"].(map[string]any)
+		if data["ack_timeout"] != "3m0s" {
+			t.Errorf("ack_timeout = %v, want 3m0s from the escalation family", data["ack_timeout"])
+		}
+		intensity, _ := data["channel_intensity"].(map[string]any)
+		if intensity["telegram"] != "L0" {
+			t.Errorf("intensity = %v, want the L0 override", intensity)
+		}
+		tiers, _ := data["dedup_tiers"].(map[string]any)
+		if tiers["alerts"] != "always" || tiers["bills"] != "once" {
+			t.Errorf("tiers = %v, want alerts=always bills=once", tiers)
+		}
+		modes, _ := data["mode_by_category"].(map[string]any)
+		if modes["alerts"] != "escalation" || modes["marketing"] != "fixed" {
+			t.Errorf("modes = %v, want alerts=escalation marketing=fixed", modes)
+		}
+	})
+
+	t.Run("family replace clears absent keys", func(t *testing.T) {
+		code, _ := put(t, "/policies/dedup", `{"windows":{"alerts":"10m"}}`)
+		if code != 200 {
+			t.Fatalf("dedup put = %d, want 200", code)
+		}
+		_, body := e.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		data, _ := body["data"].(map[string]any)
+		if _, has := data["dedup_tiers"]; has {
+			t.Errorf("dedup_tiers = %v, want cleared by the family PUT", data["dedup_tiers"])
+		}
+		windows, _ := data["dedup_windows"].(map[string]any)
+		if windows["alerts"] != "10m0s" {
+			t.Errorf("windows = %v, want alerts 10m0s", windows)
+		}
+	})
+
+	t.Run("empty set reads back empty", func(t *testing.T) {
+		e2 := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+		code, body := e2.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		if code != 200 {
+			t.Fatalf("read = %d, want 200", code)
+		}
+		data, _ := body["data"].(map[string]any)
+		if len(data) != 0 {
+			t.Errorf("data = %v, want empty object", data)
+		}
+	})
+}

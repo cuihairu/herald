@@ -253,6 +253,13 @@ func NewServer(config *Config) *Server {
 	// operator API key. The namespace rides in the path.
 	mux.HandleFunc("/api/v1/apps/{app}", s.withApp(apps.ScopeQuery, s.handleAppShow))
 	mux.HandleFunc("/api/v1/apps/{app}/categories", s.handleAppCategories)
+	// §13.2 policy overrides: each family PUTs its own shape, the
+	// aggregate GET reads the whole set back.
+	mux.HandleFunc("/api/v1/apps/{app}/policies", s.handleAppPoliciesRead)
+	mux.HandleFunc("/api/v1/apps/{app}/policies/intensity", s.handleAppPoliciesIntensity)
+	mux.HandleFunc("/api/v1/apps/{app}/policies/delivery-mode", s.handleAppPoliciesMode)
+	mux.HandleFunc("/api/v1/apps/{app}/policies/escalation", s.handleAppPoliciesEscalation)
+	mux.HandleFunc("/api/v1/apps/{app}/policies/dedup", s.handleAppPoliciesDedup)
 
 	// §8 source entries: platform-vouched callbacks authenticate with
 	// their shared secrets, the in-app checkbox face sits behind the

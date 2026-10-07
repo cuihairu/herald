@@ -139,6 +139,20 @@ func TestParseMode(t *testing.T) {
 
 // TestDefaultMode: must-deliver overrides everything to parallel; else
 // urgent/critical escalate and the rest stay fixed (§6.3).
+func TestModeString(t *testing.T) {
+	cases := map[Mode]string{
+		ModeFixed:      "fixed",
+		ModeEscalation: "escalation",
+		ModeParallel:   "parallel",
+		Mode(42):       "mode?",
+	}
+	for m, want := range cases {
+		if got := m.String(); got != want {
+			t.Errorf("Mode(%d).String() = %q, want %q", m, got, want)
+		}
+	}
+}
+
 func TestDefaultMode(t *testing.T) {
 	for _, u := range []Urgency{UrgencyRoutine, UrgencyNormal, UrgencyUrgent, UrgencyCritical} {
 		if got := DefaultMode(u, true); got != ModeParallel {

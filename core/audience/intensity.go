@@ -164,6 +164,20 @@ func ParseMode(s string) (Mode, error) {
 	}
 }
 
+// String implements fmt.Stringer (contract vocabulary).
+func (m Mode) String() string {
+	switch m {
+	case ModeFixed:
+		return "fixed"
+	case ModeEscalation:
+		return "escalation"
+	case ModeParallel:
+		return "parallel"
+	default:
+		return "mode?"
+	}
+}
+
 func DefaultMode(u Urgency, mustDeliver bool) Mode {
 	if mustDeliver {
 		return ModeParallel

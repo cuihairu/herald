@@ -105,6 +105,7 @@ type App struct {
 	Name       string
 	tokens     []Token
 	categories map[string]Category
+	policies   AppPolicies
 }
 
 // ScopesFor resolves a bearer secret to the permission set it holds in
