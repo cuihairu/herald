@@ -52,6 +52,7 @@ app.Dispatch(ctx, &core.Notification{
 - **偏好中心** - 品类×渠道×频率三元组（实时/每日/每周/不收），品类默认策略表打底；营销默认每周汇总，告警可降频不可静默
 - **关系过滤** - 渠道×关系矩阵（订阅全开、必达拒拉式、营销限邮件/站内信）+ 发送前四步交集复核，交集为空不投并审计
 - **投递编排** - 表达式规则引擎（shadow 先观察后生效，for/group_by/inhibit/silence/escalation）、Digest 时间窗聚合（每日/每周摘要、实时豁免、可选 redis 租约选主）、内容折叠去重与请求幂等
+- **RSS 拉式渠道** - 每品类公共 feed + 每受众带 token 的私密 feed（`/feeds/**`），投递记录就地投影为拉式条目，可见性读取时判定、取关即从下一次拉取起消失；Herald 不推，天然无骚扰
 - **投递审计** - 关系/联系面变更流水、去重折叠明细（为什么这条没投）、关系类型与入口来源快照进任务与日志
 - **HTTP First** - curl 友好，REST API，无 SDK 依赖
 - **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
@@ -180,6 +181,7 @@ graph TB
     end
 
     Digest["Digest 时间窗聚合<br/>(旁路：实时豁免不入窗)"]
+    RSS["RSS 拉式出口<br/>/feeds/**（读取时判定可见性）"]
 
     Queue["Queue<br/>memory / redis"]
 
@@ -198,6 +200,7 @@ graph TB
     Filter --> Fold
     Fold -.->|"低频偏好事件入窗"| Digest
     Digest -.->|"窗口到点，摘要走同一管道"| Queue
+    Fold -.->|"rss 类渠道就地投影"| RSS
     Fold -->|"展开成投递任务"| Queue
     Queue -->|Pop + Ack/Nack| W1
     Queue -->|Pop + Ack/Nack| W3
@@ -292,6 +295,14 @@ routes:
 #   weekly: "Mon 09:00"            # 每周翻转时刻（默认 Mon 09:00）
 #   location: Asia/Shanghai        # 翻转时刻时区（默认 Asia/Shanghai）
 #   redis_addr: "localhost:6379"   # 可选：多实例租约选主；不配则单机进程内定时器直跑
+
+# RSS 拉式渠道（可选）：公共 feed /feeds/<品类>.xml + 私密 feed /feeds/private/<token>.xml
+# feeds:
+#   enabled: true
+#   title: "Herald 通知"           # RSS channel 标题（默认 Herald 通知）
+#   link: "https://herald.example" # feed 主页链接
+#   description: "通知 feed"       # feed 描述
+#   max_items: 500                 # 每品类条目留存上限（默认 500）
 ```
 
 ## 文档

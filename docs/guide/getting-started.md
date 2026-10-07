@@ -210,6 +210,7 @@ providers:
 - **模板复用**：`templates` 一次定义、多渠道复用，见[模板系统](/guide/templates)
 - **命名受众**：`group:ops` 一个引用展开整组值班人，见[通知群组](/design-notification-groups)；`user:alice` 精确到人（多端点合并投递），见[配置参考](/guide/configuration)
 - **命名渠道**：`channels: {ci: {providers: [...]}}` 把一组 provider 定义成一个可引用的渠道，见[配置参考](/guide/configuration)
+- **RSS 拉式出口**：`feeds.enabled: true` 后每品类一个公共 feed（`/feeds/<品类>.xml`），路由到 `rss` 渠道的投递就地投影成 feed 条目，订阅读者自己来拉，见[配置参考](/guide/configuration)
 - **幂等重发**：网络重试时带上同一个 `idempotency_key`，Herald 只受理一次，见 [REST API](/api/rest#notify-receivers)
 
 ## 常用查询

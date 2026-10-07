@@ -662,6 +662,8 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `groups` | Audience 的 `group:` 形态（命名受众） | ✅ 已实现 |
 | `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | ✅ 已实现 |
 | `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | ✅ 已实现 |
+| `digest` | Digest 时间窗聚合（窗口/时区/可选 redis 租约选主），旁路于主投递管道 | ✅ 已实现 |
+| `feeds` | RSS 拉式渠道（§9）：`/feeds/<品类>.xml` 公共 feed 与 `/feeds/private/<token>.xml` 私密 feed，投递记录拉式投影，可见性读取时判定 | ✅ 已实现 |
 
 `audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，接收人/端点表本身无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
 
