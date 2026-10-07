@@ -88,6 +88,11 @@ type Gate struct {
 	mu     sync.Mutex
 	window time.Duration
 	tier   func(category string) Tier
+	// tierOverrides / winOverrides are the §11.2 operator tables (raw
+	// tier strings as configured; consult falls back to the resolver
+	// when absent or unparseable).
+	tierOverrides map[string]string
+	winOverrides  map[string]time.Duration
 
 	events  map[string]struct{}  // event_id → seen (幂等)
 	eventsQ []string             // FIFO eviction order
@@ -124,6 +129,29 @@ func NewGate(window time.Duration, tier func(category string) Tier) *Gate {
 // Window exposes the fold window (the throttle tier redelivers a key
 // only after it expires).
 func (g *Gate) Window() time.Duration {
+	return g.window
+}
+
+// tierFor answers the effective §11.2 tier: the operator override when
+// the category carries one (unparseable values fall back to the
+// resolver — Config.Validate is the refusal point for the binary; the
+// library degrades instead of guessing wrong on skipped validation),
+// else the configured resolver's word.
+func (g *Gate) tierFor(category string) Tier {
+	if raw, ok := g.tierOverrides[category]; ok {
+		if t, err := ParseTier(raw); err == nil {
+			return t
+		}
+	}
+	return g.tier(category)
+}
+
+// windowFor answers the effective fold window: the category override
+// when positive, else the base window.
+func (g *Gate) windowFor(category string) time.Duration {
+	if w, ok := g.winOverrides[category]; ok && w > 0 {
+		return w
+	}
 	return g.window
 }
 
@@ -175,7 +203,7 @@ func (g *Gate) Decide(ev Event) Outcome {
 	}
 
 	// 3. 频控三档 on the content stage.
-	switch g.tier(ev.Category) {
+	switch g.tierFor(ev.Category) {
 	case TierAlways:
 		return Outcome{Decision: Pass}
 	case TierOnce:
@@ -186,7 +214,7 @@ func (g *Gate) Decide(ev Event) Outcome {
 		g.rememberOnce(ev.Key)
 		return Outcome{Decision: Pass}
 	default: // TierThrottle
-		if t, ok := g.stamps[ev.Key]; ok && time.Since(t) < g.window {
+		if t, ok := g.stamps[ev.Key]; ok && time.Since(t) < g.windowFor(ev.Category) {
 			return Outcome{Decision: Suppress, Reason: ReasonThrottled,
 				Count: g.fold(ev.Key, ev.Fingerprint)}
 		}

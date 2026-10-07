@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core/audience"
+	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/queue"
@@ -204,6 +205,14 @@ type RetryConfig struct {
 type DedupConfig struct {
 	Enabled bool          `yaml:"enabled"`
 	Window  time.Duration `yaml:"window"`
+	// CategoryTiers re-grades a category's §11.2 frequency tier
+	// ("once"|"throttle"|"always"); missing categories keep the default
+	// table (system=once, alerts=throttle, others window-throttled).
+	// Unparseable values refuse to start (Validate).
+	CategoryTiers map[string]string `yaml:"category_tiers"`
+	// CategoryWindows overrides the fold window per category (§11.2
+	// 「节点告警 30 分钟一条」). Non-positive values refuse to start.
+	CategoryWindows map[string]time.Duration `yaml:"category_windows"`
 }
 
 // DigestConfig configures the digest flip loop (关系详设 §10): when the
@@ -503,6 +512,19 @@ func (c *Config) Validate() error {
 			if _, ok := c.Providers[p]; !ok {
 				return fmt.Errorf("channel %s references unknown provider %s", name, p)
 			}
+		}
+	}
+	// §11.2 override tables: a mis-graded tier refuses to start (the
+	// gate would otherwise silently deliver differently than graded),
+	// and a non-positive window is a configuration drift, not a clamp.
+	for category, tier := range c.Dedup.CategoryTiers {
+		if _, err := dedup.ParseTier(tier); err != nil {
+			return fmt.Errorf("dedup category_tiers[%s]: %w", category, err)
+		}
+	}
+	for category, window := range c.Dedup.CategoryWindows {
+		if window <= 0 {
+			return fmt.Errorf("dedup category_windows[%s]: window must be positive, got %v", category, window)
 		}
 	}
 	return nil

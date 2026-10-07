@@ -160,7 +160,11 @@ func serveCmd(args []string) int {
 	// Create dedup
 	var d *dedup.Dedup
 	if cfg.Dedup.Enabled {
-		d = dedup.NewDedup(&dedup.Config{Window: cfg.Dedup.Window})
+		d = dedup.NewDedup(&dedup.Config{
+			Window:          cfg.Dedup.Window,
+			CategoryTiers:   cfg.Dedup.CategoryTiers,
+			CategoryWindows: cfg.Dedup.CategoryWindows,
+		})
 	}
 
 	// Create auth

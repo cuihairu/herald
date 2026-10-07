@@ -130,7 +130,7 @@ func NewNotificationService(
 ) *NotificationService {
 	var gate *dedup.Gate
 	if dedupMgr != nil {
-		gate = dedup.NewGate(dedupMgr.Window(), nil)
+		gate = dedupMgr.Gate()
 	}
 	return &NotificationService{
 		templates: templates,

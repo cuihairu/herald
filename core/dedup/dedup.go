@@ -10,11 +10,24 @@ type Dedup struct {
 	mu     sync.RWMutex
 	seen   map[string]time.Time
 	window time.Duration
+	// CategoryTiers / CategoryWindows are the §11.2 operator override
+	// tables (raw strings as configured; Config.Validate refuses
+	// unparseable tiers at startup — the gate consult falls back to the
+	// category default only for callers that skipped validation).
+	tiers   map[string]string
+	windows map[string]time.Duration
 }
 
 // Config is the dedup configuration
 type Config struct {
 	Window time.Duration `yaml:"window"`
+	// CategoryTiers re-grades a category's §11.2 frequency tier
+	// ("once"|"throttle"|"always"). Invalid values refuse to start
+	// (Config.Validate); missing categories keep the default table.
+	CategoryTiers map[string]string `yaml:"category_tiers"`
+	// CategoryWindows overrides the fold window per category (§11.2
+	// 「节点告警 30 分钟一条」). Non-positive values are ignored.
+	CategoryWindows map[string]time.Duration `yaml:"category_windows"`
 }
 
 // NewDedup creates a new dedup
@@ -24,16 +37,27 @@ func NewDedup(config *Config) *Dedup {
 		window = config.Window
 	}
 
+	var tiers map[string]string
+	var windows map[string]time.Duration
+	if config != nil {
+		tiers = config.CategoryTiers
+		windows = config.CategoryWindows
+	}
 	return &Dedup{
-		seen:   make(map[string]time.Time),
-		window: window,
+		seen:    make(map[string]time.Time),
+		window:  window,
+		tiers:   tiers,
+		windows: windows,
 	}
 }
 
-// Window exposes the fold window the dedup was built with (the §11
-// throttle tier redelivers a key only after it expires).
-func (d *Dedup) Window() time.Duration {
-	return d.window
+// Gate derives the §11 gate from this dedup's window and override
+// tables — the shape the notification pipeline consumes.
+func (d *Dedup) Gate() *Gate {
+	g := NewGate(d.window, nil)
+	g.tierOverrides = d.tiers
+	g.winOverrides = d.windows
+	return g
 }
 
 // Check checks if a key should be deduplicated.

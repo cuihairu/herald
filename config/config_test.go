@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -546,6 +547,33 @@ func TestValidate(t *testing.T) {
 		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"feishu"}}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("dedup override tables parse", func(t *testing.T) {
+		cfg := Default()
+		cfg.Dedup.CategoryTiers = map[string]string{"bills": "always", "alerts": "once"}
+		cfg.Dedup.CategoryWindows = map[string]time.Duration{"alerts": 30 * time.Minute}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("dedup unparseable tier refuses to start", func(t *testing.T) {
+		cfg := Default()
+		cfg.Dedup.CategoryTiers = map[string]string{"alerts": "hourly"}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "alerts") {
+			t.Errorf("err = %v, want unknown-tier refusal naming the category", err)
+		}
+	})
+
+	t.Run("dedup non-positive window refuses to start", func(t *testing.T) {
+		cfg := Default()
+		cfg.Dedup.CategoryWindows = map[string]time.Duration{"alerts": -time.Minute}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "alerts") {
+			t.Errorf("err = %v, want window refusal naming the category", err)
 		}
 	})
 }

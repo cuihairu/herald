@@ -189,3 +189,58 @@ func TestGateEvictsOldestPastCap(t *testing.T) {
 func idOf(prefix string, i int) string {
 	return prefix + "-" + strconv.Itoa(i)
 }
+
+func TestGateOperatorOverrides(t *testing.T) {
+	d := NewDedup(&Config{
+		Window:          time.Minute,
+		CategoryTiers:   map[string]string{"bills": "always", "marketing": "once", "broken": "hourly"},
+		CategoryWindows: map[string]time.Duration{"alerts": 10 * time.Millisecond, "bills": -time.Second},
+	})
+	g := d.Gate()
+
+	// bills re-graded always: every copy passes.
+	for i := 0; i < 3; i++ {
+		if out := g.Decide(Event{Key: "b-1", Category: "bills"}); out.Decision != Pass {
+			t.Fatalf("bills copy %d = %v, want pass (always override)", i, out)
+		}
+	}
+	// marketing re-graded once: second folds.
+	if out := g.Decide(Event{Key: "m-1", Category: "marketing"}); out.Decision != Pass {
+		t.Fatalf("marketing first = %v, want pass", out)
+	}
+	if out := g.Decide(Event{Key: "m-1", Category: "marketing"}); out.Reason != ReasonOnce {
+		t.Errorf("marketing repeat = %v, want %v", out.Reason, ReasonOnce)
+	}
+	// Unparseable tier falls back to the resolver (alerts → default
+	// throttle), not to a guess.
+	if out := g.Decide(Event{Key: "x-1", Category: "broken"}); out.Decision != Pass {
+		t.Fatalf("broken-tier first = %v, want pass via default throttle", out)
+	}
+	if out := g.Decide(Event{Key: "x-1", Category: "broken"}); out.Reason != ReasonThrottled {
+		t.Errorf("broken-tier repeat = %v, want %v", out.Reason, ReasonThrottled)
+	}
+	// Per-category window: alerts re-stamps after 10ms, not the base
+	// minute — while broken keeps the base (no override for it).
+	if out := g.Decide(Event{Key: "a-1", Category: "alerts"}); out.Decision != Pass {
+		t.Fatalf("alerts first = %v, want pass", out)
+	}
+	if out := g.Decide(Event{Key: "a-1", Category: "alerts"}); out.Reason != ReasonThrottled {
+		t.Fatalf("alerts repeat = %v, want throttled", out.Reason)
+	}
+	time.Sleep(15 * time.Millisecond)
+	if out := g.Decide(Event{Key: "a-1", Category: "alerts"}); out.Decision != Pass {
+		t.Errorf("alerts after override window = %v, want pass", out)
+	}
+	// Negative window entries are ignored — the base window holds.
+	g2 := d.Gate()
+	if out := g2.Decide(Event{Key: "b-2", Category: "bills"}); out.Decision != Pass {
+		t.Fatalf("bills 1 = %v", out)
+	}
+	if out := g2.Decide(Event{Key: "b-2", Category: "bills"}); out.Decision != Pass {
+		t.Errorf("bills 2 = %v, want pass (always tier ignores windows)", out)
+	}
+	_ = g2.Decide(Event{Key: "w-1", Category: "notices"})
+	if out := g2.Decide(Event{Key: "w-1", Category: "notices"}); out.Reason != ReasonThrottled {
+		t.Errorf("base-window category = %v, want throttled within base minute", out.Reason)
+	}
+}
