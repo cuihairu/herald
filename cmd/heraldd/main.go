@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	stdruntime "runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/auth"
@@ -391,6 +393,15 @@ func serveCmd(args []string) int {
 		return 1
 	}
 
+	// §13.1 集成者命名空间: config-seeded apps with scoped tokens. The
+	// registry constructor is the validation point; a bad seed refuses
+	// to start. The app face rides into api.Config for its endpoints.
+	appRegistry, err := apps.NewRegistry(seedApps(cfg.Apps))
+	if err != nil {
+		logger.Error("invalid apps config", "error", err)
+		return 1
+	}
+
 	// 来源适配器 (关系详设 §8): platform entries converge external
 	// follow/unfollow/check actions onto the registries above. The bot
 	// and MP endpoints open only when their secret/token is configured —
@@ -485,6 +496,7 @@ func serveCmd(args []string) int {
 		FeedRelations:   relations,
 		Sources:         sourceAdapter,
 		Delivery:        deliveryPolicy,
+		Apps:            appRegistry,
 		SourceSurfaces:  surfaces,
 		SourceBot: api.BotSourceConfig{
 			Secret:   cfg.Sources.Bot.Secret,
@@ -934,6 +946,27 @@ func reconcileLoop(ctx context.Context, rec *audience.Reconciler, lock *digest.L
 }
 
 // orDefault fills a blank config string with its fallback.
+// seedApps converts the config block into registry seeds in a stable
+// order (map iteration would do, but stable input keeps the refusal
+// messages reproducible).
+func seedApps(appSeeds map[string]config.AppConfig) []apps.SeedApp {
+	names := make([]string, 0, len(appSeeds))
+	for name := range appSeeds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	seeds := make([]apps.SeedApp, 0, len(names))
+	for _, name := range names {
+		cfgApp := appSeeds[name]
+		tokens := make([]apps.SeedToken, 0, len(cfgApp.Tokens))
+		for _, t := range cfgApp.Tokens {
+			tokens = append(tokens, apps.SeedToken{Secret: t.Secret, Scopes: t.Scopes})
+		}
+		seeds = append(seeds, apps.SeedApp{Name: name, Tokens: tokens})
+	}
+	return seeds
+}
+
 func orDefault(s, fallback string) string {
 	if s == "" {
 		return fallback

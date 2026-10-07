@@ -576,6 +576,64 @@ func TestValidate(t *testing.T) {
 			t.Errorf("err = %v, want window refusal naming the category", err)
 		}
 	})
+
+	t.Run("app seeds validate", func(t *testing.T) {
+		cfg := Default()
+		cfg.Apps = map[string]AppConfig{
+			"ferry": {Tokens: []AppTokenConfig{
+				{Secret: "ferry-a", Scopes: []string{"config", "trigger"}},
+			}},
+			"sinomed": {Tokens: []AppTokenConfig{
+				{Secret: "sino-1", Scopes: []string{"query"}},
+			}},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("app without tokens refuses to start", func(t *testing.T) {
+		cfg := Default()
+		cfg.Apps = map[string]AppConfig{"ferry": {}}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "ferry") {
+			t.Errorf("err = %v, want token-less refusal naming the app", err)
+		}
+	})
+
+	t.Run("app with unparseable scope refuses to start", func(t *testing.T) {
+		cfg := Default()
+		cfg.Apps = map[string]AppConfig{
+			"ferry": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"admin"}}}},
+		}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "ferry") {
+			t.Errorf("err = %v, want scope refusal naming the app", err)
+		}
+	})
+
+	t.Run("app secret shared across namespaces refuses to start", func(t *testing.T) {
+		cfg := Default()
+		cfg.Apps = map[string]AppConfig{
+			"ferry":   {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
+			"sinomed": {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
+		}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "ferry") || !strings.Contains(err.Error(), "sinomed") {
+			t.Errorf("err = %v, want cross-app secret refusal naming both apps", err)
+		}
+	})
+
+	t.Run("app with invalid name refuses to start", func(t *testing.T) {
+		cfg := Default()
+		cfg.Apps = map[string]AppConfig{
+			"bad name!": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"query"}}}},
+		}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "bad name!") {
+			t.Errorf("err = %v, want name refusal", err)
+		}
+	})
 }
 
 func TestLoadChannels(t *testing.T) {

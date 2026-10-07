@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/groups"
@@ -34,6 +35,19 @@ type DeliveryConfig struct {
 	// 配置同意 half of the 配置+受众双重同意 rule (the audience half is
 	// binding a phone contact surface at all).
 	AllowPhone bool `yaml:"allow_phone"`
+}
+
+// AppTokenConfig is one integration credential (关系详设 §13.1): the
+// bearer secret plus the permission classes it carries.
+type AppTokenConfig struct {
+	Secret string   `yaml:"secret"`
+	Scopes []string `yaml:"scopes"`
+}
+
+// AppConfig seeds one integration namespace. Categories, templates and
+// policies registered inside it are isolated from every other app.
+type AppConfig struct {
+	Tokens []AppTokenConfig `yaml:"tokens"`
 }
 
 // Config is the herald configuration
@@ -68,6 +82,10 @@ type Config struct {
 	// category→urgency, channel→intensity, category→mode override tables.
 	// Invalid values refuse to start; missing tables fall back to taxonomy defaults.
 	Delivery DeliveryConfig `yaml:"delivery"`
+	// Apps seeds the §13.1 集成者命名空间: app name → bootstrap tokens.
+	// There is no runtime way to mint a first token, so every namespace
+	// starts with at least one.
+	Apps map[string]AppConfig `yaml:"apps"`
 	// Sources configures the §8 来源适配器 (关系详设): the platform entry
 	// points that converge follow/unfollow/check actions onto the
 	// registries. Disabled (the zero value) keeps every source endpoint
@@ -550,6 +568,20 @@ func (c *Config) Validate() error {
 		if window <= 0 {
 			return fmt.Errorf("dedup category_windows[%s]: window must be positive, got %v", category, window)
 		}
+	}
+	// §13.1 app seeds: the registry constructor is the single validation
+	// point (name slug, non-empty secrets, scope vocabulary, no secret
+	// shared across namespaces) — config refuses exactly what it refuses.
+	seeds := make([]apps.SeedApp, 0, len(c.Apps))
+	for name, app := range c.Apps {
+		tokens := make([]apps.SeedToken, 0, len(app.Tokens))
+		for _, t := range app.Tokens {
+			tokens = append(tokens, apps.SeedToken{Secret: t.Secret, Scopes: t.Scopes})
+		}
+		seeds = append(seeds, apps.SeedApp{Name: name, Tokens: tokens})
+	}
+	if _, err := apps.NewRegistry(seeds); err != nil {
+		return err
 	}
 	return nil
 }

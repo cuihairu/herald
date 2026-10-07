@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,9 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// §6: an unparseable taxonomy override refuses to start where the
 		// policy is built, never a silent re-grade.
 		"delivery urgency invalid": "delivery:\n  category_urgency:\n    alerts: hourly\n",
+		// §13.1: a token outside the config/trigger/query vocabulary
+		// refuses the whole registry at startup.
+		"app scope invalid": "apps:\n  ferry:\n    tokens:\n      - secret: s\n        scopes: [sudo]\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -161,6 +165,11 @@ recipients:
 audiences:
   ops:
     recipients: [alice]
+apps:
+  ferry:
+    tokens:
+      - secret: ferry-lifecycle
+        scopes: [config, trigger, query]
 `, httpPort, wsPort, rulesPath, mr.Addr(), groupsPath, rostersPath, escStore)
 	path := writeTestConfig(t, cfgYAML)
 
@@ -169,6 +178,24 @@ audiences:
 
 	waitHTTPReady(t, fmt.Sprintf("http://127.0.0.1:%d/", httpPort), 10*time.Second)
 	time.Sleep(200 * time.Millisecond)
+
+	// §13.1 face: the seeded namespace answers an app-token
+	// introspection read before the operator surface shuts it down.
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d/api/v1/apps/ferry", httpPort), nil)
+	if err != nil {
+		t.Fatalf("build app request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer ferry-lifecycle")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("app introspection: %v", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(bodyBytes), "ferry") || !strings.Contains(string(bodyBytes), "query") {
+		t.Fatalf("app introspection = %d %q, want 200 with ferry scopes", resp.StatusCode, bodyBytes)
+	}
+
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatalf("send SIGTERM: %v", err)
 	}

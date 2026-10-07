@@ -7,6 +7,7 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
@@ -32,6 +33,9 @@ type Server struct {
 	handler *Handler
 	server  *http.Server
 	auth    *auth.Auth
+	// apps is the §13.1 integration-namespace registry; nil keeps the
+	// whole app face 404 (not configured = closed).
+	apps *apps.Registry
 	// notificationSvc is kept for the digest flush face: the §10 flip
 	// loop calls back through FlushDigestBatch per flipped window.
 	notificationSvc *service.NotificationService
@@ -94,6 +98,9 @@ type Config struct {
 	// pipeline in a later batch; until then it is validated at
 	// startup and held here for that face.
 	Delivery *audience.DeliveryPolicy
+	// Apps seeds the §13.1 集成者接入面 (namespaced app tokens with
+	// 分级权限). nil keeps every /api/v1/apps/** endpoint 404.
+	Apps *apps.Registry
 }
 
 // NewServer creates a new server
@@ -190,6 +197,7 @@ func NewServer(config *Config) *Server {
 		addr:            config.Addr,
 		handler:         handler,
 		auth:            config.Auth,
+		apps:            config.Apps,
 		notificationSvc: notificationSvc,
 	}
 
@@ -240,6 +248,10 @@ func NewServer(config *Config) *Server {
 	// the same trust shape as the unauthenticated bot callbacks.
 	mux.HandleFunc("/feeds/{name}", s.handler.HandleFeed)
 	mux.HandleFunc("/feeds/private/{name}", s.handler.HandlePrivateFeed)
+
+	// §13.1 集成者接入面: app-token auth (分级权限), independent of the
+	// operator API key. The namespace rides in the path.
+	mux.HandleFunc("/api/v1/apps/{app}", s.withApp(apps.ScopeQuery, s.handleAppShow))
 
 	// §8 source entries: platform-vouched callbacks authenticate with
 	// their shared secrets, the in-app checkbox face sits behind the
