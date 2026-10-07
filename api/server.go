@@ -88,12 +88,6 @@ type Config struct {
 	SourceSurfaces *audience.SurfaceRegistry
 	SourceBot      BotSourceConfig
 	SourceWeChatMP WeChatMPSourceConfig
-	// Delivery is the §6 strategy件 (channel intensity × message
-	// urgency × mode) built from the delivery: config block. The
-	// trigger face (expandRef/category dimension) wires it into the
-	// pipeline in a later batch; until then it is validated at
-	// startup and held here for that face.
-	Delivery *audience.DeliveryPolicy
 }
 
 // NewServer creates a new server
