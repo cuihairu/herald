@@ -355,15 +355,16 @@ func serveCmd(args []string) int {
 	// 触发面/拉取面 feature: feeds resolve private tokens and check
 	// relations at read time, source entries write follows/unfollows,
 	// the reconciler sweeps. One pair, always constructed; the audit
-	// trail attaches once either half is on, so every registry change
-	// from then on answers 谁在何时通过哪条入口改了什么.
+	// trail is always attached, so every registry change answers
+	// 谁在何时通过哪条入口改了什么.
 	surfaces := audience.NewSurfaceRegistry()
 	relations := audience.NewRegistry()
-	if cfg.Feeds.Enabled || cfg.Sources.Enabled {
-		auditStore := audit.New(0)
-		surfaces.SetRecorder(auditStore)
-		relations.SetRecorder(auditStore)
-	}
+	// §12 审计流水: always on — the §13.4 app query face reads the
+	// namespace trail from it, so recording cannot depend on which
+	// entry adapters happen to be enabled.
+	auditStore := audit.New(0)
+	surfaces.SetRecorder(auditStore)
+	relations.SetRecorder(auditStore)
 
 	// RSS pull channel (§9, 边界审计 §4): the store receives pull
 	// projections when an rss-classified channel is routed; the API
@@ -497,6 +498,7 @@ func serveCmd(args []string) int {
 		Sources:         sourceAdapter,
 		Delivery:        deliveryPolicy,
 		Filter:          audience.NewFilter(relations, surfaces),
+		Audit:           auditStore,
 		Apps:            appRegistry,
 		SourceSurfaces:  surfaces,
 		SourceBot: api.BotSourceConfig{

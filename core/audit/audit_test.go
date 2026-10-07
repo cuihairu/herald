@@ -64,3 +64,38 @@ func TestChronologicalOrder(t *testing.T) {
 		t.Errorf("ListByRelationType = %+v, want the single earliest event", byType)
 	}
 }
+
+func TestListBySource(t *testing.T) {
+	store := New(0)
+	store.Record(Event{Kind: DeliveryDeduped, Source: "app:ferry", Category: "alerts", Detail: "throttle: k (×2)"})
+	store.Record(Event{Kind: RelationSubscribe, Source: "bot", AudienceID: "alice"})
+	store.Record(Event{Kind: DeliveryDeduped, Source: "app:sinomed", Category: "billing"})
+	// A second ferry event recorded out of chronological order: the
+	// trail must come back sorted by At regardless of write order.
+	earlier := time.Now().Add(-2 * time.Hour)
+	store.Record(Event{At: earlier, Kind: RelationSubscribe, Source: "app:ferry", AudienceID: "bob"})
+
+	all := store.ListBySource("app:ferry", time.Time{})
+	if len(all) != 2 {
+		t.Fatalf("ferry trail: want 2 events, got %v", all)
+	}
+	if !all[0].At.Before(all[1].At) {
+		t.Fatalf("trail order: want chronological, got %v then %v", all[0].At, all[1].At)
+	}
+	ferry := store.ListBySource("app:ferry", time.Now().Add(-time.Hour))
+	if len(ferry) != 1 || ferry[0].Category != "alerts" {
+		t.Fatalf("ferry trail after past: want its own late event, got %v", ferry)
+	}
+
+	cutoff := time.Now().Add(time.Hour)
+	if got := store.ListBySource("app:ferry", cutoff); len(got) != 0 {
+		t.Fatalf("since filter: want 0 events after cutoff, got %v", got)
+	}
+	past := time.Now().Add(-time.Hour)
+	if got := store.ListBySource("app:ferry", past); len(got) != 1 {
+		t.Fatalf("since filter: want the event after past, got %v", got)
+	}
+	if got := store.ListBySource("app:ghost", time.Time{}); len(got) != 0 {
+		t.Fatalf("unknown source: want empty, got %v", got)
+	}
+}

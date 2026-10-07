@@ -53,6 +53,8 @@ func (p *DeliveryPlanner) Plan(
 		CreatedAt:    time.Now(),
 		RelationType: notification.RelationType,
 		Source:       notification.Source,
+		AudienceID:   notification.AudienceID,
+		Category:     notification.Type,
 	}, nil
 }
 

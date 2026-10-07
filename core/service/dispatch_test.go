@@ -126,10 +126,15 @@ func TestDispatchMatchPlanAccept(t *testing.T) {
 		t.Fatalf("bookkeeping: want 2/2, got %v / %v", out.TaskIDs, out.Accepted)
 	}
 	// Surface binding pins the delivery target: the task goes to the
-	// active surface's target, not a config-side recipient list.
+	// active surface's target, not a config-side recipient list. The
+	// §13.4 query dimensions snap along: who and under which category.
 	for _, task := range q.tasks {
 		if len(task.Targets) != 1 || !strings.HasSuffix(task.Targets[0], "@example.com") {
 			t.Fatalf("targets: want the surface target, got %v", task.Targets)
+		}
+		if task.AudienceID == "" || task.Category != "alerts" || task.Source != "app:ferry" {
+			t.Fatalf("query dims: want audience/category/source snapped, got %q/%q/%q",
+				task.AudienceID, task.Category, task.Source)
 		}
 	}
 }

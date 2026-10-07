@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
+	"github.com/cuihairu/herald/core/audit"
 )
 
 func seedAppsRegistry() *apps.Registry {
@@ -487,6 +490,7 @@ func dispatchEnv(t *testing.T) *testEnv {
 		c.Apps = seedAppsRegistry()
 		c.Delivery = policy
 		c.Filter = audience.NewFilter(relations, surfaces)
+		c.FeedRelations = relations
 		c.FeedSurfaces = surfaces
 	})
 	if err := e.runtime.RegisterProvider("email", &stubProvider{name: "email", pType: "email"}, true); err != nil {
@@ -604,5 +608,190 @@ func TestAppDispatch(t *testing.T) {
 	code, _ = e2.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"]}`, trigger)
 	if code != 404 {
 		t.Fatalf("nil delivery policy: want 404, got %d", code)
+	}
+}
+
+// TestAppQueryFaces covers §13.4: the namespace's delivery attempts,
+// its audit trail, and the operator-side audience relations read.
+func TestAppQueryFaces(t *testing.T) {
+	e := dispatchEnv(t)
+	trigger := map[string]string{"Authorization": "Bearer ferry-trigger"}
+	full := map[string]string{"Authorization": "Bearer ferry-full"}
+
+	// Dispatch once so the logstore holds exactly one app:ferry row.
+	code, _ := e.do(t, "POST", "/api/v1/apps/ferry/categories", `{"name":"alerts","default_urgency":"urgent"}`, full)
+	if code != 200 {
+		t.Fatalf("category register: got %d", code)
+	}
+	code, dispBody := e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k1"}`, trigger)
+	if code != 200 {
+		t.Fatalf("dispatch: got %d", code)
+	}
+	// The row the query face reads appears when the task is delivered —
+	// walk the one accepted task through the real Deliver path (the
+	// worker's Pop→Deliver→Ack sequence) so its snapped query
+	// dimensions land in the logstore.
+	dispData, _ := dispBody["data"].(map[string]any)
+	if ids, _ := dispData["task_ids"].([]any); len(ids) != 1 {
+		t.Fatalf("dispatch: want 1 task, got %v", dispData["task_ids"])
+	}
+	for e.queue.Size() > 0 {
+		task, err := e.queue.Pop(context.Background())
+		if err != nil || task == nil {
+			break
+		}
+		if err := e.runtime.Deliver(context.Background(), task); err != nil {
+			t.Fatalf("deliver queued task: %v", err)
+		}
+		_ = e.queue.Ack(context.Background(), task.ID)
+	}
+
+	// Deliveries: query power; the trigger-only token stays out.
+	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/deliveries", "", trigger)
+	if code != 403 {
+		t.Fatalf("deliveries with trigger token: want 403, got %d", code)
+	}
+	code, body := e.do(t, "GET", "/api/v1/apps/ferry/deliveries", "", full)
+	if code != 200 {
+		t.Fatalf("deliveries: got %d", code)
+	}
+	data, _ := body["data"].(map[string]any)
+	if data["total"].(float64) != 1 {
+		t.Fatalf("total: want 1, got %v", data["total"])
+	}
+	logs, _ := data["logs"].([]any)
+	row, _ := logs[0].(map[string]any)
+	if row["audience_id"] != "alice" || row["category"] != "alerts" || row["source"] != "app:ferry" {
+		t.Fatalf("row: want alice/alerts/app:ferry, got %v", row)
+	}
+
+	// Narrows.
+	code, body = e.do(t, "GET", "/api/v1/apps/ferry/deliveries?audience=bob", "", full)
+	data, _ = body["data"].(map[string]any)
+	if code != 200 || data["total"].(float64) != 0 {
+		t.Fatalf("audience=bob: want 200/0, got %d/%v", code, data["total"])
+	}
+	code, body = e.do(t, "GET", "/api/v1/apps/ferry/deliveries?category=billing", "", full)
+	data, _ = body["data"].(map[string]any)
+	if code != 200 || data["total"].(float64) != 0 {
+		t.Fatalf("category=billing: want 200/0, got %d/%v", code, data["total"])
+	}
+	// Page size clamps at the ceiling.
+	code, body = e.do(t, "GET", "/api/v1/apps/ferry/deliveries?limit=1000", "", full)
+	data, _ = body["data"].(map[string]any)
+	if code != 200 || data["limit"].(float64) != 500 {
+		t.Fatalf("limit clamp: want 200/500, got %d/%v", code, data["limit"])
+	}
+
+	// Audit: nil store keeps the endpoint 404 (dispatchEnv sets none).
+	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/audit", "", full)
+	if code != 404 {
+		t.Fatalf("audit without store: want 404, got %d", code)
+	}
+
+	// Audience relations: operator read of one audience's standing
+	// relations; the audience with a subscription lists exactly it.
+	code, body = e.do(t, "GET", "/api/v1/audiences/alice/relations", "", nil)
+	if code != 200 {
+		t.Fatalf("relations: got %d", code)
+	}
+	data, _ = body["data"].(map[string]any)
+	rels, _ := data["relations"].([]any)
+	if len(rels) != 1 {
+		t.Fatalf("relations: want 1, got %v", data["relations"])
+	}
+	rel, _ := rels[0].(map[string]any)
+	if rel["type"] != "subscription" || rel["channel"] != "email" ||
+		rel["audience_id"] != "alice" || rel["source"] != "test" {
+		t.Fatalf("relation: want alice/subscription/email from test, got %v", rel)
+	}
+	policy, _ := rel["policy"].(map[string]any)
+	if policy["allow_unsubscribe"] != true || policy["must_deliver"] != false {
+		t.Fatalf("relation policy: want default bits, got %v", policy)
+	}
+	code, body = e.do(t, "GET", "/api/v1/audiences/ghost/relations", "", nil)
+	if code != 200 {
+		t.Fatalf("ghost relations: want 200, got %d", code)
+	}
+	data, _ = body["data"].(map[string]any)
+	if rels, _ = data["relations"].([]any); rels == nil || len(rels) != 0 {
+		t.Fatalf("ghost relations: want [], got %v", data["relations"])
+	}
+	code, _ = e.do(t, "PUT", "/api/v1/audiences/alice/relations", "", nil)
+	if code != 405 {
+		t.Fatalf("PUT relations: want 405, got %d", code)
+	}
+
+	// Nil relations registry keeps the read closed.
+	e2 := newTestEnv(t)
+	code, _ = e2.do(t, "GET", "/api/v1/audiences/alice/relations", "", nil)
+	if code != 404 {
+		t.Fatalf("relations without registry: want 404, got %d", code)
+	}
+}
+
+// TestAppAuditTrail wires the §12 store and reads the namespace's trail
+// through it: a suppressed repeat lands its deduped row with the
+// app:ferry source, and ?since= narrows.
+func TestAppAuditTrail(t *testing.T) {
+	relations := audience.NewRegistry()
+	surfaces := audience.NewSurfaceRegistry()
+	if _, err := surfaces.Activate("alice", "email", "alice@example.com", "test"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if err := relations.Subscribe(audience.Relation{
+		AudienceID: "alice", Category: "alerts", Channel: "email",
+		Type: audience.RelationSubscription, Source: "test",
+	}); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	policy, _ := audience.NewDeliveryPolicy(map[string]string{"alerts": "urgent"}, nil, nil, false)
+	e := newTestEnv(t, func(c *Config) {
+		c.Apps = seedAppsRegistry()
+		c.Delivery = policy
+		c.Filter = audience.NewFilter(relations, surfaces)
+		c.FeedSurfaces = surfaces
+		c.Audit = audit.New(0)
+	})
+	if err := e.runtime.RegisterProvider("email", &stubProvider{name: "email", pType: "email"}, true); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+	full := map[string]string{"Authorization": "Bearer ferry-full"}
+	trigger := map[string]string{"Authorization": "Bearer ferry-trigger"}
+
+	e.do(t, "POST", "/api/v1/apps/ferry/categories", `{"name":"alerts","default_urgency":"urgent"}`, full)
+	e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k2"}`, trigger)
+	// The repeat folds — that is what the trail answers 为什么这条没投.
+	e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k2"}`, trigger)
+
+	code, body := e.do(t, "GET", "/api/v1/apps/ferry/audit", "", full)
+	if code != 200 {
+		t.Fatalf("audit: got %d", code)
+	}
+	data, _ := body["data"].(map[string]any)
+	events, _ := data["events"].([]any)
+	if len(events) != 1 {
+		t.Fatalf("events: want the deduped row, got %v", data["events"])
+	}
+	ev, _ := events[0].(map[string]any)
+	if ev["kind"] != "delivery.deduped" || ev["source"] != "app:ferry" {
+		t.Fatalf("event: want deduped from app:ferry, got %v", ev)
+	}
+
+	// since in the future reads empty; a malformed stamp is 400.
+	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	code, body = e.do(t, "GET", "/api/v1/apps/ferry/audit?since="+future, "", full)
+	data, _ = body["data"].(map[string]any)
+	if code != 200 || len(data["events"].([]any)) != 0 {
+		t.Fatalf("future since: want 200/0, got %d/%v", code, data["events"])
+	}
+	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/audit?since=yesterday", "", full)
+	if code != 400 {
+		t.Fatalf("bad since: want 400, got %d", code)
+	}
+	// Query power gates the read too.
+	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/audit", "", trigger)
+	if code != 403 {
+		t.Fatalf("audit with trigger token: want 403, got %d", code)
 	}
 }

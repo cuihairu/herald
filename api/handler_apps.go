@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 )
@@ -470,4 +472,97 @@ func (s *Server) handleAppDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: out})
+}
+
+// handleAppDeliveries is the §13.4 投递状态 query: the namespace's own
+// delivery attempts, scoped by the "app:<name>" source the dispatch
+// face stamps, narrowed by audience/category/status.
+func (s *Server) handleAppDeliveries(w http.ResponseWriter, r *http.Request) {
+	if !s.withAppScope(w, r, apps.ScopeQuery) {
+		return
+	}
+	query := r.URL.Query()
+	offset, _ := strconv.Atoi(query.Get("offset"))
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	// The namespace boundary rides the source dimension: an app reads
+	// its own dispatches, never the operator's or a sibling's.
+	filter := &logstore.Filter{
+		Status:     query.Get("status"),
+		Category:   query.Get("category"),
+		AudienceID: query.Get("audience"),
+		Source:     "app:" + r.PathValue("app"),
+	}
+	logs := s.handler.runtime.GetLogs(offset, limit, filter)
+	total := s.handler.runtime.GetLogsCount(filter)
+	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{
+		"total":  total,
+		"offset": offset,
+		"limit":  limit,
+		"logs":   logs,
+	}})
+}
+
+// handleAppAudit is the §13.4 审计流: the namespace's relational trail
+// (dispatch folds, later relation changes) since an RFC3339 timestamp.
+func (s *Server) handleAppAudit(w http.ResponseWriter, r *http.Request) {
+	if s.audit == nil {
+		// The audit trail is a process-wide face; unconfigured means
+		// closed, same as every other face.
+		s.handler.respondError(w, http.StatusNotFound, "audit trail not configured")
+		return
+	}
+	if !s.withAppScope(w, r, apps.ScopeQuery) {
+		return
+	}
+	var since time.Time
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			s.handler.respondError(w, http.StatusBadRequest, "since must be RFC3339")
+			return
+		}
+		since = t
+	}
+	events := s.audit.ListBySource("app:"+r.PathValue("app"), since)
+	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{"events": events}})
+}
+
+// handleAudienceRelations is the §13.4 受众关系 read: one audience's
+// standing relations (type/来源/策略位). Operator power — the audience
+// registry is global, not namespaced, so this is not an app-token face.
+func (s *Server) handleAudienceRelations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.relations == nil {
+		s.handler.respondError(w, http.StatusNotFound, "not found")
+		return
+	}
+	relations := s.relations.Relations(r.PathValue("id"))
+	rows := make([]map[string]any, 0, len(relations))
+	// Rendered field-by-field in wire vocabulary: audience.Relation has
+	// no json tags (the subscription faces return it verbatim), so this
+	// read spells its own lowercase contract instead of leaking Go
+	// field names onto the wire.
+	for _, rel := range relations {
+		rows = append(rows, map[string]any{
+			"audience_id": rel.AudienceID,
+			"category":    rel.Category,
+			"channel":     rel.Channel,
+			"type":        rel.Type,
+			"source":      rel.Source,
+			"policy": map[string]any{
+				"allow_unsubscribe": rel.Policy.AllowUnsubscribe,
+				"must_deliver":      rel.Policy.MustDeliver,
+			},
+		})
+	}
+	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{"relations": rows}})
 }

@@ -40,7 +40,11 @@ type TaskLog struct {
 	// Relation type and source for audit trail — snapped from the
 	// audience relation that triggered this delivery.
 	RelationType string `json:"relation_type,omitempty"`
-	Source       string   `json:"source,omitempty"`
+	Source       string `json:"source,omitempty"`
+	// AudienceID and Category are the §13.4 query dimensions, snapped
+	// from the notification at plan time.
+	AudienceID string `json:"audience_id,omitempty"`
+	Category   string `json:"category,omitempty"`
 }
 
 // New creates a new log store
@@ -166,6 +170,15 @@ func (s *LogStore) filterLogs(filter *Filter) []*TaskLog {
 		if !filter.Until.IsZero() && log.CreatedAt.After(filter.Until) {
 			continue
 		}
+		if filter.AudienceID != "" && log.AudienceID != filter.AudienceID {
+			continue
+		}
+		if filter.Category != "" && log.Category != filter.Category {
+			continue
+		}
+		if filter.Source != "" && log.Source != filter.Source {
+			continue
+		}
 		result = append(result, log)
 	}
 
@@ -219,14 +232,16 @@ func (s *LogStore) Stats() *Stats {
 // NewTaskLog creates a new task log from a DeliveryTask
 func NewTaskLog(task *core.DeliveryTask) *TaskLog {
 	return &TaskLog{
-		ID:          task.ID,
-		Provider:    task.Provider,
-		PayloadKind: string(task.Payload.Kind),
-		Level:       task.Level,
-		Status:      "pending",
-		CreatedAt:   task.CreatedAt,
+		ID:           task.ID,
+		Provider:     task.Provider,
+		PayloadKind:  string(task.Payload.Kind),
+		Level:        task.Level,
+		Status:       "pending",
+		CreatedAt:    task.CreatedAt,
 		RelationType: task.RelationType,
-		Source:      task.Source,
+		Source:       task.Source,
+		AudienceID:   task.AudienceID,
+		Category:     task.Category,
 	}
 }
 
@@ -237,6 +252,12 @@ type Filter struct {
 	Level    string
 	Since    time.Time
 	Until    time.Time
+	// AudienceID, Category and Source are the §13.4 query dimensions:
+	// the app query face scopes deliveries to its namespace by source
+	// and narrows by audience/category/status.
+	AudienceID string
+	Category   string
+	Source     string
 }
 
 // Stats is log statistics

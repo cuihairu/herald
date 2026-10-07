@@ -118,3 +118,23 @@ func (s *Store) ListByAudience(audienceID string) []Event {
 	sort.Slice(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
 	return out
 }
+
+// ListBySource returns one entry source's trail — the §13.4 app query
+// face reads its namespace by the "app:<name>" source the dispatch face
+// stamps — strictly after since (zero time reads the whole trail).
+func (s *Store) ListBySource(source string, since time.Time) []Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []Event{}
+	for _, e := range s.events {
+		if e.Source != source {
+			continue
+		}
+		if !since.IsZero() && !e.At.After(since) {
+			continue
+		}
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
+	return out
+}

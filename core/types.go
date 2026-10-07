@@ -115,8 +115,15 @@ type DeliveryTask struct {
 	// the task is planned from an audience relation context.
 	RelationType string `json:"relation_type,omitempty"`
 	// Source is the entry adapter/source that created this relation,
-	// if any — e.g. "bot", "preference_center", "admin", "wechat_mp".
+	// if any — e.g. "bot", "preference_center", "admin", "wechat_mp",
+	// or "app:<namespace>" for the §13.3 dispatch face.
 	Source string `json:"source,omitempty"`
+	// AudienceID and Category are the §13.4 query dimensions: who this
+	// delivery was for and under which category it was dispatched, so
+	// the app query face can answer 投递状态 without re-parsing
+	// payloads. Empty on anonymous /notify traffic (兼容).
+	AudienceID string `json:"audience_id,omitempty"`
+	Category   string `json:"category,omitempty"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider

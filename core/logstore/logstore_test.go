@@ -603,3 +603,40 @@ func idsOf(logs []*TaskLog) []string {
 	}
 	return out
 }
+
+// TestFilterQueryDimensions covers the §13.4 query dimensions: the app
+// query face scopes by source and narrows by audience and category.
+func TestFilterQueryDimensions(t *testing.T) {
+	store := New(0)
+	mk := func(id, audience, category, source string) *TaskLog {
+		task := &core.DeliveryTask{
+			ID: id, Provider: "email", Status: core.StatusQueued,
+			AudienceID: audience, Category: category, Source: source,
+		}
+		log := NewTaskLog(task)
+		store.Add(log)
+		return log
+	}
+	mk("t1", "alice", "alerts", "app:ferry")
+	mk("t2", "bob", "alerts", "app:ferry")
+	mk("t3", "alice", "billing", "app:sinomed")
+	mk("t4", "", "", "")
+
+	if got := store.Count(&Filter{Source: "app:ferry"}); got != 2 {
+		t.Fatalf("source scope: want 2, got %d", got)
+	}
+	if got := store.Count(&Filter{Source: "app:ferry", AudienceID: "alice"}); got != 1 {
+		t.Fatalf("audience narrow: want 1, got %d", got)
+	}
+	// The raw filter dims are independent — namespace isolation comes
+	// from the app face always scoping by source, never from these.
+	if got := store.Count(&Filter{AudienceID: "alice", Category: "billing"}); got != 1 {
+		t.Fatalf("dims without source: want 1, got %d", got)
+	}
+	if got := store.Count(&Filter{Source: "app:sinomed", AudienceID: "alice", Category: "billing"}); got != 1 {
+		t.Fatalf("combined dims: want 1, got %d", got)
+	}
+	if got := store.Count(nil); got != 4 {
+		t.Fatalf("no filter: want 4, got %d", got)
+	}
+}

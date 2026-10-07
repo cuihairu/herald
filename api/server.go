@@ -9,6 +9,7 @@ import (
 	"github.com/cuihairu/herald/core/ack"
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
+	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/digest"
@@ -45,6 +46,11 @@ type Server struct {
 	// compose and the face stays closed.
 	delivery *audience.DeliveryPolicy
 	filter   *audience.Filter
+	// audit is the §13.4 审计流 store for the app query face (nil
+	// keeps the audit endpoint 404); relations is the audience
+	// registry behind the 受众关系 read (nil keeps it 404).
+	audit     *audit.Store
+	relations *audience.Registry
 }
 
 // Config is the server configuration
@@ -111,6 +117,9 @@ type Config struct {
 	// dispatch face's three-way channel match. nil keeps dispatch's
 	// relation half open (matching then keys on intensity only).
 	Filter *audience.Filter
+	// Audit is the §12 审计流水 store: when wired, the app query face
+	// serves the namespace's trail and dispatch folds land in it.
+	Audit *audit.Store
 }
 
 // NewServer creates a new server
@@ -210,7 +219,15 @@ func NewServer(config *Config) *Server {
 		apps:            config.Apps,
 		delivery:        config.Delivery,
 		filter:          config.Filter,
+		audit:           config.Audit,
+		relations:       config.FeedRelations,
 		notificationSvc: notificationSvc,
+	}
+	if config.Audit != nil {
+		// Dispatch fold audits (§11 去重/折叠明细) land in the same
+		// trail the registries record into — one 流水 answers 谁在何时
+		// 改了什么 and 为什么这条没投.
+		notificationSvc.SetFoldAudit(config.Audit)
 	}
 	// §13.3 dispatch face candidate resolution rides the process-wide
 	// contact-surface table (the same registry heraldd seeds for feeds
@@ -283,6 +300,11 @@ func NewServer(config *Config) *Server {
 	// §13.3 触发面: the namespaced dispatch with full policy semantics —
 	// /notify stays the anonymous-compatible face.
 	mux.HandleFunc("/api/v1/apps/{app}/dispatch", s.handleAppDispatch)
+	// §13.4 查询面: the namespace's own delivery attempts and trail,
+	// plus the operator-side 受众关系 read.
+	mux.HandleFunc("/api/v1/apps/{app}/deliveries", s.handleAppDeliveries)
+	mux.HandleFunc("/api/v1/apps/{app}/audit", s.handleAppAudit)
+	mux.HandleFunc("/api/v1/audiences/{id}/relations", s.withAuth(s.handleAudienceRelations))
 
 	// §8 source entries: platform-vouched callbacks authenticate with
 	// their shared secrets, the in-app checkbox face sits behind the
