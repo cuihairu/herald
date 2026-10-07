@@ -42,7 +42,7 @@ type Config struct {
 	// public feeds and per-audience private feeds readers pull at their
 	// own cadence. Disabled (the zero value) keeps the feed endpoints off
 	// and the rss channel behaving as an unknown provider.
-	Feeds     FeedsConfig                        `yaml:"feeds"`
+	Feeds FeedsConfig `yaml:"feeds"`
 	// Sources configures the §8 来源适配器 (关系详设): the platform entry
 	// points that converge follow/unfollow/check actions onto the
 	// registries. Disabled (the zero value) keeps every source endpoint

@@ -80,7 +80,7 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// 来源适配器 (§8): a reconcile probe whose provider config cannot
 		// build (missing bot token) and an unreachable lease redis are
 		// both startup errors — the sweep must not half-start.
-		"source reconcile probe invalid": "sources:\n  enabled: true\n  reconcile:\n    enabled: true\nproviders:\n  bot:\n    type: telegram\n    config: {}\n",
+		"source reconcile probe invalid":     "sources:\n  enabled: true\n  reconcile:\n    enabled: true\nproviders:\n  bot:\n    type: telegram\n    config: {}\n",
 		"source reconcile redis unreachable": "sources:\n  enabled: true\n  reconcile:\n    enabled: true\ndigest:\n  redis_addr: 127.0.0.1:1\n",
 	}
 	for name, cfgYAML := range cases {
