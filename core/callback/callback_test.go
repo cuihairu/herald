@@ -301,7 +301,10 @@ func TestPipelineDeliversSignedEvent(t *testing.T) {
 	go func() {
 		for {
 			task, err := q.Pop(ctx)
-			if err != nil {
+			// After Close the ready channel is drained-closed: Pop
+			// answers (nil, nil). A late tick of this loop must stop,
+			// not deref the nil task.
+			if err != nil || task == nil {
 				return
 			}
 			_ = mgr.Deliver(ctx, task)

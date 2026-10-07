@@ -325,6 +325,10 @@ func NewServer(config *Config) *Server {
 }
 
 // Start starts the server
+// Handler exposes the routed http.Handler: embedding hosts and the
+// apps-sdk integration tests mount the API without binding a listener.
+func (s *Server) Handler() http.Handler { return s.server.Handler }
+
 func (s *Server) Start(ctx context.Context) error {
 	logger.Info("server starting", "addr", s.addr)
 

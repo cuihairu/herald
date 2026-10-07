@@ -427,7 +427,7 @@ feed 条目即投递记录的拉式投影：与推送投递共享同一套「关
 | --- | --- | --- |
 | 品类注册 | `POST /api/v1/apps/{app}/categories` | 带默认紧急度（§6.2 映射的源头） |
 | 模板注册 | `POST /api/v1/apps/{app}/templates` | 变量声明 + 多语言 locales + 渠道绑定 |
-| 渠道矩阵与强度匹配 | `PUT /api/v1/apps/{app}/policies/channel-matrix`、`.../policies/intensity` | §5 / §6.2 矩阵的应用级覆盖 |
+| 渠道强度匹配 | `PUT /api/v1/apps/{app}/policies/intensity` | §6.2 强度的应用级覆盖（2026-10-07 拍板：§5 渠道×关系矩阵是安全底线，**不做**应用级覆盖，原计划的 `channel-matrix` 端点不落地——放宽矩阵等于放宽「必达拒 RSS/营销限 email-app」这类不变量，超出命名空间策略的权限范围） |
 | 投递模式 | `PUT /api/v1/apps/{app}/policies/delivery-mode` | 三模式按品类/关系类型的默认值 |
 | 升级链参数 | `PUT /api/v1/apps/{app}/policies/escalation` | 步骤/超时/次数（§6.3） |
 | 去重与频控 | `PUT /api/v1/apps/{app}/policies/dedup` | 三档频控按品类（§11.2） |
@@ -459,8 +459,8 @@ POST /api/v1/apps/{app}/dispatch
 
 ### 13.5 SDK 与回调
 
-- **Go SDK 首发**（对齐 worker-sdk 先例）：应用用受众 ID 完成「注册 app → 配品类 → 绑受众 → 触发 → 查状态」全流程。
-- **webhook 回调**：投递结果（每次尝试的状态）与**退订事件回流**给应用，应用侧同步其本地状态；回调至少一次 + 重试，带事件 ID 供应用幂等。
+- **Go SDK 首发**（对齐 worker-sdk 先例，落地 `apps-sdk/go`）：应用用受众 ID 完成「配品类 → 绑受众（操作侧入口）→ 触发 → 查状态」全流程；一枚 token 一个 Client，权限由 token 决定。错误二分：`*sdk.Error`（服务端拒绝，重试无意义）与传输错误（可重试）。
+- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次。
 
 ### 13.6 集成指南
 
