@@ -12,6 +12,7 @@ import (
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/roster"
@@ -69,6 +70,16 @@ type Config struct {
 	// back to the category default table.
 	Digest      *digest.Aggregator
 	DigestPrefs *audience.PreferenceRegistry
+	// Feeds wires the §9 RSS pull channel (边界审计 §4): the store the
+	// notification service projects rss-classified channels into and the
+	// endpoints that render it. nil keeps the pull half off — the rss
+	// channel then behaves as an unknown provider. FeedSurfaces resolves
+	// private feed tokens to audiences; FeedRelations is the read-time
+	// subscription table a private feed consults per pull.
+	Feeds         *feeds.Store
+	FeedMeta      feeds.ChannelMeta
+	FeedSurfaces  *audience.SurfaceRegistry
+	FeedRelations *audience.Registry
 }
 
 // NewServer creates a new server
@@ -147,6 +158,13 @@ func NewServer(config *Config) *Server {
 	if config.CardCallbackEncryptKey != "" {
 		handler.SetCardCallbackKey(config.CardCallbackEncryptKey)
 	}
+	// RSS pull channel (§9): the service projects rss-classified channels
+	// into the store; the feed endpoints render it back out. nil keeps
+	// the pull half off entirely.
+	if config.Feeds != nil {
+		notificationSvc.SetFeeds(config.Feeds)
+		handler.SetFeeds(config.Feeds, config.FeedMeta, config.FeedSurfaces, config.FeedRelations)
+	}
 
 	s := &Server{
 		addr:            config.Addr,
@@ -196,6 +214,12 @@ func NewServer(config *Config) *Server {
 	// Incident ledger
 	mux.HandleFunc("/api/v1/incidents", s.withAuth(s.handleIncidents))
 	mux.HandleFunc("/api/v1/incidents/{id}", s.withAuth(s.handleIncidentByID))
+
+	// RSS pull channel (§9): readers pull on their own cadence with no
+	// auth headers, so the private feed's URL token IS the credential —
+	// the same trust shape as the unauthenticated bot callbacks.
+	mux.HandleFunc("/feeds/{name}", s.handler.HandleFeed)
+	mux.HandleFunc("/feeds/private/{name}", s.handler.HandlePrivateFeed)
 
 	s.server = &http.Server{
 		Addr:         config.Addr,

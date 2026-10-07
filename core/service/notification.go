@@ -16,6 +16,7 @@ import (
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/route"
@@ -102,6 +103,7 @@ type NotificationService struct {
 	foldAudit   audit.Recorder
 	digestAgg   *digest.Aggregator
 	digestPrefs *audience.PreferenceRegistry
+	feeds       *feeds.Store
 	queue       core.Queue
 	planner     *DeliveryPlanner
 	rules       RuleEvaluator
@@ -147,6 +149,16 @@ func (s *NotificationService) SetFoldAudit(r audit.Recorder) {
 func (s *NotificationService) SetDigest(agg *digest.Aggregator, prefs *audience.PreferenceRegistry) {
 	s.digestAgg = agg
 	s.digestPrefs = prefs
+}
+
+// SetFeeds wires the §9 RSS pull-channel store (边界审计 §4: RSS 是拉式
+// 渠道，不是 provider). Delivery targets whose channel classifies as
+// RSS are projected into the store instead of planned as provider tasks;
+// readers pull them on their own cadence. nil store (the default) keeps
+// the rss channel name behaving as any unknown provider — a visible
+// per-channel failure.
+func (s *NotificationService) SetFeeds(store *feeds.Store) {
+	s.feeds = store
 }
 
 // SetRuleEngine attaches the rule engine evaluated after dedup and before
@@ -536,8 +548,42 @@ func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification,
 	// is only touched by the execution half.
 	targets, failed := s.expandRefs(channels)
 	result.Failed = append(result.Failed, failed...)
+	projected := false
 	for _, dt := range targets {
+		if s.feeds != nil && audience.ClassifyChannel(dt.channel) == audience.ChannelRSS {
+			// §9 pull channel: project once per notification — a mixed
+			// rss+email fan-out both files the item and delivers the push
+			// half; the pull half never becomes a provider task.
+			if !projected {
+				s.projectFeed(n, renderedData, result)
+				projected = true
+			}
+			continue
+		}
 		s.enqueueOne(ctx, n, dt, renderedData, result)
+	}
+}
+
+// projectFeed files one notification into the feed store as its pull
+// projection (§9): the rendered (or direct) title, the direct body, the
+// audience reference (empty marks 公开内容) and the notification id as
+// the feed guid. A store that refuses the item lands in result.Failed —
+// reported like a failed provider, not swallowed.
+func (s *NotificationService) projectFeed(n *core.Notification, renderedData *template.RenderedData, result *ProcessResult) {
+	title := directTitle(n)
+	if renderedData != nil && renderedData.Title != "" {
+		title = renderedData.Title
+	}
+	body := directBody(n)
+	if err := s.feeds.Add(feeds.Item{
+		ID:          n.ID,
+		Category:    n.Type,
+		Title:       title,
+		Body:        body,
+		AudienceID:  n.AudienceID,
+		PublishedAt: n.CreatedAt,
+	}); err != nil {
+		result.Failed = append(result.Failed, ChannelError{Channel: "rss", Error: err.Error()})
 	}
 }
 

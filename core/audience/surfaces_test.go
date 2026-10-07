@@ -382,3 +382,50 @@ func TestSurfaceAuditTrail(t *testing.T) {
 		}
 	}
 }
+
+// TestRSSAudienceAndResetToken covers the §9 private feed address:
+// empty and unknown tokens resolve to nothing; a real token resolves
+// back to its audience; a reset makes the old token not-found (重置即旧
+// 地址失效) and the next issue mints a fresh value. Resets of audiences
+// with no token — and of malformed ids — error.
+func TestRSSAudienceAndResetToken(t *testing.T) {
+	s := NewSurfaceRegistry()
+
+	if id, ok := s.RSSAudience(""); ok || id != "" {
+		t.Errorf("empty token = (%q, %v), want empty+false", id, ok)
+	}
+	if id, ok := s.RSSAudience("deadbeef"); ok || id != "" {
+		t.Errorf("unknown token = (%q, %v), want empty+false", id, ok)
+	}
+
+	tok, err := s.RSSToken("alice")
+	if err != nil {
+		t.Fatalf("RSSToken: %v", err)
+	}
+	if id, ok := s.RSSAudience(tok); !ok || id != "alice" {
+		t.Fatalf("RSSAudience(token) = (%q, %v), want alice+true", id, ok)
+	}
+
+	if err := s.ResetRSSToken("alice"); err != nil {
+		t.Fatalf("ResetRSSToken: %v", err)
+	}
+	if _, ok := s.RSSAudience(tok); ok {
+		t.Error("stale token still resolves after reset, want not-found")
+	}
+	// A second reset has nothing to retire — the caller is confused.
+	if err := s.ResetRSSToken("alice"); err == nil {
+		t.Error("reset without an issued token = nil, want error")
+	}
+	// Malformed ids are refused before the table is touched.
+	if err := s.ResetRSSToken("bad id!"); err == nil {
+		t.Error("reset with malformed id = nil, want error")
+	}
+
+	fresh, err := s.RSSToken("alice")
+	if err != nil {
+		t.Fatalf("RSSToken after reset: %v", err)
+	}
+	if fresh == tok {
+		t.Error("reissued token equals the reset one, want fresh entropy")
+	}
+}

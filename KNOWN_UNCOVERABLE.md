@@ -26,6 +26,10 @@
 
 - `github.com/cuihairu/herald/providers/builtin/wechatmp/wechatmp.go:312` — `GetToken` 写锁内双检的命中分支。到达条件：并发调用方的读检查落在「缓存已过期且无人持写锁」的窗口内，且其写锁申请排在刷新胜者之后——窗口是读检查到加锁之间的微秒级间隙，能否命中完全取决于调度，确定性构造不可行（RWMutex 下读者会被持写锁者挡住，无法从外部制造该窗口）。分支**行为**已由 `TestTokenCacheConcurrentSingleFetch` 与 `TestTokenCacheDoubleCheckUnderContention` 每轮确定性断言：并发下恰好一次取 token、败者复用胜者结果；语句命中是偶发的（部分轮次的 profile 里该块非零，此时本条目自然不参与豁免）。
 
+## core/feeds/rss.go
+
+- `github.com/cuihairu/herald/core/feeds/rss.go:73` — `RenderRSS` 里 `xml.MarshalIndent` 的失败分支。被序列化的 `rssXML` 只含 string/bool 字段与同构嵌套 struct/slice；`encoding/xml` 对字符串值里的非法 XML 字符（`\x00`、孤立 `\xff`、U+FFFE）是**转义成字符引用**而不是报错（2026-10-07 用 go1.26.6 实测：含全部三类字符的文档 `MarshalIndent` 恒 nil），编码器唯一错误源是底层 writer——这里是 `bytes.Buffer`，写入恒成功。恒不可达的防御分支，不需要任何测试。
+
 ## core/websocket/server.go
 
 - `github.com/cuihairu/herald/core/websocket/server.go:370` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。

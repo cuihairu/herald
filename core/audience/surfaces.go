@@ -294,6 +294,41 @@ func (s *SurfaceRegistry) RSSToken(audienceID string) (string, error) {
 	return tok, nil
 }
 
+// RSSAudience resolves a private feed token back to its audience (§9
+// 私密 feed 校验 token 归属). Unknown tokens report false — the feed
+// answers not-found instead of guessing. The map is audience-scaled and
+// the check runs per pull, so a linear scan stays the honest trade.
+func (s *SurfaceRegistry) RSSAudience(token string) (string, bool) {
+	if token == "" {
+		return "", false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for id, tok := range s.rss {
+		if tok == token {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+// ResetRSSToken retires the audience's private feed address (§9: 重置即
+// 旧地址失效). The next RSSToken call issues a fresh one; readers still
+// holding the old URL get not-found from then on. Unknown audiences
+// error — a reset implies the audience exists.
+func (s *SurfaceRegistry) ResetRSSToken(audienceID string) error {
+	if !idPattern.MatchString(audienceID) {
+		return fmt.Errorf("audience: invalid audience id %q (want 1-64 chars of letters, digits, dot, dash, underscore)", audienceID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.rss[audienceID]; !ok {
+		return fmt.Errorf("audience: no rss token issued for %q", audienceID)
+	}
+	delete(s.rss, audienceID)
+	return nil
+}
+
 // checkIDAndChannel validates the two fields every binding names, with
 // the same rules as the static tables.
 func (s *SurfaceRegistry) checkIDAndChannel(audienceID, channel string) error {

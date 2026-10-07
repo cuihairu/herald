@@ -37,7 +37,12 @@ type Config struct {
 	// Digest configures the §10 aggregator (window fold schedules and the
 	// multi-instance leader lease). Disabled (the zero value) keeps every
 	// event direct.
-	Digest    DigestConfig                       `yaml:"digest"`
+	Digest DigestConfig `yaml:"digest"`
+	// Feeds configures the §9 RSS pull channel (边界审计 §4): per-category
+	// public feeds and per-audience private feeds readers pull at their
+	// own cadence. Disabled (the zero value) keeps the feed endpoints off
+	// and the rss channel behaving as an unknown provider.
+	Feeds     FeedsConfig                        `yaml:"feeds"`
 	Templates map[string]template.TemplateConfig `yaml:"templates"`
 	Rules     []rules.Rule                       `yaml:"rules"`
 	// RulesStore points at the persistent rules file. Empty keeps rules
@@ -220,6 +225,24 @@ type DigestConfig struct {
 	// LeaseTTL bounds one leader lease; renewed every tick while held.
 	// Defaults to 60s when zero.
 	LeaseTTL time.Duration `yaml:"lease_ttl"`
+}
+
+// FeedsConfig configures the §9 RSS pull channel: what the rendered
+// feeds call themselves and how much history each keeps. The feed store
+// is in-memory — a restart starts from an empty feed, which readers
+// treat as "no new items", not as data loss.
+type FeedsConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Title is the RSS channel title rendered into every feed. Defaults
+	// to "Herald 通知" when empty (the renderer refuses an empty title).
+	Title string `yaml:"title"`
+	// Link is the feed's home link. Empty omits the <link> element.
+	Link string `yaml:"link"`
+	// Description is the feed's channel description. Empty omits it.
+	Description string `yaml:"description"`
+	// MaxItems caps each category's item log (FIFO — the oldest drop
+	// first). Defaults to 500 when zero.
+	MaxItems int `yaml:"max_items"`
 }
 
 // Load loads configuration from a file

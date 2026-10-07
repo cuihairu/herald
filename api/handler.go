@@ -6,7 +6,9 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/roster"
@@ -34,6 +36,10 @@ type Handler struct {
 	incidents       *incident.Store
 	cardEncryptKey  string
 	idempotency     *notifyIdempotency
+	feedStore       *feeds.Store
+	feedMeta        feeds.ChannelMeta
+	feedSurfaces    *audience.SurfaceRegistry
+	feedRelations   *audience.Registry
 }
 
 // NewHandler creates a new handler

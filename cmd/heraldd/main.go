@@ -20,6 +20,7 @@ import (
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
+	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
@@ -341,6 +342,27 @@ func serveCmd(args []string) int {
 		}
 	}
 
+	// RSS pull channel (§9, 边界审计 §4): the store receives pull
+	// projections when an rss-classified channel is routed; the API
+	// serves them at /feeds. The token and relation registries are wired
+	// now and populate once the 触发面 issue bindings and subscriptions —
+	// until then private feeds answer not-found and public feeds carry
+	// anonymous items only.
+	var feedStore *feeds.Store
+	var feedSurfaces *audience.SurfaceRegistry
+	var feedRelations *audience.Registry
+	feedMeta := feeds.ChannelMeta{Title: "Herald 通知"}
+	if cfg.Feeds.Enabled {
+		feedStore = feeds.NewStore(cfg.Feeds.MaxItems)
+		feedSurfaces = audience.NewSurfaceRegistry()
+		feedRelations = audience.NewRegistry()
+		feedMeta = feeds.ChannelMeta{
+			Title:       orDefault(cfg.Feeds.Title, "Herald 通知"),
+			Link:        cfg.Feeds.Link,
+			Description: cfg.Feeds.Description,
+		}
+	}
+
 	// Create API server
 	srv := api.NewServer(&api.Config{
 		Addr:            cfg.Server.Addr,
@@ -361,6 +383,10 @@ func serveCmd(args []string) int {
 		Incidents:       incidents,
 		Digest:          digestAgg,
 		DigestPrefs:     audience.NewPreferenceRegistry(),
+		Feeds:           feedStore,
+		FeedMeta:        feedMeta,
+		FeedSurfaces:    feedSurfaces,
+		FeedRelations:   feedRelations,
 	})
 	// Feishu card-callback encryption key (optional): acknowledge buttons
 	// on interactive cards ack alerts through the same stores the ack API
