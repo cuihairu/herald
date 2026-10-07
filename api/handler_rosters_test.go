@@ -25,7 +25,7 @@ func (s failingRosterStore) Get(context.Context, string) (roster.Roster, error) 
 	return roster.Roster{}, s.err
 }
 func (s failingRosterStore) Put(context.Context, roster.Roster) error { return s.err }
-func (s failingRosterStore) Delete(context.Context, string) error    { return s.err }
+func (s failingRosterStore) Delete(context.Context, string) error     { return s.err }
 
 // Manager.Delete forwards the store's error verbatim, so a store outage
 // reaches the handler as an ordinary error. It must become a 500, never a

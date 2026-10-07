@@ -43,16 +43,16 @@ func (p *DeliveryPlanner) Plan(
 	}
 
 	return &core.DeliveryTask{
-		ID:          uuid.New().String(),
-		Provider:    channel,
-		Targets:     targets,
-		Payload:     *payload,
-		Level:       notification.Level,
-		AlertID:     alertIDOf(notification),
-		Status:      core.StatusQueued,
-		CreatedAt:   time.Now(),
+		ID:           uuid.New().String(),
+		Provider:     channel,
+		Targets:      targets,
+		Payload:      *payload,
+		Level:        notification.Level,
+		AlertID:      alertIDOf(notification),
+		Status:       core.StatusQueued,
+		CreatedAt:    time.Now(),
 		RelationType: notification.RelationType,
-		Source:      notification.Source,
+		Source:       notification.Source,
 	}, nil
 }
 
