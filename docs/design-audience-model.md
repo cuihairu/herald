@@ -154,7 +154,7 @@ recipients:           # 接收人 → 端点
 | 固定单渠道 fixed | 只走指定的一种渠道 | 例行/一般 |
 | 多渠道并行 parallel | 一次全发保必达 | 系统必达类强制 |
 
-阶梯图、匹配矩阵、升级链参数与去重折叠的先后关系见关系详设 §6。**在途**（批次 9）。
+阶梯图、匹配矩阵、升级链参数与去重折叠的先后关系见关系详设 §6。**已落地**（批次 9，`core/audience.DeliveryPolicy` 策略件 + `BuildPlan`/`RunPlan` 执行器；触发面接线随批次 11）。
 
 ## 8. 去重与频控
 
@@ -196,7 +196,8 @@ recipients:           # 接收人 → 端点
 | RSS 拉式渠道（公共/私密 feed、读取时可见性、拉式投影） | ✅ 落地 | 批次 7，`core/feeds` + `/feeds/**` 端点 + `SetFeeds` 投影；token/关系注册表随批次 8 已共享接线 |
 | 来源适配器（bot /start /stop、公众号关注事件、应用内勾选、取关回流全停、外部状态对账） | ✅ 落地 | 批次 8，`core/audience.SourceAdapter`/`Reconciler` + `api` 三个入口端点 + `telegram`/`wechatmp` probe |
 | 去重与频控（事件幂等、折叠账本、状态机、三档频控与品类默认/覆盖表） | ✅ 落地 | 批次 10（`3c6c395`+`ca6ee39`），`core/dedup.Gate` + `config.DedupConfig` 覆盖表 |
-| 强度与模式 / 集成者 API | ◑ 在途 | 关系详设 §15 批次 9、11，进度见 todo |
+| 强度与模式（强度阶梯、紧急度区间、电话双重同意门、三模式执行器） | ✅ 落地 | 批次 9（`0c20459`），`core/audience.DeliveryPolicy`/`BuildPlan`/`RunPlan`；触发面接线随批次 11 |
+| 集成者 API 与 Go SDK | ◑ 在途 | 关系详设 §15 批次 11，进度见 todo |
 
 在途能力的配置项与端点尚不存在，勿据本文档配置生产；落地一批，本文状态表与对应详设同步更新一批。
 
