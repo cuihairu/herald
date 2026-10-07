@@ -16,15 +16,33 @@
 
 > 对照：同一文件 `deleteGroup` 里那个形似的 500 分支**不是**死代码。`Manager.Delete` 把 store 的错误原样返回（不像 `Put`/`Reload` 那样包一层上下文），存储故障会真的走到那里，已由 `TestHandleGroupStoreFailureIs500` / `TestHandleGroupStoreFailureStays500OnRetry` 用注入的失败 store 实测覆盖。同形状的分支，一个可达一个不可达，差别在下游契约而不在代码写法。
 
+## api/handler_sources.go
+
+- `github.com/cuihairu/herald/api/handler_sources.go:237` — `HandleSubscriptions` POST 臂里 `Toggle` 之后转 422 的守卫。到达条件：`checkSourceFields` 放行后注册表仍拒绝——但两者校验完全同口径（受众 id 模式、品类/渠道 1-64 字符，`validateRelation` 之外无其他约束），动作方来源是常量 `preference_center`，且开启路径走 `Subscribe`（强制可退订策略位，不存在 must-deliver 拒绝）。两层校验互为镜像时恒不可达的契约守卫；若日后注册表新增校验维度，此处应随之变为可达并补 422 实测。
+
 ## cmd/heraldd/main.go
 
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:49` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
+
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:418` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）
 
 > 本文件曾登记 `serveCmd`/`workerCmd` 两个注册循环里的 `manager.RegisterProvider` 重复名守卫（原 `main.go:130`、`main.go:381`）——按结构不可达（factories 与 providers 分属两个 map、`cfg.Providers` 键唯一）。2026-10-01 按 `writeControl` 先例提为包级 seam `registerProvider`，由 `TestDuplicateNameGuardAbortsRegistration` 注入失败实测两处 return 1 分支（均在绑端口/起 worker 前退出），已移出台账。
 
 ## providers/builtin/wechatmp/wechatmp.go
 
 - `github.com/cuihairu/herald/providers/builtin/wechatmp/wechatmp.go:312` — `GetToken` 写锁内双检的命中分支。到达条件：并发调用方的读检查落在「缓存已过期且无人持写锁」的窗口内，且其写锁申请排在刷新胜者之后——窗口是读检查到加锁之间的微秒级间隙，能否命中完全取决于调度，确定性构造不可行（RWMutex 下读者会被持写锁者挡住，无法从外部制造该窗口）。分支**行为**已由 `TestTokenCacheConcurrentSingleFetch` 与 `TestTokenCacheDoubleCheckUnderContention` 每轮确定性断言：并发下恰好一次取 token、败者复用胜者结果；语句命中是偶发的（部分轮次的 profile 里该块非零，此时本条目自然不参与豁免）。
+
+## core/audience/reconcile.go
+
+- `github.com/cuihairu/herald/core/audience/reconcile.go:127` — 对账纠正扫尾里 `TerminateFor` 的失败分支。同 `sources.go:150`:扫尾只迭代 subscription 关系（must-deliver 拒绝不可达），剩余到达条件是 `RelationsByType` 快照到终止之间的并发删除——调度窗口；守卫保证单条失败不中断本轮纠正。
+
+- `github.com/cuihairu/herald/core/audience/reconcile.go:118` — 对账纠正路径里 `InvalidateFor` 的失败分支。到达条件：快照读到 `active` 之后、调用失效之前的窗口内，另一个入口（并发的取关事件或对账轮次）已把同一联系面置为 `invalid`——窗口是微秒级读写间隙，能否命中完全取决于调度，确定性构造不可行（与 wechatmp `GetToken` 双检同型）。分支语义（已失效的联系面不重复纠正）由 `Unfollow` 幂等测试与对账快照过滤测试共同保证。
+
+## core/audience/sources.go
+
+- `github.com/cuihairu/herald/core/audience/sources.go:140` — `Unfollow` 里 `InvalidateFor` 的失败分支。守卫刚读过联系面状态（非 `invalid` 才调用），到达条件是读与调用之间落进一次并发失效——调度窗口，同上型。
+
+- `github.com/cuihairu/herald/core/audience/sources.go:150` — `Unfollow` 全停扫尾里 `TerminateFor` 的失败分支。扫尾只迭代 subscription 关系，而 `Subscribe` 强制可退订策略位，must-deliver 拒绝不可达；剩余到达条件是快照到终止之间一次并发删除（`ErrRelationNotFound`）——调度窗口。守卫语义（单条失败不中断全停）由 `/stop` 全停测试保证。
 
 ## core/feeds/rss.go
 

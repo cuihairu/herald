@@ -148,8 +148,9 @@ func (a *SourceAdapter) Unfollow(audienceID, channel, source string) (UnfollowRe
 		}
 		ended, err := a.relations.TerminateFor(audienceID, rel.Category, channel, source)
 		if err != nil {
-			// Only reachable for must-deliver, and Subscribe never
-			// produces one — guard the invariant, keep the sweep going.
+			// Refusals here need a must-deliver relation (Subscribe never
+			// produces one) or a concurrent delete landing in the snapshot
+			// window — guard and keep the sweep going either way.
 			continue
 		}
 		res.Terminated = append(res.Terminated, ended)

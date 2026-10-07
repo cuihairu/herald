@@ -167,6 +167,10 @@ providers:
     type: telegram
     config: { token: "456:def", chat_id: "2" }
     enabled: false
+  # A provider type no probe reads: the scan must skip it silently.
+  misc:
+    type: webhook
+    config: { url: "https://hooks.example/x" }
 sources:
   enabled: true
   reconcile:
@@ -181,8 +185,9 @@ digest:
 	go func() { done <- serveCmd([]string{"--config", path}) }()
 
 	waitHTTPReady(t, fmt.Sprintf("http://127.0.0.1:%d/", httpPort), 10*time.Second)
-	// Let the sweep run a few rounds over the (empty) target list.
-	time.Sleep(300 * time.Millisecond)
+	// Let the one scheduled sweep tick fire (interval 1s) over the
+	// (empty) target list before tearing down.
+	time.Sleep(1300 * time.Millisecond)
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
 		t.Fatalf("send SIGTERM: %v", err)
