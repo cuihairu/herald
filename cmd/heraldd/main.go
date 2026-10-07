@@ -21,10 +21,10 @@ import (
 	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
-	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/incident"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
+	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	coreruntime "github.com/cuihairu/herald/core/runtime"
@@ -34,8 +34,8 @@ import (
 	"github.com/cuihairu/herald/internal/logger"
 	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
-	"github.com/redis/go-redis/v9"
 	gws "github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 // main terminates the process with run's exit code; run() is the testable

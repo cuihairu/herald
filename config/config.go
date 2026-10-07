@@ -17,23 +17,23 @@ import (
 
 // Config is the herald configuration
 type Config struct {
-	Server    ServerConfig                       `yaml:"server"`
-	WebSocket WebSocketConfig                    `yaml:"websocket"`
-	Worker    WorkerConfig                       `yaml:"worker"`
-	Auth      AuthConfig                         `yaml:"auth"`
-	Providers map[string]ProviderConfig          `yaml:"providers"`
+	Server    ServerConfig              `yaml:"server"`
+	WebSocket WebSocketConfig           `yaml:"websocket"`
+	Worker    WorkerConfig              `yaml:"worker"`
+	Auth      AuthConfig                `yaml:"auth"`
+	Providers map[string]ProviderConfig `yaml:"providers"`
 	// Channels seeds the channel table: a named channel mapping to the
 	// provider instances that deliver for it. A plain channel reference
 	// that is not itself a provider instance resolves through it.
-	Channels  map[string]ChannelConfig           `yaml:"channels"`
-	Routes    map[string][]string                `yaml:"routes"`
+	Channels map[string]ChannelConfig `yaml:"channels"`
+	Routes   map[string][]string      `yaml:"routes"`
 	// LevelRoutes is the fallback routing table consulted when the type
 	// route misses: level -> providers, tried in Router.Route after the
 	// type table.
-	LevelRoutes map[string][]string                `yaml:"level_routes"`
-	Queue     QueueConfig                        `yaml:"queue"`
-	Retry     RetryConfig                        `yaml:"retry"`
-	Dedup     DedupConfig                        `yaml:"dedup"`
+	LevelRoutes map[string][]string `yaml:"level_routes"`
+	Queue       QueueConfig         `yaml:"queue"`
+	Retry       RetryConfig         `yaml:"retry"`
+	Dedup       DedupConfig         `yaml:"dedup"`
 	// Digest configures the §10 aggregator (window fold schedules and the
 	// multi-instance leader lease). Disabled (the zero value) keeps every
 	// event direct.
