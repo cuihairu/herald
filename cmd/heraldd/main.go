@@ -15,6 +15,7 @@ import (
 	"github.com/cuihairu/herald/api"
 	"github.com/cuihairu/herald/config"
 	"github.com/cuihairu/herald/core/ack"
+	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
@@ -35,6 +36,8 @@ import (
 	"github.com/cuihairu/herald/internal/logger"
 	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
+	"github.com/cuihairu/herald/providers/builtin/telegram"
+	"github.com/cuihairu/herald/providers/builtin/wechatmp"
 	gws "github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -342,24 +345,101 @@ func serveCmd(args []string) int {
 		}
 	}
 
+	// The audience registries (关系详设 §2/§3) are shared by every
+	// 触发面/拉取面 feature: feeds resolve private tokens and check
+	// relations at read time, source entries write follows/unfollows,
+	// the reconciler sweeps. One pair, always constructed; the audit
+	// trail attaches once either half is on, so every registry change
+	// from then on answers 谁在何时通过哪条入口改了什么.
+	surfaces := audience.NewSurfaceRegistry()
+	relations := audience.NewRegistry()
+	if cfg.Feeds.Enabled || cfg.Sources.Enabled {
+		auditStore := audit.New(0)
+		surfaces.SetRecorder(auditStore)
+		relations.SetRecorder(auditStore)
+	}
+
 	// RSS pull channel (§9, 边界审计 §4): the store receives pull
 	// projections when an rss-classified channel is routed; the API
-	// serves them at /feeds. The token and relation registries are wired
-	// now and populate once the 触发面 issue bindings and subscriptions —
-	// until then private feeds answer not-found and public feeds carry
-	// anonymous items only.
+	// serves them at /feeds. The registries populate once the 触发面
+	// issue bindings and subscriptions — until then private feeds answer
+	// not-found and public feeds carry anonymous items only.
 	var feedStore *feeds.Store
-	var feedSurfaces *audience.SurfaceRegistry
-	var feedRelations *audience.Registry
 	feedMeta := feeds.ChannelMeta{Title: "Herald 通知"}
 	if cfg.Feeds.Enabled {
 		feedStore = feeds.NewStore(cfg.Feeds.MaxItems)
-		feedSurfaces = audience.NewSurfaceRegistry()
-		feedRelations = audience.NewRegistry()
 		feedMeta = feeds.ChannelMeta{
 			Title:       orDefault(cfg.Feeds.Title, "Herald 通知"),
 			Link:        cfg.Feeds.Link,
 			Description: cfg.Feeds.Description,
+		}
+	}
+
+	// 来源适配器 (关系详设 §8): platform entries converge external
+	// follow/unfollow/check actions onto the registries above. The bot
+	// and MP endpoints open only when their secret/token is configured —
+	// an empty credential keeps that endpoint 404 even with enabled: true.
+	var sourceAdapter *audience.SourceAdapter
+	if cfg.Sources.Enabled {
+		sourceAdapter = audience.NewSourceAdapter(surfaces, relations)
+		if cfg.Sources.Bot.Secret != "" {
+			logger.Info("bot source entry enabled")
+		}
+		if cfg.Sources.WeChatMP.Token != "" {
+			logger.Info("wechat-mp source entry enabled")
+		}
+	}
+
+	// External-state reconciler (rule 3 对账): probes are built from the
+	// configured providers — a provider skipped via enabled: false never
+	// gets probed, and a probe whose config cannot build (missing token)
+	// is configuration drift and refuses to start. The redis lease
+	// (锁选主, digest's connection settings) keeps a multi-instance fleet
+	// sweeping once per round; without redis_addr the loop runs
+	// unlocked, assuming a single instance.
+	var reconciler *audience.Reconciler
+	var reconcileLock *digest.LeaderLock
+	if sourceAdapter != nil && cfg.Sources.Reconcile.Enabled {
+		var probes []audience.SurfaceProbe
+		for name, providerCfg := range cfg.Providers {
+			if providerCfg.Enabled != nil && !*providerCfg.Enabled {
+				continue
+			}
+			var probe audience.SurfaceProbe
+			var err error
+			switch providerCfg.Type {
+			case "telegram":
+				probe, err = telegram.NewProbe(providerCfg.Config)
+			case "wechatmp":
+				probe, err = wechatmp.NewProbe(providerCfg.Config)
+			default:
+				continue
+			}
+			if err != nil {
+				logger.Error("failed to build source reconcile probe", "provider", name, "type", providerCfg.Type, "error", err)
+				return 1
+			}
+			probes = append(probes, probe)
+		}
+		reconciler = audience.NewReconciler(surfaces, relations, probes...)
+		if len(reconciler.Channels()) == 0 {
+			logger.Warn("source reconcile enabled but no probeable provider (telegram/wechatmp) is configured")
+		}
+		if cfg.Digest.RedisAddr != "" {
+			client := redis.NewClient(&redis.Options{
+				Addr:     cfg.Digest.RedisAddr,
+				Password: cfg.Digest.RedisPassword,
+				DB:       cfg.Digest.RedisDB,
+			})
+			if err := client.Ping(context.Background()).Err(); err != nil {
+				logger.Error("source reconcile redis lease unavailable", "error", err)
+				return 1
+			}
+			leaseTTL := cfg.Sources.Reconcile.LeaseTTL
+			if leaseTTL <= 0 {
+				leaseTTL = time.Minute
+			}
+			reconcileLock = digest.NewLeaderLock(client, "herald:sources:reconcile:leader", leaseTTL)
 		}
 	}
 
@@ -385,8 +465,18 @@ func serveCmd(args []string) int {
 		DigestPrefs:     audience.NewPreferenceRegistry(),
 		Feeds:           feedStore,
 		FeedMeta:        feedMeta,
-		FeedSurfaces:    feedSurfaces,
-		FeedRelations:   feedRelations,
+		FeedSurfaces:    surfaces,
+		FeedRelations:   relations,
+		Sources:         sourceAdapter,
+		SourceSurfaces:  surfaces,
+		SourceBot: api.BotSourceConfig{
+			Secret:   cfg.Sources.Bot.Secret,
+			Defaults: cfg.Sources.Bot.DefaultCategories,
+		},
+		SourceWeChatMP: api.WeChatMPSourceConfig{
+			Token:    cfg.Sources.WeChatMP.Token,
+			Defaults: cfg.Sources.WeChatMP.DefaultCategories,
+		},
 	})
 	// Feishu card-callback encryption key (optional): acknowledge buttons
 	// on interactive cards ack alerts through the same stores the ack API
@@ -450,6 +540,20 @@ func serveCmd(args []string) int {
 			"leader_lease", digestLock != nil)
 	}
 
+	// Source reconcile loop (rule 3 对账): sweeps active surfaces against
+	// the platforms on a schedule. The redis lease (锁选主) keeps a
+	// multi-instance fleet sweeping exactly once per round; probe errors
+	// skip — 对账 never guesses.
+	if reconciler != nil {
+		interval := cfg.Sources.Reconcile.Interval
+		if interval <= 0 {
+			interval = time.Hour
+		}
+		go reconcileLoop(ctx, reconciler, reconcileLock, interval)
+		logger.Info("source reconcile loop started", "channels", reconciler.Channels(),
+			"interval", interval, "leader_lease", reconcileLock != nil)
+	}
+
 	logger.Info("herald scheduler started", "addr", cfg.Server.Addr, "workers", cfg.Queue.Workers)
 
 	// Wait for signal
@@ -472,6 +576,10 @@ func serveCmd(args []string) int {
 	// another instance from idling until the lease lapses.
 	if digestLock != nil {
 		digestLock.Release(shutdownCtx)
+	}
+	// Same for the reconcile sweep's lease.
+	if reconcileLock != nil {
+		reconcileLock.Release(shutdownCtx)
 	}
 
 	logger.Info("shutdown complete")
@@ -780,6 +888,30 @@ func flushDigest(f digestFlusher) func(digest.Batch) {
 	return func(b digest.Batch) {
 		if err := f.FlushDigestBatch(b); err != nil {
 			logger.Error("digest summary flush failed", "audience", b.Key.AudienceID, "category", b.Key.Category, "error", err)
+		}
+	}
+}
+
+// reconcileLoop sweeps active surfaces against the platforms on a
+// schedule (rule 3 对账): the leader lease keeps a multi-instance fleet
+// sweeping exactly once per round, and RunOnce skips any probe that
+// cannot answer — 对账 never guesses a platform's state. A nil lock
+// runs unlocked, like the digest flip loop without redis.
+func reconcileLoop(ctx context.Context, rec *audience.Reconciler, lock *digest.LeaderLock, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if lock != nil && !lock.Acquire(ctx) && !lock.Renew(ctx) {
+				continue
+			}
+			report := rec.RunOnce(ctx)
+			logger.Info("source reconcile sweep", "channels", rec.Channels(),
+				"checked", report.Checked, "corrected", report.Corrected,
+				"skipped", report.Skipped, "errors", report.Errors)
 		}
 	}
 }

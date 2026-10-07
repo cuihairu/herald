@@ -77,6 +77,11 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"digest daily invalid":     "digest:\n  enabled: true\n  daily: \"2500:00\"\n",
 		"digest weekly invalid":    "digest:\n  enabled: true\n  weekly: \"Funday 09:00\"\n",
 		"digest redis unreachable": "digest:\n  enabled: true\n  redis_addr: 127.0.0.1:1\n",
+		// 来源适配器 (§8): a reconcile probe whose provider config cannot
+		// build (missing bot token) and an unreachable lease redis are
+		// both startup errors — the sweep must not half-start.
+		"source reconcile probe invalid": "sources:\n  enabled: true\n  reconcile:\n    enabled: true\nproviders:\n  bot:\n    type: telegram\n    config: {}\n",
+		"source reconcile redis unreachable": "sources:\n  enabled: true\n  reconcile:\n    enabled: true\ndigest:\n  redis_addr: 127.0.0.1:1\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -51,6 +51,12 @@ type Audience struct {
 // idPattern bounds audience/recipient ids exactly like group ids.
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
+// ValidID reports whether an audience id is well-formed — the same
+// pattern the registries enforce on write, exported so API entries
+// (§8 source adapters) can 422 an input instead of layering a raw
+// registry error.
+func ValidID(id string) bool { return idPattern.MatchString(id) }
+
 // Bounds keep the static audience tables the size of config, not a
 // directory: squad-sized lists are the target, larger ones want a real
 // identity system feeding recipients in (groups get that via their API).

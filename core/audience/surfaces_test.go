@@ -429,3 +429,13 @@ func TestRSSAudienceAndResetToken(t *testing.T) {
 		t.Error("reissued token equals the reset one, want fresh entropy")
 	}
 }
+
+func TestFindByTargetRejectsEmptyArgs(t *testing.T) {
+	s := NewSurfaceRegistry()
+	if _, ok := s.FindByTarget("", "some-target"); ok {
+		t.Error("empty channel matched a surface")
+	}
+	if _, ok := s.FindByTarget("telegram", ""); ok {
+		t.Error("empty target matched a surface")
+	}
+}

@@ -664,6 +664,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | ✅ 已实现 |
 | `digest` | Digest 时间窗聚合（窗口/时区/可选 redis 租约选主），旁路于主投递管道 | ✅ 已实现 |
 | `feeds` | RSS 拉式渠道（§9）：`/feeds/<品类>.xml` 公共 feed 与 `/feeds/private/<token>.xml` 私密 feed，投递记录拉式投影，可见性读取时判定 | ✅ 已实现 |
+| `sources` | 来源适配器（关系详设 §8）：bot/公众号/应用内三个订阅入口 + 外部状态定期对账，凭据即分入口开关 | ✅ 已实现 |
 
 `audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，接收人/端点表本身无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
 
@@ -699,6 +700,34 @@ channels:
 配置非法（渠道没有 providers、引用了未配置的 provider 名）会在**启动时报错拒起**。`channels` 块只展开一层，其条目必须是 provider 实例而非其他渠道。
 
 配置解析为宽松模式：未知键被静默忽略、不会报错，配置键拼写错误不会在启动时暴露（上表已落地各块的**内部**结构错误会在启动校验时报错拒起）。
+
+## 来源适配器配置（sources）
+
+订阅入口（[关系详设 §8](/design-audience-relations#_8-订阅入口-来源适配器)）：bot webhook、公众号服务器回调、应用内勾选把平台侧动作收敛为注册表变更。`enabled` 是总开关，**凭据即分入口开关**——secret/token 为空时对应端点 404，即使 `enabled: true`：
+
+```yaml
+sources:
+  enabled: true
+  bot:
+    secret: "$TELEGRAM_WEBHOOK_SECRET"   # Telegram webhook secret 头比对值；空 = 该端点 404
+    default_categories: ["notices"]      # /start 换绑成功后的默认订阅组；空 = 只绑联系面
+  wechat_mp:
+    token: "$WECHAT_MP_VERIFY_TOKEN"     # 签名与控制台验证用 token；空 = 该端点 404
+    default_categories: ["notices"]      # 关注事件落的默认订阅组；空 = 只注册联系面
+  reconcile:
+    enabled: true                        # 外部状态定期对账（rule 3：只信自己登记的关系）
+    interval: 1h                         # 扫描间隔，零值默认 1h
+    lease_ttl: 1m                        # redis 领导租约 TTL，零值默认 1m；连接参数复用 digest 的
+                                         # redis_addr / redis_password / redis_db，不配 redis 则单实例运行
+```
+
+| 端点 | 门禁 | 作用 |
+|------|------|------|
+| `POST /api/v1/callbacks/bot` | webhook secret 头（常量时间比对） | `/start <token>` 一次性换绑、`/stop` 取关回流全停 |
+| `POST /api/v1/callbacks/wechat-mp` | sha1 签名；GET 带 `echostr` 为控制台验证挑战 | `subscribe` / `unsubscribe` 关注事件收敛 |
+| `POST` / `DELETE /api/v1/audiences/{id}/subscriptions` | API token（与操作面同级） | 应用内勾选开/关；关掉 must-deliver 报 409 |
+
+对账的 probe 从 `providers:` 块按 `type: telegram|wechatmp` 构建：`enabled: false` 的 provider 不探，缺凭据（配置残缺）**启动即拒**；probe 报错的目标准确跳过——对账不猜平台状态。多实例经 redis 租约每轮只扫一次。
 
 ## Provider 类型
 

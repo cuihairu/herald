@@ -260,6 +260,13 @@ func (s *SurfaceRegistry) Surfaces(audienceID string) []ContactSurface {
 // stop; the next token redemption re-activates the slot without asking
 // the dead channel to confirm.
 func (s *SurfaceRegistry) Invalidate(audienceID, channel string) error {
+	return s.InvalidateFor(audienceID, channel, "")
+}
+
+// InvalidateFor is Invalidate with the reason (the acting entry adapter
+// or probe) written into the audit event, so the trail answers who
+// declared the handle dead (§8).
+func (s *SurfaceRegistry) InvalidateFor(audienceID, channel, detail string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -270,8 +277,64 @@ func (s *SurfaceRegistry) Invalidate(audienceID, channel string) error {
 	}
 	surface.Status = SurfaceInvalid
 	slot[channel] = surface
-	s.emit(audit.SurfaceInvalidate, audienceID, channel, "")
+	s.emit(audit.SurfaceInvalidate, audienceID, channel, detail)
 	return nil
+}
+
+// Activate registers a platform-vouched handle directly as the active
+// surface — the follow-event path (§8: follow = 注册联系面). Unlike the
+// token flow there is no pending state: the platform's own event is the
+// voucher. Callers must have resolved the audience from the platform
+// identity; the audit detail carries the acting adapter.
+//
+// Slot rules: an empty, pending or invalid slot activates outright (a
+// pending surface was never confirmed, an invalid one has nothing left
+// to hijack); an already-active same-target surface is a refresh no-op
+// (changed reports false); a live slot holding a different target
+// refuses with ErrSurfaceConflict — the rebind guard of §3.1 applies to
+// platform events too, and the contradiction is 对账's to resolve.
+func (s *SurfaceRegistry) Activate(audienceID, channel, target, detail string) (bool, error) {
+	if len(target) == 0 || len(target) > maxTargetChars {
+		return false, fmt.Errorf("audience: surface target must be 1-%d chars", maxTargetChars)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	slot := s.slot(audienceID)
+	if surface, ok := slot[channel]; ok {
+		if surface.Status == SurfaceActive {
+			if surface.Target != target {
+				return false, fmt.Errorf("audience: %w: %s/%s holds %q", ErrSurfaceConflict, audienceID, channel, surface.Target)
+			}
+			return false, nil
+		}
+	}
+	slot[channel] = ContactSurface{AudienceID: audienceID, Channel: channel, Target: target, Status: SurfaceActive}
+	// A conflicting parked rebind cannot survive its incumbent changing.
+	delete(s.rebinds[audienceID], channel)
+	s.emit(audit.SurfaceBind, audienceID, channel, detail)
+	return true, nil
+}
+
+// FindByTarget resolves a platform identity back to the audience holding
+// it on one channel — the reverse of the surface map, used by source
+// adapters to turn an incoming event's handle (openid, chat id) into the
+// audience it belongs to. Matches surfaces in any state: an unfollow for
+// an already-invalid surface still needs its relations swept.
+func (s *SurfaceRegistry) FindByTarget(channel, target string) (string, bool) {
+	if channel == "" || target == "" {
+		return "", false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for audienceID, slot := range s.surfaces {
+		for ch, surface := range slot {
+			if ch == channel && surface.Target == target {
+				return audienceID, true
+			}
+		}
+	}
+	return "", false
 }
 
 // RSSToken returns the audience's private RSS feed token, issuing it on

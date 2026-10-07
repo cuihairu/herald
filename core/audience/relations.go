@@ -180,6 +180,14 @@ func (g *Registry) store(rel Relation) {
 // (the bottom line), and an unknown relation is ErrRelationNotFound. The
 // removed relation is returned so the caller can audit what ended.
 func (g *Registry) Terminate(audienceID, category, channel string) (Relation, error) {
+	return g.TerminateFor(audienceID, category, channel, "")
+}
+
+// TerminateFor is Terminate with the acting entry adapter recorded: the
+// event keeps the relation's own entry source (§4 snapshot contract) and
+// names the actor in Detail, so the trail answers both「这条订阅从哪来」
+// and「这次退订是谁操作」(§8 审计记入口).
+func (g *Registry) TerminateFor(audienceID, category, channel, actor string) (Relation, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -193,9 +201,13 @@ func (g *Registry) Terminate(audienceID, category, channel string) (Relation, er
 	}
 	delete(g.relations, key)
 	if g.recorder != nil {
+		detail := ""
+		if actor != "" {
+			detail = "unsubscribe via " + actor
+		}
 		g.recorder.Record(audit.Event{
 			Kind: audit.RelationTerminate, AudienceID: rel.AudienceID, Category: rel.Category,
-			Channel: rel.Channel, RelationType: string(rel.Type), Source: rel.Source,
+			Channel: rel.Channel, RelationType: string(rel.Type), Source: rel.Source, Detail: detail,
 		})
 	}
 	return rel, nil

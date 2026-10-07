@@ -307,7 +307,17 @@ Herald 的定位升级：从「应用主动推送的通知管道」补全为「*
 
 1. **取关必须回流**：公众号取关 / bot `/stop` 同步为退订事件，**停止一切投递**（继续推 = 骚扰 + 违规）。联系面转 `invalid`，订阅关系终止，审计留痕。
 2. **审计记入口**：每条关系变更记录来源适配器（`source: wechat_mp | bot | preference_center | app:<name> | admin`），审计可回答「这条订阅从哪来、谁操作、何时」。
-3. **一致性口径**：Herald 只信自己登记的关系；外部平台状态**定期对账**——公众号粉丝列表比对（取关未回流则补退订）、TG chat 有效性探测（`invalid` 则停投），对账结果进审计。
+3. **一致性口径**：Herald 只信自己登记的关系；外部平台状态**定期对账**——对账对象是注册表里登记的目标（公众号逐个探 `subscribe` 标志、TG 探 chat 有效性），探明失效则 `invalid` + 停投，对账结果进审计。不比对平台全集（粉丝列表里没绑定的 openid 没有受众身份，不归 Herald 管）。
+
+**已落地**（批次 8）：
+
+- **动作归一化**：`core/audience.SourceAdapter`——`Follow`（`Activate` 联系面 + 默认订阅组落 `subscription`，逐组记 `Failed` 不因单组拒绝回滚）、`Unfollow`（联系面 `invalid` + 按渠道全停退订：`RelationsByType` 逐条 `TerminateFor`，指派关系与其他渠道不受波及）、`Toggle`（勾选开/关，关走 `TerminateFor`，撞 must-deliver 报 `ErrMustDeliver`）。审计由注册表的 `SetRecorder` 统一记（`cmd/heraldd` 在 feeds/sources 任一启用时挂 `audit.Store`），关系事件的 `Source` 即入口来源（`bot | wechat_mp | preference_center`），`Detail` 带「via 哪条动作」。
+- **三个入口端点**（`api/handler_sources.go`）：
+  - `POST /api/v1/callbacks/bot`——Telegram webhook（`X-Telegram-Bot-Api-Secret-Token` 常量时间比对）：`/start <token>` 走批次 2 的一次性 `RedeemBinding`（激活才落默认组，**停靠中的换绑不落**——等旧渠道确认）；`/stop` 经 `FindByTarget` 反查受众后全停。所有合法 update 一律回 200（Telegram 对非 2xx 重投，重投一个已过期 token 或重复取关改变不了任何东西）；secret 不对是入侵者（403），JSON 坏是调用方 bug（400）。
+  - `POST /api/v1/callbacks/wechat-mp`——公众号服务器回调：sha1(timestamp,nonce,token) 签名（常量时间比对）门禁，GET 回控制台 `echostr` 验证挑战；`subscribe`/`unsubscribe` 收敛为 `Follow`/`Unfollow`。openid 从未绑定则按 no-op（新粉先关注后绑定是正常次序，此时没有受众身份可收敛）。
+  - `POST|DELETE /api/v1/audiences/{id}/subscriptions`——应用内勾选（ferry 等集成侧），API token 门禁与其余操作面同级；字段校验（id 模式、品类/渠道 1-64 字符）422，关一个 must-deliver 报 409（§4 底线），关一个不存在的槽 404。
+- **外部状态对账**（规则 3）：`core/audience.Reconciler` 同步一扫 `RunOnce`——只探**注册表里登记的 active 联系面**（对账对象是自己的登记，不是平台全集；公众号按 `user/info` 的 subscribe 标志逐个探，不是全量粉丝列表比对），probe 报错即 `Skipped`——**对账从不猜**；探明已失效则 `InvalidateFor` + 该渠道订阅 `TerminateFor`（actor `reconcile`）留审计。`providers/builtin/telegram` 与 `providers/builtin/wechatmp` 各出一个 `SurfaceProbe`（TG 对未知 chat 回 400/403 且 `ok:false` 记「确定不认识」，其余非 2xx 一律当探不到）。`cmd/heraldd` 按 digest 翻转循环同款模式起 `reconcileLoop`：默认 1h 一扫，`sources.reconcile.enabled` 开关，redis 租约（复用 digest 连接配置，锁键 `herald:sources:reconcile:leader`）保证多实例每轮只扫一次。
+- **配置**：`sources:` 块（`enabled` 总开关 + `bot.secret` / `wechat_mp.token` 分入口关——**凭据即开关**，空 secret/token 该端点 404，即使 `enabled: true`）；probe 从既有 `providers:` 块按 `type: telegram|wechatmp` 构建，`enabled: false` 的 provider 不探，配置残缺（缺 token）拒绝启动。
 
 ## 9. RSS 拉式渠道
 
@@ -481,7 +491,7 @@ POST /api/v1/apps/{app}/dispatch
 | 5 | 投递审计补齐 | 关系类型/入口来源快照进任务与 TaskLog、关系变更审计流水 |
 | 6 | Digest 聚合器 | 聚合键与窗口模型、定时翻转（含 redis 选主）、摘要模板与投递、实时豁免 |
 | 7 | RSS 拉式渠道 | ✅ 落地：公共/私密 feed 生成（`core/feeds` + `/feeds/**` 端点）、品类可见性校验（读取时关系+矩阵复核）、多地址容灾按边界审计 §4 口径归阅读器侧、不代码化 |
-| 8 | 来源适配器 | bot /start /stop、公众号关注/取关事件、应用内勾选 API、取关回流全停、外部状态定期对账 |
+| 8 | 来源适配器 | ✅ 落地：`SourceAdapter` 动作归一化（follow/unfollow/check、取关回流全停、审计记入口）+ 三入口端点（bot webhook / 公众号回调 / 应用内勾选 API）+ `Reconciler` 外部状态定期对账（probe 不确定即跳过，修正留审计）+ `sources:` 配置与 heraldd 定时循环（redis 锁选主） |
 | 9 | 渠道强度与投递模式 | Intensity/Urgency 枚举、品类→紧急度默认映射、三方交集匹配策略件、三模式执行器（升级链/固定单渠道/并行）、升级链接 ack 应答即停 |
 | 10 | 去重与频控 | event_id 幂等、内容折叠（计数+原始事件保留）、状态机去重、三档频控策略与默认档 |
 | 11 | 集成者 API 与 Go SDK | app 命名空间与 token 权限分级、配置/触发/查询 API、webhook 回调（投递结果/退订回流）、SDK 与集成指南 |

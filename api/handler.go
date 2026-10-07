@@ -40,6 +40,13 @@ type Handler struct {
 	feedMeta        feeds.ChannelMeta
 	feedSurfaces    *audience.SurfaceRegistry
 	feedRelations   *audience.Registry
+	// §8 source adapters: the registry mutator, the reverse identity
+	// index, and the two platform entry configs (empty config = that
+	// endpoint stays 404).
+	sourceAdapter  *audience.SourceAdapter
+	sourceSurfaces *audience.SurfaceRegistry
+	sourceBot      BotSourceConfig
+	sourceMP       WeChatMPSourceConfig
 }
 
 // NewHandler creates a new handler

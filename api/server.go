@@ -80,6 +80,14 @@ type Config struct {
 	FeedMeta      feeds.ChannelMeta
 	FeedSurfaces  *audience.SurfaceRegistry
 	FeedRelations *audience.Registry
+	// Sources wires the §8 来源适配器: the registry mutator behind the
+	// bot / MP / in-app entries, its surface registry for identity
+	// resolution, and the per-entry configs (empty secret/token keeps
+	// that endpoint 404). nil keeps every source entry off.
+	Sources       *audience.SourceAdapter
+	SourceSurfaces *audience.SurfaceRegistry
+	SourceBot     BotSourceConfig
+	SourceWeChatMP WeChatMPSourceConfig
 }
 
 // NewServer creates a new server
@@ -165,6 +173,12 @@ func NewServer(config *Config) *Server {
 		notificationSvc.SetFeeds(config.Feeds)
 		handler.SetFeeds(config.Feeds, config.FeedMeta, config.FeedSurfaces, config.FeedRelations)
 	}
+	// Source adapters (§8): platform entries converge external actions
+	// (bot /start /stop, MP follow events, in-app checkboxes) onto the
+	// registries. nil keeps every entry off.
+	if config.Sources != nil {
+		handler.SetSources(config.Sources, config.SourceSurfaces, config.SourceBot, config.SourceWeChatMP)
+	}
 
 	s := &Server{
 		addr:            config.Addr,
@@ -220,6 +234,13 @@ func NewServer(config *Config) *Server {
 	// the same trust shape as the unauthenticated bot callbacks.
 	mux.HandleFunc("/feeds/{name}", s.handler.HandleFeed)
 	mux.HandleFunc("/feeds/private/{name}", s.handler.HandlePrivateFeed)
+
+	// §8 source entries: platform-vouched callbacks authenticate with
+	// their shared secrets, the in-app checkbox face sits behind the
+	// API token like the rest of the operator surface.
+	mux.HandleFunc("/api/v1/callbacks/bot", s.handler.HandleBotCallback)
+	mux.HandleFunc("/api/v1/callbacks/wechat-mp", s.handler.HandleWeChatMPCallback)
+	mux.HandleFunc("/api/v1/audiences/{id}/subscriptions", s.withAuth(s.handler.HandleSubscriptions))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,

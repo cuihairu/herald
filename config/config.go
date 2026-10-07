@@ -43,6 +43,11 @@ type Config struct {
 	// own cadence. Disabled (the zero value) keeps the feed endpoints off
 	// and the rss channel behaving as an unknown provider.
 	Feeds     FeedsConfig                        `yaml:"feeds"`
+	// Sources configures the §8 来源适配器 (关系详设): the platform entry
+	// points that converge follow/unfollow/check actions onto the
+	// registries. Disabled (the zero value) keeps every source endpoint
+	// off and the registries untouched by external events.
+	Sources   SourcesConfig                      `yaml:"sources"`
 	Templates map[string]template.TemplateConfig `yaml:"templates"`
 	Rules     []rules.Rule                       `yaml:"rules"`
 	// RulesStore points at the persistent rules file. Empty keeps rules
@@ -243,6 +248,58 @@ type FeedsConfig struct {
 	// MaxItems caps each category's item log (FIFO — the oldest drop
 	// first). Defaults to 500 when zero.
 	MaxItems int `yaml:"max_items"`
+}
+
+// SourcesConfig configures the §8 来源适配器: the platform entry points
+// (telegram bot webhook, 公众号 server callback) that turn external
+// follow/unfollow actions into registry changes, and the periodic
+// external-state sweep of rule 3 (Herald 只信自己登记的关系，外部状态
+// 定期对账). Each entry keeps its own off switch: an empty secret or
+// token means that endpoint never opens, even with enabled: true.
+type SourcesConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Bot is the telegram bot entry.
+	Bot SourceBotConfig `yaml:"bot"`
+	// WeChatMP is the 公众号 entry.
+	WeChatMP SourceWeChatMPConfig `yaml:"wechat_mp"`
+	// Reconcile sweeps active surfaces against the platforms (rule 3).
+	Reconcile SourceReconcileConfig `yaml:"reconcile"`
+}
+
+// SourceBotConfig is the telegram bot entry: the webhook secret token
+// Telegram sends on every update (X-Telegram-Bot-Api-Secret-Token), and
+// the default subscription group a successful `/start <token>` lays down.
+type SourceBotConfig struct {
+	Secret string `yaml:"secret"`
+	// DefaultCategories are subscribed on a successful bind (source
+	// bot, unsubscribable). Empty binds the surface only.
+	DefaultCategories []string `yaml:"default_categories"`
+}
+
+// SourceWeChatMPConfig is the 公众号 entry: the console verification
+// token request signatures are checked against, and the default
+// subscription group a follow event lays down.
+type SourceWeChatMPConfig struct {
+	Token string `yaml:"token"`
+	// DefaultCategories are subscribed on a follow event (source
+	// wechat_mp, unsubscribable). Empty registers the surface only.
+	DefaultCategories []string `yaml:"default_categories"`
+}
+
+// SourceReconcileConfig configures the periodic external-state sweep
+// (rule 3 对账): active surfaces are probed ("does the platform still
+// know this target?") and dead ones are invalidated with their channel
+// subscriptions terminated. Probe errors skip — 对账 never guesses.
+type SourceReconcileConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Interval between sweeps. Defaults to 1h when zero.
+	Interval time.Duration `yaml:"interval"`
+	// LeaseTTL is the redis leader lease (锁选主) so a multi-instance
+	// fleet sweeps exactly once per round. Defaults to 1m when zero.
+	// The lease shares digest's redis connection settings (digest
+	// redis_addr / redis_password / redis_db); sweep state itself is
+	// never persisted — each round re-reads the registries.
+	LeaseTTL time.Duration `yaml:"lease_ttl"`
 }
 
 // Load loads configuration from a file
