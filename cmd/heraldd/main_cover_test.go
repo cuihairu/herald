@@ -70,6 +70,13 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// A channel referencing a provider that is not configured is
 		// configuration drift and refuses to start.
 		"channel references unknown provider": "channels:\n  ci:\n    providers: [ghost]\n",
+		// Digest wiring (关系详设 §10): an unknown timezone, a broken flip
+		// schedule and an unreachable lease redis are all startup errors —
+		// the aggregator must not half-start.
+		"digest location invalid":  "digest:\n  enabled: true\n  location: Bogus/Zone\n",
+		"digest daily invalid":     "digest:\n  enabled: true\n  daily: \"2500:00\"\n",
+		"digest weekly invalid":    "digest:\n  enabled: true\n  weekly: \"Funday 09:00\"\n",
+		"digest redis unreachable": "digest:\n  enabled: true\n  redis_addr: 127.0.0.1:1\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -175,6 +182,52 @@ audiences:
 	gdata, err := os.ReadFile(groupsPath)
 	if err != nil || !strings.Contains(string(gdata), "ops-oncall") {
 		t.Fatalf("groups store not persisted: %q / %v", gdata, err)
+	}
+}
+
+// TestServeCmdDigestLifecycle starts the server with the digest flip
+// loop enabled and the leader lease pointed at redis, omitting every
+// optional digest field so the defaults run (Asia/Shanghai, 09:00 /
+// Mon 09:00, a 1m tick and a 60s lease), then shuts down via SIGTERM —
+// the lease must be released on the way out.
+func TestServeCmdDigestLifecycle(t *testing.T) {
+	httpPort := freePort(t)
+	wsPort := freePort(t)
+	mr := miniredis.RunT(t)
+
+	cfgYAML := fmt.Sprintf(`
+server:
+  addr: 127.0.0.1:%d
+websocket:
+  addr: 127.0.0.1:%d
+queue:
+  type: memory
+  workers: 1
+digest:
+  enabled: true
+  redis_addr: %s
+`, httpPort, wsPort, mr.Addr())
+	path := writeTestConfig(t, cfgYAML)
+
+	done := make(chan int, 1)
+	go func() { done <- serveCmd([]string{"--config", path}) }()
+
+	waitHTTPReady(t, fmt.Sprintf("http://127.0.0.1:%d/", httpPort), 10*time.Second)
+	time.Sleep(200 * time.Millisecond)
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM: %v", err)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("serveCmd = %d, want 0", code)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("serveCmd did not return after SIGTERM")
+	}
+	// The lease is released on shutdown: the key must be gone.
+	if mr.Exists("herald:digest:leader") {
+		t.Error("digest leader lease still held after shutdown")
 	}
 }
 

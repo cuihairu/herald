@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
-	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/audience"
+	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
@@ -94,20 +95,22 @@ type ChannelResolver interface {
 
 // NotificationService orchestrates the notification processing pipeline
 type NotificationService struct {
-	templates  *template.Manager
-	router     *route.Router
-	runtime    ProviderRuntime
-	dedup      *dedup.Dedup
-	foldAudit  audit.Recorder
-	queue      core.Queue
-	planner    *DeliveryPlanner
-	rules      RuleEvaluator
-	observer   RuleObserver
-	escalation EscalationScheduler
-	incidents  *incident.Store
-	groups     GroupResolver
-	users      UserResolver
-	channels   ChannelResolver
+	templates   *template.Manager
+	router      *route.Router
+	runtime     ProviderRuntime
+	dedup       *dedup.Dedup
+	foldAudit   audit.Recorder
+	digestAgg   *digest.Aggregator
+	digestPrefs *audience.PreferenceRegistry
+	queue       core.Queue
+	planner     *DeliveryPlanner
+	rules       RuleEvaluator
+	observer    RuleObserver
+	escalation  EscalationScheduler
+	incidents   *incident.Store
+	groups      GroupResolver
+	users       UserResolver
+	channels    ChannelResolver
 }
 
 // NewNotificationService creates a new NotificationService
@@ -133,6 +136,17 @@ func NewNotificationService(
 // default) keeps processing unchanged.
 func (s *NotificationService) SetFoldAudit(r audit.Recorder) {
 	s.foldAudit = r
+}
+
+// SetDigest wires the §10 aggregator: an event whose audience preference
+// folds (daily/weekly) is collected into its window instead of delivered,
+// and each flipped window later emits one summary through this same
+// pipeline (FlushDigest / digest.FlipLoop). A nil preference registry
+// resolves through the category default table alone. nil aggregator (the
+// default) keeps every event direct.
+func (s *NotificationService) SetDigest(agg *digest.Aggregator, prefs *audience.PreferenceRegistry) {
+	s.digestAgg = agg
+	s.digestPrefs = prefs
 }
 
 // SetRuleEngine attaches the rule engine evaluated after dedup and before
@@ -328,6 +342,19 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 		return &ProcessResult{NotificationID: n.ID}, nil
 	}
 
+	// Digest aggregation (§10): an event whose preference folds is
+	// collected into its audience×category window instead of delivered;
+	// the flipped window later emits one summary through this same
+	// pipeline. Realtime-preferring channels keep the event direct —
+	// 直投 wins over folding. Dedup has already run, so a folded
+	// duplicate never enters a window.
+	if s.digestAgg != nil {
+		if mode, ok := digest.Resolve(s.digestPrefs, n.AudienceID, n.Type, n.Channels); ok {
+			s.digestAgg.Add(n, mode)
+			return &ProcessResult{NotificationID: n.ID}, nil
+		}
+	}
+
 	// Generate DeliveryTasks for each channel, collecting errors
 	result := &ProcessResult{NotificationID: n.ID}
 
@@ -388,6 +415,122 @@ func (s *NotificationService) Process(ctx context.Context, n *core.Notification)
 // failures into result. Shared by every delivery path — live events, rule
 // routes, static routes, group summaries, escalations, recoveries — so
 // group expansion semantics exist exactly once.
+// FlushDigest emits every window due right now as one summary per
+// batch, returning how many summaries were enqueued (the first flush
+// error, if any, rides alongside — the batches that succeeded keep
+// their deliveries). digest.FlipLoop is the scheduled driver; this is
+// the synchronous face for single-shot flushes and tests.
+func (s *NotificationService) FlushDigest() (int, error) {
+	if s.digestAgg == nil {
+		return 0, nil
+	}
+	made := 0
+	var firstErr error
+	for _, b := range s.digestAgg.Due() {
+		if err := s.FlushDigestBatch(b); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		made++
+	}
+	return made, firstErr
+}
+
+// FlushDigestBatch emits one flipped window as a summary notification
+// through the normal pipeline — the summary enjoys the full retry and
+// audit chain (关系详设 §10). Rendering reuses the template system: a
+// registered "digest:<category>" template replaces the built-in
+// 「今日 5 条告警」 shape with count/items/audience params. The summary
+// keeps the window's category type, audience reference, relation
+// snapshot and the union of the folded events' channels; folded events
+// that named no channels fall back to static routing exactly as a
+// direct notification would.
+func (s *NotificationService) FlushDigestBatch(b digest.Batch) error {
+	if len(b.Events) == 0 {
+		return nil
+	}
+	latest := b.Events[len(b.Events)-1]
+	unit := "今日"
+	if b.Mode == digest.Weekly {
+		unit = "本周"
+	}
+	title := fmt.Sprintf("%s %d 条%s", unit, len(b.Events), b.Key.Category)
+	var body strings.Builder
+	for _, ev := range b.Events {
+		fmt.Fprintf(&body, "- %s %s\n", ev.CreatedAt.Format("01-02 15:04"), directTitle(ev))
+	}
+	sum := &core.Notification{
+		ID:           uuid.New().String(),
+		Type:         b.Key.Category,
+		Level:        latest.Level,
+		AudienceID:   b.Key.AudienceID,
+		Channels:     unionChannels(b.Events),
+		Content:      &core.DirectContent{Title: title, Body: strings.TrimRight(body.String(), "\n")},
+		CreatedAt:    time.Now(),
+		RelationType: latest.RelationType,
+		Source:       latest.Source,
+	}
+	var rendered *template.RenderedData
+	if s.templates != nil {
+		tplID := "digest:" + b.Key.Category
+		if _, err := s.templates.Get(tplID); err == nil {
+			sum.TemplateRef = tplID
+			sum.Params = map[string]any{
+				"count":    len(b.Events),
+				"items":    itemTitles(b.Events),
+				"audience": b.Key.AudienceID,
+				"mode":     string(b.Mode),
+			}
+			sum.Content = nil
+			rendered, err = s.templates.Render(tplID, sum.Params)
+			if err != nil {
+				return fmt.Errorf("digest summary %s/%s render: %w", b.Key.AudienceID, b.Key.Category, err)
+			}
+			if sum.Level == "" && rendered.Level != "" {
+				sum.Level = rendered.Level
+			}
+		}
+	}
+	if len(sum.Channels) == 0 {
+		routed, err := s.router.Route(sum.Type, sum.Level)
+		if err != nil {
+			return fmt.Errorf("digest summary %s/%s: no route: %w", b.Key.AudienceID, b.Key.Category, err)
+		}
+		sum.Channels = routed
+	}
+	result := &ProcessResult{NotificationID: sum.ID}
+	s.enqueue(context.Background(), sum, sum.Channels, rendered, result)
+	return nil
+}
+
+// unionChannels collects every channel the folded events named, first
+// occurrence order preserved, duplicates dropped.
+func unionChannels(events []*core.Notification) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, ev := range events {
+		for _, ch := range ev.Channels {
+			if ch == "" || seen[ch] {
+				continue
+			}
+			seen[ch] = true
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+// itemTitles lists the folded events' titles for template rendering.
+func itemTitles(events []*core.Notification) []string {
+	titles := make([]string, 0, len(events))
+	for _, ev := range events {
+		titles = append(titles, directTitle(ev))
+	}
+	return titles
+}
+
 func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification, channels []string, renderedData *template.RenderedData, result *ProcessResult) {
 	// Routing decision first (pure), delivery execution after: the queue
 	// is only touched by the execution half.

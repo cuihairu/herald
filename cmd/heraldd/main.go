@@ -18,6 +18,7 @@ import (
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/roster"
@@ -33,6 +34,7 @@ import (
 	"github.com/cuihairu/herald/internal/logger"
 	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
+	"github.com/redis/go-redis/v9"
 	gws "github.com/gorilla/websocket"
 )
 
@@ -298,6 +300,47 @@ func serveCmd(args []string) int {
 	escalations := escalation.NewManager(ackStore, nil, cfg.EscalationStore)
 	incidents := incident.New(cfg.IncidentLimit)
 
+	// Digest aggregator (关系详设 §10): built here so the API server
+	// serves with folding active from the first request. Invalid
+	// schedules are configuration errors and refuse to start.
+	var digestAgg *digest.Aggregator
+	var digestLock *digest.LeaderLock
+	if cfg.Digest.Enabled {
+		// The flip timezone defaults to Asia/Shanghai (关系详设 §10).
+		loc, err := time.LoadLocation(orDefault(cfg.Digest.Location, "Asia/Shanghai"))
+		if err != nil {
+			logger.Error("digest location invalid", "error", err)
+			return 1
+		}
+		dailySpec, err := digest.ParseDaily(orDefault(cfg.Digest.Daily, "09:00"), loc)
+		if err != nil {
+			logger.Error("digest daily schedule invalid", "error", err)
+			return 1
+		}
+		weeklySpec, err := digest.ParseWeekly(orDefault(cfg.Digest.Weekly, "Mon 09:00"), loc)
+		if err != nil {
+			logger.Error("digest weekly schedule invalid", "error", err)
+			return 1
+		}
+		digestAgg = digest.NewAggregator(dailySpec, weeklySpec)
+		if cfg.Digest.RedisAddr != "" {
+			client := redis.NewClient(&redis.Options{
+				Addr:     cfg.Digest.RedisAddr,
+				Password: cfg.Digest.RedisPassword,
+				DB:       cfg.Digest.RedisDB,
+			})
+			if err := client.Ping(context.Background()).Err(); err != nil {
+				logger.Error("digest redis lease unavailable", "error", err)
+				return 1
+			}
+			leaseTTL := cfg.Digest.LeaseTTL
+			if leaseTTL <= 0 {
+				leaseTTL = time.Minute
+			}
+			digestLock = digest.NewLeaderLock(client, "herald:digest:leader", leaseTTL)
+		}
+	}
+
 	// Create API server
 	srv := api.NewServer(&api.Config{
 		Addr:            cfg.Server.Addr,
@@ -316,6 +359,8 @@ func serveCmd(args []string) int {
 		AckStore:        ackStore,
 		Escalation:      escalations,
 		Incidents:       incidents,
+		Digest:          digestAgg,
+		DigestPrefs:     audience.NewPreferenceRegistry(),
 	})
 	// Feishu card-callback encryption key (optional): acknowledge buttons
 	// on interactive cards ack alerts through the same stores the ack API
@@ -363,6 +408,22 @@ func serveCmd(args []string) int {
 
 	go pool.Run(ctx)
 
+	// Digest flip loop (关系详设 §10): the aggregator was wired into the
+	// API server above; this loop flips due windows. The redis lease
+	// (锁选主) keeps multi-instance fleets flipping each window exactly
+	// once; without redis_addr the loop runs unlocked, assuming a single
+	// instance.
+	if digestAgg != nil {
+		interval := cfg.Digest.Interval
+		if interval <= 0 {
+			interval = time.Minute
+		}
+		go digest.FlipLoop(ctx, digestAgg, digestLock, interval, flushDigest(srv))
+		logger.Info("digest flip loop started", "daily", orDefault(cfg.Digest.Daily, "09:00"),
+			"weekly", orDefault(cfg.Digest.Weekly, "Mon 09:00"), "interval", interval,
+			"leader_lease", digestLock != nil)
+	}
+
 	logger.Info("herald scheduler started", "addr", cfg.Server.Addr, "workers", cfg.Queue.Workers)
 
 	// Wait for signal
@@ -381,6 +442,11 @@ func serveCmd(args []string) int {
 	// Stops upgrade timers; pending records stay persisted for the next
 	// run to restore and judge.
 	_ = escalations.Close()
+	// The flip loop exits with ctx; an immediate lease handover keeps
+	// another instance from idling until the lease lapses.
+	if digestLock != nil {
+		digestLock.Release(shutdownCtx)
+	}
 
 	logger.Info("shutdown complete")
 	return 0
@@ -672,4 +738,30 @@ func sleepOrDone(ctx context.Context, d time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// digestFlusher is the slice of the API server the flip loop needs —
+// a seam so the flush-error path is testable without a live server.
+type digestFlusher interface {
+	FlushDigestBatch(b digest.Batch) error
+}
+
+// flushDigest hands one flipped window to the delivery pipeline. The
+// window has already advanced when the flush runs, so a failed flush
+// drops the batch: it is logged loudly (the flip loop was the last
+// place those events were held) and the next window proceeds.
+func flushDigest(f digestFlusher) func(digest.Batch) {
+	return func(b digest.Batch) {
+		if err := f.FlushDigestBatch(b); err != nil {
+			logger.Error("digest summary flush failed", "audience", b.Key.AudienceID, "category", b.Key.Category, "error", err)
+		}
+	}
+}
+
+// orDefault fills a blank config string with its fallback.
+func orDefault(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }

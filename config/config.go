@@ -34,6 +34,10 @@ type Config struct {
 	Queue     QueueConfig                        `yaml:"queue"`
 	Retry     RetryConfig                        `yaml:"retry"`
 	Dedup     DedupConfig                        `yaml:"dedup"`
+	// Digest configures the §10 aggregator (window fold schedules and the
+	// multi-instance leader lease). Disabled (the zero value) keeps every
+	// event direct.
+	Digest    DigestConfig                       `yaml:"digest"`
 	Templates map[string]template.TemplateConfig `yaml:"templates"`
 	Rules     []rules.Rule                       `yaml:"rules"`
 	// RulesStore points at the persistent rules file. Empty keeps rules
@@ -190,6 +194,32 @@ type RetryConfig struct {
 type DedupConfig struct {
 	Enabled bool          `yaml:"enabled"`
 	Window  time.Duration `yaml:"window"`
+}
+
+// DigestConfig configures the digest flip loop (关系详设 §10): when the
+// fold schedules run and — for multi-instance fleets — where the leader
+// lease lives. All flip times are parsed as clock times in Location.
+type DigestConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Interval is the flip-loop tick (how often due windows are checked).
+	// Defaults to 1m when zero.
+	Interval time.Duration `yaml:"interval"`
+	// Daily is the daily flip time "HH:MM" (default "09:00").
+	Daily string `yaml:"daily"`
+	// Weekly is the weekly flip time "Weekday HH:MM" (default
+	// "Mon 09:00").
+	Weekly string `yaml:"weekly"`
+	// Location names the IANA timezone for the flip times (default
+	// "Asia/Shanghai").
+	Location string `yaml:"location"`
+	// RedisAddr points at redis for the leader lease (§10 redis 锁选主):
+	// empty keeps the loop unlocked, which assumes a single instance.
+	RedisAddr     string `yaml:"redis_addr"`
+	RedisPassword string `yaml:"redis_password"`
+	RedisDB       int    `yaml:"redis_db"`
+	// LeaseTTL bounds one leader lease; renewed every tick while held.
+	// Defaults to 60s when zero.
+	LeaseTTL time.Duration `yaml:"lease_ttl"`
 }
 
 // Load loads configuration from a file

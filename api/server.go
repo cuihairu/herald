@@ -10,11 +10,12 @@ import (
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/auth"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
-	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/roster"
+	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/core/service"
@@ -30,6 +31,9 @@ type Server struct {
 	handler *Handler
 	server  *http.Server
 	auth    *auth.Auth
+	// notificationSvc is kept for the digest flush face: the §10 flip
+	// loop calls back through FlushDigestBatch per flipped window.
+	notificationSvc *service.NotificationService
 }
 
 // Config is the server configuration
@@ -44,21 +48,27 @@ type Config struct {
 	Auth            *auth.Auth
 	TemplateManager *template.Manager
 	WorkerRegistry  *worker.Registry
-	Rules           *rules.Engine       // optional; nil keeps static routing only
-	Groups          *groups.Manager     // optional; nil keeps group endpoints off
+	Rules           *rules.Engine   // optional; nil keeps static routing only
+	Groups          *groups.Manager // optional; nil keeps group endpoints off
 	// Users carries the user-level audience tables (core/audience);
 	// optional, nil keeps "user:" references unresolvable.
 	Users *audience.Manager
 	// Rosters supplies the silence schedule placeholder: nil keeps roster
 	// endpoints off and every roster-named silence gate open (fail open).
-	Rosters *roster.Manager
-	AckStore        ack.Store           // optional; nil keeps alert endpoints off
-	Escalation      *escalation.Manager // optional; enables ack-cancel of upgrades
-	Incidents       *incident.Store     // optional; nil keeps incident endpoints off
+	Rosters    *roster.Manager
+	AckStore   ack.Store           // optional; nil keeps alert endpoints off
+	Escalation *escalation.Manager // optional; enables ack-cancel of upgrades
+	Incidents  *incident.Store     // optional; nil keeps incident endpoints off
 	// CardCallbackEncryptKey verifies Feishu interactive-card callbacks
 	// (POST /api/v1/callbacks/feishu). Empty keeps encrypted callbacks
 	// rejected; the endpoint itself needs an AckStore to be useful.
 	CardCallbackEncryptKey string
+	// Digest wires the §10 aggregator: folding preferences collect events
+	// into windows instead of delivering them. nil keeps every event
+	// direct. DigestPrefs resolves per-audience preferences; nil falls
+	// back to the category default table.
+	Digest      *digest.Aggregator
+	DigestPrefs *audience.PreferenceRegistry
 }
 
 // NewServer creates a new server
@@ -74,6 +84,12 @@ func NewServer(config *Config) *Server {
 		config.Dedup,
 		config.Queue,
 	)
+	// Digest aggregator (§10): when wired, folding preferences collect
+	// events into windows instead of delivering them; nil keeps every
+	// event direct.
+	if config.Digest != nil {
+		notificationSvc.SetDigest(config.Digest, config.DigestPrefs)
+	}
 	if config.Rules != nil {
 		notificationSvc.SetRuleEngine(config.Rules)
 		// The runtime manager observes shadow hits into the delivery log.
@@ -133,9 +149,10 @@ func NewServer(config *Config) *Server {
 	}
 
 	s := &Server{
-		addr:    config.Addr,
-		handler: handler,
-		auth:    config.Auth,
+		addr:            config.Addr,
+		handler:         handler,
+		auth:            config.Auth,
+		notificationSvc: notificationSvc,
 	}
 
 	mux := http.NewServeMux()
@@ -385,6 +402,12 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 // underlying handler.
 func (s *Server) SetCardCallbackKey(key string) {
 	s.handler.SetCardCallbackKey(key)
+}
+
+// FlushDigestBatch flushes one flipped digest window through the
+// pipeline — the digest flip loop's callback face (§10 定时器).
+func (s *Server) FlushDigestBatch(b digest.Batch) error {
+	return s.notificationSvc.FlushDigestBatch(b)
 }
 
 func (s *Server) handleIncidentByID(w http.ResponseWriter, r *http.Request) {
