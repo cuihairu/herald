@@ -20,6 +20,7 @@ import (
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/auth"
+	"github.com/cuihairu/herald/core/callback"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/digest"
 	"github.com/cuihairu/herald/core/escalation"
@@ -133,6 +134,15 @@ func serveCmd(args []string) int {
 
 	// Register builtin provider factories
 	builtinregistry.RegisterBuiltinProviders(manager)
+
+	// §13.5 webhook 回调: one dispatcher serves every app namespace —
+	// destination, event and signature all travel on the task. Registering
+	// before config providers run means a config entry claiming the same
+	// name refuses startup (the duplicate guard fires in the loop below).
+	if err := registerProvider(manager, callback.ProviderName, callback.NewProvider(), true); err != nil {
+		logger.Error("failed to register callback provider", "error", err)
+		return 1
+	}
 
 	// Initialize providers from config
 	for name, providerCfg := range cfg.Providers {
@@ -402,6 +412,13 @@ func serveCmd(args []string) int {
 		logger.Error("invalid apps config", "error", err)
 		return 1
 	}
+
+	// §13.5 webhook 回调: delivery settles and unsubscribe backflow flow
+	// to the app's registered URL through the same queue→worker pipeline;
+	// apps without callback config simply never see tasks.
+	emitter := callback.NewEmitter(appRegistry, q)
+	manager.SetCallbackSink(emitter)
+	relations.SetUnsubscribeHook(emitter.Unsubscribed)
 
 	// 来源适配器 (关系详设 §8): platform entries converge external
 	// follow/unfollow/check actions onto the registries above. The bot

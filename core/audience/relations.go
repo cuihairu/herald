@@ -89,6 +89,18 @@ type Registry struct {
 	mu        sync.RWMutex
 	relations map[relationKey]Relation
 	recorder  audit.Recorder
+	// unsubscribeHook observes every successful TerminateFor (the
+	// §13.5 退订回流: heraldd wires the app callback emitter here).
+	// Fired outside the registry lock; the hook must not re-enter.
+	unsubscribeHook func(Relation, string)
+}
+
+// SetUnsubscribeHook wires the callback face's unsubscribe backflow.
+// Nil clears it.
+func (g *Registry) SetUnsubscribeHook(hook func(Relation, string)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.unsubscribeHook = hook
 }
 
 // SetRecorder wires the audit trail: every accepted Subscribe/Enroll/
@@ -210,6 +222,12 @@ func (g *Registry) TerminateFor(audienceID, category, channel, actor string) (Re
 			Channel: rel.Channel, RelationType: string(rel.Type), Source: rel.Source, Detail: detail,
 		})
 	}
+	hook := g.unsubscribeHook
+	g.mu.Unlock()
+	if hook != nil {
+		hook(rel, actor)
+	}
+	g.mu.Lock()
 	return rel, nil
 }
 

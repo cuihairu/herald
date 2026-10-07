@@ -252,3 +252,55 @@ func TestRegistryAuditTrail(t *testing.T) {
 		t.Errorf("events after recorder cleared = %d, want still 3", len(got))
 	}
 }
+
+// TestTerminateUnsubscribeHook: the §13.5 backflow hook sees exactly the
+// successful terminations, with the removed relation and the acting
+// entry — refusals and unknown relations report nothing.
+func TestTerminateUnsubscribeHook(t *testing.T) {
+	g := NewRegistry()
+	sub := Relation{AudienceID: "alice", Category: "alerts", Channel: "telegram", Type: RelationSubscription, Source: "app:ferry"}
+	must := Relation{AudienceID: "alice", Category: "system", Channel: "sms", Type: RelationEnrollment, Source: SourceAdmin, Policy: Policy{MustDeliver: true}}
+	if err := g.Subscribe(sub); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Enroll(must); err != nil {
+		t.Fatal(err)
+	}
+
+	var seen []Relation
+	var actors []string
+	g.SetUnsubscribeHook(func(rel Relation, actor string) {
+		seen = append(seen, rel)
+		actors = append(actors, actor)
+	})
+
+	if _, err := g.TerminateFor("alice", "alerts", "telegram", "preference_center"); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 || seen[0].AudienceID != "alice" || seen[0].Source != "app:ferry" || actors[0] != "preference_center" {
+		t.Fatalf("hook = %v/%v, want the removed app:ferry relation via preference_center", seen, actors)
+	}
+
+	// A must-deliver refusal and an unknown slot fire nothing.
+	if _, err := g.TerminateFor("alice", "system", "sms", "preference_center"); err == nil {
+		t.Fatal("must-deliver terminate = nil, want refusal")
+	}
+	if _, err := g.TerminateFor("ghost", "alerts", "telegram", "x"); err == nil {
+		t.Fatal("unknown terminate = nil, want ErrRelationNotFound")
+	}
+	if len(seen) != 1 {
+		t.Fatalf("refusals must not reach the hook, got %v", seen)
+	}
+
+	// Clearing the hook detaches it.
+	g.SetUnsubscribeHook(nil)
+	if err := g.Subscribe(sub); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Terminate("alice", "alerts", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("cleared hook still firing, got %v", seen)
+	}
+}

@@ -351,6 +351,54 @@ func (s *Server) handleAppTemplateByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleAppCallback is the §13.5 webhook 回调 configuration face: the
+// app registers where delivery results and unsubscribe backflow land,
+// and the secret the payload signatures are computed with.
+func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
+	app := r.PathValue("app")
+	switch r.Method {
+	case http.MethodGet:
+		if !s.withAppScope(w, r, apps.ScopeQuery) {
+			return
+		}
+		url, hasSecret := "", false
+		if cb, ok := s.apps.Callback(app); ok {
+			url, hasSecret = cb.URL, cb.Secret != ""
+		}
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{
+			"url": url, "has_secret": hasSecret,
+		}})
+	case http.MethodPut:
+		if !s.withAppScope(w, r, apps.ScopeConfig) {
+			return
+		}
+		var body struct {
+			URL    string `json:"url"`
+			Secret string `json:"secret"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			s.handler.respondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		// withAppScope just authenticated this app, so the registry's
+		// unknown-app branch is unreachable here.
+		if err := s.apps.SetCallback(app, body.URL, body.Secret); err != nil {
+			s.handler.respondError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "ok"})
+	case http.MethodDelete:
+		if !s.withAppScope(w, r, apps.ScopeConfig) {
+			return
+		}
+		// Same existence proof as PUT.
+		_ = s.apps.ClearCallback(app)
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "deleted"})
+	default:
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // dispatchBody is the §13.3 request shape. urgency is optional — 缺省取
 // 品类默认; relation_type is optional — subscription by default, the
 // 指派型 (enrollment) trigger must declare itself.

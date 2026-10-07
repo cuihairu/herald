@@ -297,6 +297,7 @@ func NewServer(config *Config) *Server {
 	// bindings; rendering stays inside the namespace.
 	mux.HandleFunc("/api/v1/apps/{app}/templates", s.handleAppTemplates)
 	mux.HandleFunc("/api/v1/apps/{app}/templates/{id}", s.handleAppTemplateByID)
+	mux.HandleFunc("/api/v1/apps/{app}/callback", s.handleAppCallback)
 	// §13.3 触发面: the namespaced dispatch with full policy semantics —
 	// /notify stays the anonymous-compatible face.
 	mux.HandleFunc("/api/v1/apps/{app}/dispatch", s.handleAppDispatch)

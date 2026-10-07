@@ -89,6 +89,10 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// §13.1: a token outside the config/trigger/query vocabulary
 		// refuses the whole registry at startup.
 		"app scope invalid": "apps:\n  ferry:\n    tokens:\n      - secret: s\n        scopes: [sudo]\n",
+		// §13.5: the callback dispatcher's name is reserved — a config
+		// provider claiming it collides at registration and refuses the
+		// start.
+		"callback provider name reserved": "providers:\n  app-callback:\n    type: webhook\n    config:\n      url: https://example.com/hook\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/core"
 )
@@ -389,4 +390,44 @@ func TestReplaceProvider(t *testing.T) {
 			t.Error("expected error for non-existent provider")
 		}
 	})
+}
+
+// settleRecorder captures what the settle hook reports.
+type settleRecorder struct {
+	tasks []*core.DeliveryTask
+	errs  []error
+}
+
+func (r *settleRecorder) OnSettle(task *core.DeliveryTask, err error) {
+	r.tasks = append(r.tasks, task)
+	r.errs = append(r.errs, err)
+}
+
+// TestSettleCallbackSink: the settle observer sees every settled task
+// with the delivery verdict — success and failure alike.
+func TestSettleCallbackSink(t *testing.T) {
+	rec := &settleRecorder{}
+	m := NewManager(100)
+	if err := m.RegisterProvider("p1", &mockProvider{name: "p1", pType: "webhook"}, true); err != nil {
+		t.Fatal(err)
+	}
+	m.SetCallbackSink(rec)
+
+	task := &core.DeliveryTask{ID: "t1", Provider: "p1", CreatedAt: time.Now(),
+		Payload: core.DeliveryPayload{Kind: core.PayloadContent}}
+	if err := m.Deliver(context.Background(), task); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if len(rec.tasks) != 1 || rec.errs[0] != nil || rec.tasks[0].ID != "t1" {
+		t.Fatalf("success settle: %+v / %v", rec.tasks, rec.errs)
+	}
+
+	// Clearing the sink detaches it.
+	m.SetCallbackSink(nil)
+	if err := m.Deliver(context.Background(), task); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if len(rec.tasks) != 1 {
+		t.Fatalf("cleared sink still firing: %d reports", len(rec.tasks))
+	}
 }

@@ -108,6 +108,9 @@ type App struct {
 	categories map[string]Category
 	policies   AppPolicies
 	templates  *template.Manager
+	// callback is the §13.5 webhook callback face configuration; nil
+	// means the app receives no callbacks.
+	callback *Callback
 }
 
 // ScopesFor resolves a bearer secret to the permission set it holds in

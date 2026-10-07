@@ -23,6 +23,22 @@ type Manager struct {
 	retryer       *retry.Retryer
 	shadowSampler *rules.ShadowSampler
 	limiters      *limiter.Manager
+	callbackSink  CallbackSink
+}
+
+// CallbackSink observes settled deliveries (the §13.5 webhook 回调:
+// heraldd wires the app callback emitter here). Called inline on the
+// settling goroutine — implementations must be cheap (enqueue, not
+// HTTP) and must not re-enter the manager.
+type CallbackSink interface {
+	OnSettle(task *core.DeliveryTask, err error)
+}
+
+// SetCallbackSink wires the settle observer. Nil clears it.
+func (m *Manager) SetCallbackSink(sink CallbackSink) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callbackSink = sink
 }
 
 var providerSchemas = map[string]map[string]string{
@@ -512,6 +528,14 @@ func (m *Manager) deliverPrologue(ctx context.Context, task *core.DeliveryTask) 
 // spent — a config/provider problem worth a distinct signal), anything
 // else failed (nothing was ever going to retry).
 func (m *Manager) settle(task *core.DeliveryTask, deliverErr error) error {
+	// Snapshot under the lock: SetCallbackSink may race a settle, and
+	// the detector would rightly call the unlocked read a race.
+	m.mu.RLock()
+	sink := m.callbackSink
+	m.mu.RUnlock()
+	if sink != nil {
+		sink.OnSettle(task, deliverErr)
+	}
 	if deliverErr == nil {
 		task.Status = core.StatusDelivered
 		task.LastError = ""
