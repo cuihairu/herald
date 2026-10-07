@@ -55,6 +55,7 @@ func (p *DeliveryPlanner) Plan(
 		Source:       notification.Source,
 		AudienceID:   notification.AudienceID,
 		Category:     notification.Type,
+		EventID:      notification.EventID,
 	}, nil
 }
 

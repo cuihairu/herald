@@ -38,12 +38,13 @@ curl -X POST http://herald:8080/api/v1/apps/ferry/categories \
 
 ## 3. 绑受众：订阅与联系面
 
-触发面只投给**有出路的受众**——三方交集（关系 × 紧急度强度区间 × 联系面绑定）哪个缺一都投不出去。绑受众有两个入口：
+触发面只投给**有出路的受众**——三方交集（关系 × 紧急度强度区间 × 联系面绑定）哪个缺一都投不出去。绑受众有三个入口：
 
 - **受众自助/偏好中心**：`POST /api/v1/audiences/{id}/subscriptions`（订阅）与对应的退订；
-- **平台入口收敛**：bot `/start`、公众号关注等由来源适配器落到同一张关系表。
+- **平台入口收敛**：bot `/start`、公众号关注等由来源适配器落到同一张关系表；
+- **管理侧代绑定**：`POST /api/v1/audiences/{id}/surfaces`（`{channel, target, categories?}`，绑联系面并可顺带落默认订阅；`DELETE ?channel=` 解绑）——用户联系信息在整合方自己库里的（ferry 是首个对接方）走这里，审计记入口 `admin`。
 
-应用侧查询某受众现有关系：`GET /api/v1/audiences/{id}/relations`。指派型（enrollment，被动指派、可含必达）走操作侧登记，触发时必须显式声明 `relation_type: "enrollment"`。
+应用侧查询某受众现有关系：`GET /api/v1/audiences/{id}/relations`。指派型（enrollment，被动指派、可含必达）走操作侧登记，触发时必须显式声明 `relation_type: "enrollment"`。受众 id 词汇不含 `:`（它保留给 `user:`/`group:` 引用前缀）——整合方的 ref 形目标（`user:5`）绑定时映射为受众 id `user.5`。
 
 ## 4. 触发：dispatch
 
@@ -68,6 +69,8 @@ curl -X POST http://herald:8080/api/v1/apps/ferry/dispatch \
 - 响应是**受理结果**：谁命中（dispatched）、谁被拒及原因（refused：`filtered`/`phone_disabled`/`intensity_exceeded`/`no_channels`）、投递计划摘要（plan，升级链全链展示，首段先行投递）。
 
 app 域策略覆盖（渠道强度、投递模式、升级链参数、去重频控按品类）走 `PUT /api/v1/apps/{app}/policies/*` 四族端点。§5 渠道×关系矩阵是安全底线，**没有**应用级放宽覆盖。
+
+事件语义在自己词汇里的整合方（告警源：kind/severity/target + 自有事件主键）可以不走 dispatch 而走**事件接入适配面** `POST /api/v1/apps/{app}/events`：kind→品类（须已注册）、severity→紧急度（critical/warning/info → critical/urgent/normal）、target→受众（ref 形 `user:5` 映射为 `user.5`）、自有主键进 `event_id`——它既进 §11 幂等，也会在 §13.5 投递结果回调里**回带**，回执按它对回原始事件。ferry 的对接实录见[ferry 对接验证](/guide/ferry-integration)。
 
 ## 5. 查状态：deliveries 与 audit
 

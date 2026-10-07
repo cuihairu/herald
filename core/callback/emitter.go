@@ -68,6 +68,7 @@ func (e *Emitter) OnSettle(task *core.DeliveryTask, err error) {
 		Kind: KindDeliveryResult,
 		Delivery: &DeliveryResult{
 			TaskID:     task.ID,
+			EventID:    task.EventID,
 			AudienceID: task.AudienceID,
 			Category:   task.Category,
 			Channel:    channel,

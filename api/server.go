@@ -301,6 +301,9 @@ func NewServer(config *Config) *Server {
 	// §13.3 触发面: the namespaced dispatch with full policy semantics —
 	// /notify stays the anonymous-compatible face.
 	mux.HandleFunc("/api/v1/apps/{app}/dispatch", s.handleAppDispatch)
+	// 告警通道设计 §3 事件接入适配面: integrator event semantics
+	// (kind/severity/target + outbox id) mapped onto the dispatch face.
+	mux.HandleFunc("/api/v1/apps/{app}/events", s.handleAppEvents)
 	// §13.4 查询面: the namespace's own delivery attempts and trail,
 	// plus the operator-side 受众关系 read.
 	mux.HandleFunc("/api/v1/apps/{app}/deliveries", s.handleAppDeliveries)
@@ -313,6 +316,10 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/callbacks/bot", s.handler.HandleBotCallback)
 	mux.HandleFunc("/api/v1/callbacks/wechat-mp", s.handler.HandleWeChatMPCallback)
 	mux.HandleFunc("/api/v1/audiences/{id}/subscriptions", s.withAuth(s.handler.HandleSubscriptions))
+	// 联系面绑定: the operator-side machine entry for integrators whose
+	// users' contact info lives outside Herald (bot/公众号 only cover
+	// platform-vouched follows).
+	mux.HandleFunc("/api/v1/audiences/{id}/surfaces", s.withAuth(s.handler.HandleAudienceSurfaces))
 
 	s.server = &http.Server{
 		Addr:         config.Addr,

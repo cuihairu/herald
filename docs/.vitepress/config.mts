@@ -32,6 +32,7 @@ export default defineConfig({
             { text: '快速开始', link: '/guide/getting-started' },
             { text: '使用场景与接入', link: '/guide/use-cases' },
             { text: '应用接入（集成者 API）', link: '/guide/integration' },
+            { text: 'ferry 对接验证（阶段③）', link: '/guide/ferry-integration' },
           ]
         },
         {

@@ -16,6 +16,10 @@
 
 > 对照：同一文件 `deleteGroup` 里那个形似的 500 分支**不是**死代码。`Manager.Delete` 把 store 的错误原样返回（不像 `Put`/`Reload` 那样包一层上下文），存储故障会真的走到那里，已由 `TestHandleGroupStoreFailureIs500` / `TestHandleGroupStoreFailureStays500OnRetry` 用注入的失败 store 实测覆盖。同形状的分支，一个可达一个不可达，差别在下游契约而不在代码写法。
 
+## api/handler_surfaces.go
+
+- `github.com/cuihairu/herald/api/handler_surfaces.go:82` — DELETE 臂里 `Unfollow` 之后转 422 的守卫。到达条件：handler 前置校验放行后 `Unfollow` 仍拒绝——但两者校验完全同口径（`checkIDAndChannel` 内部就是 `idPattern`（≡ `audience.ValidID`）+ channel 1-64 界，handler 已先行同判），`source` 是常量 `audience.SourceAdmin` 恒合法。两层校验互为镜像时恒不可达的契约守卫（同 `handler_sources.go:237` 先例）；若日后 `Unfollow` 新增校验维度，此处应随之变为可达并补 422 实测。行号 2026-10-08 随阶段③ ferry 对接批次（联系面绑定面落地）登记。
+
 ## api/handler_sources.go
 
 - `github.com/cuihairu/herald/api/handler_sources.go:237` — `HandleSubscriptions` POST 臂里 `Toggle` 之后转 422 的守卫。到达条件：`checkSourceFields` 放行后注册表仍拒绝——但两者校验完全同口径（受众 id 模式、品类/渠道 1-64 字符，`validateRelation` 之外无其他约束），动作方来源是常量 `preference_center`，且开启路径走 `Subscribe`（强制可退订策略位，不存在 must-deliver 拒绝）。两层校验互为镜像时恒不可达的契约守卫；若日后注册表新增校验维度，此处应随之变为可达并补 422 实测。

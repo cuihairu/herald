@@ -69,7 +69,7 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 
 	e.OnSettle(&core.DeliveryTask{
 		ID: "t1", Provider: "email", Source: "app:ferry",
-		AudienceID: "alice", Category: "alerts",
+		AudienceID: "alice", Category: "alerts", EventID: "77",
 	}, nil)
 	e.OnSettle(&core.DeliveryTask{
 		ID: "t2", Provider: "sms", Source: "app:ferry",
@@ -117,6 +117,11 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 	}
 	if got := seen["success"]; got.TaskID != "t1" || got.AudienceID != "alice" || got.Channel != "email" || got.Error != "" {
 		t.Fatalf("success event: %+v", got)
+	}
+	// The integrator's event identity echoes back — the receipt-
+	// correlation field (ferry 的 outbox id 走这条线回家).
+	if got := seen["success"]; got.EventID != "77" {
+		t.Fatalf("success event_id = %q, want \"77\"", got.EventID)
 	}
 	if got := seen["failed"]; got.TaskID != "t2" || got.Error != "boom" {
 		t.Fatalf("failed event: %+v", got)

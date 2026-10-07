@@ -24,7 +24,12 @@ const (
 
 // DeliveryResult is the payload of a delivery_result event.
 type DeliveryResult struct {
-	TaskID     string `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// EventID echoes the integrator's own event identity (the dispatch
+	// request's event_id), not this callback event's id — the app
+	// correlates its original event (e.g. an outbox row id) to the
+	// settled delivery through it. Empty when the dispatch carried none.
+	EventID    string `json:"event_id,omitempty"`
 	AudienceID string `json:"audience_id,omitempty"`
 	Category   string `json:"category,omitempty"`
 	Channel    string `json:"channel,omitempty"`

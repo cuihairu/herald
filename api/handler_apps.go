@@ -431,6 +431,15 @@ func (s *Server) handleAppDispatch(w http.ResponseWriter, r *http.Request) {
 		s.handler.respondError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	s.runDispatch(w, r, r.PathValue("app"), body)
+}
+
+// runDispatch is the shared §13.3 dispatch path for both trigger faces
+// (the raw dispatch and the §3 external-event adapter below): category
+// registration, urgency, relation type, policy overlay and the service
+// call. The request context carries the cancel signal through to the
+// gates.
+func (s *Server) runDispatch(w http.ResponseWriter, r *http.Request, app string, body dispatchBody) {
 	if body.Category == "" {
 		s.handler.respondError(w, http.StatusUnprocessableEntity, "category is required")
 		return
@@ -447,7 +456,6 @@ func (s *Server) handleAppDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app := r.PathValue("app")
 	// The namespace taxonomy is the point of the app face: an
 	// unregistered category is 422, never a silent fallback to the
 	// operator's global vocabulary.
@@ -520,6 +528,92 @@ func (s *Server) handleAppDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: out})
+}
+
+// externalEventBody is the 告警通道设计 §3 wire shape integrators push at
+// {base}/events (ferry 是首个对接方): semantics ride kind/severity/target,
+// and the id extension field is the source outbox's primary key, kept for
+// receipt correlation. occurred_at has no §13.3 face — herald timestamps
+// its own audit trail and callback events.
+type externalEventBody struct {
+	ID         int64           `json:"id"`
+	Kind       string          `json:"kind"`
+	Severity   string          `json:"severity"`
+	Title      string          `json:"title"`
+	Body       string          `json:"body,omitempty"`
+	Target     string          `json:"target"`
+	DedupKey   string          `json:"dedup_key,omitempty"`
+	Meta       json.RawMessage `json:"meta,omitempty"`
+	OccurredAt time.Time       `json:"occurred_at"`
+}
+
+// handleAppEvents is the §3 事件接入适配面: integrator event semantics
+// mapped onto the namespace dispatch — kind becomes the registered
+// category, severity the urgency (critical→critical, warning→urgent,
+// info→normal), target the single-element audiences. The outbox id rides
+// through as the dispatch event_id and comes back echoed on the §13.5
+// delivery_result, closing the receipt correlation loop.
+func (s *Server) handleAppEvents(w http.ResponseWriter, r *http.Request) {
+	if !s.withAppScope(w, r, apps.ScopeTrigger) {
+		return
+	}
+	var ev externalEventBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&ev); err != nil {
+		s.handler.respondError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if ev.Kind == "" {
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "kind is required")
+		return
+	}
+	if ev.Target == "" {
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "target is required")
+		return
+	}
+	var urgency string
+	switch ev.Severity {
+	case "critical":
+		urgency = "critical"
+	case "warning":
+		urgency = "urgent"
+	case "info":
+		urgency = "normal"
+	default:
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "severity must be critical/warning/info")
+		return
+	}
+	var params map[string]any
+	if len(ev.Meta) > 0 {
+		if err := json.Unmarshal(ev.Meta, &params); err != nil {
+			s.handler.respondError(w, http.StatusBadRequest, "meta must be a JSON object")
+			return
+		}
+	}
+	eventID := ""
+	if ev.ID > 0 {
+		eventID = strconv.FormatInt(ev.ID, 10)
+	}
+	s.runDispatch(w, r, r.PathValue("app"), dispatchBody{
+		Category:  ev.Kind,
+		Urgency:   urgency,
+		Audiences: []string{audienceIDOfTarget(ev.Target)},
+		DedupKey:  ev.DedupKey,
+		EventID:   eventID,
+		Title:     ev.Title,
+		Body:      ev.Body,
+		Params:    params,
+	})
+}
+
+// audienceIDOfTarget maps a source-side target reference onto the
+// audience registry's id vocabulary: ref-shaped targets (user:<id>)
+// keep their prefix but swap the separator — ':' is reserved for the
+// expandRef refs (user:/group:) and never appears in a registry id.
+func audienceIDOfTarget(target string) string {
+	if i := strings.Index(target, ":"); i > 0 {
+		return target[:i] + "." + target[i+1:]
+	}
+	return target
 }
 
 // handleAppDeliveries is the §13.4 投递状态 query: the namespace's own

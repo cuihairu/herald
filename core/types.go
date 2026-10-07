@@ -124,6 +124,13 @@ type DeliveryTask struct {
 	// payloads. Empty on anonymous /notify traffic (兼容).
 	AudienceID string `json:"audience_id,omitempty"`
 	Category   string `json:"category,omitempty"`
+	// EventID is the integrator's §11.1 event identity (the dispatch
+	// request's event_id), carried through delivery like AlertID so the
+	// §13.5 delivery_result callback can echo it back: the app correlates
+	// its original event (e.g. an outbox row id) to the settled delivery
+	// without keeping its own task-id ledger. Empty when the dispatch
+	// carried none.
+	EventID string `json:"event_id,omitempty"`
 }
 
 // DeliveryPayload wraps the actual content sent to a provider

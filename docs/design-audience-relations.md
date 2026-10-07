@@ -451,6 +451,8 @@ POST /api/v1/apps/{app}/dispatch
 
 服务端按策略匹配渠道（关系矩阵 × 紧急度强度区间 × 联系面绑定三方交集），返回受理结果与投递计划摘要。与既有 `/notify` 的关系：`/notify` 是匿名触发面（保持兼容），app 触发面带命名空间与完整策略语义。
 
+落地注记（2026-10-08，ferry 对接验证批次）：事件语义在自己词汇里的整合方另有**事件接入适配面** `POST /api/v1/apps/{app}/events`（告警通道设计 §3：kind/severity/target + 整合方自有事件主键）——kind→已注册品类、severity→紧急度（critical/warning/info → critical/urgent/normal）、target→单元素 audiences（ref 形 `user:5` 映射为受众 id `user.5`：`:` 保留给 `user:`/`group:` 引用前缀，id 词汇不含它）、自有主键进 `event_id`；`occurred_at` 无对应面（herald 审计/回调用自己的时间戳）。绑受众的**管理侧代绑定**入口同步落地：`POST/DELETE /api/v1/audiences/{id}/surfaces`（联系面 + 可选默认订阅，审计记入口 `admin`）——ferry 这类用户联系信息在自己库里的整合方靠它完成绑定（ferry 对接实录见 `docs/guide/ferry-integration.md`）。
+
 ### 13.4 查询 API
 
 - `GET /api/v1/apps/{app}/deliveries?audience=&category=&status=`——投递状态
@@ -460,7 +462,7 @@ POST /api/v1/apps/{app}/dispatch
 ### 13.5 SDK 与回调
 
 - **Go SDK 首发**（对齐 worker-sdk 先例，落地 `apps-sdk/go`）：应用用受众 ID 完成「配品类 → 绑受众（操作侧入口）→ 触发 → 查状态」全流程；一枚 token 一个 Client，权限由 token 决定。错误二分：`*sdk.Error`（服务端拒绝，重试无意义）与传输错误（可重试）。
-- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次。
+- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次。落地注记（2026-10-08，ferry 对接批次）：`delivery_result` 载荷回带**整合方自己的事件身份** `delivery.event_id`（dispatch 请求的 `event_id`，随任务贯通投递）——应用把回调对回自己的原始事件（ferry 的 outbox 行 id 走这条线回家），与本回调事件的 `event_id`（herald 侧幂等 id）是两个东西。
 
 ### 13.6 集成指南
 
@@ -496,4 +498,4 @@ POST /api/v1/apps/{app}/dispatch
 | 10 | 去重与频控 | event_id 幂等、内容折叠（计数+原始事件保留）、状态机去重、三档频控策略与默认档 |
 | 11 | 集成者 API 与 Go SDK | app 命名空间与 token 权限分级、配置/触发/查询 API、webhook 回调（投递结果/退订回流）、SDK 与集成指南 |
 
-批次 1–2 为地基（关系模型+联系面绑定），3–5 构成「被通知者做主」闭环（偏好/过滤/审计），6–8 为触达形态增量（digest/RSS/来源适配器），9–11 为策略件与集成面（强度/去重/集成者 API）。三阶段推进：文档（本篇）→ 代码实现 → ferry 对接验证。每批独立可验收：全量门禁绿后提交。
+批次 1–2 为地基（关系模型+联系面绑定），3–5 构成「被通知者做主」闭环（偏好/过滤/审计），6–8 为触达形态增量（digest/RSS/来源适配器），9–11 为策略件与集成面（强度/去重/集成者 API）。三阶段推进：文档（本篇）→ 代码实现 → ferry 对接验证——**三阶段全部完成**（2026-10-08 阶段③实录见 `docs/guide/ferry-integration.md`：收事件→分发→回执留痕闭环两次走通，差异清单与 webhook 通道收敛结论同篇）。每批独立可验收：全量门禁绿后提交。
