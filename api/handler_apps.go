@@ -12,6 +12,7 @@ import (
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 )
 
@@ -346,4 +347,127 @@ func (s *Server) handleAppTemplateByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// dispatchBody is the §13.3 request shape. urgency is optional — 缺省取
+// 品类默认; relation_type is optional — subscription by default, the
+// 指派型 (enrollment) trigger must declare itself.
+type dispatchBody struct {
+	Category     string         `json:"category"`
+	Urgency      string         `json:"urgency"`
+	RelationType string         `json:"relation_type"`
+	Audiences    []string       `json:"audiences"`
+	DedupKey     string         `json:"dedup_key"`
+	EventID      string         `json:"event_id"`
+	State        string         `json:"state"`
+	Template     string         `json:"template"`
+	Params       map[string]any `json:"params"`
+	Title        string         `json:"title"`
+	Body         string         `json:"body"`
+}
+
+// handleAppDispatch is the §13.3 触发面: the namespaced dispatch with
+// full policy semantics. The handler resolves the namespace half (the
+// registered category's default urgency, the app's policy overrides
+// over the global §6 tables, the namespace template manager) and the
+// service owns the matching and delivery. /notify stays the
+// anonymous-compatible face — this path is the one with categories.
+func (s *Server) handleAppDispatch(w http.ResponseWriter, r *http.Request) {
+	if !s.withAppScope(w, r, apps.ScopeTrigger) {
+		return
+	}
+	var body dispatchBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		s.handler.respondError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.Category == "" {
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "category is required")
+		return
+	}
+	if len(body.Audiences) == 0 {
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "audiences must name at least one audience")
+		return
+	}
+	if s.delivery == nil {
+		// The §6 strategy件 is a startup fact; without it there is no
+		// matching to speak of — the face stays closed, same shape as
+		// every unconfigured face.
+		s.handler.respondError(w, http.StatusNotFound, "delivery policy not configured")
+		return
+	}
+
+	app := r.PathValue("app")
+	// The namespace taxonomy is the point of the app face: an
+	// unregistered category is 422, never a silent fallback to the
+	// operator's global vocabulary.
+	def, ok := s.apps.CategoryUrgency(app, body.Category)
+	if !ok {
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "category "+body.Category+" is not registered in this namespace")
+		return
+	}
+	var urgency audience.Urgency
+	if body.Urgency != "" {
+		u, err := audience.ParseUrgency(body.Urgency)
+		if err != nil {
+			s.handler.respondError(w, http.StatusUnprocessableEntity, "urgency "+body.Urgency+": "+err.Error())
+			return
+		}
+		urgency = u
+	} else {
+		// Registry-stored urgencies are canonical vocabulary by
+		// construction (RegisterCategory parsed and re-rendered them),
+		// so this parse cannot refuse.
+		urgency, _ = audience.ParseUrgency(def)
+	}
+
+	rel := audience.RelationSubscription
+	switch body.RelationType {
+	case "":
+	case "subscription":
+		rel = audience.RelationSubscription
+	case "enrollment":
+		rel = audience.RelationEnrollment
+	default:
+		s.handler.respondError(w, http.StatusUnprocessableEntity, "relation_type must be subscription or enrollment")
+		return
+	}
+
+	// The namespace's overrides ride on top of the operator's global
+	// policy; the phone gate is not overridable (§6.2 双重同意).
+	appPolicies, _ := s.apps.Policies(app)
+	effective := s.delivery.Overlay(audience.Overlay{
+		ChannelIntensity: appPolicies.ChannelIntensity,
+		ModeByCategory:   appPolicies.ModeByCategory,
+	})
+
+	// withAppScope already proved the namespace exists, so the manager
+	// lookup cannot refuse; a template render miss fails the dispatch
+	// with 422 inside Dispatch.
+	templates, _ := s.apps.Templates(app)
+
+	out, err := s.notificationSvc.Dispatch(r.Context(), service.DispatchRequest{
+		Spec: service.DispatchSpec{
+			App:          app,
+			Category:     body.Category,
+			Urgency:      urgency,
+			RelationType: rel,
+			Audiences:    body.Audiences,
+			DedupKey:     body.DedupKey,
+			EventID:      body.EventID,
+			State:        body.State,
+			Template:     body.Template,
+			Params:       body.Params,
+			Title:        body.Title,
+			Body:         body.Body,
+		},
+		Policy:    effective,
+		Filter:    s.filter,
+		Templates: templates,
+	})
+	if err != nil {
+		s.handler.respondError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: out})
 }

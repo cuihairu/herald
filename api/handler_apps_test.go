@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cuihairu/herald/core/apps"
+	"github.com/cuihairu/herald/core/audience"
 )
 
 func seedAppsRegistry() *apps.Registry {
@@ -459,5 +460,149 @@ func TestAppTemplatesNilRegistry(t *testing.T) {
 		if code != 404 {
 			t.Fatalf("%s %s without registry: want 404, got %d", tc.method, tc.path, code)
 		}
+	}
+}
+
+// dispatchEnv wires the full §13.3 face: apps registry, the §6 policy,
+// the 关系×联系面 pair (alice holds an active email surface plus her
+// subscription), and one enabled email provider.
+func dispatchEnv(t *testing.T) *testEnv {
+	t.Helper()
+	relations := audience.NewRegistry()
+	surfaces := audience.NewSurfaceRegistry()
+	if _, err := surfaces.Activate("alice", "email", "alice@example.com", "test"); err != nil {
+		t.Fatalf("activate alice: %v", err)
+	}
+	if err := relations.Subscribe(audience.Relation{
+		AudienceID: "alice", Category: "alerts", Channel: "email",
+		Type: audience.RelationSubscription, Source: "test",
+	}); err != nil {
+		t.Fatalf("subscribe alice: %v", err)
+	}
+	policy, err := audience.NewDeliveryPolicy(map[string]string{"alerts": "urgent"}, nil, nil, false)
+	if err != nil {
+		t.Fatalf("policy: %v", err)
+	}
+	e := newTestEnv(t, func(c *Config) {
+		c.Apps = seedAppsRegistry()
+		c.Delivery = policy
+		c.Filter = audience.NewFilter(relations, surfaces)
+		c.FeedSurfaces = surfaces
+	})
+	if err := e.runtime.RegisterProvider("email", &stubProvider{name: "email", pType: "email"}, true); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+	return e
+}
+
+func TestAppDispatch(t *testing.T) {
+	e := dispatchEnv(t)
+	trigger := map[string]string{"Authorization": "Bearer ferry-trigger"}
+
+	// AuthZ: dispatch is trigger power; config-only and query-less
+	// tokens stay out. (ferry-trigger holds exactly the right scope.)
+	code, _ := e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"]}`, map[string]string{"Authorization": "Bearer ferry-config"})
+	if code != 403 {
+		t.Fatalf("config token: want 403, got %d", code)
+	}
+
+	// Body validation.
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", "{bad", trigger)
+	if code != 400 {
+		t.Fatalf("bad JSON: want 400, got %d", code)
+	}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"audiences":["alice"]}`, trigger)
+	if code != 422 {
+		t.Fatalf("missing category: want 422, got %d", code)
+	}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts"}`, trigger)
+	if code != 422 {
+		t.Fatalf("missing audiences: want 422, got %d", code)
+	}
+	// Register the category before the vocabulary checks: urgency and
+	// relation validation run against a registered category, in request
+	// order (taxonomy gate first).
+	reg := map[string]string{"Authorization": "Bearer ferry-full"}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/categories", `{"name":"alerts","default_urgency":"urgent"}`, reg)
+	if code != 200 {
+		t.Fatalf("category register: got %d", code)
+	}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"urgency":"whenever"}`, trigger)
+	if code != 422 {
+		t.Fatalf("bad urgency: want 422, got %d", code)
+	}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"relation_type":"possession"}`, trigger)
+	if code != 422 {
+		t.Fatalf("bad relation_type: want 422, got %d", code)
+	}
+	// The namespace taxonomy is the point: an unregistered category is
+	// refused even if the operator's global tables know it.
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"never_registered","audiences":["alice"]}`, trigger)
+	if code != 422 {
+		t.Fatalf("unregistered category: want 422, got %d", code)
+	}
+
+	// Dispatch with the category default urgency (缺省取品类默认).
+	code, body := e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"node-17"}`, trigger)
+	if code != 200 {
+		t.Fatalf("dispatch: got %d %v", code, body)
+	}
+	data, _ := body["data"].(map[string]any)
+	if data["category"] != "alerts" || data["urgency"] != "urgent" || data["mode"] != "escalation" {
+		t.Fatalf("outcome: want alerts/urgent/escalation, got %v", data)
+	}
+	dispatched, _ := data["dispatched"].([]any)
+	if len(dispatched) != 1 {
+		t.Fatalf("dispatched: want alice, got %v", data["dispatched"])
+	}
+	if len(data["task_ids"].([]any)) != 1 {
+		t.Fatalf("tasks: want 1, got %v", data["task_ids"])
+	}
+
+	// The dedup gate folds the repeat — 受理 still succeeds.
+	code, body = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"node-17"}`, trigger)
+	if code != 200 {
+		t.Fatalf("repeat dispatch: got %d", code)
+	}
+	data, _ = body["data"].(map[string]any)
+	if data["suppressed"] != true {
+		t.Fatalf("repeat: want suppressed, got %v", data)
+	}
+	if _, ok := data["task_ids"]; ok {
+		t.Fatalf("repeat: want no task ids, got %v", data["task_ids"])
+	}
+
+	// A payload urgency overrides the category default.
+	code, body = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","urgency":"critical","audiences":["alice"],"event_id":"evt-1"}`, trigger)
+	if code != 200 {
+		t.Fatalf("urgency override: got %d", code)
+	}
+	data, _ = body["data"].(map[string]any)
+	if data["urgency"] != "critical" {
+		t.Fatalf("urgency override: want critical, got %v", data["urgency"])
+	}
+
+	// Explicit relation vocabulary: both spellings are accepted —
+	// 指派型触发必须显式声明 is a contract, not a refusal.
+	for _, rt := range []string{"subscription", "enrollment"} {
+		code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch",
+			`{"category":"alerts","audiences":["alice"],"relation_type":"`+rt+`","event_id":"evt-`+rt+`"}`, trigger)
+		if code != 200 {
+			t.Fatalf("relation_type %s: want 200, got %d", rt, code)
+		}
+	}
+
+	// A template the namespace does not hold refuses the dispatch (the
+	// global table stays invisible) — the service error surfaces 422.
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"template":"ghost","event_id":"evt-tpl"}`, trigger)
+	if code != 422 {
+		t.Fatalf("unknown template: want 422, got %d", code)
+	}
+
+	// Nil delivery policy keeps the face closed.
+	e2 := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+	code, _ = e2.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"]}`, trigger)
+	if code != 404 {
+		t.Fatalf("nil delivery policy: want 404, got %d", code)
 	}
 }

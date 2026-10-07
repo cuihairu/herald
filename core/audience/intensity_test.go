@@ -309,3 +309,18 @@ func TestMatchChannelsThreeWayIntersection(t *testing.T) {
 		t.Errorf("KeptChannels = %v, want [email rss sms]", kept)
 	}
 }
+
+func TestUrgencyString(t *testing.T) {
+	cases := map[Urgency]string{
+		UrgencyRoutine:  "routine",
+		UrgencyNormal:   "normal",
+		UrgencyUrgent:   "urgent",
+		UrgencyCritical: "critical",
+		Urgency(99):     "urgency?",
+	}
+	for u, want := range cases {
+		if got := u.String(); got != want {
+			t.Fatalf("Urgency(%d).String() = %q, want %q", u, got, want)
+		}
+	}
+}

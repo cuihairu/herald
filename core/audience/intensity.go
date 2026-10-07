@@ -310,3 +310,20 @@ func (d *DeliveryPolicy) sortByIntensity(channels []string) []string {
 	})
 	return ordered
 }
+
+// String renders the urgency in the contract vocabulary
+// (routine/normal/urgent/critical), same as Intensity and Mode.
+func (u Urgency) String() string {
+	switch u {
+	case UrgencyRoutine:
+		return "routine"
+	case UrgencyNormal:
+		return "normal"
+	case UrgencyUrgent:
+		return "urgent"
+	case UrgencyCritical:
+		return "critical"
+	default:
+		return "urgency?"
+	}
+}

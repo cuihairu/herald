@@ -39,6 +39,12 @@ type Server struct {
 	// notificationSvc is kept for the digest flush face: the §10 flip
 	// loop calls back through FlushDigestBatch per flipped window.
 	notificationSvc *service.NotificationService
+	// delivery is the §6 strategy件 for the dispatch face's matching;
+	// filter is the 关系×联系面 intersection. Both optional: a nil
+	// delivery (or filter) leaves the dispatch endpoint unable to
+	// compose and the face stays closed.
+	delivery *audience.DeliveryPolicy
+	filter   *audience.Filter
 }
 
 // Config is the server configuration
@@ -101,6 +107,10 @@ type Config struct {
 	// Apps seeds the §13.1 集成者接入面 (namespaced app tokens with
 	// 分级权限). nil keeps every /api/v1/apps/** endpoint 404.
 	Apps *apps.Registry
+	// Filter is the 关系矩阵×联系面绑定 intersection for the §13.3
+	// dispatch face's three-way channel match. nil keeps dispatch's
+	// relation half open (matching then keys on intensity only).
+	Filter *audience.Filter
 }
 
 // NewServer creates a new server
@@ -198,8 +208,14 @@ func NewServer(config *Config) *Server {
 		handler:         handler,
 		auth:            config.Auth,
 		apps:            config.Apps,
+		delivery:        config.Delivery,
+		filter:          config.Filter,
 		notificationSvc: notificationSvc,
 	}
+	// §13.3 dispatch face candidate resolution rides the process-wide
+	// contact-surface table (the same registry heraldd seeds for feeds
+	// and sources); nil keeps dispatch on reference expansion alone.
+	notificationSvc.SetSurfaces(config.FeedSurfaces)
 
 	mux := http.NewServeMux()
 
@@ -264,6 +280,9 @@ func NewServer(config *Config) *Server {
 	// bindings; rendering stays inside the namespace.
 	mux.HandleFunc("/api/v1/apps/{app}/templates", s.handleAppTemplates)
 	mux.HandleFunc("/api/v1/apps/{app}/templates/{id}", s.handleAppTemplateByID)
+	// §13.3 触发面: the namespaced dispatch with full policy semantics —
+	// /notify stays the anonymous-compatible face.
+	mux.HandleFunc("/api/v1/apps/{app}/dispatch", s.handleAppDispatch)
 
 	// §8 source entries: platform-vouched callbacks authenticate with
 	// their shared secrets, the in-app checkbox face sits behind the

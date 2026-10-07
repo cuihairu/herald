@@ -496,6 +496,7 @@ func serveCmd(args []string) int {
 		FeedRelations:   relations,
 		Sources:         sourceAdapter,
 		Delivery:        deliveryPolicy,
+		Filter:          audience.NewFilter(relations, surfaces),
 		Apps:            appRegistry,
 		SourceSurfaces:  surfaces,
 		SourceBot: api.BotSourceConfig{

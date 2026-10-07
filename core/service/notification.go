@@ -116,6 +116,11 @@ type NotificationService struct {
 	groups      GroupResolver
 	users       UserResolver
 	channels    ChannelResolver
+	// surfaces is the 联系面 registry for the §13.3 dispatch face: a
+	// dispatch resolves candidates from the audience's active surfaces
+	// first, falling back to reference expansion for zero-surface
+	// audiences. nil keeps dispatch purely on expansion.
+	surfaces *audience.SurfaceRegistry
 }
 
 // NewNotificationService creates a new NotificationService. The dedup
@@ -216,6 +221,12 @@ func (s *NotificationService) SetUserResolver(ur UserResolver) {
 // fails at delivery time exactly as before.
 func (s *NotificationService) SetChannelResolver(cr ChannelResolver) {
 	s.channels = cr
+}
+
+// SetSurfaces wires the contact-surface registry for the app dispatch
+// face's candidate resolution.
+func (s *NotificationService) SetSurfaces(sr *audience.SurfaceRegistry) {
+	s.surfaces = sr
 }
 
 // Process processes a Notification, generates DeliveryTasks, and enqueues them.
@@ -568,6 +579,15 @@ func (s *NotificationService) enqueue(ctx context.Context, n *core.Notification,
 	// is only touched by the execution half.
 	targets, failed := s.expandRefs(channels)
 	result.Failed = append(result.Failed, failed...)
+	s.deliverTargets(ctx, n, targets, renderedData, result)
+}
+
+// deliverTargets is the execution half of the pipeline shared by every
+// delivery path: rss-class channels project into the feed store instead
+// of a provider task, everything else plans and pushes. Callers hand in
+// already-expanded targets — enqueue expands references first; the app
+// dispatch face resolves them from contact surfaces.
+func (s *NotificationService) deliverTargets(ctx context.Context, n *core.Notification, targets []deliveryTarget, renderedData *template.RenderedData, result *ProcessResult) {
 	projected := false
 	for _, dt := range targets {
 		if s.feeds != nil && audience.ClassifyChannel(dt.channel) == audience.ChannelRSS {
