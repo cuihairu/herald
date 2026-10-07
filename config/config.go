@@ -16,6 +16,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DeliveryConfig overrides the §6 taxonomy tables (品类→紧急度,
+// 渠道→强度, 品类→投递模式). The defaults already cover the documented
+// categories; these maps exist so an operator can re-grade a category or
+// demote/promote a channel without a code change. An unparseable value
+// refuses to start (validated where the policy is built), never a
+// silent clamp.
+type DeliveryConfig struct {
+	// CategoryUrgency maps a category to routine|normal|urgent|critical.
+	CategoryUrgency map[string]string `yaml:"category_urgency"`
+	// ChannelIntensity maps a channel name to L0..L5.
+	ChannelIntensity map[string]string `yaml:"channel_intensity"`
+	// CategoryMode maps a category to fixed|escalation|parallel.
+	CategoryMode map[string]string `yaml:"category_mode"`
+	// AllowPhone lifts the §6.2 电话默认禁用 gate: channels whose
+	// effective intensity is L5 stay refused until this is set — the
+	// 配置同意 half of the 配置+受众双重同意 rule (the audience half is
+	// binding a phone contact surface at all).
+	AllowPhone bool `yaml:"allow_phone"`
+}
+
 // Config is the herald configuration
 type Config struct {
 	Server    ServerConfig              `yaml:"server"`
@@ -44,6 +64,10 @@ type Config struct {
 	// own cadence. Disabled (the zero value) keeps the feed endpoints off
 	// and the rss channel behaving as an unknown provider.
 	Feeds FeedsConfig `yaml:"feeds"`
+	// Delivery configures the §6 强度×紧急度×模式策略件 (batch 9 scaffolding):
+	// category→urgency, channel→intensity, category→mode override tables.
+	// Invalid values refuse to start; missing tables fall back to taxonomy defaults.
+	Delivery DeliveryConfig `yaml:"delivery"`
 	// Sources configures the §8 来源适配器 (关系详设): the platform entry
 	// points that converge follow/unfollow/check actions onto the
 	// registries. Disabled (the zero value) keeps every source endpoint

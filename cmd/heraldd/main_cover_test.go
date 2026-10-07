@@ -82,6 +82,9 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// both startup errors — the sweep must not half-start.
 		"source reconcile probe invalid":     "sources:\n  enabled: true\n  reconcile:\n    enabled: true\nproviders:\n  bot:\n    type: telegram\n    config: {}\n",
 		"source reconcile redis unreachable": "sources:\n  enabled: true\n  reconcile:\n    enabled: true\ndigest:\n  redis_addr: 127.0.0.1:1\n",
+		// §6: an unparseable taxonomy override refuses to start where the
+		// policy is built, never a silent re-grade.
+		"delivery urgency invalid": "delivery:\n  category_urgency:\n    alerts: hourly\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {

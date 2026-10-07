@@ -24,7 +24,7 @@
 
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:49` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
 
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:422` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）。行号 2026-10-07 随批次 10 配置透传 hunk 下移 4 行（原 418）
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:434` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）。行号 2026-10-07 随批次 10 配置透传 hunk 下移 4 行（原 418），同日批次 9 的投递策略构建块再下移 12 行（现 434，合计自 418）
 
 > 本文件曾登记 `serveCmd`/`workerCmd` 两个注册循环里的 `manager.RegisterProvider` 重复名守卫（原 `main.go:130`、`main.go:381`）——按结构不可达（factories 与 providers 分属两个 map、`cfg.Providers` 键唯一）。2026-10-01 按 `writeControl` 先例提为包级 seam `registerProvider`，由 `TestDuplicateNameGuardAbortsRegistration` 注入失败实测两处 return 1 分支（均在绑端口/起 worker 前退出），已移出台账。
 

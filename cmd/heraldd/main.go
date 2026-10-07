@@ -379,6 +379,18 @@ func serveCmd(args []string) int {
 		}
 	}
 
+	// §6 strategy件: category urgency/mode and channel intensity
+	// overrides on taxonomy defaults. An unparseable override refuses
+	// to start rather than silently re-grading a channel. The policy
+	// rides into api.Config for the trigger face; the direct /notify
+	// path carries no category dimension yet, so matching is not
+	// enforced on that path until the expandRef 触发面 (批次 11).
+	deliveryPolicy, err := audience.NewDeliveryPolicy(cfg.Delivery.CategoryUrgency, cfg.Delivery.ChannelIntensity, cfg.Delivery.CategoryMode, cfg.Delivery.AllowPhone)
+	if err != nil {
+		logger.Error("invalid delivery policy", "error", err)
+		return 1
+	}
+
 	// 来源适配器 (关系详设 §8): platform entries converge external
 	// follow/unfollow/check actions onto the registries above. The bot
 	// and MP endpoints open only when their secret/token is configured —
@@ -472,6 +484,7 @@ func serveCmd(args []string) int {
 		FeedSurfaces:    surfaces,
 		FeedRelations:   relations,
 		Sources:         sourceAdapter,
+		Delivery:        deliveryPolicy,
 		SourceSurfaces:  surfaces,
 		SourceBot: api.BotSourceConfig{
 			Secret:   cfg.Sources.Bot.Secret,
