@@ -12,6 +12,7 @@ import (
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
+	"github.com/cuihairu/herald/core/template"
 )
 
 // The §13.1 集成者接入面. App routes authenticate with the namespace's
@@ -280,4 +281,69 @@ func (s *Server) handleAppPoliciesEscalation(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleAppPoliciesDedup(w http.ResponseWriter, r *http.Request) {
 	s.putAppPolicies(w, r, dedupFamily)
+}
+
+// handleAppTemplates is the §13.2 模板注册 face. POST upserts (config
+// power) with the manager's validation refusing bad templates; GET
+// lists the namespace's templates (query power). Rendering goes through
+// the namespace's own manager — global templates are invisible here.
+func (s *Server) handleAppTemplates(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		if !s.withAppScope(w, r, apps.ScopeConfig) {
+			return
+		}
+		var tmpl template.Template
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&tmpl); err != nil {
+			s.handler.respondError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+		// withAppScope already proved the namespace exists (no API
+		// removes one), so the manager lookup cannot refuse.
+		mgr, _ := s.apps.Templates(r.PathValue("app"))
+		if err := mgr.Register(&tmpl); err != nil {
+			s.handler.respondError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: tmpl})
+	case http.MethodGet:
+		if !s.withAppScope(w, r, apps.ScopeQuery) {
+			return
+		}
+		// Auth proved the namespace exists; the manager's List always
+		// answers a non-nil slice, so a fresh namespace marshals [] not null.
+		list, _ := s.apps.ListTemplates(r.PathValue("app"))
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: list})
+	default:
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleAppTemplateByID reads or removes one namespace template.
+func (s *Server) handleAppTemplateByID(w http.ResponseWriter, r *http.Request) {
+	app := r.PathValue("app")
+	id := r.PathValue("id")
+	switch r.Method {
+	case http.MethodGet:
+		if !s.withAppScope(w, r, apps.ScopeQuery) {
+			return
+		}
+		tmpl, err := s.apps.GetTemplate(app, id)
+		if err != nil {
+			s.handler.respondError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: tmpl})
+	case http.MethodDelete:
+		if !s.withAppScope(w, r, apps.ScopeConfig) {
+			return
+		}
+		if err := s.apps.DeleteTemplate(app, id); err != nil {
+			s.handler.respondError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		s.handler.respondJSON(w, &Response{Code: 0, Message: "deleted"})
+	default:
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }

@@ -260,6 +260,10 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/apps/{app}/policies/delivery-mode", s.handleAppPoliciesMode)
 	mux.HandleFunc("/api/v1/apps/{app}/policies/escalation", s.handleAppPoliciesEscalation)
 	mux.HandleFunc("/api/v1/apps/{app}/policies/dedup", s.handleAppPoliciesDedup)
+	// §13.2 模板注册: namespace-scoped templates with per-channel
+	// bindings; rendering stays inside the namespace.
+	mux.HandleFunc("/api/v1/apps/{app}/templates", s.handleAppTemplates)
+	mux.HandleFunc("/api/v1/apps/{app}/templates/{id}", s.handleAppTemplateByID)
 
 	// §8 source entries: platform-vouched callbacks authenticate with
 	// their shared secrets, the in-app checkbox face sits behind the

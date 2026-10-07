@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/cuihairu/herald/core/audience"
+	"github.com/cuihairu/herald/core/template"
 )
 
 // Scope is one app-token permission class (§13.1: 配置权/触发权/查询权).
@@ -106,6 +107,7 @@ type App struct {
 	tokens     []Token
 	categories map[string]Category
 	policies   AppPolicies
+	templates  *template.Manager
 }
 
 // ScopesFor resolves a bearer secret to the permission set it holds in

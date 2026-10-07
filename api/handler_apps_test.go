@@ -343,3 +343,121 @@ func TestAppPolicies(t *testing.T) {
 		}
 	})
 }
+
+// validTemplateJSON is the §13.2 body shape: id/title/name plus typed
+// fields; bindings ride along per channel when present.
+const validTemplateJSON = `{
+	"id": "node_down",
+	"name": "节点下线",
+	"title": "节点 {{host}} 下线",
+	"level": "error",
+	"fields": [{"label": "主机", "value": "{{host}}", "type": "string"}]
+}`
+
+func TestAppTemplates(t *testing.T) {
+	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+	bearer := map[string]string{"Authorization": "Bearer ferry-full"}
+
+	// Empty list first — a fresh namespace answers [], not null.
+	code, body := e.do(t, "GET", "/api/v1/apps/ferry/templates", "", bearer)
+	if code != 200 {
+		t.Fatalf("empty list: got %d", code)
+	}
+	if got, _ := body["data"].([]any); got == nil || len(got) != 0 {
+		t.Fatalf("empty list: want [], got %v", body["data"])
+	}
+
+	// GET is query power: trigger-only and config-only tokens lack it.
+	for _, secret := range []string{"ferry-trigger", "ferry-config"} {
+		code, _ := e.do(t, "GET", "/api/v1/apps/ferry/templates", "", map[string]string{"Authorization": "Bearer " + secret})
+		if code != 403 {
+			t.Fatalf("GET with %s: want 403, got %d", secret, code)
+		}
+	}
+	// POST is config power: the trigger-only token lacks it.
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", validTemplateJSON, map[string]string{"Authorization": "Bearer ferry-trigger"})
+	if code != 403 {
+		t.Fatalf("POST with trigger token: want 403, got %d", code)
+	}
+
+	// Bad JSON and an invalid template refuse.
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", "{not json", bearer)
+	if code != 400 {
+		t.Fatalf("bad JSON: want 400, got %d", code)
+	}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", `{"id":"x","name":"y"}`, bearer)
+	if code != 422 {
+		t.Fatalf("template missing title: want 422, got %d", code)
+	}
+
+	// Register, re-confirm (idempotent upsert), list, read one.
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", validTemplateJSON, bearer)
+	if code != 200 {
+		t.Fatalf("register: got %d", code)
+	}
+	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", validTemplateJSON, bearer)
+	if code != 200 {
+		t.Fatalf("re-confirm: got %d", code)
+	}
+	code, body = e.do(t, "GET", "/api/v1/apps/ferry/templates", "", bearer)
+	if code != 200 {
+		t.Fatalf("list: got %d", code)
+	}
+	if got, _ := body["data"].([]any); len(got) != 1 {
+		t.Fatalf("list: want 1 template, got %v", body["data"])
+	}
+	code, body = e.do(t, "GET", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	if code != 200 {
+		t.Fatalf("get: got %d", code)
+	}
+	if data, _ := body["data"].(map[string]any); data["title"] != "节点 {{host}} 下线" {
+		t.Fatalf("get: want round-tripped title, got %v", body["data"])
+	}
+	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/templates/ghost", "", bearer)
+	if code != 404 {
+		t.Fatalf("get ghost: want 404, got %d", code)
+	}
+
+	// DELETE is config power.
+	code, _ = e.do(t, "DELETE", "/api/v1/apps/ferry/templates/node_down", "", map[string]string{"Authorization": "Bearer ferry-trigger"})
+	if code != 403 {
+		t.Fatalf("DELETE with trigger token: want 403, got %d", code)
+	}
+	code, _ = e.do(t, "DELETE", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	if code != 200 {
+		t.Fatalf("delete: got %d", code)
+	}
+	code, _ = e.do(t, "DELETE", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	if code != 404 {
+		t.Fatalf("double delete: want 404, got %d", code)
+	}
+	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	if code != 404 {
+		t.Fatalf("get after delete: want 404, got %d", code)
+	}
+
+	// Method not allowed on both endpoints.
+	for _, path := range []string{"/api/v1/apps/ferry/templates", "/api/v1/apps/ferry/templates/node_down"} {
+		code, _ = e.do(t, "PUT", path, "{}", bearer)
+		if code != 405 {
+			t.Fatalf("PUT %s: want 405, got %d", path, code)
+		}
+	}
+}
+
+// TestAppTemplatesNilRegistry keeps the whole face closed when no
+// namespaces are configured.
+func TestAppTemplatesNilRegistry(t *testing.T) {
+	e := newTestEnv(t)
+	for _, tc := range []struct{ method, path string }{
+		{"GET", "/api/v1/apps/ferry/templates"},
+		{"POST", "/api/v1/apps/ferry/templates"},
+		{"GET", "/api/v1/apps/ferry/templates/x"},
+		{"DELETE", "/api/v1/apps/ferry/templates/x"},
+	} {
+		code, _ := e.do(t, tc.method, tc.path, "{}", map[string]string{"Authorization": "Bearer ferry-full"})
+		if code != 404 {
+			t.Fatalf("%s %s without registry: want 404, got %d", tc.method, tc.path, code)
+		}
+	}
+}
