@@ -27,7 +27,8 @@
 - [x] **4. 投递管道关系过滤** — `4b18b4a`：ChannelClass 四族分类（未知渠道名按 instant 严判，错判宁拒不放宽）；三行矩阵 MatrixAllows（订阅全开=RSS 唯一入口、必达拒 RSS、营销仅 email/app）；矩阵入 Enroll 门（违规组合拒绝入表）+ AllowsOn 发送前复核（覆盖外部种子）；Filter.Allow 四步交集（零联系面兼容放行→绑定交集 active→关系交集 fail-closed→矩阵复核）；expandRef 管道挂接随批次 11 触发面（现 /notify 无品类维度）
 - [x] **5. 投递审计补齐** — `de05e94`：core/audit 审计流水（Recorder 接口 + FIFO 上限 Store，订阅/指派/退订与绑定/换绑/失效六类事件，按关系类型与受众分读、时间序返回）；Registry/SurfaceRegistry.SetRecorder 挂钩，拒绝性写入不记流水；去重折叠明细 `delivery.deduped`（NotificationService.SetFoldAudit，Detail 带内容指纹，答「为什么这条没投」）；关系类型/入口来源快照进 Notification→DeliveryTask→TaskLog 全链（planner.Plan 传导）；发送侧关系上下文随批次 8/11 触发面填充
 - [x] **6. Digest 聚合器** — `3204e90`：core/digest 包（聚合键 受众×品类×Mode，ParseDaily/ParseWeekly 解析，窗口首事件开启、翻转取开窗后首个严格晚到的时刻——翻转瞬间事件归下窗；Due 只发非空批且必推进 flipAt，漏拍自愈）；Resolve 豁免裁决（实时偏好短路直投——宁直投勿扣留；daily 压 weekly 取更紧窗；none 的静默在投递侧执行；无受众/无渠道直投，nil prefs 落品类默认表）；FlushDigestBatch 摘要走全投递链（复用重试/审计，内置「今日/本周 N 条品类」，`digest:<品类>` 模板可换皮（count/items/audience/mode 参数，渲染失败显式报错不静默丢窗），空渠道回退静态路由）；FlipLoop 进程内定时器 + LeaderLock 租约（SET NX/PExpire 续约，redis 可选——无 redis_addr 单机直跑，多实例租约互斥）；heraldd 接线（默认 09:00 / Mon 09:00 / Asia/Shanghai / 1m tick / 60s lease，关闭先还租约；坏配置拒绝启动）
-- [ ] **7. RSS 拉式渠道** — 公共/私密 feed 生成、品类可见性校验（token 归属）、多地址容灾
+- [x] **插批 A · 概念边界与分层审计**（2026-10-07 评审指令，批次 7 前置）— `docs/design-audience-boundaries.md`：五层地图（集成/受众与偏好/编排/投递运行时/provider）+ 八词裁决（受众/渠道/联系面/provider/偏好/投递模式/紧急度/侵扰度——消息侧与渠道侧不共侧，不合并）+ 评审七点回执；定位句三处加「编排」；投递方向（push/pull）入渠道属性、「RSS=拉式渠道」成文并避让已被占用的「投递模式」词；幂等/折叠/频控/聚合四道闸措辞收紧；受众层实体七件封顶红线（不再新增同位实体）；Redis 可选核实批次 6 落地即合规
+- [ ] **7. RSS 拉式渠道** — 公共/私密 feed 生成、品类可见性校验（token 归属）、多地址容灾（按边界审计 §4 口径：拉式渠道，非 provider）
 - [ ] **8. 来源适配器** — bot /start /stop、公众号关注/取关事件、应用内勾选 API、取关回流全停、外部状态定期对账
 - [ ] **9. 渠道强度与投递模式** — Intensity/Urgency 枚举、品类→紧急度映射、三方交集匹配策略件、三模式执行器（升级链/固定单渠道/多渠道并行）、升级链 ack 应答即停
 - [ ] **10. 去重与频控** — event_id 幂等、内容折叠（计数+原始事件保留）、状态机去重、三档频控（once/throttle/always）与品类默认档

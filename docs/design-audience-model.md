@@ -2,13 +2,14 @@
 
 > 状态：**现行模型**（2026-10-07 重写）。本文是 Herald 领域模型的唯一总纲：术语、边界、
 > 受众层扩展全貌。关系的逐项详设（流程图 / 矩阵 / 参数表）在
-> [受众订阅与投递中枢](./design-audience-relations)（下称「关系详设」）；Phase 0-9
-> 管道改造的执行历史在[现状审计](./design-audience-audit)（存档）。
+> [受众订阅与投递中枢](./design-audience-relations)（下称「关系详设」）；
+> 概念分层与职责边界的裁决在[概念边界与分层审计](./design-audience-boundaries)；
+> Phase 0-9 管道改造的执行历史在[现状审计](./design-audience-audit)（存档）。
 > 铁律：方案变了先改本文——代码与本文不一致时，以本文为口径提批修正。
 
 ## 1. 定位
 
-Herald 的基础面是通知投递管道：业务只描述「发生了什么、通知什么、通知谁」，渠道路由、队列、重试、状态全部由 Herald 收口。这一面已经落地（见[现状审计](./design-audience-audit)）。
+Herald 是**轻量的通知编排与投递基础设施**。它决定的不只是「发出去」：谁、什么时候、通过什么渠道、以什么强度、是否聚合、是否过滤、是否升级、是否去重——这些编排决策由 Herald 收口，投递管道（Phase 0-9 已落地）是这一面的地基（见[现状审计](./design-audience-audit)）。
 
 在此之上，Herald 的定位是**统一订阅与投递中枢**：从「应用主动推送」补全为「**被通知者做主**」。应用（ferry、sinomed 等）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定，而不是由调用方写死。
 
@@ -34,7 +35,7 @@ Herald 的基础面是通知投递管道：业务只描述「发生了什么、�
 | 策略位 | `Policy`（`AllowUnsubscribe` / `MustDeliver`） | 挂在关系上的权利位：退订权、必达标记 |
 | 入口来源 | `Source`（`bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`） | 关系与绑定经由哪个入口适配器进来，审计按此记 |
 | 品类 | category | 业务通知的分类维度（告警 / 账单 / 域名 / 公告 / 系统 / 营销），关系的分类轴 |
-| 渠道 | channel | 触达手段（telegram / email / 站内信 / RSS / 短信 / 电话），带侵扰度与实时性两个属性 |
+| 渠道 | channel | 触达手段（telegram / email / 站内信 / RSS / 短信 / 电话），带侵扰度、实时性、投递方向（push/pull）三个属性。渠道≠provider：渠道经渠道块展开为 provider 实例，同一渠道可换实现（email→smtp 或 resend） |
 | 渠道块 | `channels` 配置块 | 命名渠道 → provider 实例集合的静态展开（既有投递配置；与品类维度正交，见 §6） |
 | 偏好 | `Preference` | 订阅关系上的品类×渠道×频率三元组选择 |
 | 聚合 | `Digest` | 按受众+品类+时间窗把多条事件收成一条摘要 |

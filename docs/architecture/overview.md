@@ -6,7 +6,7 @@ Herald 是一个：
 
 > **轻量、Provider 无关的统一订阅与投递中枢**（Lightweight, Provider-agnostic Subscription & Delivery Hub）
 
-为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知路由、受众管理与多渠道可靠投递能力；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定。事件驱动（Event-driven Delivery Infrastructure）是其工作方式，Provider 无关是其边界承诺。
+为业务系统、运维、CI/CD、Agent 和自动化任务提供统一的通知编排、受众管理与多渠道可靠投递能力；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定。轻量编排（Lightweight Notification Orchestration & Delivery）是其工作方式，Provider 无关是其边界承诺。概念分层与术语边界见[概念边界与分层审计](../design-audience-boundaries)。
 
 **核心流程：**
 
