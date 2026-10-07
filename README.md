@@ -3,7 +3,7 @@
 
   # Herald
 
-  **Event-driven Delivery Infrastructure**
+  **Lightweight Notification Orchestration & Delivery Infrastructure**
 
   [![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE)
@@ -11,7 +11,7 @@
   [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md)
 </div>
 
-Herald 是一个事件驱动的通知投递基础设施。
+Herald 是一个轻量的通知编排与投递基础设施：业务只描述「发生了什么、通知什么」，谁、什么时候、通过什么渠道、以什么强度收到、是否聚合、是否过滤、是否升级，由 Herald 编排收口；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系与偏好决定，而不是由调用方写死。
 
 ## 两种使用形态
 
@@ -47,12 +47,15 @@ app.Dispatch(ctx, &core.Notification{
 
 ## 特性
 
+- **统一订阅与投递中枢** - 受众是唯一跨系统身份（应用只持 `user:<id>`/`group:<id>`，不碰渠道凭据）；订阅/指派两类关系承载退订权与必达底线，取关即全停
+- **联系面绑定** - 受众在运行时绑定可达渠道（TG chat、邮箱、公众号、RSS token），deep-link 一次性 token 换绑，失效即停投
+- **偏好中心** - 品类×渠道×频率三元组（实时/每日/每周/不收），品类默认策略表打底；营销默认每周汇总，告警可降频不可静默
+- **关系过滤** - 渠道×关系矩阵（订阅全开、必达拒拉式、营销限邮件/站内信）+ 发送前四步交集复核，交集为空不投并审计
+- **投递编排** - 表达式规则引擎（shadow 先观察后生效，for/group_by/inhibit/silence/escalation）、Digest 时间窗聚合（每日/每周摘要、实时豁免、可选 redis 租约选主）、内容折叠去重与请求幂等
+- **投递审计** - 关系/联系面变更流水、去重折叠明细（为什么这条没投）、关系类型与入口来源快照进任务与日志
 - **HTTP First** - curl 友好，REST API，无 SDK 依赖
 - **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
 - **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
-- **Rule Engine** - 表达式规则决定放行/抑制/改道，优先级 + 默认策略，shadow 模式先观察后生效，支持 for 持续判定、group_by 聚合、inhibit 抑制、silence 静默与 escalation 升级
-- **Notification Groups** - 命名受众：任何渠道位可写 `group:<id>`，投递时展开成成员渠道（含收件人钉选），API 热更新花名册
-- **Audience Model** - 受众与渠道解耦：配置化 `user:<id>` 受众（`audiences`/`recipients` 表）、`channels` 渠道块、notify 的 `audience` 字段与 `idempotency_key` 幂等键
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
 - **Multi-channel** - 统一接口对接 18 个内置通知渠道
 - **Dashboard** - Web 管理界面
@@ -170,33 +173,39 @@ curl http://localhost:8080/api/v1/providers
 graph TB
     Client["External Client<br/>curl / CI/CD / SDK"]
 
-    subgraph Scheduler["Herald Scheduler"]
-        API["HTTP API<br/>(路由 + 模板渲染)"]
+    subgraph Orchestration["编排层"]
+        API["HTTP API<br/>(规则 + 模板渲染)"]
+        Filter["受众层：关系过滤<br/>订阅/指派 × 渠道矩阵"]
+        Fold["去重/频控 · 投递模式"]
     end
+
+    Digest["Digest 时间窗聚合<br/>(旁路：实时豁免不入窗)"]
 
     Queue["Queue<br/>memory / redis"]
 
     subgraph Workers["Worker Pool"]
         W1["Worker<br/>mode: local"]
-        W2["Worker<br/>mode: local"]
         W3["Worker<br/>mode: remote"]
     end
 
     subgraph Providers
         P1["Telegram / Email"]
-        P2["Feishu / Slack"]
         P3["WeChat MP / ..."]
     end
 
     Client -->|POST /api/v1/notify| API
-    API -->|Push| Queue
+    API --> Filter
+    Filter --> Fold
+    Fold -.->|"低频偏好事件入窗"| Digest
+    Digest -.->|"窗口到点，摘要走同一管道"| Queue
+    Fold -->|"展开成投递任务"| Queue
     Queue -->|Pop + Ack/Nack| W1
-    Queue -->|Pop + Ack/Nack| W2
     Queue -->|Pop + Ack/Nack| W3
     W1 --> P1
-    W2 --> P2
     W3 --> P3
 ```
+
+关系过滤的交集为空时不投，原因写入投递审计；命令与部署形态不变：
 
 | 命令 | 模式 | 说明 |
 |------|------|------|
@@ -275,14 +284,23 @@ routes:
 #       - channel: feishu
 #         recipients: ["@zhang"]
 #       - channel: sms-duty
+
+# Digest 时间窗聚合（可选）：低频偏好事件按 受众×品类 收成每日/每周摘要
+# digest:
+#   enabled: true
+#   daily: "09:00"                 # 每日翻转时刻（默认 09:00）
+#   weekly: "Mon 09:00"            # 每周翻转时刻（默认 Mon 09:00）
+#   location: Asia/Shanghai        # 翻转时刻时区（默认 Asia/Shanghai）
+#   redis_addr: "localhost:6379"   # 可选：多实例租约选主；不配则单机进程内定时器直跑
 ```
 
 ## 文档
 
 完整文档请访问 [docs/](./docs/)
 
-- [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、队列、Provider 全量配置项）
+- [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、受众与联系面、Digest、队列、Provider 全量配置项）
 - [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / Email / Webhook / SMS / Log）
+- [受众领域模型（总纲）](./docs/design-audience-model.md) · [受众订阅与投递中枢（关系详设）](./docs/design-audience-relations.md) · [概念边界与分层审计](./docs/design-audience-boundaries.md)
 - [规则引擎决策层设计](./docs/design-rule-engine.md) · [通知群组设计](./docs/design-notification-groups.md)
 
 ## 开发
