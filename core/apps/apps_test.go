@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/cuihairu/herald/core/audience"
 )
 
 func TestParseScope(t *testing.T) {
@@ -123,5 +125,73 @@ func TestEmptyRegistry(t *testing.T) {
 	}
 	if _, ok := r.Authenticate("ferry", "x"); ok {
 		t.Error("empty registry authenticated")
+	}
+}
+
+func TestRegisterCategory(t *testing.T) {
+	r, err := NewRegistry([]SeedApp{{Name: "ferry", Tokens: []SeedToken{
+		{Secret: "s", Scopes: []string{"config"}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterCategory("ferry", "alerts", "urgent"); err != nil {
+		t.Fatalf("RegisterCategory = %v, want nil", err)
+	}
+	// The §6 vocabulary's Chinese aliases store in canonical English.
+	if err := r.RegisterCategory("ferry", "marketing", "例行"); err != nil {
+		t.Fatalf("RegisterCategory(例行) = %v, want nil", err)
+	}
+	// Identical re-registration is idempotent.
+	if err := r.RegisterCategory("ferry", "alerts", "urgent"); err != nil {
+		t.Fatalf("idempotent re-register = %v, want nil", err)
+	}
+	// A conflicting default refuses.
+	if err := r.RegisterCategory("ferry", "alerts", "critical"); !errors.Is(err, ErrCategoryConflict) {
+		t.Errorf("conflicting re-register = %v, want ErrCategoryConflict", err)
+	}
+	if err := r.RegisterCategory("ghost", "alerts", "urgent"); !errors.Is(err, ErrUnknownApp) {
+		t.Errorf("unknown app = %v, want ErrUnknownApp", err)
+	}
+	if err := r.RegisterCategory("ferry", "bad name!", "urgent"); err == nil || !strings.Contains(err.Error(), "invalid category name") {
+		t.Errorf("bad name = %v, want name refusal", err)
+	}
+	err = r.RegisterCategory("ferry", "alerts", "hourly")
+	if err == nil || !errors.Is(err, audience.ErrInvalidUrgency) || !strings.Contains(err.Error(), "alerts") {
+		t.Errorf("bad urgency = %v, want ErrInvalidUrgency naming the category", err)
+	}
+	// critical round-trips through the canonical vocabulary too, and a
+	// normal category keeps the whole §6 vocabulary exercised here.
+	if err := r.RegisterCategory("ferry", "system", "关键"); err != nil {
+		t.Fatalf("RegisterCategory(关键) = %v, want nil", err)
+	}
+	if err := r.RegisterCategory("ferry", "notices", "一般"); err != nil {
+		t.Fatalf("RegisterCategory(一般) = %v, want nil", err)
+	}
+	if u, _ := r.CategoryUrgency("ferry", "notices"); u != "normal" {
+		t.Errorf("notices urgency = %q, want canonical normal", u)
+	}
+	if u, _ := r.CategoryUrgency("ferry", "system"); u != "critical" {
+		t.Errorf("system urgency = %q, want canonical critical", u)
+	}
+	if _, ok := r.CategoryUrgency("ghost", "alerts"); ok {
+		t.Error("unknown app resolved a category urgency")
+	}
+
+	cats, ok := r.Categories("ferry")
+	if !ok || len(cats) != 4 || cats[0].Name != "alerts" || cats[1].Name != "marketing" || cats[2].Name != "notices" || cats[3].Name != "system" {
+		t.Fatalf("Categories = %v/%v, want four categories sorted", cats, ok)
+	}
+	if cats[1].DefaultUrgency != "routine" {
+		t.Errorf("marketing urgency = %q, want canonical routine", cats[1].DefaultUrgency)
+	}
+	if u, ok := r.CategoryUrgency("ferry", "alerts"); !ok || u != "urgent" {
+		t.Errorf("CategoryUrgency(alerts) = %q/%v, want urgent", u, ok)
+	}
+	if _, ok := r.CategoryUrgency("ferry", "ghost"); ok {
+		t.Error("unknown category resolved")
+	}
+	if _, ok := r.Categories("ghost"); ok {
+		t.Error("unknown app listed")
 	}
 }

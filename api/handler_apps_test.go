@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cuihairu/herald/core/apps"
@@ -11,6 +12,7 @@ func seedAppsRegistry() *apps.Registry {
 		{Name: "ferry", Tokens: []apps.SeedToken{
 			{Secret: "ferry-full", Scopes: []string{"config", "trigger", "query"}},
 			{Secret: "ferry-trigger", Scopes: []string{"trigger"}},
+			{Secret: "ferry-config", Scopes: []string{"config"}},
 		}},
 	})
 	return r
@@ -86,6 +88,103 @@ func TestAppShowAuthZ(t *testing.T) {
 		code, _ := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"X-API-Key": "ferry-full"})
 		if code != 200 {
 			t.Fatalf("code = %d, want 200", code)
+		}
+	})
+}
+
+// TestAppCategories walks the §13.2 品类注册 face: scope enforcement on
+// both methods, body validation, idempotent re-registration, conflict
+// refusal and the sorted read-back.
+func TestAppCategoriesEmptyList(t *testing.T) {
+	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+	code, body := e.do(t, "GET", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-full"})
+	if code != 200 {
+		t.Fatalf("list = %d, want 200", code)
+	}
+	data, _ := body["data"].(map[string]any)
+	cats, _ := data["categories"].([]any)
+	if len(cats) != 0 {
+		t.Errorf("categories = %v, want empty before any registration", cats)
+	}
+}
+func TestAppCategories(t *testing.T) {
+	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+	post := func(t *testing.T, secret, body string) (int, map[string]any) {
+		t.Helper()
+		return e.do(t, "POST", "/api/v1/apps/ferry/categories", body, map[string]string{"Authorization": "Bearer " + secret})
+	}
+
+	t.Run("post needs config scope", func(t *testing.T) {
+		code, _ := post(t, "ferry-trigger", `{"name":"alerts","default_urgency":"urgent"}`)
+		if code != 403 {
+			t.Fatalf("code = %d, want 403", code)
+		}
+	})
+
+	t.Run("get needs query scope", func(t *testing.T) {
+		code, _ := e.do(t, "GET", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-config"})
+		if code != 403 {
+			t.Fatalf("code = %d, want 403", code)
+		}
+	})
+
+	t.Run("broken json is 400", func(t *testing.T) {
+		code, _ := post(t, "ferry-full", `{oops`)
+		if code != 400 {
+			t.Fatalf("code = %d, want 400", code)
+		}
+	})
+
+	t.Run("missing fields are 422", func(t *testing.T) {
+		code, _ := post(t, "ferry-full", `{"name":"alerts"}`)
+		if code != 422 {
+			t.Fatalf("code = %d, want 422", code)
+		}
+	})
+
+	t.Run("unknown urgency is 422 naming the category", func(t *testing.T) {
+		code, body := post(t, "ferry-full", `{"name":"alerts","default_urgency":"hourly"}`)
+		if code != 422 {
+			t.Fatalf("code = %d, want 422", code)
+		}
+		if msg, _ := body["message"].(string); !strings.Contains(msg, "alerts") {
+			t.Errorf("message = %q, want the category named", msg)
+		}
+	})
+
+	t.Run("register, re-confirm, conflict, list", func(t *testing.T) {
+		code, _ := post(t, "ferry-full", `{"name":"alerts","default_urgency":"urgent"}`)
+		if code != 200 {
+			t.Fatalf("create = %d, want 200", code)
+		}
+		code, _ = post(t, "ferry-full", `{"name":"alerts","default_urgency":"urgent"}`)
+		if code != 200 {
+			t.Fatalf("idempotent re-register = %d, want 200", code)
+		}
+		code, _ = post(t, "ferry-full", `{"name":"alerts","default_urgency":"critical"}`)
+		if code != 409 {
+			t.Fatalf("conflict = %d, want 409", code)
+		}
+		post(t, "ferry-full", `{"name":"billing","default_urgency":"normal"}`)
+		code, body := e.do(t, "GET", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		if code != 200 {
+			t.Fatalf("list = %d, want 200", code)
+		}
+		data, _ := body["data"].(map[string]any)
+		cats, _ := data["categories"].([]any)
+		if len(cats) != 2 {
+			t.Fatalf("categories = %v, want two", cats)
+		}
+		first, _ := cats[0].(map[string]any)
+		if first["name"] != "alerts" || first["default_urgency"] != "urgent" {
+			t.Errorf("first = %v, want alerts/urgent (sorted)", first)
+		}
+	})
+
+	t.Run("other methods are 405", func(t *testing.T) {
+		code, _ := e.do(t, "DELETE", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		if code != 405 {
+			t.Fatalf("code = %d, want 405", code)
 		}
 	})
 }

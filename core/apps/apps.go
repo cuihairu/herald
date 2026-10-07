@@ -7,9 +7,12 @@ package apps
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"sync"
+
+	"github.com/cuihairu/herald/core/audience"
 )
 
 // Scope is one app-token permission class (§13.1: 配置权/触发权/查询权).
@@ -25,6 +28,10 @@ const (
 // ErrInvalidScope is returned for any token scope outside the three
 // permission classes. Refuse, never clamp.
 var ErrInvalidScope = errors.New("invalid app scope")
+
+// ErrUnknownApp is returned when an action names a namespace that is
+// not registered.
+var ErrUnknownApp = errors.New("unknown app")
 
 // ParseScope parses a scope string; unparseable values refuse (the
 // caller turns that into a config or request rejection).
@@ -95,8 +102,9 @@ type Token struct {
 // registers (categories, templates, policies — later increments), and
 // its tokens are the only keys that act inside it.
 type App struct {
-	Name   string
-	tokens []Token
+	Name       string
+	tokens     []Token
+	categories map[string]Category
 }
 
 // ScopesFor resolves a bearer secret to the permission set it holds in
@@ -189,4 +197,94 @@ func (r *Registry) Authenticate(app, secret string) (Scopes, bool) {
 		return nil, false
 	}
 	return a.ScopesFor(secret)
+}
+
+// Category is one app-scoped message category (§13.2 品类注册): the
+// dispatch face's taxonomy key plus its default urgency — the §6.2
+// 品类→紧急度 mapping's source of truth inside the namespace. Two apps
+// registering the same name stay strangers: isolation is the point of
+// the namespace.
+type Category struct {
+	Name           string `json:"name"`
+	DefaultUrgency string `json:"default_urgency"`
+}
+
+// ErrCategoryConflict is returned when a category re-registers with a
+// different default urgency; an identical re-registration is idempotent.
+var ErrCategoryConflict = errors.New("category already registered with a different default urgency")
+
+// RegisterCategory validates and stores one category. The name shares
+// the app-name charset (it rides in URLs and table keys), the urgency
+// must parse in the §6 vocabulary; both refuse, never clamp.
+func (r *Registry) RegisterCategory(app, name, defaultUrgency string) error {
+	if !appPattern.MatchString(name) {
+		return errors.New("invalid category name: " + name)
+	}
+	urgency, err := audience.ParseUrgency(defaultUrgency)
+	if err != nil {
+		return fmt.Errorf("category %s: %w", name, err)
+	}
+	canonical := categoryUrgencyName(urgency)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a, ok := r.apps[app]
+	if !ok {
+		return ErrUnknownApp
+	}
+	if a.categories == nil {
+		a.categories = make(map[string]Category)
+	}
+	if prev, ok := a.categories[name]; ok {
+		if prev.DefaultUrgency != canonical {
+			return ErrCategoryConflict
+		}
+		return nil
+	}
+	a.categories[name] = Category{Name: name, DefaultUrgency: canonical}
+	return nil
+}
+
+// Categories lists the namespace's categories in stable name order.
+// Unknown apps answer false.
+func (r *Registry) Categories(app string) ([]Category, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.apps[app]
+	if !ok {
+		return nil, false
+	}
+	out := make([]Category, 0, len(a.categories))
+	for _, c := range a.categories {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, true
+}
+
+// CategoryUrgency resolves a namespace category's default urgency in
+// canonical English vocabulary; unknown categories answer false (the
+// dispatch face decides its own fallback).
+func (r *Registry) CategoryUrgency(app, name string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.apps[app]
+	if !ok {
+		return "", false
+	}
+	c, ok := a.categories[name]
+	return c.DefaultUrgency, ok
+}
+
+func categoryUrgencyName(u audience.Urgency) string {
+	switch u {
+	case audience.UrgencyRoutine:
+		return "routine"
+	case audience.UrgencyNormal:
+		return "normal"
+	case audience.UrgencyUrgent:
+		return "urgent"
+	default:
+		return "critical"
+	}
 }
