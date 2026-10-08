@@ -1,6 +1,6 @@
 # 应用接入（集成者 API）
 
-这一页回答「**我的应用怎么把 Herald 当投递中枢用**」。面向集成方（ferry、sinomed 这类业务系统）：不进管理界面、不发匿名 `/notify`，用自己的命名空间完成**配品类 → 绑受众 → 触发 → 查状态**全流程，凭证、品类、模板、策略与别的应用互相隔离。
+这一页回答「**我的应用怎么把 Herald 当投递中枢用**」。面向业务系统集成方：不进管理界面、不发匿名 `/notify`，用自己的命名空间完成**配品类 → 绑受众 → 触发 → 查状态**全流程，凭证、品类、模板、策略与别的应用互相隔离。
 
 > 应用侧模型（订阅/指派、联系面、受众）见[关系详设](/design-audience-relations)。本页只讲接入动作。
 
@@ -10,13 +10,13 @@ app 在 heraldd 的配置文件里播种（谁有配置权，谁决定谁能接�
 
 ```yaml
 apps:
-  ferry:
+  demo-app:
     tokens:
-      - secret: "$FERRY_CONFIG_TOKEN"
+      - secret: "$DEMO_CONFIG_TOKEN"
         scopes: [config]
-      - secret: "$FERRY_TRIGGER_TOKEN"
+      - secret: "$DEMO_TRIGGER_TOKEN"
         scopes: [trigger]
-      - secret: "$FERRY_QUERY_TOKEN"
+      - secret: "$DEMO_QUERY_TOKEN"
         scopes: [query]
 ```
 
@@ -29,12 +29,12 @@ apps:
 品类是触发面的分类键，默认紧急度决定没带 `urgency` 的触发按哪档窗口匹配渠道：
 
 ```bash
-curl -X POST http://herald:8080/api/v1/apps/ferry/categories \
-  -H "Authorization: Bearer $FERRY_CONFIG_TOKEN" \
+curl -X POST http://herald:8080/api/v1/apps/demo-app/categories \
+  -H "Authorization: Bearer $DEMO_CONFIG_TOKEN" \
   -d '{"name":"alerts","default_urgency":"urgent"}'
 ```
 
-同名品类各 app 互相隔离——ferry 注册的「alerts」与 sinomed 的「alerts」互不可见。同默认值重复注册幂等，改默认值是冲突（422）。
+同名品类各 app 互相隔离——demo-app 注册的「alerts」与另一应用的「alerts」互不可见。同默认值重复注册幂等，改默认值是冲突（422）。
 
 ## 3. 绑受众：订阅与联系面
 
@@ -42,15 +42,15 @@ curl -X POST http://herald:8080/api/v1/apps/ferry/categories \
 
 - **受众自助/偏好中心**：`POST /api/v1/audiences/{id}/subscriptions`（订阅）与对应的退订；
 - **平台入口收敛**：bot `/start`、公众号关注等由来源适配器落到同一张关系表；
-- **管理侧代绑定**：`POST /api/v1/audiences/{id}/surfaces`（`{channel, target, categories?}`，绑联系面并可顺带落默认订阅；`DELETE ?channel=` 解绑）——用户联系信息在整合方自己库里的（ferry 是首个对接方）走这里，审计记入口 `admin`。
+- **管理侧代绑定**：`POST /api/v1/audiences/{id}/surfaces`（`{channel, target, categories?}`，绑联系面并可顺带落默认订阅；`DELETE ?channel=` 解绑）——用户联系信息在整合方自己库里的走这里，审计记入口 `admin`。
 
 应用侧查询某受众现有关系：`GET /api/v1/audiences/{id}/relations`。指派型（enrollment，被动指派、可含必达）走操作侧登记，触发时必须显式声明 `relation_type: "enrollment"`。受众 id 词汇不含 `:`（它保留给 `user:`/`group:` 引用前缀）——整合方的 ref 形目标（`user:5`）绑定时映射为受众 id `user.5`。
 
 ## 4. 触发：dispatch
 
 ```bash
-curl -X POST http://herald:8080/api/v1/apps/ferry/dispatch \
-  -H "Authorization: Bearer $FERRY_TRIGGER_TOKEN" \
+curl -X POST http://herald:8080/api/v1/apps/demo-app/dispatch \
+  -H "Authorization: Bearer $DEMO_TRIGGER_TOKEN" \
   -d '{
     "category": "alerts",
     "audiences": ["user:alice", "group:oncall"],
@@ -70,19 +70,19 @@ curl -X POST http://herald:8080/api/v1/apps/ferry/dispatch \
 
 app 域策略覆盖（渠道强度、投递模式、升级链参数、去重频控按品类）走 `PUT /api/v1/apps/{app}/policies/*` 四族端点。§5 渠道×关系矩阵是安全底线，**没有**应用级放宽覆盖。
 
-事件语义在自己词汇里的整合方（告警源：kind/severity/target + 自有事件主键）可以不走 dispatch 而走**事件接入适配面** `POST /api/v1/apps/{app}/events`：kind→品类（须已注册）、severity→紧急度（critical/warning/info → critical/urgent/normal）、target→受众（ref 形 `user:5` 映射为 `user.5`）、自有主键进 `event_id`——它既进 §11 幂等，也会在 §13.5 投递结果回调里**回带**，回执按它对回原始事件。ferry 的对接实录见[ferry 对接验证](/guide/ferry-integration)。
+事件语义在自己词汇里的整合方（告警源：kind/severity/target + 自有事件主键）可以不走 dispatch 而走**事件接入适配面** `POST /api/v1/apps/{app}/events`：kind→品类（须已注册）、severity→紧急度（critical/warning/info → critical/urgent/normal）、target→受众（ref 形 `user:5` 映射为 `user.5`）、自有主键进 `event_id`——它既进 §11 幂等，也会在 §13.5 投递结果回调里**回带**，回执按它对回原始事件。
 
 ## 5. 查状态：deliveries 与 audit
 
 ```bash
 # 这个 app 的投递记录（自动按命名空间隔离，只看得到自己触发的）
 # audience 过滤按落库的受众 id 精确匹配——ref 形（user:alice）先映射为 id（user.alice），见 §3
-curl -H "Authorization: Bearer $FERRY_QUERY_TOKEN" \
-  "http://herald:8080/api/v1/apps/ferry/deliveries?audience=user.alice&status=failed"
+curl -H "Authorization: Bearer $DEMO_QUERY_TOKEN" \
+  "http://herald:8080/api/v1/apps/demo-app/deliveries?audience=user.alice&status=failed"
 
 # 这个 app 的审计流（去重折叠、关系变更）
-curl -H "Authorization: Bearer $FERRY_QUERY_TOKEN" \
-  "http://herald:8080/api/v1/apps/ferry/audit?since=2026-10-07T00:00:00Z"
+curl -H "Authorization: Bearer $DEMO_QUERY_TOKEN" \
+  "http://herald:8080/api/v1/apps/demo-app/audit?since=2026-10-07T00:00:00Z"
 ```
 
 投递行带 `audience_id`/`category`/`source` 维度；审计流按时间序，`delivery.deduped` 事件答「为什么这条没投」。匿名 `/notify` 的流量不会出现在任何 app 的查询里。
@@ -92,8 +92,8 @@ curl -H "Authorization: Bearer $FERRY_QUERY_TOKEN" \
 配置回调面（config 权限），herald 把**投递结果**与**退订事件**推给你：
 
 ```bash
-curl -X PUT http://herald:8080/api/v1/apps/ferry/callback \
-  -H "Authorization: Bearer $FERRY_CONFIG_TOKEN" \
+curl -X PUT http://herald:8080/api/v1/apps/demo-app/callback \
+  -H "Authorization: Bearer $DEMO_CONFIG_TOKEN" \
   -d '{"url":"https://app.example.com/herald/callback","secret":"16字节以上的共享密钥"}'
 ```
 
@@ -124,7 +124,7 @@ if r.Header.Get("X-Herald-Signature") != want {
 ```go
 import sdk "github.com/cuihairu/herald/apps-sdk/go"
 
-c := sdk.New("http://herald:8080", "ferry", os.Getenv("FERRY_CONFIG_TOKEN"))
+c := sdk.New("http://herald:8080", "demo-app", os.Getenv("DEMO_CONFIG_TOKEN"))
 
 _ = c.RegisterCategory(ctx, "alerts", "urgent")
 _ = c.SetCallback(ctx, "https://app.example.com/herald/callback", secret)

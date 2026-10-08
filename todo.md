@@ -19,7 +19,7 @@
 
 ## 进行中：受众层改进（统一订阅与投递中枢）
 
-设计与实现详见 [design-audience-relations](design-audience-relations)。三阶段推进（2026-10-05 立项）：① 文档优先（本篇，写全再动码）；② 代码实现按文档落；③ ferry 对接验证（告警/通知真实触发走一遍）。全部扩在既有受众层上，不另立「订阅者」实体；关系类型显式（subscription 主动订阅 / enrollment 被动指派），接口 Subscribe/Enroll 分名。
+设计与实现详见 [design-audience-relations](design-audience-relations)。三阶段推进（2026-10-05 立项）：① 文档优先（本篇，写全再动码）；② 代码实现按文档落；③ 集成方对接验证（告警/通知真实触发走一遍）。全部扩在既有受众层上，不另立「订阅者」实体；关系类型显式（subscription 主动订阅 / enrollment 被动指派），接口 Subscribe/Enroll 分名。
 
 - [x] **1. 关系模型与受众注册表** — `3fc1a82`：RelationType 枚举（subscription/enrollment）、来源标记、策略位（AllowUnsubscribe/MustDeliver 互斥底线在 Enroll 强制、Subscribe 强制可退订形态）；Subscribe/Enroll/Terminate/Lookup/RelationsByType；同槽位最新登记为准，Terminate 返回被移除关系供审计
 - [x] **2. 联系面与绑定 API** — `19cf16c`：SurfaceRegistry（pending/active/invalid 三态，invalid 槽位重绑免确认、仅 active 收投递）、IssueBinding/RedeemBinding 一次性 token（15 分钟 TTL、未知/已用与过期分报错）、换绑守卫（同槽换目标挂 pending 等旧渠道 ConfirmRebind，窗口同 TTL、超窗保在位者）、RSSToken 随受众稳定签发；时钟注入全确定性，core/audience 100% 覆盖。另修 `342caa1`：queue 到期等待改用注入时钟（due.Sub(now())），钉钟测试不再与真实时钟漂移自旋超时

@@ -18,7 +18,7 @@
 
 ## api/handler_surfaces.go
 
-- `github.com/cuihairu/herald/api/handler_surfaces.go:82` — DELETE 臂里 `Unfollow` 之后转 422 的守卫。到达条件：handler 前置校验放行后 `Unfollow` 仍拒绝——但两者校验完全同口径（`checkIDAndChannel` 内部就是 `idPattern`（≡ `audience.ValidID`）+ channel 1-64 界，handler 已先行同判），`source` 是常量 `audience.SourceAdmin` 恒合法。两层校验互为镜像时恒不可达的契约守卫（同 `handler_sources.go:237` 先例）；若日后 `Unfollow` 新增校验维度，此处应随之变为可达并补 422 实测。行号 2026-10-08 随阶段③ ferry 对接批次（联系面绑定面落地）登记。
+- `github.com/cuihairu/herald/api/handler_surfaces.go:82` — DELETE 臂里 `Unfollow` 之后转 422 的守卫。到达条件：handler 前置校验放行后 `Unfollow` 仍拒绝——但两者校验完全同口径（`checkIDAndChannel` 内部就是 `idPattern`（≡ `audience.ValidID`）+ channel 1-64 界，handler 已先行同判），`source` 是常量 `audience.SourceAdmin` 恒合法。两层校验互为镜像时恒不可达的契约守卫（同 `handler_sources.go:237` 先例）；若日后 `Unfollow` 新增校验维度，此处应随之变为可达并补 422 实测。行号 2026-10-08 随阶段③集成方对接批次（联系面绑定面落地）登记。
 
 ## api/handler_sources.go
 

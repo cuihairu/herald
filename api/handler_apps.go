@@ -531,7 +531,7 @@ func (s *Server) runDispatch(w http.ResponseWriter, r *http.Request, app string,
 }
 
 // externalEventBody is the 告警通道设计 §3 wire shape integrators push at
-// {base}/events (ferry 是首个对接方): semantics ride kind/severity/target,
+// {base}/events: semantics ride kind/severity/target,
 // and the id extension field is the source outbox's primary key, kept for
 // receipt correlation. occurred_at has no §13.3 face — herald timestamps
 // its own audit trail and callback events.

@@ -11,7 +11,7 @@
 
 Herald 是**轻量的通知编排与投递基础设施**。它决定的不只是「发出去」：谁、什么时候、通过什么渠道、以什么强度、是否聚合、是否过滤、是否升级、是否去重——这些编排决策由 Herald 收口，投递管道（Phase 0-9 已落地）是这一面的地基（见[现状审计](./design-audience-audit)）。
 
-在此之上，Herald 的定位是**统一订阅与投递中枢**：从「应用主动推送」补全为「**被通知者做主**」。应用（ferry、sinomed 等）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定，而不是由调用方写死。
+在此之上，Herald 的定位是**统一订阅与投递中枢**：从「应用主动推送」补全为「**被通知者做主**」。应用（业务系统集成方）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定，而不是由调用方写死。
 
 ```text
 旧：应用 ──「发到 telegram:123456」──> Herald ──> 渠道
@@ -180,7 +180,7 @@ recipients:           # 接收人 → 端点
 
 ## 12. 集成者 API
 
-全部模型能力配可编程配置 API：每个集成应用一个 app 命名空间（品类/模板/策略互相隔离），app token 按权限分级（config / trigger / query）；配置、触发、查询三组端点与升级链、去重、渠道矩阵等策略件同口径；Go SDK 首发，webhook 回调带回投递结果与退订事件。契约草案见关系详设 §13，集成指南随批次 11 落地 `docs/guide/integration.md`。**已落地**（批次 11 增量一~八；2026-10-08 阶段③ ferry 对接验证收官——事件接入适配面与回调回带 `event_id` 已贯通，实录见 `docs/guide/ferry-integration.md`）。
+全部模型能力配可编程配置 API：每个集成应用一个 app 命名空间（品类/模板/策略互相隔离），app token 按权限分级（config / trigger / query）；配置、触发、查询三组端点与升级链、去重、渠道矩阵等策略件同口径；Go SDK 首发，webhook 回调带回投递结果与退订事件。契约草案见关系详设 §13，集成指南随批次 11 落地 `docs/guide/integration.md`。**已落地**（批次 11 增量一~八；2026-10-08 阶段③集成方对接验证收官——事件接入适配面与回调回带 `event_id` 已贯通）。
 
 ## 13. 落地状态（诚实口径）
 
@@ -197,7 +197,7 @@ recipients:           # 接收人 → 端点
 | 来源适配器（bot /start /stop、公众号关注事件、应用内勾选、取关回流全停、外部状态对账） | ✅ 落地 | 批次 8，`core/audience.SourceAdapter`/`Reconciler` + `api` 三个入口端点 + `telegram`/`wechatmp` probe |
 | 去重与频控（事件幂等、折叠账本、状态机、三档频控与品类默认/覆盖表） | ✅ 落地 | 批次 10（`3c6c395`+`ca6ee39`），`core/dedup.Gate` + `config.DedupConfig` 覆盖表 |
 | 强度与模式（强度阶梯、紧急度区间、电话双重同意门、三模式执行器） | ✅ 落地 | 批次 9（`0c20459`），`core/audience.DeliveryPolicy`/`BuildPlan`/`RunPlan`；触发面接线已随批次 11 贯通 |
-| 集成者 API 与 Go SDK | ✅ 落地 | 批次 11 增量一~八，`api/handler_apps.go`（config/trigger/query 三面 + events 适配面 + callback）+ `apps-sdk/go` + `docs/guide/integration.md`；阶段③ ferry 对接验证（`0096be4`）闭环 |
+| 集成者 API 与 Go SDK | ✅ 落地 | 批次 11 增量一~八，`api/handler_apps.go`（config/trigger/query 三面 + events 适配面 + callback）+ `apps-sdk/go` + `docs/guide/integration.md`；阶段③集成方对接验证（`0096be4`）闭环 |
 
 在途能力的配置项与端点尚不存在，勿据本文档配置生产；落地一批，本文状态表与对应详设同步更新一批。（截至 2026-10-08，§15 批次 1-11 与三阶段验证已全部落地，本表无在途行。）
 

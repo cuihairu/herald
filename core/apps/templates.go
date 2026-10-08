@@ -7,7 +7,7 @@ import (
 )
 
 // The §13.2 模板注册 face: every namespace holds its own template
-// manager, so ferry's "node_down" and sinomed's "node_down" are
+// manager, so app A's "node_down" and app B's "node_down" are
 // strangers like their categories. The manager brings the existing
 // template model with it — variable fields, levels and per-channel
 // bindings (format / vendor template codes / param order).

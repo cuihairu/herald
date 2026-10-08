@@ -1,6 +1,6 @@
 # 受众订阅与投递中枢（关系详设）
 
-Herald 的定位升级：从「应用主动推送的通知管道」补全为「**被通知者做主**的统一订阅与投递中枢」。应用（ferry、sinomed 等）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定。
+Herald 的定位升级：从「应用主动推送的通知管道」补全为「**被通知者做主**的统一订阅与投递中枢」。应用（业务系统集成方）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定。
 
 本文是受众层（[受众领域模型总纲](./design-audience-model)）的关系详设，覆盖：联系面与绑定、订阅/指派关系、渠道×关系矩阵、渠道强度×消息紧急度与投递模式、偏好中心、来源适配器、RSS 拉式渠道、Digest 聚合、去重与频控、投递审计、集成者 API。对标 Novu 的订阅者/偏好/digest 分水岭能力，但**不另立「订阅者」实体**——一切扩在既有受众层上。术语以总纲 §2 的契约表为唯一口径，本文不重复定义。
 
@@ -66,7 +66,7 @@ Herald 的定位升级：从「应用主动推送的通知管道」补全为「*
 渠道凭据归入受众注册：bot 绑定做成 Herald 的**受众渠道注册 API**。以 Telegram 为例：
 
 ```text
- 用户                     应用(ferry)              Herald 绑定 API           TG Bot
+ 用户                     应用(集成方)             Herald 绑定 API           TG Bot
   │                          │                        │                     │
   │ 1.点「绑定 Telegram」      │                        │                     │
   ├─────────────────────────>│ 2.POST /audiences/{id} │                     │
@@ -295,7 +295,7 @@ Herald 的定位升级：从「应用主动推送的通知管道」补全为「*
  公众号关注/取关事件 ──┐                          ┌── Subscribe() / Enroll()
  TG bot /start /stop ─┤   来源适配器(SourceAdapter) │        │
  Herald 偏好中心 ──────┼─────────────────────────>│   受众注册表(唯一权威)
- 应用内勾选(ferry等) ──┘   动作归一化:               │        │
+ 应用内勾选(集成方) ──┘   动作归一化:               │        │
                           follow  = 注册联系面+默认订阅组       │
                           unfollow= 联系面失效+退订(全停)      │
                           check   = 偏好变更                 │
@@ -315,7 +315,7 @@ Herald 的定位升级：从「应用主动推送的通知管道」补全为「*
 - **三个入口端点**（`api/handler_sources.go`）：
   - `POST /api/v1/callbacks/bot`——Telegram webhook（`X-Telegram-Bot-Api-Secret-Token` 常量时间比对）：`/start <token>` 走批次 2 的一次性 `RedeemBinding`（激活才落默认组，**停靠中的换绑不落**——等旧渠道确认）；`/stop` 经 `FindByTarget` 反查受众后全停。所有合法 update 一律回 200（Telegram 对非 2xx 重投，重投一个已过期 token 或重复取关改变不了任何东西）；secret 不对是入侵者（403），JSON 坏是调用方 bug（400）。
   - `POST /api/v1/callbacks/wechat-mp`——公众号服务器回调：sha1(timestamp,nonce,token) 签名（常量时间比对）门禁，GET 回控制台 `echostr` 验证挑战；`subscribe`/`unsubscribe` 收敛为 `Follow`/`Unfollow`。openid 从未绑定则按 no-op（新粉先关注后绑定是正常次序，此时没有受众身份可收敛）。
-  - `POST|DELETE /api/v1/audiences/{id}/subscriptions`——应用内勾选（ferry 等集成侧），API token 门禁与其余操作面同级；字段校验（id 模式、品类/渠道 1-64 字符）422，关一个 must-deliver 报 409（§4 底线），关一个不存在的槽 404。
+  - `POST|DELETE /api/v1/audiences/{id}/subscriptions`——应用内勾选（集成侧），API token 门禁与其余操作面同级；字段校验（id 模式、品类/渠道 1-64 字符）422，关一个 must-deliver 报 409（§4 底线），关一个不存在的槽 404。
 - **外部状态对账**（规则 3）：`core/audience.Reconciler` 同步一扫 `RunOnce`——只探**注册表里登记的 active 联系面**（对账对象是自己的登记，不是平台全集；公众号按 `user/info` 的 subscribe 标志逐个探，不是全量粉丝列表比对），probe 报错即 `Skipped`——**对账从不猜**；探明已失效则 `InvalidateFor` + 该渠道订阅 `TerminateFor`（actor `reconcile`）留审计。`providers/builtin/telegram` 与 `providers/builtin/wechatmp` 各出一个 `SurfaceProbe`（TG 对未知 chat 回 400/403 且 `ok:false` 记「确定不认识」，其余非 2xx 一律当探不到）。`cmd/heraldd` 按 digest 翻转循环同款模式起 `reconcileLoop`：默认 1h 一扫，`sources.reconcile.enabled` 开关，redis 租约（复用 digest 连接配置，锁键 `herald:sources:reconcile:leader`）保证多实例每轮只扫一次。
 - **配置**：`sources:` 块（`enabled` 总开关 + `bot.secret` / `wechat_mp.token` 分入口关——**凭据即开关**，空 secret/token 该端点 404，即使 `enabled: true`）；probe 从既有 `providers:` 块按 `type: telegram|wechatmp` 构建，`enabled: false` 的 provider 不探，配置残缺（缺 token）拒绝启动。
 
@@ -414,11 +414,11 @@ feed 条目即投递记录的拉式投影：与推送投递共享同一套「关
 
 ## 13. 集成者 API
 
-全部模型能力配**可编程配置 API**：集成方（ferry、sinomed 等）不进管理界面也能全自动落地。
+全部模型能力配**可编程配置 API**：集成方不进管理界面也能全自动落地。
 
 ### 13.1 应用接入面
 
-- 每个集成应用一个 **app/命名空间**：品类、模板、策略互相隔离——ferry 注册的「告警」品类与 sinomed 的同名品类互不可见。
+- 每个集成应用一个 **app/命名空间**：品类、模板、策略互相隔离——app A 注册的「告警」品类与 app B 的同名品类互不可见。
 - **app token 鉴权，权限分级**：配置权（config）/ 触发权（trigger）/ 查询权（query）；一个 app 可持多枚 token 各带权限集。
 
 ### 13.2 配置 API
@@ -451,7 +451,7 @@ POST /api/v1/apps/{app}/dispatch
 
 服务端按策略匹配渠道（关系矩阵 × 紧急度强度区间 × 联系面绑定三方交集），返回受理结果与投递计划摘要。与既有 `/notify` 的关系：`/notify` 是匿名触发面（保持兼容），app 触发面带命名空间与完整策略语义。
 
-落地注记（2026-10-08，ferry 对接验证批次）：事件语义在自己词汇里的整合方另有**事件接入适配面** `POST /api/v1/apps/{app}/events`（告警通道设计 §3：kind/severity/target + 整合方自有事件主键）——kind→已注册品类、severity→紧急度（critical/warning/info → critical/urgent/normal）、target→单元素 audiences（ref 形 `user:5` 映射为受众 id `user.5`：`:` 保留给 `user:`/`group:` 引用前缀，id 词汇不含它）、自有主键进 `event_id`；`occurred_at` 无对应面（herald 审计/回调用自己的时间戳）。绑受众的**管理侧代绑定**入口同步落地：`POST/DELETE /api/v1/audiences/{id}/surfaces`（联系面 + 可选默认订阅，审计记入口 `admin`）——ferry 这类用户联系信息在自己库里的整合方靠它完成绑定（ferry 对接实录见 `docs/guide/ferry-integration.md`）。
+落地注记（2026-10-08，集成方对接验证批次）：事件语义在自己词汇里的整合方另有**事件接入适配面** `POST /api/v1/apps/{app}/events`（告警通道设计 §3：kind/severity/target + 整合方自有事件主键）——kind→已注册品类、severity→紧急度（critical/warning/info → critical/urgent/normal）、target→单元素 audiences（ref 形 `user:5` 映射为受众 id `user.5`：`:` 保留给 `user:`/`group:` 引用前缀，id 词汇不含它）、自有主键进 `event_id`；`occurred_at` 无对应面（herald 审计/回调用自己的时间戳）。绑受众的**管理侧代绑定**入口同步落地：`POST/DELETE /api/v1/audiences/{id}/surfaces`（联系面 + 可选默认订阅，审计记入口 `admin`）——用户联系信息在自己库里的整合方靠它完成绑定。
 
 ### 13.4 查询 API
 
@@ -462,7 +462,7 @@ POST /api/v1/apps/{app}/dispatch
 ### 13.5 SDK 与回调
 
 - **Go SDK 首发**（对齐 worker-sdk 先例，落地 `apps-sdk/go`）：应用用受众 ID 完成「配品类 → 绑受众（操作侧入口）→ 触发 → 查状态」全流程；一枚 token 一个 Client，权限由 token 决定。错误二分：`*sdk.Error`（服务端拒绝，重试无意义）与传输错误（可重试）。
-- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次。落地注记（2026-10-08，ferry 对接批次）：`delivery_result` 载荷回带**整合方自己的事件身份** `delivery.event_id`（dispatch 请求的 `event_id`，随任务贯通投递）——应用把回调对回自己的原始事件（ferry 的 outbox 行 id 走这条线回家），与本回调事件的 `event_id`（herald 侧幂等 id）是两个东西。
+- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次。落地注记（2026-10-08，集成方对接批次）：`delivery_result` 载荷回带**整合方自己的事件身份** `delivery.event_id`（dispatch 请求的 `event_id`，随任务贯通投递）——应用把回调对回自己的原始事件（整合方自有事件主键走这条线回家），与本回调事件的 `event_id`（herald 侧幂等 id）是两个东西。
 
 ### 13.6 集成指南
 
@@ -498,4 +498,4 @@ POST /api/v1/apps/{app}/dispatch
 | 10 | 去重与频控 | event_id 幂等、内容折叠（计数+原始事件保留）、状态机去重、三档频控策略与默认档 |
 | 11 | 集成者 API 与 Go SDK | app 命名空间与 token 权限分级、配置/触发/查询 API、webhook 回调（投递结果/退订回流）、SDK 与集成指南 |
 
-批次 1–2 为地基（关系模型+联系面绑定），3–5 构成「被通知者做主」闭环（偏好/过滤/审计），6–8 为触达形态增量（digest/RSS/来源适配器），9–11 为策略件与集成面（强度/去重/集成者 API）。三阶段推进：文档（本篇）→ 代码实现 → ferry 对接验证——**三阶段全部完成**（2026-10-08 阶段③实录见 `docs/guide/ferry-integration.md`：收事件→分发→回执留痕闭环两次走通，差异清单与 webhook 通道收敛结论同篇）。每批独立可验收：全量门禁绿后提交。
+批次 1–2 为地基（关系模型+联系面绑定），3–5 构成「被通知者做主」闭环（偏好/过滤/审计），6–8 为触达形态增量（digest/RSS/来源适配器），9–11 为策略件与集成面（强度/去重/集成者 API）。三阶段推进：文档（本篇）→ 代码实现 → 集成方对接验证——**三阶段全部完成**（2026-10-08 阶段③收官：收事件→分发→回执留痕闭环两次走通；对接实录归对接方仓自记）。每批独立可验收：全量门禁绿后提交。
