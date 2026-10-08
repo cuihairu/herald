@@ -106,13 +106,11 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启�
 {
   "type": "heartbeat",
   "worker_id": "wechat-worker-01",
-  "timestamp": 1716780000,
-  "status": {
-    "tasks_sent": 100,
-    "tasks_done": 98
-  }
+  "timestamp": 1716780000
 }
 ```
+
+`status` 是协议里的可选自由映射（`map[string]interface{}`，`protocol/message.go`），当前 SDK 与内置 worker 都不填充，示例只发 `worker_id` + `timestamp`。
 
 ## 协议消息
 

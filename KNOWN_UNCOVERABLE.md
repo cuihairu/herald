@@ -26,7 +26,7 @@
 
 ## cmd/heraldd/main.go
 
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:49` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:60` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。行号 2026-10-08 随文档一致性审计批次核对（原 49，main() 定义随批次 10-11 的 import 与注释增长整体下移到 :59，块起始行现 60）。
 
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:411` — §13.1 集成者命名空间注册表构建失败分支（`apps.NewRegistry` 报错即拒起）。到达条件：某个 apps 种子通过了 `config.Validate` 却在 `NewRegistry` 失败——不可能：Validate 内部调用的就是同一个构造器（config.go 的校验循环把同一批种子原样喂给 `apps.NewRegistry`），种子在 Validate 阶段就会被同一条校验拒掉（`main_cover_test.go` 错误表 `app scope invalid` 已实测拒起点在 Load）；到达本分支需要同一构造器对同一输入先过后拒。两次喂入仅顺序不同（Validate 按 map 迭代、main 按 sort 后列表），而构造器的全部约束都是逐 app 或全局集合性的，与顺序无关。行号 2026-10-07 随批次 11 增量六的审计流水常开 hunk 下移 1 行（原 400），同日增量七的回调 dispatcher 注册 hunk 再下移 10 行（现 411）。
 

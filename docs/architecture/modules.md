@@ -60,14 +60,18 @@ API 层的输入，描述"用户想发什么"。
 
 ```go
 type Notification struct {
-    ID          string
-    Type        string
-    Level       string
-    Channels    []string
-    Recipients  map[string][]string
-    TemplateRef string
-    Params      map[string]any
-    Content     *DirectContent
+    ID           string
+    Type         string
+    Level        string
+    AudienceID   string   // 受众维度（空为广播）
+    Channels     []string
+    Recipients   map[string][]string
+    TemplateRef  string
+    Params       map[string]any
+    Content      *DirectContent
+    CreatedAt    time.Time
+    RelationType string   // subscription / enrollment（受众关系上下文）
+    Source       string   // 入口来源（bot / preference_center / admin / app:<ns>）
 }
 ```
 
@@ -77,17 +81,23 @@ Provider 层的输入，描述"怎么发到具体渠道"。
 
 ```go
 type DeliveryTask struct {
-    ID         string
-    Provider   string
-    Targets    []string
-    Payload    DeliveryPayload
-    Level      string
-    AlertID    string         // 确认身份透传到交互卡片按钮
-    Status     DeliveryStatus // 投递状态机（queued/delivered/failed/dead）
-    RetryCount int            // 已重试次数（attempts = RetryCount + 1）
-    MaxAttempts int           // 首次投递时记入的总尝试预算
-    LastError  string         // 终态为 failed/dead 时的最后一次错误
-    CreatedAt  time.Time
+    ID          string
+    Provider    string
+    Targets     []string
+    Payload     DeliveryPayload
+    Level       string
+    AlertID     string         // 确认身份透传到交互卡片按钮
+    Status      DeliveryStatus // 投递状态机（queued/delivered/failed/dead）
+    RetryCount  int            // 已重试次数（attempts = RetryCount + 1）
+    MaxAttempts int            // 首次投递时记入的总尝试预算
+    LastError   string         // 终态为 failed/dead 时的最后一次错误
+    CreatedAt   time.Time
+    NextRetryAt *time.Time     // 等退避重投期间由队列持留
+    RelationType string        // subscription / enrollment（受众关系上下文）
+    Source       string        // 入口来源（bot / preference_center / admin / app:<ns>）
+    AudienceID   string        // §13.4 查询维度：投给谁（匿名 notify 为空）
+    Category     string        // §13.4 查询维度：按哪个品类触发
+    EventID      string        // 集成方事件身份，随 §13.5 回调回带
 }
 
 type DeliveryPayload struct {

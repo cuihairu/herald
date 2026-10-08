@@ -70,9 +70,9 @@ graph TB
 
 | PayloadKind | 说明 | 适用 Provider |
 |-------------|------|--------------|
-| `content` | 渲染后的内容 | Telegram、Email、Feishu 等 |
+| `content` | 渲染后的内容 | Telegram、Email、Feishu 等（未声明 Capability 时的默认） |
 | `provider_template` | 服务商模板 | 阿里云 SMS、腾讯云 SMS |
-| `raw` | 原始透传 | Worker Provider |
+| `raw` | 原始透传 | 声明 raw 能力的渠道：FCM / APNs / 极光 / 个推 / Webhook（Worker Provider 不声明 Capability，走 content 默认） |
 
 ## 设计原则
 

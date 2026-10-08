@@ -54,7 +54,7 @@ herald/
 │
 ├── api/                      # HTTP API
 │   ├── handler.go            # 请求处理器 + 通用响应
-│   ├── handler_*.go          # 各资源处理器（notify/alerts/incidents/... 共 12 个）
+│   ├── handler_*.go          # 各资源处理器（notify/alerts/incidents/... 共 15 个）
 │   ├── idempotency.go        # 幂等键存储
 │   └── server.go             # HTTP 服务器 + 路由注册
 │
@@ -84,6 +84,8 @@ herald/
 │       ├── getui/            # 个推
 │       └── worker/           # Worker Provider（代理远程 Worker）
 │
+├── apps-sdk/                 # 集成方 SDK（app 命名空间接入）
+│   └── go/                   # Go SDK
 ├── worker-sdk/               # Worker SDK
 │   └── go/                   # Go SDK + example
 │

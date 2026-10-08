@@ -105,7 +105,7 @@ cfg, err := config.Load("herald.yaml") // 从 YAML 文件读取
 ```go
 cfg.Providers["feishu-ops"] = config.ProviderConfig{
     Type:   "feishu",
-    Config: map[string]interface{}{"webhook": "..."},
+    Config: map[string]interface{}{"webhook_url": "..."},
     // Enabled: nil 等价于启用
 }
 ```

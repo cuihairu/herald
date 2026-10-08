@@ -76,8 +76,9 @@ app 域策略覆盖（渠道强度、投递模式、升级链参数、去重频�
 
 ```bash
 # 这个 app 的投递记录（自动按命名空间隔离，只看得到自己触发的）
+# audience 过滤按落库的受众 id 精确匹配——ref 形（user:alice）先映射为 id（user.alice），见 §3
 curl -H "Authorization: Bearer $FERRY_QUERY_TOKEN" \
-  "http://herald:8080/api/v1/apps/ferry/deliveries?audience=user:alice&status=failed"
+  "http://herald:8080/api/v1/apps/ferry/deliveries?audience=user.alice&status=failed"
 
 # 这个 app 的审计流（去重折叠、关系变更）
 curl -H "Authorization: Bearer $FERRY_QUERY_TOKEN" \

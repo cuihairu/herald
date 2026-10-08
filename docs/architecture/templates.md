@@ -68,11 +68,14 @@ Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
 
 ```go
 type Template struct {
-    ID        string      // 模板唯一标识
-    Name      string      // 模板名称
-    Title     string      // 标题模板（支持变量）
-    Level     string      // 默认级别
-    Fields    []Field     // 字段列表
+    ID        string             // 模板唯一标识
+    Name      string             // 模板名称
+    Title     string             // 标题模板（支持变量）
+    Level     string             // 默认级别
+    Fields    []Field            // 字段列表
+    Bindings  map[string]Binding // 每渠道适配配置（format / template_code / ...）
+    CreatedAt time.Time
+    UpdatedAt time.Time
 }
 ```
 

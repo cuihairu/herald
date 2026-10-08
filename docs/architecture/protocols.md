@@ -6,15 +6,15 @@
 
 这是 **唯一公开协议**。curl、shell 脚本、CI/CD、监控系统的 webhook、任何语言，都直接调 REST 接口，不需要额外的客户端约定。
 
-## 为什么没有业务 SDK
+## 关于业务 SDK
 
-notify API 一个 POST 就能调：
+线协议始终只有 REST：notify API 一个 POST 就能调，
 
 ```bash
 curl /notify
 ```
 
-任何语言都够用，业务 SDK 的收益很低。
+任何语言都够用。在此之上，仓库随批次 11 落地了两枚**便利层** Go SDK（不改线协议）：`apps-sdk/go`（集成方 app 命名空间接入）与 `worker-sdk/go`（远程 Worker 侧对接）。
 
 ## 内部协议
 

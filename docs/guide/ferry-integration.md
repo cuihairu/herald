@@ -68,7 +68,7 @@ herald 的 §13.4 审计流对这两条为空是正确行为：审计答「关�
 | 鉴权 | 静态头 `X-Ferry-Webhook-Secret` | per-app HMAC-SHA256 回调签名（可验源可防篡改） |
 | 内容 | `{event, text, fields}` 一行摘要 | 模板渲染/直投内容，多格式 |
 
-收敛顺序建议：① 接收端把 `{event,text,fields}` 适配换成 herald webhook payload（`{id, provider, level, targets, timestamp, title, body}`，一次性改造）；② ferry 配好 `FERRY_HERALD_URL/TOKEN` 后 `notify_webhook_url` 设置与事件外发**并行观察一个告警周期**；③ 摘除设置入口、退役 `internal/notify` 包。唯一仍带 webhook 直发语义的生产点是 recovery 的 BR-5（`recovery_failed` 升级人工），HERALD-3 起已与 outbox 双轨——并行期结束即可单轨。
+收敛顺序建议：① 接收端把 `{event,text,fields}` 适配换成 herald webhook payload（`{id, provider, level, targets, timestamp, title, body}`，另有可选 `raw` 原始字段兜底键，一次性改造）；② ferry 配好 `FERRY_HERALD_URL/TOKEN` 后 `notify_webhook_url` 设置与事件外发**并行观察一个告警周期**；③ 摘除设置入口、退役 `internal/notify` 包。唯一仍带 webhook 直发语义的生产点是 recovery 的 BR-5（`recovery_failed` 升级人工），HERALD-3 起已与 outbox 双轨——并行期结束即可单轨。
 
 ## 6. 部署底稿（生产对接时的最小配置）
 

@@ -227,11 +227,12 @@ providers:
 {
   "id": "task-id",
   "provider": "webhook",
+  "level": "error",
+  "targets": ["group:ops"],
+  "timestamp": "2026-05-18T12:00:00Z",
   "title": "Test Alert",
   "body": "This is a test",
-  "level": "error",
-  "timestamp": "2026-05-18T12:00:00Z",
-  "data": {}
+  "raw": {"custom": "field"}
 }
 ```
 

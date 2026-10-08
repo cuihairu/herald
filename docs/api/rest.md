@@ -2,8 +2,11 @@
 
 ## 认证 {#auth}
 
-开启 `auth.enabled` 后，下述端点（除 auth 自身与飞书回调外）都需要
-`Authorization: Bearer <token>`；未开启时匿名可用。
+本页端点在开启 `auth.enabled` 后都需要 `Authorization: Bearer <token>`（或
+`X-API-Key` 头携带 API Key）；未开启时匿名可用。四个例外域另见
+[API 概述](./overview.md#认证)：`/auth/*` 自身、集成者 app 面（按 app token 三级
+scope 鉴权，独立于 `auth.enabled`）、平台自证回调（bot/公众号/飞书）与公开读口
+（`/api/v1/status`、`/feeds/**`）。
 
 ## POST /api/v1/auth/login {#auth-login}
 
@@ -129,11 +132,12 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
   "data": {
     "notification_id": "550e8400-e29b-41d4-a716-446655440000",
     "task_ids": ["task-001", "task-002"],
-    "accepted": ["telegram", "email"],
-    "failed": []
+    "accepted": ["telegram", "email"]
   }
 }
 ```
+
+`failed` 键只在非空时出现（全成功时整体缺席）。
 
 **部分失败：**
 
