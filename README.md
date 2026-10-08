@@ -1,3 +1,5 @@
+[English](README.md) | [中文](README.zh.md)
+
 <div align="center">
   <img src="docs/public/logo.svg" width="120" alt="Herald logo" />
 
@@ -11,21 +13,21 @@
   [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md)
 </div>
 
-Herald 是一个轻量的通知编排与投递基础设施：业务只描述「发生了什么、通知什么」，谁、什么时候、通过什么渠道、以什么强度收到、是否聚合、是否过滤、是否升级，由 Herald 编排收口；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系与偏好决定，而不是由调用方写死。
+Herald is a lightweight notification orchestration and delivery infrastructure. The business side only describes what happened and what to notify; who receives it, when, through which channel, at what intensity, whether it is aggregated, filtered, or escalated — Herald orchestrates all of that and is the single place where it is decided. Recipients stay in control: who receives which category on which channel, and at what frequency, is determined by the audience's own subscription relations and preferences, not hard-coded by the caller.
 
-## 两种使用形态
+## Two Usage Modes
 
-Herald 可以作为独立服务运行，也可以作为 Go 库嵌入你的进程，二者共享同一套核心管道（队列、路由、去重、模板、Provider）：
+Herald runs as a standalone service or embeds into your process as a Go library. Both share the same core pipeline (queue, routing, dedup, templates, providers):
 
-**CLI 网关** — 独立进程部署，REST API + Dashboard，适合作为组织级通知网关（见下方[快速开始](#快速开始)）：
+**CLI Gateway** — deployed as a standalone process with a REST API and Dashboard, suitable as an organization-wide notification gateway (see [Quick Start](#quick-start) below):
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{"type": "deploy", "channels": ["feishu-ops"], "title": "v1.2.0 已发布"}'
+  -d '{"type": "deploy", "channels": ["feishu-ops"], "title": "v1.2.0 released"}'
 ```
 
-**Go 库** — 一个 `App` 完成入队与投递，零配置即可运行（内存队列 + 本地 worker 池），适合把通知能力直接嵌进自己的服务：
+**Go Library** — a single `App` handles enqueueing and delivery and runs with zero configuration (in-memory queue + local worker pool), suitable for embedding notification capability directly into your own service:
 
 ```go
 import (
@@ -33,39 +35,39 @@ import (
     "github.com/cuihairu/herald/core"
 )
 
-app, _ := herald.New(nil) // 默认：内存队列、后台投递池、去重
+app, _ := herald.New(nil) // defaults: in-memory queue, background delivery pool, dedup
 defer app.Close()
 
 app.Dispatch(ctx, &core.Notification{
     Type:     "deploy",
     Channels: []string{"log"},
-    Content:  &core.DirectContent{Title: "v1.2.0 已发布"},
+    Content:  &core.DirectContent{Title: "v1.2.0 released"},
 })
 ```
 
-完整导出面与嵌入指南见 [docs/library-usage.md](docs/library-usage.md)，可运行示例见 [examples/quickstart](examples/quickstart/main.go)。
+The full exported surface and embedding guide are in [docs/library-usage.md](docs/library-usage.md); a runnable example lives at [examples/quickstart](examples/quickstart/main.go).
 
-## 特性
+## Features
 
-- **统一订阅与投递中枢** - 受众是唯一跨系统身份（应用只持 `user:<id>`/`group:<id>`，不碰渠道凭据）；订阅/指派两类关系承载退订权与必达底线，取关即全停
-- **联系面绑定** - 受众在运行时绑定可达渠道（TG chat、邮箱、公众号、RSS token），deep-link 一次性 token 换绑，失效即停投
-- **偏好中心** - 品类×渠道×频率三元组（实时/每日/每周/不收），品类默认策略表打底；营销默认每周汇总，告警可降频不可静默
-- **关系过滤** - 渠道×关系矩阵（订阅全开、必达拒拉式、营销限邮件/站内信）+ 发送前四步交集复核，交集为空不投并审计
-- **投递编排** - 表达式规则引擎（shadow 先观察后生效，for/group_by/inhibit/silence/escalation）、Digest 时间窗聚合（每日/每周摘要、实时豁免、可选 redis 租约选主）、内容折叠去重与请求幂等
-- **RSS 拉式渠道** - 每品类公共 feed + 每受众带 token 的私密 feed（`/feeds/**`），投递记录就地投影为拉式条目，可见性读取时判定、取关即从下一次拉取起消失；Herald 不推，天然无骚扰
-- **投递审计** - 关系/联系面变更流水、去重折叠明细（为什么这条没投）、关系类型与入口来源快照进任务与日志
-- **HTTP First** - curl 友好，REST API，无 SDK 依赖
-- **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
-- **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
-- **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
-- **Multi-channel** - 统一接口对接 18 个内置通知渠道
-- **Dashboard** - Web 管理界面
-- **Config First** - 通过配置文件加载 Provider、路由和模板
+- **Unified subscription & delivery hub** - the audience is the only cross-system identity (applications hold only `user:<id>`/`group:<id>` and never touch channel credentials); two relation types — subscription and enrollment — carry the unsubscribe right and the must-deliver floor; unsubscribing stops all delivery
+- **Contact-surface binding** - audiences bind reachable channels at runtime (TG chat, email, WeChat MP, RSS token); one-time deep-link tokens handle rebinding; an invalidated surface stops receiving
+- **Preference center** - category × channel × frequency triples (realtime / daily / weekly / none) on top of a per-category default policy table; marketing defaults to weekly digest; alerts can be lowered in frequency but never silenced
+- **Relation filtering** - a channel × relation matrix (subscriptions all-open, must-deliver rejects pull-style channels, marketing restricted to email/in-app) plus a four-step intersection recheck before sending; an empty intersection means no delivery, with the reason written to the audit trail
+- **Delivery orchestration** - an expression rule engine (shadow mode observes before enforcing; for / group_by / inhibit / silence / escalation), Digest time-window aggregation (daily and weekly digests, realtime exemption, optional redis lease for leader election), content folding and dedup, request idempotency
+- **RSS pull channel** - a public feed per category plus a private token-bearing feed per audience (`/feeds/**`); delivery records are projected in place as pull entries, visibility is decided at read time, and unsubscribing hides the entries from the next fetch. Herald does not push here, so this channel is spam-free by construction
+- **Delivery audit** - a change trail for relations and contact surfaces, dedup folding details (why a given message was not delivered), and relation-type and entry-source snapshots in tasks and logs
+- **HTTP First** - curl-friendly REST API, no SDK required
+- **Queue as Backbone** - the queue is the only task dispatch channel; memory and redis backends are supported
+- **Unified Worker** - one worker model; local and remote differ only in how they are deployed
+- **Template System** - channel-agnostic templates, defined once and reused across channels
+- **Multi-channel** - one unified interface for 18 built-in channels
+- **Dashboard** - web management UI
+- **Config First** - providers, routes, and templates load from the configuration file
 
-## 支持的 Provider
+## Supported Providers
 
-| Provider             | 类型     | 状态 |
-| -------------------- | -------- | ---- |
+| Provider             | Type     | Status |
+| -------------------- | -------- | ------ |
 | Log                  | Builtin  | ✅   |
 | Telegram             | Builtin  | ✅   |
 | Feishu               | Builtin  | ✅   |
@@ -85,48 +87,48 @@ app.Dispatch(ctx, &core.Notification{
 | WeChat Push          | Builtin  | ✅   |
 | WeChat Official (MP) | Builtin  | ✅   |
 
-## 快速开始
+## Quick Start
 
-### Docker 部署（推荐）
+### Docker Deployment (Recommended)
 
 ```bash
-# 复制环境变量
+# Copy the environment file
 cp .env.example .env
 
-# 编辑 .env 文件
+# Edit .env
 vim .env
 
-# 启动服务
+# Start the service
 docker-compose up -d herald
 ```
 
-### 本地运行
+### Run Locally
 
 ```bash
-# 构建
+# Build
 make build
 
-# 启动调度器
+# Start the scheduler
 ./bin/heraldd serve --config config.yaml
 
-# 启动远程 Worker（分布式部署时）
+# Start a remote worker (for distributed deployments)
 ./bin/heraldd worker --config worker.yaml
 
-# 启动 Dashboard（另一个终端）
+# Start the Dashboard (in another terminal)
 make dashboard-dev
 ```
 
-### 访问 Dashboard
+### Open the Dashboard
 
 ```
 http://localhost:3000
 ```
 
-登录后侧边栏可用的页面：仪表盘、Providers、通知规则、通知群组、Workers、日志、发送消息。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
+After signing in, the sidebar exposes these pages: Dashboard, Providers, notification rules, notification groups, Workers, logs, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
 
-## 使用
+## Usage
 
-### 发送通知
+### Send a Notification
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
@@ -139,7 +141,7 @@ curl -X POST http://localhost:8080/api/v1/notify \
   }'
 ```
 
-### 使用模板发送
+### Send with a Template
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
@@ -150,38 +152,38 @@ curl -X POST http://localhost:8080/api/v1/notify \
       "Level": "CRITICAL",
       "Service": "order-service",
       "Server": "order-01",
-      "Error": "CPU 使用率 95%"
+      "Error": "CPU usage 95%"
     },
     "channels": ["email", "telegram"]
   }'
 ```
 
-### 查看状态
+### Check Status
 
 ```bash
 curl http://localhost:8080/api/v1/status
 ```
 
-### 查看 Providers
+### Check Providers
 
 ```bash
 curl http://localhost:8080/api/v1/providers
 ```
 
-## 架构
+## Architecture
 
 ```mermaid
 graph TB
     Client["External Client<br/>curl / CI/CD / SDK"]
 
-    subgraph Orchestration["编排层"]
-        API["HTTP API<br/>(规则 + 模板渲染)"]
-        Filter["受众层：关系过滤<br/>订阅/指派 × 渠道矩阵"]
-        Fold["去重/频控 · 投递模式"]
+    subgraph Orchestration["Orchestration Layer"]
+        API["HTTP API<br/>(rules + template rendering)"]
+        Filter["Audience layer: relation filtering<br/>subscription/enrollment × channel matrix"]
+        Fold["Dedup / rate-limit · delivery mode"]
     end
 
-    Digest["Digest 时间窗聚合<br/>(旁路：实时豁免不入窗)"]
-    RSS["RSS 拉式出口<br/>/feeds/**（读取时判定可见性）"]
+    Digest["Digest time-window aggregation<br/>(bypass: realtime exempt from windowing)"]
+    RSS["RSS pull outlet<br/>/feeds/** (visibility decided at read time)"]
 
     Queue["Queue<br/>memory / redis"]
 
@@ -198,34 +200,34 @@ graph TB
     Client -->|POST /api/v1/notify| API
     API --> Filter
     Filter --> Fold
-    Fold -.->|"低频偏好事件入窗"| Digest
-    Digest -.->|"窗口到点，摘要走同一管道"| Queue
-    Fold -.->|"rss 类渠道就地投影"| RSS
-    Fold -->|"展开成投递任务"| Queue
+    Fold -.->|"low-frequency preference events enter the window"| Digest
+    Digest -.->|"window closes; digests go through the same pipeline"| Queue
+    Fold -.->|"rss-class channels projected in place"| RSS
+    Fold -->|"expanded into delivery tasks"| Queue
     Queue -->|Pop + Ack/Nack| W1
     Queue -->|Pop + Ack/Nack| W3
     W1 --> P1
     W3 --> P3
 ```
 
-关系过滤的交集为空时不投，原因写入投递审计；命令与部署形态不变：
+When the relation-filter intersection is empty, nothing is delivered and the reason is written to the delivery audit. The commands and deployment modes are unchanged:
 
-| 命令 | 模式 | 说明 |
-|------|------|------|
-| `heraldd serve` | 调度器 | API + Queue + local workers |
-| `heraldd worker` | 远程 Worker | 从共享 Queue 消费，独立部署 |
+| Command | Mode | Description |
+|---------|------|-------------|
+| `heraldd serve` | Scheduler | API + Queue + local workers |
+| `heraldd worker` | Remote worker | Consumes from the shared queue, deployed independently |
 
-### 部署模式
+### Deployment Modes
 
-**单机**（memory 队列，所有 Worker 在同一进程内）：
+**Single node** (memory queue, all workers in the same process):
 
 ```yaml
 queue:
   type: memory
-  workers: 0    # 自动：CPU核心数*2+1
+  workers: 0    # automatic: CPU cores * 2 + 1
 ```
 
-**分布式**（redis 队列，调度器和 Worker 独立部署，需要 Redis 6.2+）：
+**Distributed** (redis queue, scheduler and workers deployed separately; requires Redis 6.2+):
 
 ```yaml
 queue:
@@ -237,9 +239,9 @@ queue:
     group: "herald-workers"
 ```
 
-## 配置
+## Configuration
 
-详见 [配置文档](./docs/guide/configuration.md)。
+See the [configuration guide](./docs/guide/configuration.md) for details.
 
 ```yaml
 server:
@@ -251,7 +253,7 @@ providers:
     type: telegram
     enabled: true
     config:
-      token: "$TELEGRAM_BOT_TOKEN"     # 环境变量只支持 $VAR 写法（${VAR} 不展开）
+      token: "$TELEGRAM_BOT_TOKEN"     # env vars only support the $VAR form (${VAR} is not expanded)
       chat_id: "$TELEGRAM_CHAT_ID"
 
 queue:
@@ -261,26 +263,28 @@ queue:
 routes:
   error: [telegram, email]
 
-# level_routes（可选）：type 路由未命中时按 level 兜底
+# level_routes (optional): level-based fallback when type routing misses
 # level_routes:
 #   warning: [email]
 
-# 渠道块（可选）：给渠道组合起名，channels/channel 字段写块名即展开成成员 provider
+# channels block (optional): name a bundle of channels; writing the block name
+# in the channels/channel field expands it into its member providers
 # channels:
 #   ci:
 #     providers: [telegram, email]
 
-# 规则引擎（可选）：按表达式决定 放行/抑制/改道，未命中回落静态路由
+# Rule engine (optional): allow / suppress / reroute by expression; on a miss,
+# fall back to static routes
 # rules:
 #   - id: prod-payment-failure
 #     priority: 100
 #     match: 'params.fail_rate > 0.05 && env == "prod"'
-#     mode: active                # shadow 先观察，active 生效
+#     mode: active                # shadow observes first, active enforces
 #     route:
 #       - channels: [feishu-oncall]
-# rules_default_policy: allow     # 无 active 规则命中时：allow 保留静态路由，deny 扣下
+# rules_default_policy: allow     # when no active rule matches: allow keeps static routes, deny holds the message
 
-# 通知群组（可选）：命名受众，任何渠道位都可写 "group:<id>"
+# Notification groups (optional): named audiences; any channel slot accepts "group:<id>"
 # groups:
 #   - id: ops-oncall
 #     members:
@@ -288,63 +292,65 @@ routes:
 #         recipients: ["@zhang"]
 #       - channel: sms-duty
 
-# Digest 时间窗聚合（可选）：低频偏好事件按 受众×品类 收成每日/每周摘要
+# Digest time-window aggregation (optional): low-frequency preference events are
+# collected per audience × category into daily/weekly digests
 # digest:
 #   enabled: true
-#   daily: "09:00"                 # 每日翻转时刻（默认 09:00）
-#   weekly: "Mon 09:00"            # 每周翻转时刻（默认 Mon 09:00）
-#   location: Asia/Shanghai        # 翻转时刻时区（默认 Asia/Shanghai）
-#   redis_addr: "localhost:6379"   # 可选：多实例租约选主；不配则单机进程内定时器直跑
+#   daily: "09:00"                 # daily flip time (default 09:00)
+#   weekly: "Mon 09:00"            # weekly flip time (default Mon 09:00)
+#   location: Asia/Shanghai        # time zone for flip times (default Asia/Shanghai)
+#   redis_addr: "localhost:6379"   # optional: multi-instance lease-based leader election;
+#                                  # without it a single-process timer runs directly
 
-# RSS 拉式渠道（可选）：公共 feed /feeds/<品类>.xml + 私密 feed /feeds/private/<token>.xml
+# RSS pull channel (optional): public feed /feeds/<category>.xml + private feed /feeds/private/<token>.xml
 # feeds:
 #   enabled: true
-#   title: "Herald 通知"           # RSS channel 标题（默认 Herald 通知）
-#   link: "https://herald.example" # feed 主页链接
-#   description: "通知 feed"       # feed 描述
-#   max_items: 500                 # 每品类条目留存上限（默认 500）
+#   title: "Herald notifications"  # RSS channel title (default "Herald notifications")
+#   link: "https://herald.example" # feed home page link
+#   description: "notification feed" # feed description
+#   max_items: 500                 # per-category entry retention cap (default 500)
 ```
 
-## 文档
+## Documentation
 
-完整文档请访问 [docs/](./docs/)
+Full documentation is at [docs/](./docs/)
 
-- [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、受众与联系面、Digest、队列、Provider 全量配置项）
-- [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / Email / Webhook / SMS / Log）
-- [受众领域模型（总纲）](./docs/design-audience-model.md) · [受众订阅与投递中枢（关系详设）](./docs/design-audience-relations.md) · [概念边界与分层审计](./docs/design-audience-boundaries.md)
-- [规则引擎决策层设计](./docs/design-rule-engine.md) · [通知群组设计](./docs/design-notification-groups.md)
+- [Configuration guide](./docs/guide/configuration.md) (rule engine, notification groups, audiences and contact surfaces, Digest, queues, and the full provider configuration reference)
+- [Provider docs](./docs/providers/overview.md) (one page per channel: Telegram / Feishu / WeChat Work / DingTalk / Slack / Discord / WeChat / Email / Webhook / SMS / Log)
+- [Audience domain model (overview)](./docs/design-audience-model.md) · [Audience subscription & delivery hub (detailed design)](./docs/design-audience-relations.md) · [Concept boundaries and layered audit](./docs/design-audience-boundaries.md)
+- [Rule engine decision-layer design](./docs/design-rule-engine.md) · [Notification groups design](./docs/design-notification-groups.md)
 
-## 开发
+## Development
 
 ```bash
-# 安装依赖
+# Install dependencies
 go mod download
 
-# 运行测试
+# Run tests
 make test
 
-# 构建
+# Build
 make build
 
-# 运行文档服务
+# Run the docs site
 make docs-dev
 
-# 运行 Dashboard
+# Run the Dashboard
 make dashboard-dev
 ```
 
-## 底座来源
+## Foundation
 
-Herald 基于开源组件构建，核心外部依赖见 [go.mod](./go.mod)：
+Herald is built on open-source components; the core external dependencies are listed in [go.mod](./go.mod):
 
-- [gorilla/websocket](https://github.com/gorilla/websocket) - 远程 Worker 的 WebSocket 传输
-- [redis/go-redis](https://github.com/redis/go-redis) - Redis Stream 分布式队列客户端
-- [expr-lang/expr](https://github.com/expr-lang/expr) - 规则引擎的表达式求值
-- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - 配置文件解析
-- Dashboard 基于 React + Ant Design（Vite 构建），文档站基于 VitePress
+- [gorilla/websocket](https://github.com/gorilla/websocket) - WebSocket transport for remote workers
+- [redis/go-redis](https://github.com/redis/go-redis) - Redis Stream client for the distributed queue
+- [expr-lang/expr](https://github.com/expr-lang/expr) - expression evaluation for the rule engine
+- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - configuration file parsing
+- The Dashboard is built on React + Ant Design (bundled with Vite); the docs site is based on VitePress
 
-路由、规则引擎、队列抽象、模板与 18 个渠道 Provider 的业务代码在仓库内实现。
+The routing, rule engine, queue abstraction, templates, and the business code of the 18 channel providers are implemented in this repository.
 
-## 许可证
+## License
 
 [Apache License 2.0](./LICENSE)
