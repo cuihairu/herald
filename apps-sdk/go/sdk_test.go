@@ -33,12 +33,12 @@ func (stubProvider) Status() *core.ProviderStatus {
 }
 
 // newServer assembles the real api server the way heraldd does, seeded
-// with one ferry app holding a full-scope token.
+// with one demo-app app holding a full-scope token.
 func newServer(t *testing.T) (*httptest.Server, core.Queue, *runtime.Manager) {
 	t.Helper()
 	reg, err := apps.NewRegistry([]apps.SeedApp{{
-		Name:   "ferry",
-		Tokens: []apps.SeedToken{{Secret: "ferry-full", Scopes: []string{"config", "trigger", "query"}}},
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "demo-app-full", Scopes: []string{"config", "trigger", "query"}}},
 	}})
 	if err != nil {
 		t.Fatalf("seed apps: %v", err)
@@ -91,7 +91,7 @@ func newServer(t *testing.T) (*httptest.Server, core.Queue, *runtime.Manager) {
 // 配品类 → 策略/模板/回调 → 触发 → 查状态.
 func TestClientFullFlow(t *testing.T) {
 	ts, q, mgr := newServer(t)
-	c := New(ts.URL, "ferry", "ferry-full")
+	c := New(ts.URL, "demo-app", "demo-app-full")
 	ctx := context.Background()
 
 	// 配品类.
@@ -171,7 +171,7 @@ func TestClientFullFlow(t *testing.T) {
 		t.Fatalf("deliveries: %v / %+v", err, page)
 	}
 	row := page.Logs[0]
-	if row.AudienceID != "alice" || row.Category != "alerts" || row.Source != "app:ferry" || row.Status != "success" {
+	if row.AudienceID != "alice" || row.Category != "alerts" || row.Source != "app:demo-app" || row.Status != "success" {
 		t.Fatalf("delivery row: %+v", row)
 	}
 	narrow, err := c.Deliveries(ctx, DeliveriesQuery{Audience: "bob"})
@@ -184,7 +184,7 @@ func TestClientFullFlow(t *testing.T) {
 	if err != nil || len(events) != 1 {
 		t.Fatalf("audit: %v / %+v", err, events)
 	}
-	if events[0].Kind != "delivery.deduped" || events[0].Source != "app:ferry" {
+	if events[0].Kind != "delivery.deduped" || events[0].Source != "app:demo-app" {
 		t.Fatalf("audit event: %+v", events[0])
 	}
 	future, err := c.Audit(ctx, time.Now().Add(time.Hour))
@@ -223,7 +223,7 @@ func asErr(err error, target **Error) bool {
 // TestClientAuthError: a wrong token answers the uniform 401 *Error.
 func TestClientAuthError(t *testing.T) {
 	ts, _, _ := newServer(t)
-	c := New(ts.URL, "ferry", "wrong-token")
+	c := New(ts.URL, "demo-app", "wrong-token")
 	err := c.RegisterCategory(context.Background(), "alerts", "urgent")
 	var httpErr *Error
 	if !asErr(err, &httpErr) || httpErr.Status != http.StatusUnauthorized {
@@ -238,7 +238,7 @@ func TestClientAuthError(t *testing.T) {
 // transport error, not an *Error — on every face, including the
 // admin-gated relations read that never answers 401 to an app token.
 func TestClientTransportError(t *testing.T) {
-	c := New("http://127.0.0.1:1", "ferry", "tok")
+	c := New("http://127.0.0.1:1", "demo-app", "tok")
 	if _, err := c.Categories(context.Background()); err == nil || !IsTransport(err) {
 		t.Fatalf("want transport error, got %#v", err)
 	}
@@ -251,7 +251,7 @@ func TestClientTransportError(t *testing.T) {
 // every method's error path runs, and every answer decodes as *Error.
 func TestClientEveryFaceRefuses(t *testing.T) {
 	ts, _, _ := newServer(t)
-	c := New(ts.URL, "ferry", "wrong-token")
+	c := New(ts.URL, "demo-app", "wrong-token")
 	ctx := context.Background()
 	checks := map[string]func() error{
 		"RegisterCategory": func() error { return c.RegisterCategory(ctx, "alerts", "urgent") },

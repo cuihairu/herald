@@ -13,10 +13,10 @@ import (
 
 func seedAppsRegistry() *apps.Registry {
 	r, _ := apps.NewRegistry([]apps.SeedApp{
-		{Name: "ferry", Tokens: []apps.SeedToken{
-			{Secret: "ferry-full", Scopes: []string{"config", "trigger", "query"}},
-			{Secret: "ferry-trigger", Scopes: []string{"trigger"}},
-			{Secret: "ferry-config", Scopes: []string{"config"}},
+		{Name: "demo-app", Tokens: []apps.SeedToken{
+			{Secret: "demo-app-full", Scopes: []string{"config", "trigger", "query"}},
+			{Secret: "demo-app-trigger", Scopes: []string{"trigger"}},
+			{Secret: "demo-app-config", Scopes: []string{"config"}},
 		}},
 	})
 	return r
@@ -27,7 +27,7 @@ func seedAppsRegistry() *apps.Registry {
 func TestAppShowAuthZ(t *testing.T) {
 	t.Run("unconfigured face is 404", func(t *testing.T) {
 		e := newTestEnv(t)
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"Authorization": "Bearer x"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app", "", map[string]string{"Authorization": "Bearer x"})
 		if code != 404 {
 			t.Fatalf("code = %d, want 404 (nil registry keeps the face closed)", code)
 		}
@@ -36,35 +36,35 @@ func TestAppShowAuthZ(t *testing.T) {
 	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
 
 	t.Run("unknown app is one uniform 401", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ghost", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/ghost", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 401 {
 			t.Fatalf("code = %d, want 401", code)
 		}
 	})
 
 	t.Run("wrong secret is 401", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"Authorization": "Bearer nope"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app", "", map[string]string{"Authorization": "Bearer nope"})
 		if code != 401 {
 			t.Fatalf("code = %d, want 401", code)
 		}
 	})
 
 	t.Run("missing credential is 401", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry", "", nil)
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app", "", nil)
 		if code != 401 {
 			t.Fatalf("code = %d, want 401", code)
 		}
 	})
 
 	t.Run("non-bearer credential is 401", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"Authorization": "Basic abc"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app", "", map[string]string{"Authorization": "Basic abc"})
 		if code != 401 {
 			t.Fatalf("code = %d, want 401 (the app face takes bearer or X-API-Key only)", code)
 		}
 	})
 
 	t.Run("insufficient scope is 403", func(t *testing.T) {
-		code, body := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"Authorization": "Bearer ferry-trigger"})
+		code, body := e.do(t, "GET", "/api/v1/apps/demo-app", "", map[string]string{"Authorization": "Bearer demo-app-trigger"})
 		if code != 403 {
 			t.Fatalf("code = %d, want 403", code)
 		}
@@ -74,13 +74,13 @@ func TestAppShowAuthZ(t *testing.T) {
 	})
 
 	t.Run("query scope reads back the namespace", func(t *testing.T) {
-		code, body := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		code, body := e.do(t, "GET", "/api/v1/apps/demo-app", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 200 {
 			t.Fatalf("code = %d, want 200", code)
 		}
 		data, _ := body["data"].(map[string]any)
-		if data == nil || data["name"] != "ferry" {
-			t.Fatalf("data = %v, want the ferry namespace", data)
+		if data == nil || data["name"] != "demo-app" {
+			t.Fatalf("data = %v, want the demo-app namespace", data)
 		}
 		scopes, _ := data["scopes"].([]any)
 		if len(scopes) != 3 || scopes[0] != "config" || scopes[1] != "trigger" || scopes[2] != "query" {
@@ -89,7 +89,7 @@ func TestAppShowAuthZ(t *testing.T) {
 	})
 
 	t.Run("X-API-Key carries the credential too", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry", "", map[string]string{"X-API-Key": "ferry-full"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app", "", map[string]string{"X-API-Key": "demo-app-full"})
 		if code != 200 {
 			t.Fatalf("code = %d, want 200", code)
 		}
@@ -101,7 +101,7 @@ func TestAppShowAuthZ(t *testing.T) {
 // refusal and the sorted read-back.
 func TestAppCategoriesEmptyList(t *testing.T) {
 	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
-	code, body := e.do(t, "GET", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-full"})
+	code, body := e.do(t, "GET", "/api/v1/apps/demo-app/categories", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 	if code != 200 {
 		t.Fatalf("list = %d, want 200", code)
 	}
@@ -115,39 +115,39 @@ func TestAppCategories(t *testing.T) {
 	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
 	post := func(t *testing.T, secret, body string) (int, map[string]any) {
 		t.Helper()
-		return e.do(t, "POST", "/api/v1/apps/ferry/categories", body, map[string]string{"Authorization": "Bearer " + secret})
+		return e.do(t, "POST", "/api/v1/apps/demo-app/categories", body, map[string]string{"Authorization": "Bearer " + secret})
 	}
 
 	t.Run("post needs config scope", func(t *testing.T) {
-		code, _ := post(t, "ferry-trigger", `{"name":"alerts","default_urgency":"urgent"}`)
+		code, _ := post(t, "demo-app-trigger", `{"name":"alerts","default_urgency":"urgent"}`)
 		if code != 403 {
 			t.Fatalf("code = %d, want 403", code)
 		}
 	})
 
 	t.Run("get needs query scope", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-config"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app/categories", "", map[string]string{"Authorization": "Bearer demo-app-config"})
 		if code != 403 {
 			t.Fatalf("code = %d, want 403", code)
 		}
 	})
 
 	t.Run("broken json is 400", func(t *testing.T) {
-		code, _ := post(t, "ferry-full", `{oops`)
+		code, _ := post(t, "demo-app-full", `{oops`)
 		if code != 400 {
 			t.Fatalf("code = %d, want 400", code)
 		}
 	})
 
 	t.Run("missing fields are 422", func(t *testing.T) {
-		code, _ := post(t, "ferry-full", `{"name":"alerts"}`)
+		code, _ := post(t, "demo-app-full", `{"name":"alerts"}`)
 		if code != 422 {
 			t.Fatalf("code = %d, want 422", code)
 		}
 	})
 
 	t.Run("unknown urgency is 422 naming the category", func(t *testing.T) {
-		code, body := post(t, "ferry-full", `{"name":"alerts","default_urgency":"hourly"}`)
+		code, body := post(t, "demo-app-full", `{"name":"alerts","default_urgency":"hourly"}`)
 		if code != 422 {
 			t.Fatalf("code = %d, want 422", code)
 		}
@@ -157,20 +157,20 @@ func TestAppCategories(t *testing.T) {
 	})
 
 	t.Run("register, re-confirm, conflict, list", func(t *testing.T) {
-		code, _ := post(t, "ferry-full", `{"name":"alerts","default_urgency":"urgent"}`)
+		code, _ := post(t, "demo-app-full", `{"name":"alerts","default_urgency":"urgent"}`)
 		if code != 200 {
 			t.Fatalf("create = %d, want 200", code)
 		}
-		code, _ = post(t, "ferry-full", `{"name":"alerts","default_urgency":"urgent"}`)
+		code, _ = post(t, "demo-app-full", `{"name":"alerts","default_urgency":"urgent"}`)
 		if code != 200 {
 			t.Fatalf("idempotent re-register = %d, want 200", code)
 		}
-		code, _ = post(t, "ferry-full", `{"name":"alerts","default_urgency":"critical"}`)
+		code, _ = post(t, "demo-app-full", `{"name":"alerts","default_urgency":"critical"}`)
 		if code != 409 {
 			t.Fatalf("conflict = %d, want 409", code)
 		}
-		post(t, "ferry-full", `{"name":"billing","default_urgency":"normal"}`)
-		code, body := e.do(t, "GET", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		post(t, "demo-app-full", `{"name":"billing","default_urgency":"normal"}`)
+		code, body := e.do(t, "GET", "/api/v1/apps/demo-app/categories", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 200 {
 			t.Fatalf("list = %d, want 200", code)
 		}
@@ -186,7 +186,7 @@ func TestAppCategories(t *testing.T) {
 	})
 
 	t.Run("other methods are 405", func(t *testing.T) {
-		code, _ := e.do(t, "DELETE", "/api/v1/apps/ferry/categories", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		code, _ := e.do(t, "DELETE", "/api/v1/apps/demo-app/categories", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 405 {
 			t.Fatalf("code = %d, want 405", code)
 		}
@@ -200,18 +200,18 @@ func TestAppPolicies(t *testing.T) {
 	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
 	put := func(t *testing.T, path, body string) (int, map[string]any) {
 		t.Helper()
-		return e.do(t, "PUT", "/api/v1/apps/ferry"+path, body, map[string]string{"Authorization": "Bearer ferry-full"})
+		return e.do(t, "PUT", "/api/v1/apps/demo-app"+path, body, map[string]string{"Authorization": "Bearer demo-app-full"})
 	}
 
 	t.Run("write needs config scope", func(t *testing.T) {
-		code, _ := e.do(t, "PUT", "/api/v1/apps/ferry/policies/intensity", `{"sms":"L4"}`, map[string]string{"Authorization": "Bearer ferry-trigger"})
+		code, _ := e.do(t, "PUT", "/api/v1/apps/demo-app/policies/intensity", `{"sms":"L4"}`, map[string]string{"Authorization": "Bearer demo-app-trigger"})
 		if code != 403 {
 			t.Fatalf("code = %d, want 403", code)
 		}
 	})
 
 	t.Run("read needs query scope", func(t *testing.T) {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-config"})
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app/policies", "", map[string]string{"Authorization": "Bearer demo-app-config"})
 		if code != 403 {
 			t.Fatalf("code = %d, want 403", code)
 		}
@@ -297,7 +297,7 @@ func TestAppPolicies(t *testing.T) {
 		if code != 200 {
 			t.Fatalf("intensity put = %d, want 200", code)
 		}
-		code, body := e.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		code, body := e.do(t, "GET", "/api/v1/apps/demo-app/policies", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 200 {
 			t.Fatalf("read = %d, want 200", code)
 		}
@@ -324,7 +324,7 @@ func TestAppPolicies(t *testing.T) {
 		if code != 200 {
 			t.Fatalf("dedup put = %d, want 200", code)
 		}
-		_, body := e.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		_, body := e.do(t, "GET", "/api/v1/apps/demo-app/policies", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		data, _ := body["data"].(map[string]any)
 		if _, has := data["dedup_tiers"]; has {
 			t.Errorf("dedup_tiers = %v, want cleared by the family PUT", data["dedup_tiers"])
@@ -337,7 +337,7 @@ func TestAppPolicies(t *testing.T) {
 
 	t.Run("empty set reads back empty", func(t *testing.T) {
 		e2 := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
-		code, body := e2.do(t, "GET", "/api/v1/apps/ferry/policies", "", map[string]string{"Authorization": "Bearer ferry-full"})
+		code, body := e2.do(t, "GET", "/api/v1/apps/demo-app/policies", "", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 200 {
 			t.Fatalf("read = %d, want 200", code)
 		}
@@ -360,10 +360,10 @@ const validTemplateJSON = `{
 
 func TestAppTemplates(t *testing.T) {
 	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
-	bearer := map[string]string{"Authorization": "Bearer ferry-full"}
+	bearer := map[string]string{"Authorization": "Bearer demo-app-full"}
 
 	// Empty list first — a fresh namespace answers [], not null.
-	code, body := e.do(t, "GET", "/api/v1/apps/ferry/templates", "", bearer)
+	code, body := e.do(t, "GET", "/api/v1/apps/demo-app/templates", "", bearer)
 	if code != 200 {
 		t.Fatalf("empty list: got %d", code)
 	}
@@ -372,76 +372,76 @@ func TestAppTemplates(t *testing.T) {
 	}
 
 	// GET is query power: trigger-only and config-only tokens lack it.
-	for _, secret := range []string{"ferry-trigger", "ferry-config"} {
-		code, _ := e.do(t, "GET", "/api/v1/apps/ferry/templates", "", map[string]string{"Authorization": "Bearer " + secret})
+	for _, secret := range []string{"demo-app-trigger", "demo-app-config"} {
+		code, _ := e.do(t, "GET", "/api/v1/apps/demo-app/templates", "", map[string]string{"Authorization": "Bearer " + secret})
 		if code != 403 {
 			t.Fatalf("GET with %s: want 403, got %d", secret, code)
 		}
 	}
 	// POST is config power: the trigger-only token lacks it.
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", validTemplateJSON, map[string]string{"Authorization": "Bearer ferry-trigger"})
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/templates", validTemplateJSON, map[string]string{"Authorization": "Bearer demo-app-trigger"})
 	if code != 403 {
 		t.Fatalf("POST with trigger token: want 403, got %d", code)
 	}
 
 	// Bad JSON and an invalid template refuse.
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", "{not json", bearer)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/templates", "{not json", bearer)
 	if code != 400 {
 		t.Fatalf("bad JSON: want 400, got %d", code)
 	}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", `{"id":"x","name":"y"}`, bearer)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/templates", `{"id":"x","name":"y"}`, bearer)
 	if code != 422 {
 		t.Fatalf("template missing title: want 422, got %d", code)
 	}
 
 	// Register, re-confirm (idempotent upsert), list, read one.
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", validTemplateJSON, bearer)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/templates", validTemplateJSON, bearer)
 	if code != 200 {
 		t.Fatalf("register: got %d", code)
 	}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/templates", validTemplateJSON, bearer)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/templates", validTemplateJSON, bearer)
 	if code != 200 {
 		t.Fatalf("re-confirm: got %d", code)
 	}
-	code, body = e.do(t, "GET", "/api/v1/apps/ferry/templates", "", bearer)
+	code, body = e.do(t, "GET", "/api/v1/apps/demo-app/templates", "", bearer)
 	if code != 200 {
 		t.Fatalf("list: got %d", code)
 	}
 	if got, _ := body["data"].([]any); len(got) != 1 {
 		t.Fatalf("list: want 1 template, got %v", body["data"])
 	}
-	code, body = e.do(t, "GET", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	code, body = e.do(t, "GET", "/api/v1/apps/demo-app/templates/node_down", "", bearer)
 	if code != 200 {
 		t.Fatalf("get: got %d", code)
 	}
 	if data, _ := body["data"].(map[string]any); data["title"] != "节点 {{host}} 下线" {
 		t.Fatalf("get: want round-tripped title, got %v", body["data"])
 	}
-	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/templates/ghost", "", bearer)
+	code, _ = e.do(t, "GET", "/api/v1/apps/demo-app/templates/ghost", "", bearer)
 	if code != 404 {
 		t.Fatalf("get ghost: want 404, got %d", code)
 	}
 
 	// DELETE is config power.
-	code, _ = e.do(t, "DELETE", "/api/v1/apps/ferry/templates/node_down", "", map[string]string{"Authorization": "Bearer ferry-trigger"})
+	code, _ = e.do(t, "DELETE", "/api/v1/apps/demo-app/templates/node_down", "", map[string]string{"Authorization": "Bearer demo-app-trigger"})
 	if code != 403 {
 		t.Fatalf("DELETE with trigger token: want 403, got %d", code)
 	}
-	code, _ = e.do(t, "DELETE", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	code, _ = e.do(t, "DELETE", "/api/v1/apps/demo-app/templates/node_down", "", bearer)
 	if code != 200 {
 		t.Fatalf("delete: got %d", code)
 	}
-	code, _ = e.do(t, "DELETE", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	code, _ = e.do(t, "DELETE", "/api/v1/apps/demo-app/templates/node_down", "", bearer)
 	if code != 404 {
 		t.Fatalf("double delete: want 404, got %d", code)
 	}
-	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/templates/node_down", "", bearer)
+	code, _ = e.do(t, "GET", "/api/v1/apps/demo-app/templates/node_down", "", bearer)
 	if code != 404 {
 		t.Fatalf("get after delete: want 404, got %d", code)
 	}
 
 	// Method not allowed on both endpoints.
-	for _, path := range []string{"/api/v1/apps/ferry/templates", "/api/v1/apps/ferry/templates/node_down"} {
+	for _, path := range []string{"/api/v1/apps/demo-app/templates", "/api/v1/apps/demo-app/templates/node_down"} {
 		code, _ = e.do(t, "PUT", path, "{}", bearer)
 		if code != 405 {
 			t.Fatalf("PUT %s: want 405, got %d", path, code)
@@ -454,12 +454,12 @@ func TestAppTemplates(t *testing.T) {
 func TestAppTemplatesNilRegistry(t *testing.T) {
 	e := newTestEnv(t)
 	for _, tc := range []struct{ method, path string }{
-		{"GET", "/api/v1/apps/ferry/templates"},
-		{"POST", "/api/v1/apps/ferry/templates"},
-		{"GET", "/api/v1/apps/ferry/templates/x"},
-		{"DELETE", "/api/v1/apps/ferry/templates/x"},
+		{"GET", "/api/v1/apps/demo-app/templates"},
+		{"POST", "/api/v1/apps/demo-app/templates"},
+		{"GET", "/api/v1/apps/demo-app/templates/x"},
+		{"DELETE", "/api/v1/apps/demo-app/templates/x"},
 	} {
-		code, _ := e.do(t, tc.method, tc.path, "{}", map[string]string{"Authorization": "Bearer ferry-full"})
+		code, _ := e.do(t, tc.method, tc.path, "{}", map[string]string{"Authorization": "Bearer demo-app-full"})
 		if code != 404 {
 			t.Fatalf("%s %s without registry: want 404, got %d", tc.method, tc.path, code)
 		}
@@ -501,53 +501,53 @@ func dispatchEnv(t *testing.T) *testEnv {
 
 func TestAppDispatch(t *testing.T) {
 	e := dispatchEnv(t)
-	trigger := map[string]string{"Authorization": "Bearer ferry-trigger"}
+	trigger := map[string]string{"Authorization": "Bearer demo-app-trigger"}
 
 	// AuthZ: dispatch is trigger power; config-only and query-less
-	// tokens stay out. (ferry-trigger holds exactly the right scope.)
-	code, _ := e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"]}`, map[string]string{"Authorization": "Bearer ferry-config"})
+	// tokens stay out. (demo-app-trigger holds exactly the right scope.)
+	code, _ := e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"]}`, map[string]string{"Authorization": "Bearer demo-app-config"})
 	if code != 403 {
 		t.Fatalf("config token: want 403, got %d", code)
 	}
 
 	// Body validation.
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", "{bad", trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", "{bad", trigger)
 	if code != 400 {
 		t.Fatalf("bad JSON: want 400, got %d", code)
 	}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"audiences":["alice"]}`, trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"audiences":["alice"]}`, trigger)
 	if code != 422 {
 		t.Fatalf("missing category: want 422, got %d", code)
 	}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts"}`, trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts"}`, trigger)
 	if code != 422 {
 		t.Fatalf("missing audiences: want 422, got %d", code)
 	}
 	// Register the category before the vocabulary checks: urgency and
 	// relation validation run against a registered category, in request
 	// order (taxonomy gate first).
-	reg := map[string]string{"Authorization": "Bearer ferry-full"}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/categories", `{"name":"alerts","default_urgency":"urgent"}`, reg)
+	reg := map[string]string{"Authorization": "Bearer demo-app-full"}
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/categories", `{"name":"alerts","default_urgency":"urgent"}`, reg)
 	if code != 200 {
 		t.Fatalf("category register: got %d", code)
 	}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"urgency":"whenever"}`, trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"urgency":"whenever"}`, trigger)
 	if code != 422 {
 		t.Fatalf("bad urgency: want 422, got %d", code)
 	}
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"relation_type":"possession"}`, trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"relation_type":"possession"}`, trigger)
 	if code != 422 {
 		t.Fatalf("bad relation_type: want 422, got %d", code)
 	}
 	// The namespace taxonomy is the point: an unregistered category is
 	// refused even if the operator's global tables know it.
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"never_registered","audiences":["alice"]}`, trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"never_registered","audiences":["alice"]}`, trigger)
 	if code != 422 {
 		t.Fatalf("unregistered category: want 422, got %d", code)
 	}
 
 	// Dispatch with the category default urgency (缺省取品类默认).
-	code, body := e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"node-17"}`, trigger)
+	code, body := e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"node-17"}`, trigger)
 	if code != 200 {
 		t.Fatalf("dispatch: got %d %v", code, body)
 	}
@@ -564,7 +564,7 @@ func TestAppDispatch(t *testing.T) {
 	}
 
 	// The dedup gate folds the repeat — 受理 still succeeds.
-	code, body = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"node-17"}`, trigger)
+	code, body = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"node-17"}`, trigger)
 	if code != 200 {
 		t.Fatalf("repeat dispatch: got %d", code)
 	}
@@ -577,7 +577,7 @@ func TestAppDispatch(t *testing.T) {
 	}
 
 	// A payload urgency overrides the category default.
-	code, body = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","urgency":"critical","audiences":["alice"],"event_id":"evt-1"}`, trigger)
+	code, body = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","urgency":"critical","audiences":["alice"],"event_id":"evt-1"}`, trigger)
 	if code != 200 {
 		t.Fatalf("urgency override: got %d", code)
 	}
@@ -589,7 +589,7 @@ func TestAppDispatch(t *testing.T) {
 	// Explicit relation vocabulary: both spellings are accepted —
 	// 指派型触发必须显式声明 is a contract, not a refusal.
 	for _, rt := range []string{"subscription", "enrollment"} {
-		code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch",
+		code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch",
 			`{"category":"alerts","audiences":["alice"],"relation_type":"`+rt+`","event_id":"evt-`+rt+`"}`, trigger)
 		if code != 200 {
 			t.Fatalf("relation_type %s: want 200, got %d", rt, code)
@@ -598,14 +598,14 @@ func TestAppDispatch(t *testing.T) {
 
 	// A template the namespace does not hold refuses the dispatch (the
 	// global table stays invisible) — the service error surfaces 422.
-	code, _ = e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"template":"ghost","event_id":"evt-tpl"}`, trigger)
+	code, _ = e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"template":"ghost","event_id":"evt-tpl"}`, trigger)
 	if code != 422 {
 		t.Fatalf("unknown template: want 422, got %d", code)
 	}
 
 	// Nil delivery policy keeps the face closed.
 	e2 := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
-	code, _ = e2.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"]}`, trigger)
+	code, _ = e2.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"]}`, trigger)
 	if code != 404 {
 		t.Fatalf("nil delivery policy: want 404, got %d", code)
 	}
@@ -615,15 +615,15 @@ func TestAppDispatch(t *testing.T) {
 // its audit trail, and the operator-side audience relations read.
 func TestAppQueryFaces(t *testing.T) {
 	e := dispatchEnv(t)
-	trigger := map[string]string{"Authorization": "Bearer ferry-trigger"}
-	full := map[string]string{"Authorization": "Bearer ferry-full"}
+	trigger := map[string]string{"Authorization": "Bearer demo-app-trigger"}
+	full := map[string]string{"Authorization": "Bearer demo-app-full"}
 
-	// Dispatch once so the logstore holds exactly one app:ferry row.
-	code, _ := e.do(t, "POST", "/api/v1/apps/ferry/categories", `{"name":"alerts","default_urgency":"urgent"}`, full)
+	// Dispatch once so the logstore holds exactly one app:demo-app row.
+	code, _ := e.do(t, "POST", "/api/v1/apps/demo-app/categories", `{"name":"alerts","default_urgency":"urgent"}`, full)
 	if code != 200 {
 		t.Fatalf("category register: got %d", code)
 	}
-	code, dispBody := e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k1"}`, trigger)
+	code, dispBody := e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k1"}`, trigger)
 	if code != 200 {
 		t.Fatalf("dispatch: got %d", code)
 	}
@@ -647,11 +647,11 @@ func TestAppQueryFaces(t *testing.T) {
 	}
 
 	// Deliveries: query power; the trigger-only token stays out.
-	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/deliveries", "", trigger)
+	code, _ = e.do(t, "GET", "/api/v1/apps/demo-app/deliveries", "", trigger)
 	if code != 403 {
 		t.Fatalf("deliveries with trigger token: want 403, got %d", code)
 	}
-	code, body := e.do(t, "GET", "/api/v1/apps/ferry/deliveries", "", full)
+	code, body := e.do(t, "GET", "/api/v1/apps/demo-app/deliveries", "", full)
 	if code != 200 {
 		t.Fatalf("deliveries: got %d", code)
 	}
@@ -661,30 +661,30 @@ func TestAppQueryFaces(t *testing.T) {
 	}
 	logs, _ := data["logs"].([]any)
 	row, _ := logs[0].(map[string]any)
-	if row["audience_id"] != "alice" || row["category"] != "alerts" || row["source"] != "app:ferry" {
-		t.Fatalf("row: want alice/alerts/app:ferry, got %v", row)
+	if row["audience_id"] != "alice" || row["category"] != "alerts" || row["source"] != "app:demo-app" {
+		t.Fatalf("row: want alice/alerts/app:demo-app, got %v", row)
 	}
 
 	// Narrows.
-	code, body = e.do(t, "GET", "/api/v1/apps/ferry/deliveries?audience=bob", "", full)
+	code, body = e.do(t, "GET", "/api/v1/apps/demo-app/deliveries?audience=bob", "", full)
 	data, _ = body["data"].(map[string]any)
 	if code != 200 || data["total"].(float64) != 0 {
 		t.Fatalf("audience=bob: want 200/0, got %d/%v", code, data["total"])
 	}
-	code, body = e.do(t, "GET", "/api/v1/apps/ferry/deliveries?category=billing", "", full)
+	code, body = e.do(t, "GET", "/api/v1/apps/demo-app/deliveries?category=billing", "", full)
 	data, _ = body["data"].(map[string]any)
 	if code != 200 || data["total"].(float64) != 0 {
 		t.Fatalf("category=billing: want 200/0, got %d/%v", code, data["total"])
 	}
 	// Page size clamps at the ceiling.
-	code, body = e.do(t, "GET", "/api/v1/apps/ferry/deliveries?limit=1000", "", full)
+	code, body = e.do(t, "GET", "/api/v1/apps/demo-app/deliveries?limit=1000", "", full)
 	data, _ = body["data"].(map[string]any)
 	if code != 200 || data["limit"].(float64) != 500 {
 		t.Fatalf("limit clamp: want 200/500, got %d/%v", code, data["limit"])
 	}
 
 	// Audit: nil store keeps the endpoint 404 (dispatchEnv sets none).
-	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/audit", "", full)
+	code, _ = e.do(t, "GET", "/api/v1/apps/demo-app/audit", "", full)
 	if code != 404 {
 		t.Fatalf("audit without store: want 404, got %d", code)
 	}
@@ -732,7 +732,7 @@ func TestAppQueryFaces(t *testing.T) {
 
 // TestAppAuditTrail wires the §12 store and reads the namespace's trail
 // through it: a suppressed repeat lands its deduped row with the
-// app:ferry source, and ?since= narrows.
+// app:demo-app source, and ?since= narrows.
 func TestAppAuditTrail(t *testing.T) {
 	relations := audience.NewRegistry()
 	surfaces := audience.NewSurfaceRegistry()
@@ -756,15 +756,15 @@ func TestAppAuditTrail(t *testing.T) {
 	if err := e.runtime.RegisterProvider("email", &stubProvider{name: "email", pType: "email"}, true); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
-	full := map[string]string{"Authorization": "Bearer ferry-full"}
-	trigger := map[string]string{"Authorization": "Bearer ferry-trigger"}
+	full := map[string]string{"Authorization": "Bearer demo-app-full"}
+	trigger := map[string]string{"Authorization": "Bearer demo-app-trigger"}
 
-	e.do(t, "POST", "/api/v1/apps/ferry/categories", `{"name":"alerts","default_urgency":"urgent"}`, full)
-	e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k2"}`, trigger)
+	e.do(t, "POST", "/api/v1/apps/demo-app/categories", `{"name":"alerts","default_urgency":"urgent"}`, full)
+	e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k2"}`, trigger)
 	// The repeat folds — that is what the trail answers 为什么这条没投.
-	e.do(t, "POST", "/api/v1/apps/ferry/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k2"}`, trigger)
+	e.do(t, "POST", "/api/v1/apps/demo-app/dispatch", `{"category":"alerts","audiences":["alice"],"dedup_key":"k2"}`, trigger)
 
-	code, body := e.do(t, "GET", "/api/v1/apps/ferry/audit", "", full)
+	code, body := e.do(t, "GET", "/api/v1/apps/demo-app/audit", "", full)
 	if code != 200 {
 		t.Fatalf("audit: got %d", code)
 	}
@@ -774,23 +774,23 @@ func TestAppAuditTrail(t *testing.T) {
 		t.Fatalf("events: want the deduped row, got %v", data["events"])
 	}
 	ev, _ := events[0].(map[string]any)
-	if ev["kind"] != "delivery.deduped" || ev["source"] != "app:ferry" {
-		t.Fatalf("event: want deduped from app:ferry, got %v", ev)
+	if ev["kind"] != "delivery.deduped" || ev["source"] != "app:demo-app" {
+		t.Fatalf("event: want deduped from app:demo-app, got %v", ev)
 	}
 
 	// since in the future reads empty; a malformed stamp is 400.
 	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	code, body = e.do(t, "GET", "/api/v1/apps/ferry/audit?since="+future, "", full)
+	code, body = e.do(t, "GET", "/api/v1/apps/demo-app/audit?since="+future, "", full)
 	data, _ = body["data"].(map[string]any)
 	if code != 200 || len(data["events"].([]any)) != 0 {
 		t.Fatalf("future since: want 200/0, got %d/%v", code, data["events"])
 	}
-	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/audit?since=yesterday", "", full)
+	code, _ = e.do(t, "GET", "/api/v1/apps/demo-app/audit?since=yesterday", "", full)
 	if code != 400 {
 		t.Fatalf("bad since: want 400, got %d", code)
 	}
 	// Query power gates the read too.
-	code, _ = e.do(t, "GET", "/api/v1/apps/ferry/audit", "", trigger)
+	code, _ = e.do(t, "GET", "/api/v1/apps/demo-app/audit", "", trigger)
 	if code != 403 {
 		t.Fatalf("audit with trigger token: want 403, got %d", code)
 	}

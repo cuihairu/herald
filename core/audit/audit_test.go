@@ -67,32 +67,32 @@ func TestChronologicalOrder(t *testing.T) {
 
 func TestListBySource(t *testing.T) {
 	store := New(0)
-	store.Record(Event{Kind: DeliveryDeduped, Source: "app:ferry", Category: "alerts", Detail: "throttle: k (×2)"})
+	store.Record(Event{Kind: DeliveryDeduped, Source: "app:demo-app", Category: "alerts", Detail: "throttle: k (×2)"})
 	store.Record(Event{Kind: RelationSubscribe, Source: "bot", AudienceID: "alice"})
-	store.Record(Event{Kind: DeliveryDeduped, Source: "app:sinomed", Category: "billing"})
-	// A second ferry event recorded out of chronological order: the
+	store.Record(Event{Kind: DeliveryDeduped, Source: "app:app-b", Category: "billing"})
+	// A second demo-app event recorded out of chronological order: the
 	// trail must come back sorted by At regardless of write order.
 	earlier := time.Now().Add(-2 * time.Hour)
-	store.Record(Event{At: earlier, Kind: RelationSubscribe, Source: "app:ferry", AudienceID: "bob"})
+	store.Record(Event{At: earlier, Kind: RelationSubscribe, Source: "app:demo-app", AudienceID: "bob"})
 
-	all := store.ListBySource("app:ferry", time.Time{})
+	all := store.ListBySource("app:demo-app", time.Time{})
 	if len(all) != 2 {
-		t.Fatalf("ferry trail: want 2 events, got %v", all)
+		t.Fatalf("demo-app trail: want 2 events, got %v", all)
 	}
 	if !all[0].At.Before(all[1].At) {
 		t.Fatalf("trail order: want chronological, got %v then %v", all[0].At, all[1].At)
 	}
-	ferry := store.ListBySource("app:ferry", time.Now().Add(-time.Hour))
-	if len(ferry) != 1 || ferry[0].Category != "alerts" {
-		t.Fatalf("ferry trail after past: want its own late event, got %v", ferry)
+	demoApp := store.ListBySource("app:demo-app", time.Now().Add(-time.Hour))
+	if len(demoApp) != 1 || demoApp[0].Category != "alerts" {
+		t.Fatalf("demo-app trail after past: want its own late event, got %v", demoApp)
 	}
 
 	cutoff := time.Now().Add(time.Hour)
-	if got := store.ListBySource("app:ferry", cutoff); len(got) != 0 {
+	if got := store.ListBySource("app:demo-app", cutoff); len(got) != 0 {
 		t.Fatalf("since filter: want 0 events after cutoff, got %v", got)
 	}
 	past := time.Now().Add(-time.Hour)
-	if got := store.ListBySource("app:ferry", past); len(got) != 1 {
+	if got := store.ListBySource("app:demo-app", past); len(got) != 1 {
 		t.Fatalf("since filter: want the event after past, got %v", got)
 	}
 	if got := store.ListBySource("app:ghost", time.Time{}); len(got) != 0 {

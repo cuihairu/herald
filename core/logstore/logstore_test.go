@@ -617,15 +617,15 @@ func TestFilterQueryDimensions(t *testing.T) {
 		store.Add(log)
 		return log
 	}
-	mk("t1", "alice", "alerts", "app:ferry")
-	mk("t2", "bob", "alerts", "app:ferry")
-	mk("t3", "alice", "billing", "app:sinomed")
+	mk("t1", "alice", "alerts", "app:demo-app")
+	mk("t2", "bob", "alerts", "app:demo-app")
+	mk("t3", "alice", "billing", "app:app-b")
 	mk("t4", "", "", "")
 
-	if got := store.Count(&Filter{Source: "app:ferry"}); got != 2 {
+	if got := store.Count(&Filter{Source: "app:demo-app"}); got != 2 {
 		t.Fatalf("source scope: want 2, got %d", got)
 	}
-	if got := store.Count(&Filter{Source: "app:ferry", AudienceID: "alice"}); got != 1 {
+	if got := store.Count(&Filter{Source: "app:demo-app", AudienceID: "alice"}); got != 1 {
 		t.Fatalf("audience narrow: want 1, got %d", got)
 	}
 	// The raw filter dims are independent — namespace isolation comes
@@ -633,7 +633,7 @@ func TestFilterQueryDimensions(t *testing.T) {
 	if got := store.Count(&Filter{AudienceID: "alice", Category: "billing"}); got != 1 {
 		t.Fatalf("dims without source: want 1, got %d", got)
 	}
-	if got := store.Count(&Filter{Source: "app:sinomed", AudienceID: "alice", Category: "billing"}); got != 1 {
+	if got := store.Count(&Filter{Source: "app:app-b", AudienceID: "alice", Category: "billing"}); got != 1 {
 		t.Fatalf("combined dims: want 1, got %d", got)
 	}
 	if got := store.Count(nil); got != 4 {

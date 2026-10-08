@@ -31,13 +31,13 @@ var errBoom error = &boomError{}
 func emitterEnv(t *testing.T) (*Emitter, *apps.Registry, core.Queue) {
 	t.Helper()
 	reg, err := apps.NewRegistry([]apps.SeedApp{{
-		Name:   "ferry",
+		Name:   "demo-app",
 		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
 	}})
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	if err := reg.SetCallback("ferry", "https://callback.example.com/hook", testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", "https://callback.example.com/hook", testSecret); err != nil {
 		t.Fatalf("set callback: %v", err)
 	}
 	q, err := queue.NewMemoryQueue(&queue.QueueConfig{})
@@ -68,11 +68,11 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 	e, _, q := emitterEnv(t)
 
 	e.OnSettle(&core.DeliveryTask{
-		ID: "t1", Provider: "email", Source: "app:ferry",
+		ID: "t1", Provider: "email", Source: "app:demo-app",
 		AudienceID: "alice", Category: "alerts", EventID: "77",
 	}, nil)
 	e.OnSettle(&core.DeliveryTask{
-		ID: "t2", Provider: "sms", Source: "app:ferry",
+		ID: "t2", Provider: "sms", Source: "app:demo-app",
 		AudienceID: "bob", Category: "alerts", LastError: "boom",
 	}, errBoom)
 
@@ -107,7 +107,7 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 		if err := json.Unmarshal([]byte(body), &ev); err != nil {
 			t.Fatalf("event body: %v", err)
 		}
-		if ev.App != "ferry" || ev.Kind != KindDeliveryResult || ev.EventID == "" || ev.At.IsZero() {
+		if ev.App != "demo-app" || ev.Kind != KindDeliveryResult || ev.EventID == "" || ev.At.IsZero() {
 			t.Fatalf("event envelope: %+v", ev)
 		}
 		if ev.Delivery == nil {
@@ -119,7 +119,7 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 		t.Fatalf("success event: %+v", got)
 	}
 	// The integrator's event identity echoes back — the receipt-
-	// correlation field (ferry 的 outbox id 走这条线回家).
+	// correlation field (demo-app 的 outbox id 走这条线回家).
 	if got := seen["success"]; got.EventID != "77" {
 		t.Fatalf("success event_id = %q, want \"77\"", got.EventID)
 	}
@@ -136,7 +136,7 @@ func TestOnSettleIgnoresNonAppTraffic(t *testing.T) {
 
 	e.OnSettle(&core.DeliveryTask{ID: "t1", Provider: "email"}, nil)
 	e.OnSettle(nil, nil)
-	NewEmitter(nil, nil).OnSettle(&core.DeliveryTask{Source: "app:ferry"}, nil)
+	NewEmitter(nil, nil).OnSettle(&core.DeliveryTask{Source: "app:demo-app"}, nil)
 	if len(popAll(t, q)) != 0 {
 		t.Fatalf("non-app settle must not enqueue")
 	}
@@ -150,7 +150,7 @@ func TestUnsubscribedBackflow(t *testing.T) {
 
 	e.Unsubscribed(audience.Relation{
 		AudienceID: "alice", Category: "alerts", Channel: "email",
-		Type: audience.RelationSubscription, Source: "app:ferry",
+		Type: audience.RelationSubscription, Source: "app:demo-app",
 	}, "preference_center")
 	e.Unsubscribed(audience.Relation{
 		AudienceID: "alice", Category: "alerts", Channel: "email",
@@ -173,12 +173,12 @@ func TestUnsubscribedBackflow(t *testing.T) {
 	}
 
 	// An app without callback config is a closed face: nothing enqueues.
-	if err := reg.ClearCallback("ferry"); err != nil {
+	if err := reg.ClearCallback("demo-app"); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
 	e.Unsubscribed(audience.Relation{
 		AudienceID: "alice", Category: "alerts", Channel: "email",
-		Type: audience.RelationSubscription, Source: "app:ferry",
+		Type: audience.RelationSubscription, Source: "app:demo-app",
 	}, "preference_center")
 	if len(popAll(t, q)) != 0 {
 		t.Fatalf("closed face must not enqueue")
@@ -187,7 +187,7 @@ func TestUnsubscribedBackflow(t *testing.T) {
 	// A dead queue swallows the push error — the hooks discard it by
 	// contract, the direct callers read it. The callback config is
 	// re-armed first so the push really reaches the queue.
-	if err := reg.SetCallback("ferry", "https://callback.example.com/hook", testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", "https://callback.example.com/hook", testSecret); err != nil {
 		t.Fatalf("re-arm: %v", err)
 	}
 	if err := q.Close(); err != nil {
@@ -195,11 +195,11 @@ func TestUnsubscribedBackflow(t *testing.T) {
 	}
 	e.Unsubscribed(audience.Relation{
 		AudienceID: "alice", Category: "alerts", Channel: "email",
-		Type: audience.RelationSubscription, Source: "app:ferry",
+		Type: audience.RelationSubscription, Source: "app:demo-app",
 	}, "preference_center")
 	NewEmitter(reg, nil).Unsubscribed(audience.Relation{
 		AudienceID: "alice", Category: "alerts", Channel: "email",
-		Type: audience.RelationSubscription, Source: "app:ferry",
+		Type: audience.RelationSubscription, Source: "app:demo-app",
 	}, "preference_center")
 }
 
@@ -292,7 +292,7 @@ func TestPipelineDeliversSignedEvent(t *testing.T) {
 	defer srv.Close()
 
 	e, reg, q := emitterEnv(t)
-	if err := reg.SetCallback("ferry", srv.URL, testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", srv.URL, testSecret); err != nil {
 		t.Fatalf("re-point callback at the test server: %v", err)
 	}
 
@@ -318,7 +318,7 @@ func TestPipelineDeliversSignedEvent(t *testing.T) {
 	}()
 
 	e.OnSettle(&core.DeliveryTask{
-		ID: "t9", Provider: "email", Source: "app:ferry",
+		ID: "t9", Provider: "email", Source: "app:demo-app",
 		AudienceID: "alice", Category: "alerts",
 	}, nil)
 

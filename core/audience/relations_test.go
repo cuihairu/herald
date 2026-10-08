@@ -184,7 +184,7 @@ func TestQueriesByType(t *testing.T) {
 		{AudienceID: "alice", Category: "alerts", Channel: "telegram", Type: RelationSubscription, Source: SourceBot},
 		{AudienceID: "alice", Category: "bills", Channel: "email", Type: RelationSubscription, Source: SourcePreferenceCenter},
 		{AudienceID: "alice", Category: "system", Channel: "sms", Type: RelationEnrollment, Source: SourceAdmin, Policy: Policy{MustDeliver: true}},
-		{AudienceID: "bob", Category: "notices", Channel: "email", Type: RelationEnrollment, Source: "app:ferry", Policy: Policy{AllowUnsubscribe: true}},
+		{AudienceID: "bob", Category: "notices", Channel: "email", Type: RelationEnrollment, Source: "app:demo-app", Policy: Policy{AllowUnsubscribe: true}},
 	}
 	for _, rel := range seed {
 		if rel.Type == RelationSubscription {
@@ -258,7 +258,7 @@ func TestRegistryAuditTrail(t *testing.T) {
 // entry — refusals and unknown relations report nothing.
 func TestTerminateUnsubscribeHook(t *testing.T) {
 	g := NewRegistry()
-	sub := Relation{AudienceID: "alice", Category: "alerts", Channel: "telegram", Type: RelationSubscription, Source: "app:ferry"}
+	sub := Relation{AudienceID: "alice", Category: "alerts", Channel: "telegram", Type: RelationSubscription, Source: "app:demo-app"}
 	must := Relation{AudienceID: "alice", Category: "system", Channel: "sms", Type: RelationEnrollment, Source: SourceAdmin, Policy: Policy{MustDeliver: true}}
 	if err := g.Subscribe(sub); err != nil {
 		t.Fatal(err)
@@ -277,8 +277,8 @@ func TestTerminateUnsubscribeHook(t *testing.T) {
 	if _, err := g.TerminateFor("alice", "alerts", "telegram", "preference_center"); err != nil {
 		t.Fatal(err)
 	}
-	if len(seen) != 1 || seen[0].AudienceID != "alice" || seen[0].Source != "app:ferry" || actors[0] != "preference_center" {
-		t.Fatalf("hook = %v/%v, want the removed app:ferry relation via preference_center", seen, actors)
+	if len(seen) != 1 || seen[0].AudienceID != "alice" || seen[0].Source != "app:demo-app" || actors[0] != "preference_center" {
+		t.Fatalf("hook = %v/%v, want the removed app:demo-app relation via preference_center", seen, actors)
 	}
 
 	// A must-deliver refusal and an unknown slot fire nothing.

@@ -88,7 +88,7 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"delivery urgency invalid": "delivery:\n  category_urgency:\n    alerts: hourly\n",
 		// §13.1: a token outside the config/trigger/query vocabulary
 		// refuses the whole registry at startup.
-		"app scope invalid": "apps:\n  ferry:\n    tokens:\n      - secret: s\n        scopes: [sudo]\n",
+		"app scope invalid": "apps:\n  demo-app:\n    tokens:\n      - secret: s\n        scopes: [sudo]\n",
 		// §13.5: the callback dispatcher's name is reserved — a config
 		// provider claiming it collides at registration and refuses the
 		// start.
@@ -170,9 +170,9 @@ audiences:
   ops:
     recipients: [alice]
 apps:
-  ferry:
+  demo-app:
     tokens:
-      - secret: ferry-lifecycle
+      - secret: demo-app-lifecycle
         scopes: [config, trigger, query]
 `, httpPort, wsPort, rulesPath, mr.Addr(), groupsPath, rostersPath, escStore)
 	path := writeTestConfig(t, cfgYAML)
@@ -185,19 +185,19 @@ apps:
 
 	// §13.1 face: the seeded namespace answers an app-token
 	// introspection read before the operator surface shuts it down.
-	req, err := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d/api/v1/apps/ferry", httpPort), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d/api/v1/apps/demo-app", httpPort), nil)
 	if err != nil {
 		t.Fatalf("build app request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer ferry-lifecycle")
+	req.Header.Set("Authorization", "Bearer demo-app-lifecycle")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("app introspection: %v", err)
 	}
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(string(bodyBytes), "ferry") || !strings.Contains(string(bodyBytes), "query") {
-		t.Fatalf("app introspection = %d %q, want 200 with ferry scopes", resp.StatusCode, bodyBytes)
+	if resp.StatusCode != 200 || !strings.Contains(string(bodyBytes), "demo-app") || !strings.Contains(string(bodyBytes), "query") {
+		t.Fatalf("app introspection = %d %q, want 200 with demo-app scopes", resp.StatusCode, bodyBytes)
 	}
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {

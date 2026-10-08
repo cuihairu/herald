@@ -15,7 +15,7 @@ import (
 func eventsEnv(t *testing.T) *testEnv {
 	t.Helper()
 	reg := seedAppsRegistry()
-	if err := reg.RegisterCategory("ferry", "notice", "normal"); err != nil {
+	if err := reg.RegisterCategory("demo-app", "notice", "normal"); err != nil {
 		t.Fatalf("register category: %v", err)
 	}
 	relations := audience.NewRegistry()
@@ -49,8 +49,8 @@ func eventsEnv(t *testing.T) *testEnv {
 // post is one §3 event submission with the trigger-scope token.
 func (e *testEnv) postEvent(t *testing.T, body string) (int, map[string]any) {
 	t.Helper()
-	return e.do(t, "POST", "/api/v1/apps/ferry/events", body,
-		map[string]string{"Authorization": "Bearer ferry-full"})
+	return e.do(t, "POST", "/api/v1/apps/demo-app/events", body,
+		map[string]string{"Authorization": "Bearer demo-app-full"})
 }
 
 // TestAppEventsMapsOntoDispatch walks the §3 mapping: severity→urgency
@@ -148,9 +148,9 @@ func TestAppEventsRefusals(t *testing.T) {
 
 	// The trigger scope gates the face like dispatch: a query-scope
 	// token is one uniform 403.
-	code, _ := e.do(t, "POST", "/api/v1/apps/ferry/events",
+	code, _ := e.do(t, "POST", "/api/v1/apps/demo-app/events",
 		`{"id":1,"kind":"notice","severity":"info","title":"x","target":"user:1"}`,
-		map[string]string{"Authorization": "Bearer ferry-config"})
+		map[string]string{"Authorization": "Bearer demo-app-config"})
 	if code != http.StatusForbidden {
 		t.Fatalf("config token: code = %d, want 403", code)
 	}

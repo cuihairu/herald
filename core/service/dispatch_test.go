@@ -86,7 +86,7 @@ func TestDispatchMatchPlanAccept(t *testing.T) {
 
 	out, err := svc.Dispatch(context.Background(), DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "alerts",
 			Urgency:   audience.UrgencyUrgent,
 			Audiences: []string{"bob", "alice"},
@@ -132,7 +132,7 @@ func TestDispatchMatchPlanAccept(t *testing.T) {
 		if len(task.Targets) != 1 || !strings.HasSuffix(task.Targets[0], "@example.com") {
 			t.Fatalf("targets: want the surface target, got %v", task.Targets)
 		}
-		if task.AudienceID == "" || task.Category != "alerts" || task.Source != "app:ferry" {
+		if task.AudienceID == "" || task.Category != "alerts" || task.Source != "app:demo-app" {
 			t.Fatalf("query dims: want audience/category/source snapped, got %q/%q/%q",
 				task.AudienceID, task.Category, task.Source)
 		}
@@ -170,7 +170,7 @@ func TestDispatchRefusalReasons(t *testing.T) {
 
 	out, err := svc.Dispatch(context.Background(), DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "alerts",
 			Audiences: []string{"dave", "carol", "group:ghosts"},
 		},
@@ -217,7 +217,7 @@ func TestDispatchDedupSuppression(t *testing.T) {
 
 	req := DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "alerts",
 			DedupKey:  "node-17-down",
 			State:     "down",
@@ -278,7 +278,7 @@ func TestDispatchTemplateNamespace(t *testing.T) {
 
 	req := DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "alerts",
 			Template:  "node_down",
 			Params:    map[string]any{"node": "node-17"},
@@ -322,7 +322,7 @@ func TestDispatchDigestFold(t *testing.T) {
 
 	out, err := svc.Dispatch(context.Background(), DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "marketing",
 			Audiences: []string{"alice"},
 		},
@@ -362,7 +362,7 @@ func TestDispatchDirectContentAndInactiveSurfaces(t *testing.T) {
 
 	out, err := svc.Dispatch(context.Background(), DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "alerts",
 			Title:     "node down",
 			Body:      "node-17 stopped reporting",
@@ -408,7 +408,7 @@ func TestDispatchDeliveryFailure(t *testing.T) {
 
 	out, err := svc.Dispatch(context.Background(), DispatchRequest{
 		Spec: DispatchSpec{
-			App:       "ferry",
+			App:       "demo-app",
 			Category:  "alerts",
 			Audiences: []string{"alice"},
 		},

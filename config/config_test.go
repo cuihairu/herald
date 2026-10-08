@@ -580,10 +580,10 @@ func TestValidate(t *testing.T) {
 	t.Run("app seeds validate", func(t *testing.T) {
 		cfg := Default()
 		cfg.Apps = map[string]AppConfig{
-			"ferry": {Tokens: []AppTokenConfig{
-				{Secret: "ferry-a", Scopes: []string{"config", "trigger"}},
+			"demo-app": {Tokens: []AppTokenConfig{
+				{Secret: "demo-app-a", Scopes: []string{"config", "trigger"}},
 			}},
-			"sinomed": {Tokens: []AppTokenConfig{
+			"app-b": {Tokens: []AppTokenConfig{
 				{Secret: "sino-1", Scopes: []string{"query"}},
 			}},
 		}
@@ -594,9 +594,9 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app without tokens refuses to start", func(t *testing.T) {
 		cfg := Default()
-		cfg.Apps = map[string]AppConfig{"ferry": {}}
+		cfg.Apps = map[string]AppConfig{"demo-app": {}}
 		err := cfg.Validate()
-		if err == nil || !strings.Contains(err.Error(), "ferry") {
+		if err == nil || !strings.Contains(err.Error(), "demo-app") {
 			t.Errorf("err = %v, want token-less refusal naming the app", err)
 		}
 	})
@@ -604,10 +604,10 @@ func TestValidate(t *testing.T) {
 	t.Run("app with unparseable scope refuses to start", func(t *testing.T) {
 		cfg := Default()
 		cfg.Apps = map[string]AppConfig{
-			"ferry": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"admin"}}}},
+			"demo-app": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"admin"}}}},
 		}
 		err := cfg.Validate()
-		if err == nil || !strings.Contains(err.Error(), "ferry") {
+		if err == nil || !strings.Contains(err.Error(), "demo-app") {
 			t.Errorf("err = %v, want scope refusal naming the app", err)
 		}
 	})
@@ -615,11 +615,11 @@ func TestValidate(t *testing.T) {
 	t.Run("app secret shared across namespaces refuses to start", func(t *testing.T) {
 		cfg := Default()
 		cfg.Apps = map[string]AppConfig{
-			"ferry":   {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
-			"sinomed": {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
+			"demo-app": {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
+			"app-b":    {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
 		}
 		err := cfg.Validate()
-		if err == nil || !strings.Contains(err.Error(), "ferry") || !strings.Contains(err.Error(), "sinomed") {
+		if err == nil || !strings.Contains(err.Error(), "demo-app") || !strings.Contains(err.Error(), "app-b") {
 			t.Errorf("err = %v, want cross-app secret refusal naming both apps", err)
 		}
 	})

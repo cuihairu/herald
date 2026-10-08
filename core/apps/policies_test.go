@@ -10,13 +10,13 @@ import (
 )
 
 func TestPoliciesUpdateAndReadBack(t *testing.T) {
-	r, err := NewRegistry([]SeedApp{{Name: "ferry", Tokens: []SeedToken{
+	r, err := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{
 		{Secret: "s", Scopes: []string{"config"}},
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = r.UpdatePolicies("ferry", func(p *AppPolicies) {
+	err = r.UpdatePolicies("demo-app", func(p *AppPolicies) {
 		p.ChannelIntensity = map[string]audience.Intensity{"telegram": audience.IntensityRSS}
 		p.ModeByCategory = map[string]audience.Mode{"alerts": audience.ModeEscalation}
 		p.AckTimeout = 3 * time.Minute
@@ -27,7 +27,7 @@ func TestPoliciesUpdateAndReadBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, ok := r.Policies("ferry")
+	got, ok := r.Policies("demo-app")
 	if !ok {
 		t.Fatal("Policies = not ok")
 	}
@@ -49,19 +49,19 @@ func TestPoliciesUpdateAndReadBack(t *testing.T) {
 
 	// The read-back is a deep copy: mutating it must not leak in.
 	got.ChannelIntensity["telegram"] = audience.IntensityPhone
-	again, _ := r.Policies("ferry")
+	again, _ := r.Policies("demo-app")
 	if again.ChannelIntensity["telegram"] != audience.IntensityRSS {
 		t.Error("mutating the read-back changed the stored table")
 	}
 
 	// Family replacement clears absent keys (PUT semantics).
-	err = r.UpdatePolicies("ferry", func(p *AppPolicies) {
+	err = r.UpdatePolicies("demo-app", func(p *AppPolicies) {
 		p.ChannelIntensity = map[string]audience.Intensity{"sms": audience.IntensitySMS}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, _ = r.Policies("ferry")
+	again, _ = r.Policies("demo-app")
 	if _, ok := again.ChannelIntensity["telegram"]; ok {
 		t.Error("replaced family kept an old key")
 	}
