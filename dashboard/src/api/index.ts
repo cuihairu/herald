@@ -46,4 +46,9 @@ export const heraldApi = {
   createGroup: (data: any) => api.post('/groups', data) as any,
   updateGroup: (id: string, data: any) => api.put(`/groups/${id}`, data) as any,
   deleteGroup: (id: string) => api.delete(`/groups/${id}`) as any,
+  getRosters: () => api.get('/rosters') as any,
+  getRoster: (id: string) => api.get(`/rosters/${id}`) as any,
+  createRoster: (data: any) => api.post('/rosters', data) as any,
+  updateRoster: (id: string, data: any) => api.put(`/rosters/${id}`, data) as any,
+  deleteRoster: (id: string) => api.delete(`/rosters/${id}`) as any,
 }

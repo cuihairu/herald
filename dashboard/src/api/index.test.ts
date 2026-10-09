@@ -146,5 +146,23 @@ describe('api', () => {
     await heraldApi.deleteGroup('ops')
     expect(seen!.url).toBe('/groups/ops')
     expect(seen!.method).toBe('delete')
+
+    await heraldApi.getRosters()
+    expect(seen!.url).toBe('/rosters')
+
+    await heraldApi.getRoster('ops-oncall')
+    expect(seen!.url).toBe('/rosters/ops-oncall')
+
+    await heraldApi.createRoster({ id: 'ops-oncall' })
+    expect(seen!.url).toBe('/rosters')
+    expect(seen!.method).toBe('post')
+
+    await heraldApi.updateRoster('ops-oncall', { id: 'ops-oncall' })
+    expect(seen!.url).toBe('/rosters/ops-oncall')
+    expect(seen!.method).toBe('put')
+
+    await heraldApi.deleteRoster('ops-oncall')
+    expect(seen!.url).toBe('/rosters/ops-oncall')
+    expect(seen!.method).toBe('delete')
   })
 })

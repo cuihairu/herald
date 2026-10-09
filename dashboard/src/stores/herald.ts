@@ -9,6 +9,7 @@ interface HeraldState {
   logStats: any
   rules: any[]
   groups: any[]
+  rosters: any[]
   loading: boolean
   error: string | null
 
@@ -19,6 +20,7 @@ interface HeraldState {
   fetchLogStats: () => Promise<void>
   fetchRules: () => Promise<void>
   fetchGroups: () => Promise<void>
+  fetchRosters: () => Promise<void>
   sendNotify: (data: any) => Promise<any>
   enableProvider: (name: string) => Promise<void>
   disableProvider: (name: string) => Promise<void>
@@ -32,6 +34,7 @@ export const useHeraldStore = create<HeraldState>((set, get) => ({
   logStats: null,
   rules: [],
   groups: [],
+  rosters: [],
   loading: false,
   error: null,
 
@@ -112,6 +115,18 @@ export const useHeraldStore = create<HeraldState>((set, get) => ({
     try {
       const res = await heraldApi.getGroups()
       set({ groups: res.data.groups || [] })
+    } catch (err: any) {
+      set({ error: err.message })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  fetchRosters: async () => {
+    set({ loading: true, error: null })
+    try {
+      const res = await heraldApi.getRosters()
+      set({ rosters: res.data.rosters || [] })
     } catch (err: any) {
       set({ error: err.message })
     } finally {

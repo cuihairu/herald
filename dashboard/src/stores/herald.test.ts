@@ -9,6 +9,7 @@ vi.mock('../api', () => ({
     getLogsStats: vi.fn(),
     getRules: vi.fn(),
     getGroups: vi.fn(),
+    getRosters: vi.fn(),
     sendNotify: vi.fn(),
     enableProvider: vi.fn(),
     disableProvider: vi.fn(),
@@ -129,6 +130,20 @@ describe('herald store', () => {
     api.getGroups.mockRejectedValue({ message: 'groups down' })
     await state().fetchGroups()
     expect(state().error).toBe('groups down')
+  })
+
+  it('fetchRosters defaults to an empty list and reports errors', async () => {
+    api.getRosters.mockResolvedValue({ data: {} } as any)
+    await state().fetchRosters()
+    expect(state().rosters).toEqual([])
+
+    api.getRosters.mockResolvedValue({ data: { rosters: [{ id: 'ops-oncall' }] } } as any)
+    await state().fetchRosters()
+    expect(state().rosters).toEqual([{ id: 'ops-oncall' }])
+
+    api.getRosters.mockRejectedValue({ message: 'rosters down' })
+    await state().fetchRosters()
+    expect(state().error).toBe('rosters down')
   })
 
   it('sendNotify resolves on success', async () => {
