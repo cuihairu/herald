@@ -21,7 +21,7 @@ vi.mock('./api', () => ({
   },
 }))
 
-import App from './App'
+import App, { PageLoading } from './App'
 
 function renderAt(path: string) {
   return render(
@@ -83,5 +83,12 @@ describe('App routing', () => {
   it('always renders /login outside the private area', async () => {
     renderAt('/login')
     expect(await screen.findByText('请登录以继续')).toBeInTheDocument()
+  })
+
+  it('renders the loading fallback for lazy routes', () => {
+    // 直测 fallback 组件：vitest 里 lazy 导入同步完成，路由测试中
+    // Suspense fallback 不会真正渲染（仓库约定：行为断言优先）。
+    render(<PageLoading />)
+    expect(document.querySelector('.ant-spin')).toBeInTheDocument()
   })
 })
