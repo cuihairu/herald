@@ -47,6 +47,42 @@ func TestManager_ChangePasswordRejectsUnverifiableOldPassword(t *testing.T) {
 	}
 }
 
+// TestManager_AuthenticateRejectsMalformedHashTail registers a user whose
+// stored hash carries a dot but a tail that is not valid base64 — verify
+// must fail on the undecodable salt, not accept the password.
+func TestManager_AuthenticateRejectsMalformedHashTail(t *testing.T) {
+	mgr := NewManager()
+	mgr.users["broken"] = &User{
+		ID:       "id-broken",
+		Username: "broken",
+		Role:     "admin",
+		Password: "abc.!!!not-base64!!!",
+	}
+
+	if _, err := mgr.Authenticate("broken", "whatever"); err == nil {
+		t.Error("expected error when the stored hash tail is not valid base64")
+	}
+}
+
+// TestManager_AuthenticateAcceptsOnlyConfiguredPassword proves the
+// configured password round-trips through the hash while a different one
+// is rejected for the same stored hash.
+func TestManager_AuthenticateAcceptsOnlyConfiguredPassword(t *testing.T) {
+	mgr := NewManager()
+	if err := mgr.CreateDefaultUser("ops", "s3cret!"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := mgr.Authenticate("ops", "s3cret!"); err != nil {
+		t.Errorf("configured password must authenticate, got %v", err)
+	}
+	if _, err := mgr.Authenticate("ops", "s3cret?"); err == nil {
+		t.Error("a lookalike password must be rejected")
+	}
+	if _, err := mgr.Authenticate("ops", ""); err == nil {
+		t.Error("an empty password must be rejected")
+	}
+}
+
 // Exemption note: the `if err != nil { return err }` branches after hashPassword
 // in CreateDefaultUser (user.go:43), ChangePassword (user.go:104) and CreateUser
 // (user.go:122) are unreachable — hashPassword never returns a non-nil error.

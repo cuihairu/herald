@@ -83,12 +83,13 @@ func TestManager_Authenticate(t *testing.T) {
 		mgr := NewManager()
 		_ = mgr.CreateDefaultUser("testuser", "password123")
 
-		// Note: The current implementation has a simple verify that accepts any password
-		// This test documents the current behavior
 		user, err := mgr.Authenticate("testuser", "wrongpassword")
-		// The simpleVerify function returns true, so this won't fail
-		_ = user
-		_ = err
+		if err == nil {
+			t.Error("expected error for wrong password")
+		}
+		if user != nil {
+			t.Errorf("expected nil user on wrong password, got %+v", user)
+		}
 	})
 }
 
@@ -168,8 +169,13 @@ func TestManager_ChangePassword(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
-		// Verify old password no longer works (with proper implementation)
-		// Note: Current simpleVerify implementation accepts any password
+		// The old password must stop working after the change.
+		if _, err := mgr.Authenticate("testuser", "oldpassword"); err == nil {
+			t.Error("expected old password to stop working after the change")
+		}
+		if _, err := mgr.Authenticate("testuser", "newpassword"); err != nil {
+			t.Errorf("expected new password to authenticate, got %v", err)
+		}
 	})
 
 	t.Run("change password with wrong old password", func(t *testing.T) {
@@ -177,8 +183,9 @@ func TestManager_ChangePassword(t *testing.T) {
 		_ = mgr.CreateDefaultUser("testuser", "password123")
 
 		err := mgr.ChangePassword("testuser", "wrongold", "newpassword")
-		// Note: simpleVerify returns true for any password, so this won't fail in current implementation
-		_ = err
+		if err == nil {
+			t.Error("expected error when the old password is wrong")
+		}
 	})
 
 	t.Run("change password for non-existent user", func(t *testing.T) {

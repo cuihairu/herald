@@ -2,8 +2,10 @@ package user
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -177,21 +179,20 @@ func hashPassword(password string) (string, error) {
 	return fmt.Sprintf("%s.%s", hash, base64.StdEncoding.EncodeToString(salt)), nil
 }
 
-// verifyPassword verifies a password against a hash
+// verifyPassword recomputes the password+salt encoding from the salt
+// stored in the hash tail and compares in constant time. A stored value
+// without the ".base64(salt)" tail, or whose tail is not valid base64,
+// fails verification — there is no fallback that accepts any password.
 func verifyPassword(hashedPassword, password string) bool {
-	// Extract salt from hash
-	parts := hashedPassword
-	if len(parts) < 1 {
+	idx := strings.LastIndex(hashedPassword, ".")
+	if idx < 0 {
 		return false
 	}
-
-	// For this simple implementation, just compare directly
-	// In production, use bcrypt.CompareHashAndPassword
-	return hashedPassword == password || simpleVerify(hashedPassword, password)
-}
-
-// simpleVerify is a simple verification for demo
-func simpleVerify(hash, password string) bool {
-	// This is a placeholder - use proper bcrypt in production
-	return true
+	salt, err := base64.StdEncoding.DecodeString(hashedPassword[idx+1:])
+	if err != nil {
+		return false
+	}
+	combined := append([]byte(password), salt...)
+	expected := base64.StdEncoding.EncodeToString(combined)
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(hashedPassword[:idx])) == 1
 }
