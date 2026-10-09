@@ -312,6 +312,66 @@ queue:
 	}
 }
 
+// TestServeCmdAdminLoginWiring boots the server with auth.admin_user and
+// walks POST /api/v1/auth/login: the configured account must authenticate
+// and return a token, and a wrong password must 401. The heraldd wiring
+// used to drop AdminUser (and SecretKey) when constructing auth.New, so
+// every configured Dashboard login silently failed with 401.
+func TestServeCmdAdminLoginWiring(t *testing.T) {
+	httpPort := freePort(t)
+	cfgYAML := fmt.Sprintf(`
+server:
+  addr: 127.0.0.1:%d
+queue:
+  type: memory
+  workers: 1
+auth:
+  enabled: true
+  api_keys:
+    "hk-walkthrough": "acceptance"
+  admin_user:
+    walk: throughpw
+`, httpPort)
+	path := writeTestConfig(t, cfgYAML)
+
+	done := make(chan int, 1)
+	go func() { done <- serveCmd([]string{"--config", path}) }()
+	waitHTTPReady(t, fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/login", httpPort), 10*time.Second)
+	time.Sleep(100 * time.Millisecond)
+
+	base := fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/login", httpPort)
+	post := func(body string) (int, string) {
+		resp, err := http.Post(base, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("login post %q: %v", body, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		raw, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(raw)
+	}
+
+	code, body := post(`{"username":"walk","password":"throughpw"}`)
+	if code != 200 || !strings.Contains(body, `"token"`) {
+		t.Fatalf("configured login = %d %q, want 200 with token", code, body)
+	}
+	code, body = post(`{"username":"walk","password":"wrong"}`)
+	if code != 401 || !strings.Contains(body, "invalid username or password") {
+		t.Fatalf("wrong password = %d %q, want 401", code, body)
+	}
+
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM: %v", err)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("serveCmd = %d, want 0", code)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("serveCmd did not return after SIGTERM")
+	}
+}
+
 // TestReadRemoteWorkerMessagesCancel covers the context-cancelled exit of
 // the reader loop while the connection is still alive.
 func TestReadRemoteWorkerMessagesCancel(t *testing.T) {

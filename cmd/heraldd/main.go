@@ -179,10 +179,15 @@ func serveCmd(args []string) int {
 		})
 	}
 
-	// Create auth
+	// Create auth. AdminUser and SecretKey must ride along: the docs
+	// promise config-file Dashboard accounts and a configured JWT key,
+	// and dropping either makes /auth/login a permanent 401 (or signs
+	// tokens with the built-in default key).
 	a := auth.New(&auth.Config{
-		Enabled: cfg.Auth.Enabled,
-		APIKeys: cfg.Auth.APIKeys,
+		Enabled:   cfg.Auth.Enabled,
+		APIKeys:   cfg.Auth.APIKeys,
+		SecretKey: cfg.Auth.SecretKey,
+		AdminUser: cfg.Auth.AdminUser,
 	})
 
 	// Create template manager
