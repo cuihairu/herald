@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User represents a user
@@ -41,8 +43,12 @@ func (m *Manager) CreateDefaultUser(username, password string) error {
 		return fmt.Errorf("user already exists: %s", username)
 	}
 
-	// hashPassword (base64 of password+salt) never fails.
-	hashedPassword, _ := hashPassword(password)
+	// hashPassword fails only for passwords over bcrypt's 72-byte
+	// input limit — the error is a real user error, not a placeholder.
+	hashedPassword, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
 
 	user := &User{
 		ID:        generateID(),
@@ -56,21 +62,46 @@ func (m *Manager) CreateDefaultUser(username, password string) error {
 	return nil
 }
 
-// Authenticate validates a username and password
+// Authenticate validates a username and password. A match against a
+// legacy-format stored hash transparently rehashes the password with
+// bcrypt (lazy migration), so long-lived processes upgrade their stored
+// credentials on the next successful login; a failed migration keeps the
+// legacy hash and the next login retries it.
 func (m *Manager) Authenticate(username, password string) (*User, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	user, exists := m.users[username]
 	if !exists {
+		m.mu.RUnlock()
 		return nil, fmt.Errorf("user not found")
 	}
+	stored := user.Password
+	m.mu.RUnlock()
 
-	if !verifyPassword(user.Password, password) {
+	if !verifyPassword(stored, password) {
 		return nil, fmt.Errorf("invalid password")
 	}
 
+	if !isBcryptHash(stored) {
+		m.migratePassword(username, stored, password)
+	}
+
 	return user, nil
+}
+
+// migratePassword re-stores password as a bcrypt hash if the entry still
+// carries the hash it had when the legacy-format match happened.
+func (m *Manager) migratePassword(username, stored, password string) {
+	upgraded, err := hashPassword(password)
+	if err != nil {
+		// bcrypt refuses inputs over 72 bytes; keep the legacy hash —
+		// verification still works, only the upgrade is deferred.
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if u, ok := m.users[username]; ok && u.Password == stored {
+		u.Password = upgraded
+	}
 }
 
 // GetUser returns a user by username
@@ -100,8 +131,12 @@ func (m *Manager) ChangePassword(username, oldPassword, newPassword string) erro
 		return fmt.Errorf("invalid old password")
 	}
 
-	// hashPassword (base64 of password+salt) never fails.
-	hashedPassword, _ := hashPassword(newPassword)
+	// hashPassword fails only for passwords over bcrypt's 72-byte
+	// input limit — the error is a real user error, not a placeholder.
+	hashedPassword, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
 
 	user.Password = hashedPassword
 	return nil
@@ -116,8 +151,12 @@ func (m *Manager) CreateUser(username, password, role string) error {
 		return fmt.Errorf("user already exists: %s", username)
 	}
 
-	// hashPassword (base64 of password+salt) never fails.
-	hashedPassword, _ := hashPassword(password)
+	// hashPassword fails only for passwords over bcrypt's 72-byte
+	// input limit — the error is a real user error, not a placeholder.
+	hashedPassword, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
 
 	user := &User{
 		ID:        generateID(),
@@ -163,27 +202,34 @@ func generateID() string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-// hashPassword hashes a password using bcrypt-like algorithm. The error
-// result exists for a future bcrypt swap-in; the current encoding never
-// fails, so the callers' error branches are unreachable defensive code.
+// bcryptCost balances login latency against offline-guessing cost; both
+// hashing moments (startup seeding, login migration) are human-rate paths.
+// Tests drop it to bcrypt.MinCost (see TestMain) to keep the suite fast.
+var bcryptCost = 10
+
+// hashPassword hashes with bcrypt. It fails only for passwords over
+// bcrypt's 72-byte input limit; callers surface that as a user error.
 func hashPassword(password string) (string, error) {
-	// Simple hash for now - in production use bcrypt
-	salt := make([]byte, 16)
-	_, _ = rand.Read(salt)
-
-	// Combine password and salt
-	combined := append([]byte(password), salt...)
-
-	// Simple hash - replace with bcrypt in production
-	hash := base64.StdEncoding.EncodeToString(combined)
-	return fmt.Sprintf("%s.%s", hash, base64.StdEncoding.EncodeToString(salt)), nil
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	return string(hash), err
 }
 
-// verifyPassword recomputes the password+salt encoding from the salt
-// stored in the hash tail and compares in constant time. A stored value
-// without the ".base64(salt)" tail, or whose tail is not valid base64,
-// fails verification — there is no fallback that accepts any password.
+// isBcryptHash reports whether the stored hash is bcrypt format ("$2").
+// Anything else is the legacy base64(password+salt) encoding.
+func isBcryptHash(hashedPassword string) bool {
+	return strings.HasPrefix(hashedPassword, "$2")
+}
+
+// verifyPassword checks a password against its stored hash in whichever
+// format the hash carries: bcrypt since the 2026-10 swap, and the legacy
+// base64(password+salt) encoding (recomputed from the salt in the hash
+// tail) for hashes stored before it. A stored value without the legacy
+// ".base64(salt)" tail, or whose tail is not valid base64, fails
+// verification — there is no fallback that accepts any password.
 func verifyPassword(hashedPassword, password string) bool {
+	if isBcryptHash(hashedPassword) {
+		return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)) == nil
+	}
 	idx := strings.LastIndex(hashedPassword, ".")
 	if idx < 0 {
 		return false
