@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import dayjs from 'dayjs'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -129,7 +130,9 @@ describe('IncidentsPage', () => {
     await user.click(screen.getAllByRole('button', { name: /详\s*情/ })[2])
     expect(await screen.findByText('事件 inc-resolved')).toBeInTheDocument()
     expect(screen.getByText('未确认')).toBeInTheDocument()
-    expect(screen.getByText(/08:30/)).toBeInTheDocument()
+    // 恢复时间用组件同款 dayjs 推期望串：测试机与 CI 时区不同（CI 跑 UTC），
+    // 硬编码 +08:00 的渲染时刻会在 UTC 下错位。
+    expect(screen.getByText(new RegExp(dayjs('2026-10-09T08:30:00+08:00').format('MM-DD HH:mm:ss')))).toBeInTheDocument()
     expect(screen.getByText('无')).toBeInTheDocument() // 时间线为空
     // 详情弹窗 footer={null}，关窗走右上角 Close。jsdom 里 rc-motion 的关闭
     // 动画不收敛、DOM 断言不可靠（仓库既有约定），行为断言：关窗不再拉详情。

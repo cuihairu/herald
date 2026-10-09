@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import dayjs from 'dayjs'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -64,7 +65,12 @@ describe('RostersPage', () => {
     expect(screen.getByText('周末值班')).toBeInTheDocument()
     // minimal 没有 description 也没有 periods → 两处占位符。
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('10-10 09:00 ~ 10-10 18:00')).toBeInTheDocument()
+    // 用组件同款 dayjs 格式化推期望串：测试机与 CI 的时区不同（CI 跑 UTC），
+    // 硬编码 +08:00 的渲染串会在 UTC 下错位。
+    const fmt = (t: string) => dayjs(t).format('MM-DD HH:mm')
+    const start = '2026-10-10T09:00:00+08:00'
+    const end = '2026-10-10T18:00:00+08:00'
+    expect(screen.getByText(`${fmt(start)} ~ ${fmt(end)}`)).toBeInTheDocument()
   })
 
   it('creates a roster with periods', async () => {
