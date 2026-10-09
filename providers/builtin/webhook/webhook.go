@@ -2,7 +2,11 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/herald/core"
@@ -44,9 +48,14 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 		return nil, fmt.Errorf("webhook: url is required")
 	}
 
-	method := "POST"
+	method := http.MethodPost
 	if m, ok := config["method"].(string); ok && m != "" {
-		method = m
+		method = strings.ToUpper(strings.TrimSpace(m))
+	}
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete:
+	default:
+		return nil, fmt.Errorf("webhook: method must be one of GET, POST, PUT, DELETE, got %q", method)
 	}
 
 	headers := make(map[string]string)
@@ -100,20 +109,64 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		Raw:       task.Payload.Raw,
 	}
 
-	// For POST/PUT, send JSON
-	if p.method == "POST" || p.method == "PUT" {
-		resp, err := p.client.PostJSON(ctx, p.url, payload)
-		if err != nil {
-			return err
-		}
+	var resp *httpclient.Response
+	var err error
 
-		// Log response
-		httpclient.LogResponse("webhook", resp, nil)
-		return nil
+	switch p.method {
+	case http.MethodGet:
+		// GET carries no body: flatten the payload into query parameters.
+		target, qerr := getURL(p.url, payload)
+		if qerr != nil {
+			return qerr
+		}
+		resp, err = p.client.GetWithHeaders(ctx, target, p.headers)
+	case http.MethodDelete:
+		resp, err = p.client.DoJSON(ctx, http.MethodDelete, p.url, payload, p.headers)
+	case http.MethodPost, http.MethodPut:
+		resp, err = p.client.DoJSON(ctx, p.method, p.url, payload, p.headers)
 	}
 
-	// For GET, add as query params (simplified)
-	return fmt.Errorf("method %s not yet implemented", p.method)
+	if err != nil {
+		return err
+	}
+
+	// Log response
+	httpclient.LogResponse("webhook", resp, nil)
+	return nil
+}
+
+// getURL appends the payload as query parameters to the target URL. Values
+// that survive as non-empty are included; the raw map is JSON-encoded.
+func getURL(base string, payload *WebhookPayload) (string, error) {
+	q := url.Values{}
+	for key, value := range map[string]string{
+		"id":        payload.ID,
+		"provider":  payload.Provider,
+		"level":     payload.Level,
+		"timestamp": payload.Timestamp,
+		"title":     payload.Title,
+		"body":      payload.Body,
+	} {
+		if value != "" {
+			q.Set(key, value)
+		}
+	}
+	if len(payload.Targets) > 0 {
+		q.Set("targets", strings.Join(payload.Targets, ","))
+	}
+	if len(payload.Raw) > 0 {
+		encoded, err := json.Marshal(payload.Raw)
+		if err != nil {
+			return "", fmt.Errorf("webhook: failed to encode raw payload as query: %w", err)
+		}
+		q.Set("raw", string(encoded))
+	}
+
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + q.Encode(), nil
 }
 
 // extractContent extracts title and body from a DeliveryTask

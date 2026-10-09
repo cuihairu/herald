@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -245,12 +246,10 @@ func TestProviderDeliver(t *testing.T) {
 		}
 	})
 
-	t.Run("with PUT method (uses POST via PostJSON)", func(t *testing.T) {
+	t.Run("with PUT method sends PUT", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Note: Current implementation uses PostJSON which always sends POST
-			// regardless of method setting
-			if r.Method != "POST" {
-				t.Errorf("expected POST (implementation uses PostJSON), got %s", r.Method)
+			if r.Method != "PUT" {
+				t.Errorf("expected PUT, got %s", r.Method)
 			}
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -350,9 +349,32 @@ func TestProviderDeliver(t *testing.T) {
 		}
 	})
 
-	t.Run("unsupported GET method", func(t *testing.T) {
+	t.Run("GET method flattens payload into query params", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				t.Errorf("expected GET, got %s", r.Method)
+			}
+			q := r.URL.Query()
+			if q.Get("id") != "task-get" {
+				t.Errorf("expected id task-get, got %q", q.Get("id"))
+			}
+			if q.Get("title") != "Test" {
+				t.Errorf("expected title Test, got %q", q.Get("title"))
+			}
+			if q.Get("targets") != "channel1" {
+				t.Errorf("expected targets channel1, got %q", q.Get("targets"))
+			}
+			if r.Body != nil {
+				if body, _ := io.ReadAll(r.Body); len(body) > 0 {
+					t.Errorf("expected empty body for GET, got %q", body)
+				}
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
 		config := map[string]interface{}{
-			"url":    "http://example.com/webhook",
+			"url":    server.URL,
 			"method": "GET",
 		}
 
@@ -360,7 +382,8 @@ func TestProviderDeliver(t *testing.T) {
 		ctx := context.Background()
 
 		task := &core.DeliveryTask{
-			ID: "task-get",
+			ID:      "task-get",
+			Targets: []string{"channel1"},
 			Payload: core.DeliveryPayload{
 				Content: &core.RenderedContent{
 					Title: "Test",
@@ -370,14 +393,29 @@ func TestProviderDeliver(t *testing.T) {
 		}
 
 		err := provider.Deliver(ctx, task)
-		if err == nil {
-			t.Error("expected error for GET method")
+		if err != nil {
+			t.Errorf("expected no error for GET method, got %v", err)
 		}
 	})
 
-	t.Run("unsupported DELETE method", func(t *testing.T) {
+	t.Run("DELETE method sends JSON body", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "DELETE" {
+				t.Errorf("expected DELETE, got %s", r.Method)
+			}
+			var payload WebhookPayload
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("failed to decode payload: %v", err)
+			}
+			if payload.ID != "task-delete" {
+				t.Errorf("expected ID task-delete, got %s", payload.ID)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
 		config := map[string]interface{}{
-			"url":    "http://example.com/webhook",
+			"url":    server.URL,
 			"method": "DELETE",
 		}
 
@@ -395,8 +433,149 @@ func TestProviderDeliver(t *testing.T) {
 		}
 
 		err := provider.Deliver(ctx, task)
+		if err != nil {
+			t.Errorf("expected no error for DELETE method, got %v", err)
+		}
+	})
+
+	t.Run("custom headers are sent", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("Authorization"); got != "Bearer token" {
+				t.Errorf("expected Authorization header, got %q", got)
+			}
+			if got := r.Header.Get("X-Custom"); got != "value" {
+				t.Errorf("expected X-Custom header, got %q", got)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		config := map[string]interface{}{
+			"url": server.URL,
+			"headers": map[string]string{
+				"Authorization": "Bearer token",
+				"X-Custom":      "value",
+			},
+		}
+
+		provider, _ := NewProvider(config)
+		ctx := context.Background()
+
+		task := &core.DeliveryTask{
+			ID: "task-headers",
+			Payload: core.DeliveryPayload{
+				Content: &core.RenderedContent{
+					Title: "Test",
+				},
+			},
+			CreatedAt: time.Now(),
+		}
+
+		err := provider.Deliver(ctx, task)
+		if err != nil {
+			t.Errorf("expected no error with custom headers, got %v", err)
+		}
+	})
+
+	t.Run("invalid method rejected at creation", func(t *testing.T) {
+		_, err := NewProvider(map[string]interface{}{
+			"url":    "http://example.com/webhook",
+			"method": "PATCH",
+		})
 		if err == nil {
-			t.Error("expected error for DELETE method")
+			t.Error("expected error for unsupported method PATCH")
+		}
+	})
+
+	t.Run("GET merges into existing query", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("existing") != "keep" {
+				t.Errorf("expected existing=keep preserved, got %q", q.Get("existing"))
+			}
+			if q.Get("id") != "task-merge" {
+				t.Errorf("expected id task-merge appended, got %q", q.Get("id"))
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider, _ := NewProvider(map[string]interface{}{
+			"url":    server.URL + "/hook?existing=keep",
+			"method": "GET",
+		})
+
+		err := provider.Deliver(context.Background(), &core.DeliveryTask{
+			ID:        "task-merge",
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("GET carries raw map as JSON query param", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw := r.URL.Query().Get("raw")
+			if raw != `{"key":"value"}` {
+				t.Errorf("expected raw JSON query param, got %q", raw)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider, _ := NewProvider(map[string]interface{}{
+			"url":    server.URL,
+			"method": "GET",
+		})
+
+		err := provider.Deliver(context.Background(), &core.DeliveryTask{
+			ID:        "task-get-raw",
+			CreatedAt: time.Now(),
+			Payload: core.DeliveryPayload{
+				Raw: map[string]any{"key": "value"},
+			},
+		})
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("GET rejects unencodable raw payload", func(t *testing.T) {
+		provider, _ := NewProvider(map[string]interface{}{
+			"url":    "http://example.com/webhook",
+			"method": "GET",
+		})
+
+		err := provider.Deliver(context.Background(), &core.DeliveryTask{
+			ID:        "task-get-badraw",
+			CreatedAt: time.Now(),
+			Payload: core.DeliveryPayload{
+				Raw: map[string]any{"ch": make(chan int)},
+			},
+		})
+		if err == nil {
+			t.Error("expected error for unencodable raw payload")
+		}
+	})
+
+	t.Run("negative status on GET is classified", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		provider, _ := NewProvider(map[string]interface{}{
+			"url":    server.URL,
+			"method": "GET",
+		})
+
+		err := provider.Deliver(context.Background(), &core.DeliveryTask{
+			ID:        "task-get-err",
+			CreatedAt: time.Now(),
+		})
+		if err == nil {
+			t.Error("expected error for 500 status on GET")
 		}
 	})
 

@@ -115,13 +115,15 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 ### HTTP 行为
 
 - **POST / PUT**: 以 `application/json` 发送上述 JSON，`Content-Type: application/json` 自动设置（可被 `headers` 覆盖）
-- **GET / DELETE**: **尚未实现**（返回 `method {method} not yet implemented`），仅 POST/PUT 可用
+- **DELETE**: 同 POST/PUT，以 `application/json` 发送 JSON 体
+- **GET**: 无请求体，载荷平铺为 URL query 参数——`id`/`provider`/`level`/`timestamp`/`title`/`body` 非空才带上，`targets` 逗号连接，`raw` 序列化为 JSON 字符串；目标 URL 已带 `?` 时以 `&` 追加
+- `headers` 在四类方法上都作为请求头发送（`Content-Type` 默认值可被覆盖）
+- `method` 只接受 `GET`/`POST`/`PUT`/`DELETE`（大小写不敏感），其余值在 Provider 创建时拒绝（`webhook: method must be one of GET, POST, PUT, DELETE`）
 - 响应体不解析；仅记录响应日志（`httpclient.LogResponse`）
 - 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
 
 ### 限制
 
-- 仅 `POST`/`PUT` 实际可用
 - 无签名/防重放机制（如需安全性，请在接收端校验 `Authorization` 或 IP 白名单）
 - 载荷大小受 HTTP 客户端/服务端限制（建议单条 < 1MB）
 
@@ -135,7 +137,7 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 | 错误 | 原因与处理 |
 |------|-----------|
 | `webhook: url is required` | 未配置 `url` |
-| `method GET not yet implemented` | 使用了 GET/DELETE，请改用 POST 或 PUT |
+| `webhook: method must be one of GET, POST, PUT, DELETE` | `method` 配了不支持的值（如 `PATCH`），改用四类方法之一 |
 | `unexpected status code: 401` | 目标端点返回 401，检查 `headers.Authorization` |
 | `unexpected status code: 403` | 目标端点返回 403，检查 IP 白名单/签名校验 |
 | `unexpected status code: 404` | `url` 路径错误 |

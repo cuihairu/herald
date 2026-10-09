@@ -159,19 +159,36 @@ func (c *Client) PostJSON(ctx context.Context, url string, body interface{}) (*R
 // (e.g. Authorization for token-authenticated APIs). Values overwrite the
 // defaults on collision.
 func (c *Client) PostJSONWithHeaders(ctx context.Context, url string, body interface{}, headers map[string]string) (*Response, error) {
+	return c.DoJSON(ctx, http.MethodPost, url, body, headers)
+}
+
+// DoJSON sends a JSON request with the given method (POST/PUT/DELETE —
+// methods that carry a body) and extra request headers. A nil body sends
+// no payload. Values overwrite the Content-Type default on collision.
+func (c *Client) DoJSON(ctx context.Context, method, url string, body interface{}, headers map[string]string) (*Response, error) {
 	// Marshal body
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal body: %w", err)
+	var data []byte
+	if body != nil {
+		var err error
+		data, err = json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal body: %w", err)
+		}
 	}
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	var reader io.Reader
+	if data != nil {
+		reader = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	if data != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -201,6 +218,13 @@ func (c *Client) PostJSONWithHeaders(ctx context.Context, url string, body inter
 		StatusCode: resp.StatusCode,
 		Body:       respBody,
 	}, nil
+}
+
+// GetWithHeaders sends a GET request with extra request headers. A GET
+// carries no body, so this is DoJSON with a nil payload — no body, no
+// Content-Type.
+func (c *Client) GetWithHeaders(ctx context.Context, url string, headers map[string]string) (*Response, error) {
+	return c.DoJSON(ctx, http.MethodGet, url, nil, headers)
 }
 
 // PostForm sends a form-encoded POST request

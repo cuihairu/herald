@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -711,5 +712,65 @@ func TestParseRetryAfter(t *testing.T) {
 	future := now.Add(time.Hour).UTC()
 	if got := parseRetryAfter(future.Format(http.TimeFormat), now); got > time.Hour || got < 55*time.Minute {
 		t.Errorf("future date: got %v, want roughly an hour", got)
+	}
+}
+
+func TestClientDoJSONWithoutBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.Header.Get("Content-Type") != "" {
+			t.Errorf("expected no Content-Type without body, got %q", r.Header.Get("Content-Type"))
+		}
+		body, _ := io.ReadAll(r.Body)
+		if len(body) != 0 {
+			t.Errorf("expected empty body, got %q", body)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	resp, err := c.DoJSON(context.Background(), http.MethodDelete, server.URL, nil, nil)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestClientDoJSONHeadersOverrideDefaults(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Content-Type"); got != "application/x-ndjson" {
+			t.Errorf("expected overridden Content-Type, got %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	if _, err := c.DoJSON(context.Background(), http.MethodPost, server.URL, map[string]string{"a": "b"}, map[string]string{"Content-Type": "application/x-ndjson"}); err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+}
+
+func TestClientGetWithHeadersSendsHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer token" {
+			t.Errorf("expected Authorization header, got %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := NewClient(nil)
+	resp, err := c.GetWithHeaders(context.Background(), server.URL, map[string]string{"Authorization": "Bearer token"})
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
 }
