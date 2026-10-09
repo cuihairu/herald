@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"gopkg.in/yaml.v3"
 )
 
 func TestNewProvider(t *testing.T) {
@@ -69,6 +70,31 @@ func TestNewProvider(t *testing.T) {
 		}
 		if webhookProvider.headers["Authorization"] != "Bearer token" {
 			t.Errorf("expected Authorization header, got %v", webhookProvider.headers)
+		}
+	})
+
+	t.Run("with headers from yaml", func(t *testing.T) {
+		// The config loader hands provider blocks decoded from YAML, where
+		// a nested map arrives as map[string]interface{} — headers came
+		// through empty while only the Go-literal shape was accepted.
+		var loaded struct {
+			Config map[string]interface{} `yaml:"config"`
+		}
+		src := "config:\n  url: http://example.com/webhook\n  headers:\n    Authorization: Bearer token\n    X-Custom: value\n    Retries: 3\n"
+		if err := yaml.Unmarshal([]byte(src), &loaded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		provider, err := NewProvider(loaded.Config)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		webhookProvider := provider.(*Provider)
+		if webhookProvider.headers["Authorization"] != "Bearer token" || webhookProvider.headers["X-Custom"] != "value" {
+			t.Errorf("expected yaml headers to survive, got %v", webhookProvider.headers)
+		}
+		if _, ok := webhookProvider.headers["Retries"]; ok {
+			t.Errorf("expected non-string header value to be skipped, got %v", webhookProvider.headers)
 		}
 	})
 

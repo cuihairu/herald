@@ -59,8 +59,18 @@ func NewProvider(config map[string]interface{}) (core.Provider, error) {
 	}
 
 	headers := make(map[string]string)
-	if h, ok := config["headers"].(map[string]string); ok {
+	// The YAML loader decodes nested blocks as map[string]interface{}, so
+	// accept both shapes — a map[string]string only shows up when the
+	// provider is built from Go literals (tests, programmatic setups).
+	switch h := config["headers"].(type) {
+	case map[string]string:
 		headers = h
+	case map[string]interface{}:
+		for k, v := range h {
+			if s, ok := v.(string); ok {
+				headers[k] = s
+			}
+		}
 	}
 
 	return &Provider{
