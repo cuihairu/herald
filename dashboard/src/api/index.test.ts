@@ -164,5 +164,20 @@ describe('api', () => {
     await heraldApi.deleteRoster('ops-oncall')
     expect(seen!.url).toBe('/rosters/ops-oncall')
     expect(seen!.method).toBe('delete')
+
+    await heraldApi.getIncidents({ status: 'open' })
+    expect(seen!.url).toBe('/incidents')
+    expect(seen!.params).toEqual({ status: 'open' })
+
+    await heraldApi.getIncident('inc-1')
+    expect(seen!.url).toBe('/incidents/inc-1')
+
+    await heraldApi.getAlert('a-1')
+    expect(seen!.url).toBe('/alerts/a-1')
+
+    await heraldApi.ackAlert('a-1', { acked_by: 'ops' })
+    expect(seen!.url).toBe('/alerts/a-1/ack')
+    expect(seen!.method).toBe('post')
+    expect(seen!.data).toBe(JSON.stringify({ acked_by: 'ops' }))
   })
 })

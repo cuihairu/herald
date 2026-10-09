@@ -51,4 +51,8 @@ export const heraldApi = {
   createRoster: (data: any) => api.post('/rosters', data) as any,
   updateRoster: (id: string, data: any) => api.put(`/rosters/${id}`, data) as any,
   deleteRoster: (id: string) => api.delete(`/rosters/${id}`) as any,
+  getIncidents: (params: any) => api.get('/incidents', { params }) as any,
+  getIncident: (id: string) => api.get(`/incidents/${id}`) as any,
+  getAlert: (id: string) => api.get(`/alerts/${id}`) as any,
+  ackAlert: (id: string, data: any) => api.post(`/alerts/${id}/ack`, data) as any,
 }

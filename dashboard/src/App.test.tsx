@@ -17,6 +17,7 @@ vi.mock('./api', () => ({
     getRules: vi.fn().mockResolvedValue({ data: { rules: [] } }),
     getGroups: vi.fn().mockResolvedValue({ data: { groups: [] } }),
     getRosters: vi.fn().mockResolvedValue({ data: { rosters: [] } }),
+    getIncidents: vi.fn().mockResolvedValue({ data: { incidents: [] } }),
   },
 }))
 
@@ -70,6 +71,13 @@ describe('App routing', () => {
     renderAt('/rosters')
     // 菜单项与页面标题都叫「值班表」，findAllByText 返回数组。
     expect((await screen.findAllByText('值班表')).length).toBeGreaterThan(0)
+  })
+
+  it('mounts the incidents page', async () => {
+    localStorage.setItem('herald_token', 't')
+    renderAt('/incidents')
+    // 菜单项与页面标题都叫「事件台账」，findAllByText 返回数组。
+    expect((await screen.findAllByText('事件台账')).length).toBeGreaterThan(0)
   })
 
   it('always renders /login outside the private area', async () => {

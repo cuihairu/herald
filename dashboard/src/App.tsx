@@ -10,6 +10,7 @@ import SendPage from './pages/SendPage'
 import RulesPage from './pages/RulesPage'
 import GroupsPage from './pages/GroupsPage'
 import RostersPage from './pages/RostersPage'
+import IncidentsPage from './pages/IncidentsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('herald_token')
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="rules" element={<RulesPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="rosters" element={<RostersPage />} />
+        <Route path="incidents" element={<IncidentsPage />} />
         <Route path="workers" element={<WorkersPage />} />
         <Route path="logs" element={<LogsPage />} />
         <Route path="send" element={<SendPage />} />
