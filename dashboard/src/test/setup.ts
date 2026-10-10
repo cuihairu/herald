@@ -13,11 +13,30 @@ configure({ asyncUtilTimeout: 3000 })
 // setTimeout(16)。任何一项漏到环境销毁之后才触发，就会在 window 已经不存在
 // 的情况下进 React 渲染，抛 unhandled "window is not defined"：行覆盖仍然
 // 100%，vitest 却以 exit code 1 失败（覆盖门禁抓不到这种泄漏）。
+//
+// 只冲刷固定两轮不够：antd 6 + React 19.2 下，带活动过渡的提交会经 scheduler
+// 排一个 NormalPriority 回调冲刷 passive effects（react-dom-client:17920 的
+// `window.event` 取值），而 rc-motion 退场帧每 ~16ms 一帧、一帧一提交，链条
+// 长度≈退场时长（~300ms≈19 帧）。慢机（CI）上提交 actualDuration≠0 必然走到
+// 这条路径，两轮只覆盖 ~4 帧，余下帧漏到环境销毁后触发 → exit 1。本地快机
+// actualDuration===0 走不到，故无法本地复现（2026-10-10 实证 CI 挂、本地绿）。
+// 这里循环冲刷直到文档里没有 rc-motion 活动态类名（退场链收敛），至少 4 轮
+// 兜底非 motion 的短链，30 轮（~600ms）上限防真死循环；静默用例首轮即收工。
+// 活动态选择器只命中 *-appear/enter/leave-active|start|prepare|end 这类进行中
+// 的状态后缀（CSSMotion 在 STATUS_NONE 静止态会整段移除 motionName 类），故
+// 文档无活动态类名即代表所有退场链已收敛、不会再派生新提交。
 async function flushPendingWork() {
-  for (const delay of [0, 20]) {
+  const ACTIVE_MOTION =
+    '[class*="-appear-active"],[class*="-appear-start"],[class*="-appear-prepare"],' +
+    '[class*="-enter-active"],[class*="-enter-start"],[class*="-enter-prepare"],' +
+    '[class*="-leave-active"],[class*="-leave-start"],[class*="-leave-prepare"],[class*="-leave-end"]'
+  for (let i = 0; i < 30; i++) {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, delay))
+      await new Promise((resolve) => setTimeout(resolve, 20))
     })
+    if (i >= 3 && !document.querySelector(ACTIVE_MOTION)) {
+      return
+    }
   }
 }
 
