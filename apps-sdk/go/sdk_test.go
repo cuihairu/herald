@@ -237,15 +237,6 @@ func TestClientFullFlow(t *testing.T) {
 		t.Fatalf("audit since future: %v / %d", err, len(future))
 	}
 
-	// Relations.
-	rels, err := c.Relations(ctx, "alice")
-	if err != nil || len(rels) != 1 || rels[0].Type != "subscription" || rels[0].Channel != "email" {
-		t.Fatalf("relations: %v / %+v", err, rels)
-	}
-	if !rels[0].Policy.AllowUnsubscribe || rels[0].Policy.MustDeliver {
-		t.Fatalf("relation policy: %+v", rels[0].Policy)
-	}
-
 	// Template removal.
 	if err := c.DeleteTemplate(ctx, "node_down"); err != nil {
 		t.Fatalf("delete template: %v", err)
@@ -280,15 +271,11 @@ func TestClientAuthError(t *testing.T) {
 }
 
 // TestClientTransportError: an unreachable server surfaces as a wrapped
-// transport error, not an *Error — on every face, including the
-// admin-gated relations read that never answers 401 to an app token.
+// transport error, not an *Error.
 func TestClientTransportError(t *testing.T) {
 	c := New("http://127.0.0.1:1", "demo-app", "tok")
 	if _, err := c.Categories(context.Background()); err == nil || !IsTransport(err) {
 		t.Fatalf("want transport error, got %#v", err)
-	}
-	if _, err := c.Relations(context.Background(), "alice"); err == nil || !IsTransport(err) {
-		t.Fatalf("relations: want transport error, got %#v", err)
 	}
 }
 

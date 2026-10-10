@@ -9,7 +9,10 @@ import (
 
 // The §13 faces, in flow order: 配品类 (categories) → 策略与模板
 // (policies, templates, callback) → 触发 (dispatch, events) → 查状态
-// (deliveries, audit, relations).
+// (deliveries, audit). Everything here is an app-token face; the
+// operator faces (/api/v1/audiences/**, admin Bearer) are out of scope
+// on purpose — one Client carries one app token, and the audience
+// registry is global, not namespaced.
 
 // Category is one registered message category.
 type Category struct {
@@ -257,32 +260,6 @@ func (c *Client) Audit(ctx context.Context, since time.Time) ([]AuditEvent, erro
 		return nil, err
 	}
 	return out.Events, nil
-}
-
-// Relation is one audience×category×channel entitlement (类型/来源/策略位).
-type Relation struct {
-	AudienceID string `json:"audience_id"`
-	Category   string `json:"category"`
-	Channel    string `json:"channel"`
-	Type       string `json:"type"`
-	Source     string `json:"source"`
-	Policy     struct {
-		AllowUnsubscribe bool `json:"allow_unsubscribe"`
-		MustDeliver      bool `json:"must_deliver"`
-	} `json:"policy"`
-}
-
-// Relations reads one audience's standing relations. This face is the
-// operator's — it answers with the whole registry's view of the
-// audience, not just one namespace's.
-func (c *Client) Relations(ctx context.Context, audienceID string) ([]Relation, error) {
-	var out struct {
-		Relations []Relation `json:"relations"`
-	}
-	if err := c.call(ctx, http.MethodGet, "/api/v1/audiences/"+audienceID+"/relations", nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Relations, nil
 }
 
 // RegisterTemplate registers one namespace template (§13.2 模板注册).

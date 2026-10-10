@@ -121,7 +121,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/audiences/user.5/surfaces \
   -d '{"channel":"email","target":"dev@example.com","categories":["alerts"]}'
 ```
 
-受众 id 不含 `:`（保留给 `user:`/`group:` 引用前缀），整合方的 ref 形目标 `user:5` 对应受众 id `user.5`。查某受众现有关系：`GET /api/v1/audiences/{id}/relations`。
+受众 id 不含 `:`（保留给 `user:`/`group:` 引用前缀），整合方的 ref 形目标 `user:5` 对应受众 id `user.5`。查某受众现有关系：`GET /api/v1/audiences/{id}/relations`——这是管理面读口（受众注册表全局共享，有意不做 app token 面），凭据走操作员的 Bearer/管理 API key，`auth.enabled` 开启时 app token 会被 401；SDK 刻意不收录它，查询面请用 SDK 里的 `Deliveries`/`Audit`（自带 `app:<名>` 命名空间隔离）。
 
 ### 5. 触发投递
 
