@@ -795,3 +795,38 @@ func TestAppAuditTrail(t *testing.T) {
 		t.Fatalf("audit with trigger token: want 403, got %d", code)
 	}
 }
+
+// TestAppFacesRejectWrongMethods walks every §13 face with a method it
+// does not own — each answers the uniform 405 instead of falling through
+// to body decoding (400) or, worse, running a read on a mutating verb.
+func TestAppFacesRejectWrongMethods(t *testing.T) {
+	e := newTestEnv(t, func(c *Config) { c.Apps = seedAppsRegistry() })
+	full := map[string]string{"Authorization": "Bearer demo-app-full"}
+	cases := []struct {
+		method, path string
+	}{
+		{"POST", "/api/v1/apps/demo-app"},
+		{"DELETE", "/api/v1/apps/demo-app/categories"},
+		{"POST", "/api/v1/apps/demo-app/policies"},
+		{"GET", "/api/v1/apps/demo-app/policies/intensity"},
+		{"GET", "/api/v1/apps/demo-app/policies/delivery-mode"},
+		{"GET", "/api/v1/apps/demo-app/policies/escalation"},
+		{"GET", "/api/v1/apps/demo-app/policies/dedup"},
+		{"DELETE", "/api/v1/apps/demo-app/templates"},
+		{"PUT", "/api/v1/apps/demo-app/templates/x"},
+		{"PATCH", "/api/v1/apps/demo-app/callback"},
+		{"GET", "/api/v1/apps/demo-app/dispatch"},
+		{"GET", "/api/v1/apps/demo-app/events"},
+		{"POST", "/api/v1/apps/demo-app/deliveries"},
+		{"POST", "/api/v1/apps/demo-app/audit"},
+	}
+	for _, tc := range cases {
+		code, body := e.do(t, tc.method, tc.path, "{}", full)
+		if code != 405 {
+			t.Fatalf("%s %s: code = %d, want 405", tc.method, tc.path, code)
+		}
+		if msg, _ := body["message"].(string); msg != "method not allowed" {
+			t.Errorf("%s %s: message = %q, want the uniform refusal", tc.method, tc.path, msg)
+		}
+	}
+}

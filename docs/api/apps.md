@@ -270,7 +270,7 @@ npx @openapitools/openapi-generator-cli generate \
 | 401 | token 错、app 名错、缺凭据（含用未播种的 app 名访问） | `invalid app credentials` |
 | 403 | scope 不够 | `token lacks trigger scope` |
 | 404 | audit 存储未配置；无投递策略组件 | `audit trail not configured` / `delivery policy not configured` |
-| 405 | 端点不支持的方法（categories/templates/callback 有显式检查） | `method not allowed` |
+| 405 | 端点不支持的方法（每个端点都有显式检查——四个策略族只收 PUT、dispatch/events 只收 POST、show/policies/deliveries/audit 只收 GET） | `method not allowed` |
 | 409 | 品类同名不同默认紧急度 | `category already registered with a different default urgency` |
 | 422 | 字段校验失败（品类未注册/severity 非法/urgency 非法/relation_type 非法/模板渲染失败/策略坏值） | `severity must be critical/warning/info` |
 

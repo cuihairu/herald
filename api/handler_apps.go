@@ -71,6 +71,10 @@ func appSecret(r *http.Request) string {
 // handleAppShow is the namespace introspection read: confirms the
 // credential works and reports the token's granted scopes.
 func (s *Server) handleAppShow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	app := r.PathValue("app")
 	scopes, _ := s.apps.Authenticate(app, appSecret(r))
 	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{
@@ -167,6 +171,10 @@ func policiesJSON(p apps.AppPolicies) map[string]any {
 
 // handleAppPoliciesRead is the aggregate read-back (query power).
 func (s *Server) handleAppPoliciesRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !s.withAppScope(w, r, apps.ScopeQuery) {
 		return
 	}
@@ -181,6 +189,10 @@ func (s *Server) handleAppPoliciesRead(w http.ResponseWriter, r *http.Request) {
 // key) and the setter applies under the registry lock; the answer is
 // the full read-back.
 func (s *Server) putAppPolicies(w http.ResponseWriter, r *http.Request, parse func(body map[string]any) (func(*apps.AppPolicies), error)) {
+	if r.Method != http.MethodPut {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !s.withAppScope(w, r, apps.ScopeConfig) {
 		return
 	}
@@ -423,6 +435,10 @@ type dispatchBody struct {
 // service owns the matching and delivery. /notify stays the
 // anonymous-compatible face — this path is the one with categories.
 func (s *Server) handleAppDispatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !s.withAppScope(w, r, apps.ScopeTrigger) {
 		return
 	}
@@ -554,6 +570,10 @@ type externalEventBody struct {
 // through as the dispatch event_id and comes back echoed on the §13.5
 // delivery_result, closing the receipt correlation loop.
 func (s *Server) handleAppEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !s.withAppScope(w, r, apps.ScopeTrigger) {
 		return
 	}
@@ -620,6 +640,10 @@ func audienceIDOfTarget(target string) string {
 // delivery attempts, scoped by the "app:<name>" source the dispatch
 // face stamps, narrowed by audience/category/status.
 func (s *Server) handleAppDeliveries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !s.withAppScope(w, r, apps.ScopeQuery) {
 		return
 	}
@@ -653,6 +677,10 @@ func (s *Server) handleAppDeliveries(w http.ResponseWriter, r *http.Request) {
 // handleAppAudit is the §13.4 审计流: the namespace's relational trail
 // (dispatch folds, later relation changes) since an RFC3339 timestamp.
 func (s *Server) handleAppAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.handler.respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if s.audit == nil {
 		// The audit trail is a process-wide face; unconfigured means
 		// closed, same as every other face.
