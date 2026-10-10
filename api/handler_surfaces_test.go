@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -179,6 +180,41 @@ func TestAudienceSurfacesRead(t *testing.T) {
 	// Invalid id format: 422 like the write arms.
 	if code, _ := e.do(t, "GET", "/api/v1/audiences/bad:id/surfaces", "", h); code != http.StatusUnprocessableEntity {
 		t.Fatalf("bad id: code = %d, want 422", code)
+	}
+}
+
+// TestAudienceSurfacesReadTokenFailure: an entropy failure inside
+// RSSToken surfaces as a 500 instead of a half-written registry entry —
+// injected through the exported audience.RandRead seam.
+func TestAudienceSurfacesReadTokenFailure(t *testing.T) {
+	e, _, _ := surfacesEnv(t)
+	h := map[string]string{"Authorization": "Bearer operator-token"}
+	if code, _ := e.do(t, "POST", "/api/v1/audiences/user.1/surfaces",
+		`{"channel":"email","target":"u1@example.com"}`, h); code != http.StatusOK {
+		t.Fatalf("bind: code = %d", code)
+	}
+
+	orig := audience.RandRead
+	audience.RandRead = func([]byte) (int, error) { return 0, errors.New("no entropy") }
+	defer func() { audience.RandRead = orig }()
+
+	code, resp := e.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", h)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("entropy failure: code = %d, want 500", code)
+	}
+	if msg, _ := resp["message"].(string); msg != "rss token generation failed" {
+		t.Fatalf("message = %v, want rss token generation failed", resp["message"])
+	}
+
+	// The failed mint left nothing behind: with the entropy source
+	// restored, the same read answers normally with a fresh token.
+	audience.RandRead = orig
+	code, resp = e.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", h)
+	if code != http.StatusOK {
+		t.Fatalf("read after restore: code = %d, resp = %v", code, resp)
+	}
+	if token, _ := dataOf(t, resp)["rss_token"].(string); token == "" {
+		t.Fatalf("rss_token missing after restore: %v", dataOf(t, resp))
 	}
 }
 

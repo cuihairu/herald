@@ -330,9 +330,9 @@ func TestBindingValidation(t *testing.T) {
 func TestTokenEntropyFailure(t *testing.T) {
 	s, _ := newTestSurfaces(t)
 
-	orig := randRead
-	randRead = func([]byte) (int, error) { return 0, errors.New("no entropy") }
-	defer func() { randRead = orig }()
+	orig := RandRead
+	RandRead = func([]byte) (int, error) { return 0, errors.New("no entropy") }
+	defer func() { RandRead = orig }()
 
 	if _, err := s.IssueBinding("alice", "email"); err == nil {
 		t.Error("IssueBinding() = nil, want the entropy error")

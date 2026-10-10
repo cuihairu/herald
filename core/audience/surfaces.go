@@ -418,11 +418,13 @@ func (s *SurfaceRegistry) slot(audienceID string) map[string]ContactSurface {
 // deep link or a private feed.
 func newToken() (string, error) {
 	buf := make([]byte, 16)
-	if _, err := randRead(buf); err != nil {
+	if _, err := RandRead(buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
 }
 
-// randRead is a test seam for the token entropy source.
-var randRead = rand.Read
+// RandRead is the token entropy source. Exported as a seam so tests in
+// other layers (the api handlers that consume RSSToken) can inject entropy
+// failures the same way this package's own tests do.
+var RandRead = rand.Read

@@ -18,9 +18,9 @@
 
 ## api/handler_surfaces.go
 
-- `github.com/cuihairu/herald/api/handler_surfaces.go:82` — DELETE 臂里 `Unfollow` 之后转 422 的守卫。到达条件：handler 前置校验放行后 `Unfollow` 仍拒绝——但两者校验完全同口径（`checkIDAndChannel` 内部就是 `idPattern`（≡ `audience.ValidID`）+ channel 1-64 界，handler 已先行同判），`source` 是常量 `audience.SourceAdmin` 恒合法。两层校验互为镜像时恒不可达的契约守卫（同 `handler_sources.go:237` 先例）；若日后 `Unfollow` 新增校验维度，此处应随之变为可达并补 422 实测。行号 2026-10-08 随阶段③集成方对接批次（联系面绑定面落地）登记。
+- `github.com/cuihairu/herald/api/handler_surfaces.go:129` — DELETE 臂里 `Unfollow` 之后转 422 的守卫。到达条件：handler 前置校验放行后 `Unfollow` 仍报错。确定性拒绝不可达：两层校验完全同口径（handler 的 `idPattern`（≡ `audience.ValidID`）+ channel 1-64 界，`Unfollow` 内部同判），`source` 是常量 `audience.SourceAdmin` 恒合法；唯一残余到达路径是 `Unfollow` 内部 `InvalidateFor`/`TerminateFor` 的调度窗口（读与失效/终止之间落进一次并发删除，错误经 `Unfollow` 原样传到本分支）——即 `core/audience/sources.go:140`/`:150` 已登记的那两条窗口，api 层仅是它们的传播点，而 `SourceAdapter` 是具体类型非接口，api 测试无从确定性构造。若日后 `Unfollow` 新增校验维度，此处应随之变为可达并补 422 实测。行号 2026-10-08 随阶段③集成方对接批次（联系面绑定面落地）以 `:82` 登记；2026-10-10 私密 feed token 读口（审计 #22）把 GET 读臂插到 DELETE 臂之上，块整体下移到 :129——同批台账曾把 RSSToken 守卫误标到 :129（实际在 :52，见下），行号错位被 `--gate` 的计数缺陷（`zero_check.py` 恒报 100%）掩盖，该缺陷修复时一并校正。
 
-- `github.com/cuihairu/herald/api/handler_surfaces.go:129` — GET 读臂里 `RSSToken` 之后转 500 的守卫。到达条件：`audience.ValidID` 放行后 `RSSToken` 仍报错——但 `RSSToken` 的格式校验用的是同一个 `idPattern`（`core/audience/audience.go:52`），handler 已先行同判；剩余唯一错误源是 `newToken` 的熵源（`randRead`），那是 core 层的测试 seam（`core/audience/surfaces.go:419`），api 层无注入点。镜像校验 + 熵源不可注入，恒不可达的契约守卫；若日后 `RSSToken` 新增校验维度，此处应随之变为可达并补 500 实测。行号 2026-10-10 随私密 feed token 读口（审计 #22 拍板落地批）登记。
+> 对照：GET 读臂里 `RSSToken` 之后转 500 的守卫（:52）一度按「api 层无注入点」预定登记——实际 `core/audience` 的熵源 seam `randRead` 只差导出一步（「缺 seam」从来不是死因）。2026-10-10 导出为 `audience.RandRead`，由 `TestAudienceSurfacesReadTokenFailure` 注入熵失败实测 500 与失败后重新 mint，移出台账。
 
 ## api/handler_sources.go
 
