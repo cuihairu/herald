@@ -21,7 +21,8 @@ http://your-host:8080/api/v1
    内部自行验证 token。Dashboard 登录后把 token 存在 `localStorage`，由 axios 请求拦截器统一带上。
 2. **App token**（`/api/v1/apps/{app}/**` 集成者面）：按 app 播种的 token 鉴权，
    `Authorization: Bearer <app token>` 或 `X-API-Key`，每枚 token 带 config/trigger/query
-   权限集（见[应用接入](/guide/integration)）。app 未在配置播种时该命名空间整体 404。
+   权限集（见[应用接入](/guide/integration)）。未播种的 app 名与错误 secret 统一 401，
+   不区分两种情况。
 3. **自证回调**（不走 Bearer）：`/callbacks/feishu`（飞书服务器以回调加密密钥认证）、
    `/callbacks/bot` 与 `/callbacks/wechat-mp`（平台回调，按各自共享密钥自证）。
 4. **公开读口**：`/api/v1/status` 与 `/feeds/**`（RSS 拉式）匿名可用。
@@ -79,7 +80,7 @@ http://your-host:8080/api/v1
 | POST | /audiences/{id}/surfaces | 管理侧代绑定联系面（可顺带落默认订阅） |
 | DELETE | /audiences/{id}/surfaces | 解绑联系面（`?channel=`） |
 
-**集成者 app 面**（`/api/v1/apps/{app}/**`，app token 鉴权、命名空间隔离；app 未播种时整体 404）：
+**集成者 app 面**（`/api/v1/apps/{app}/**`，app token 鉴权、命名空间隔离；未播种的 app 名统一 401）：
 
 | 方法 | 路径 | 权限 | 描述 |
 | --- | --- | --- | --- |

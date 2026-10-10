@@ -31,7 +31,8 @@ export default defineConfig({
             { text: '简介', link: '/guide/introduction' },
             { text: '快速开始', link: '/guide/getting-started' },
             { text: '使用场景与接入', link: '/guide/use-cases' },
-            { text: '应用接入（集成者 API）', link: '/guide/integration' },
+            { text: '接入指南（外部项目自助接入）', link: '/guide/integration' },
+            { text: '事件与告警模型', link: '/guide/events' },
           ]
         },
         {
@@ -82,6 +83,8 @@ export default defineConfig({
           items: [
             { text: '概述', link: '/api/overview' },
             { text: 'REST API', link: '/api/rest' },
+            { text: '应用接入 API', link: '/api/apps' },
+            { text: 'OpenAPI 规范', link: '/api/apps#openapi-规范' },
           ]
         }
       ],

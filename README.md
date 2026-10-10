@@ -315,6 +315,9 @@ routes:
 
 Full documentation is at [docs/](./docs/)
 
+- [Integration guide](./docs/guide/integration.md) (external projects: from service address to first alert, app namespace, signed callbacks — self-serve, no questions needed)
+- [Events and alert model](./docs/guide/events.md) (level vocabularies, dedup and idempotency, at-least-once delivery guarantees)
+- [App integration API](./docs/api/apps.md) (per-endpoint reference for the `/apps/{app}/**` namespace) · [OpenAPI spec](./docs/api/openapi.yaml) (SDK code generation)
 - [Configuration guide](./docs/guide/configuration.md) (rule engine, notification groups, audiences and contact surfaces, Digest, queues, and the full provider configuration reference)
 - [Provider docs](./docs/providers/overview.md) (one page per channel: Telegram / Feishu / WeChat Work / DingTalk / Slack / Discord / WeChat / Email / Webhook / SMS / Log)
 - [Audience domain model (overview)](./docs/design-audience-model.md) · [Audience subscription & delivery hub (detailed design)](./docs/design-audience-relations.md) · [Concept boundaries and layered audit](./docs/design-audience-boundaries.md)

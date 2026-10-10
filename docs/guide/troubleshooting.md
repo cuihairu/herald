@@ -86,3 +86,26 @@ curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / 
 1. 旁路验证：把可疑 provider `enabled: false`，它就不会被选中；再用 `log` provider 验证链路本身（见[快速开始](/guide/getting-started)第 1 步）
 2. 查日志与运行时状态：`heraldd` 的结构化日志 + `curl /api/v1/status`
 3. 提 issue：带上 config（脱敏）、`/api/v1/logs` 的相关条目、heraldd 版本
+
+## API 报错速查
+
+响应形态先分清两类：**业务结果失败**（HTTP 200，错误码写在 body 的 `code` 里，notify 受理部分/全部失败、app 面 suppressed/refused 都属这类）与**传输层错误**（HTTP 状态码即 body 的 `code`）。
+
+| 现象（实测） | 原因 | 处理 |
+| --- | --- | --- |
+| HTTP 401 `{"code": 401, "message": "unauthorized"}`（注意有空格，手写信封） | 未带凭证或凭证无效 | 管理面补 `Authorization: Bearer` / `X-API-Key`；app 面核对播种 token |
+| HTTP 401 `invalid username or password` | 登录口令错 | 对照 `auth.admin_user` 配置 |
+| HTTP 401 `invalid app credentials` | app token 错、app 名错、未带头 | 用 `GET /api/v1/apps/{app}` 自检，先排除这两类 |
+| HTTP 403 `token lacks trigger scope` | token 权限集不够 | 换对应权限 token，或播种时补 scope |
+| HTTP 404 纯文本 `404 page not found`（app 面） | app 未在配置播种 | 让有配置权的人播种 app（整面关闭） |
+| HTTP 400 `invalid request` | 请求体非法 JSON | 检查 JSON 语法与 Content-Type |
+| HTTP 404 `log not found` / `provider not found: x` / `rule not found: x` | 资源不存在 | 用列表端点（`/logs`、`/providers`、`/rules`）确认名字 |
+| HTTP 405 `method not allowed`（纯文本） | 端点不支持该方法（`templates/{id}` 例外，返回 JSON） | 对照各端点允许的方法表 |
+| HTTP 422 `no route: no route found for type=... level=...` | 没带 channels 且路由表没命中 | 请求带 `channels`，或补 `routes`/`level_routes` |
+| HTTP 422（body `code:422`）`all channels failed: [...]` | 全部渠道投递失败 | 看 `data.failed[].Error` 逐渠道定位（键首字母大写） |
+| HTTP 200 `code:0` 但 `data.accepted: null` + `task_ids: null` | 通知被去重闸折叠（窗口内同内容重复） | 预期行为；换个 type 或等 5 分钟窗口 |
+| HTTP 200 `suppressed: true` | app dispatch 同 dedup_key 窗口内重复 | 预期行为；确需重发换 dedup_key |
+| HTTP 200 含 `refused` 列表 | 受众没有出路（关系/强度/联系面缺一） | 按 `reason` 绑定：`intensity_exceeded` 换高紧急度品类，`phone_disabled` 查手机闸门，`no_channels` 查联系面，`filtered` 查渠道×关系矩阵 |
+| HTTP 409 `rule already exists: x` / `group already exists: x` / `category already registered with a different default urgency` | 资源已存在（规则/组/品类默认紧急度冲突） | 规则走 PUT 替换；组走 PUT；品类换名或改回原默认值 |
+| HTTP 503 `rules engine is not configured` / `ack store is not configured` / `audit trail not configured` 等 | 对应组件未在配置启用 | 补对应配置块后重启 |
+| app 回调收不到 | 回调面未配置 / 非 2xx / secret 不匹配 | `GET /apps/{app}/callback` 看 url/has_secret；签名校验用 PUT 的 secret 重算 HMAC |

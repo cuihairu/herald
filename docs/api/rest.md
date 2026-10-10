@@ -3,7 +3,9 @@
 ## 认证 {#auth}
 
 本页端点在开启 `auth.enabled` 后都需要 `Authorization: Bearer <token>`（或
-`X-API-Key` 头携带 API Key）；未开启时匿名可用。四个例外域另见
+`X-API-Key` 头携带 API Key；GET 请求也可用 `?api_key=` 查询参数）；未开启时匿名可用。
+API Key 与 JWT 混用时先按 API Key 比对。JWT 由 `/auth/login` 签发，**有效期固定 24 小时**，
+过期用 `/auth/refresh` 换新。四个例外域另见
 [API 概述](./overview.md#认证)：`/auth/*` 自身、集成者 app 面（按 app token 三级
 scope 鉴权，独立于 `auth.enabled`）、平台自证回调（bot/公众号/飞书）与公开读口
 （`/api/v1/status`、`/feeds/**`）。
@@ -105,7 +107,7 @@ Content-Type: application/json
 | 字段       | 类型     | 必填   | 描述    |
 | -------- | ------ | ---- | ----- |
 | type     | string | 是    | 通知类型（用于路由） |
-| level    | string | 否    | 级别 (debug/info/warning/error/critical) |
+| level    | string | 否    | 级别。无枚举校验（任意字符串透传），惯用 `info` / `warning` / `error`，`critical` 可用；与紧急度、事件 severity 的映射见[事件与告警模型](/guide/events) |
 | channels | array  | 否    | 指定渠道，不指定则根据 type/level 路由 |
 | channel  | string | 否    | 单渠道写法，与 `channels` 并列并集（见[接收方与幂等](#notify-receivers)） |
 | audience | array  | 否    | 受众引用（`group:` / `user:` / 裸渠道名），逐项按渠道展开 |
@@ -150,11 +152,13 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
     "task_ids": ["task-001"],
     "accepted": ["telegram"],
     "failed": [
-      { "channel": "sms-x", "error": "provider not found: sms-x" }
+      { "Channel": "sms-x", "Error": "provider not found: sms-x" }
     ]
   }
 }
 ```
+
+`failed` 条目的键是首字母大写的 `Channel` / `Error`（历史形状，无小写别名）。
 
 **全部失败：**
 
@@ -166,7 +170,7 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
     "notification_id": "550e8400-e29b-41d4-a716-446655440000",
     "accepted": [],
     "failed": [
-      { "channel": "sms-x", "error": "provider not found: sms-x" }
+      { "Channel": "sms-x", "Error": "provider not found: sms-x" }
     ]
   }
 }
@@ -354,10 +358,25 @@ Worker 的部署返回空列表（`count` 0）。
     "total": 100,
     "offset": 0,
     "limit": 50,
-    "logs": [...]
+    "logs": [
+      {
+        "id": "21a2a819-9392-4b4d-b9a7-e868a658f6a9",
+        "provider": "log",
+        "payload_kind": "content",
+        "level": "error",
+        "status": "success",
+        "error": "",
+        "created_at": "2026-10-10T12:53:09+08:00",
+        "completed_at": "2026-10-10T12:53:09+08:00",
+        "matched_at": "0001-01-01T00:00:00Z",
+        "category": "server.alert"
+      }
+    ]
   }
 }
 ```
+
+每条投递任务一行，按 `created_at` 降序。`status` ∈ `success` / `failed` / `pending` / `shadow`（重试中的任务保持 `pending`，终态才翻转）。`payload_kind` ∈ `content` / `provider_template` / `raw`。`category` 是通知的 `type`（app 面投递为注册品类）。`matched_at` 为规则匹配时间，未经规则引擎的任务显示零值 `0001-01-01T00:00:00Z`。`duration`（毫秒）与 `error` 只在非零/非空时出现；shadow 行额外带 `would_fire` 与 `channels`。
 
 ## GET /api/v1/logs/stats {#logs-stats}
 
@@ -708,3 +727,69 @@ ack 存储未配置返回 503。
 ## DELETE /api/v1/templates/{id} {#template-delete}
 
 删除模板。
+
+## POST /api/v1/callbacks/bot {#bot-callback}
+
+Telegram 平台回调入口（来源适配器：`/start` 兑换绑定、`/stop` 全停订阅）。**不走 Bearer**，凭请求头 `X-Telegram-Bot-Api-Secret-Token` 与 `sources.bot.secret` 常量时间比对；不匹配 403，secret 未配置时端点整体 404。payload 是 Telegram update JSON 子集（`message.chat.id` + `message.text`）。一切良构 update 恒回 200（Telegram 对非 2xx 会重试）。
+
+## POST /api/v1/callbacks/wechat-mp {#wechat-mp-callback}
+
+微信公众号回调入口（关注/取关来源适配器）。**不走 Bearer**，query 参数 `signature` / `timestamp` / `nonce` 三件套自证：`signature == hex(sha1(sort([timestamp, nonce, token]).join("")))`，`token` 来自 `sources.wechat_mp.token`，常量时间比对；缺一 403，token 未配置时端点整体 404。`GET` 用于控制台 URL 验证（原样回显 `echostr`）。POST body 是 XML（`FromUserName` + `Event` ∈ subscribe/unsubscribe）。openid 无绑定时静默 200。
+
+## GET /api/v1/audiences/{id}/relations {#audience-relations}
+
+查询受众现有关系（订阅/指派）。未知受众返回 200 空列表（path id 不做格式校验）。
+
+```json
+{"code":0,"message":"ok","data":{"relations":[{
+  "audience_id":"alice","category":"bills","channel":"email",
+  "type":"subscription","source":"test",
+  "policy":{"allow_unsubscribe":true,"must_deliver":false}
+}]}}
+```
+
+`type` ∈ `subscription`（主动订阅，永远可退订）/ `enrollment`（被动指派，must-deliver 或可退订二选一）；`source` ∈ `bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`。
+
+## POST / DELETE /api/v1/audiences/{id}/subscriptions {#audience-subscriptions}
+
+偏好中心勾选/退订入口。来源适配器未配置时 404。
+
+**POST 请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| category | string | 是 | 1–64 字符 |
+| channel | string | 是 | 1–64 字符 |
+
+落下 `type=subscription`、`source=preference_center` 的关系。**响应是关系对象本体，wire 键是 Go 字段名（首字母大写）**：
+
+```json
+{"AudienceID":"alice","Category":"bills","Channel":"email","Type":"subscription",
+ "Source":"preference_center","Policy":{"AllowUnsubscribe":true,"MustDeliver":false}}
+```
+
+**DELETE** 用查询参数 `?category=&<>&channel=`：槽位无关系 404 `subscription not found`；must-deliver 关系不可退订 409。
+
+## POST / DELETE /api/v1/audiences/{id}/surfaces {#audience-surfaces}
+
+管理侧代绑定联系面（用户联系信息在整合方库里的场景），操作入口记为 `admin` 并进审计流。来源适配器未配置时 404。
+
+**POST 请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| channel | string | 是 | 1–64 字符 |
+| target | string | 是 | 联系目标（≤256 字符） |
+| categories | array | 否 | 随绑定一并订阅的默认品类 |
+
+```json
+{"code":0,"message":"ok","data":{
+  "surface":{"audience_id":"user.1","channel":"email","target":"u1@example.com","status":"active"},
+  "bind_changed":true,
+  "subscribed":1
+}}
+```
+
+`status` ∈ `pending` / `active` / `invalid`；`bind_changed` 表示 surface 状态是否迁移；`subscribed` 是成功落地的默认订阅**数量**。活跃槽位已持有不同 target 时拒绝（422 重绑守卫）。
+
+**DELETE** 用查询参数 `?channel=`：surface 标记 `invalid`（停投），该 channel 上所有 subscription 型关系终止，**enrollment 关系保留**（must-deliver 底线不是受众可撤销的）。未知/已 invalid 的 surface 返回 200 `{"surface_invalidated":false,"terminated":0}`。

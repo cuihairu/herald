@@ -7,6 +7,16 @@
 
 之后再到[场景与接入](/guide/use-cases)挑你的业务场景照抄配置。
 
+> **拿到的是现成部署地址？** 不用装任何东西，一条 curl 就通（`auth.enabled` 开启的部署把 `-H "Authorization: Bearer <token>"` 或 `-H "X-API-Key: <key>"` 加上即可）：
+>
+> ```bash
+> curl -X POST http://<herald-host>:8080/api/v1/notify \
+>   -H "Content-Type: application/json" \
+>   -d '{"type":"demo","level":"error","title":"hello","body":"from curl","channels":["log"]}'
+> ```
+>
+> 外部项目要正式接入（命名空间、回执、签名回调）走[接入指南](/guide/integration)；级别、去重与投递保证的口径见[事件与告警模型](/guide/events)。
+
 ## Herald 是什么
 
 > Herald receives notifications from applications and reliably delivers them to one or more notification providers.

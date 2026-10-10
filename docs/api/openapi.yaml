@@ -1,0 +1,754 @@
+openapi: 3.1.0
+info:
+  title: Herald Integrator API
+  description: |
+    Herald 统一订阅与投递中枢的集成者面：`/notify` 匿名/管理面发送与
+    `/apps/{app}/**` 命名空间（品类、模板、策略、触发、回执、审计）。
+    字段级语义见 docs/api/apps.md；级别、去重与投递保证的口径见 docs/guide/events.md。
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:8080
+    description: 本机部署（替换为你的 herald 地址）
+tags:
+  - name: notify
+    description: 管理面发送（匿名部署可用；auth.enabled 开启后走 BearerAuth）
+  - name: app
+    description: 命名空间自检
+  - name: category
+    description: 品类注册与列表
+  - name: policy
+    description: 投递策略覆盖
+  - name: template
+    description: 命名空间模板
+  - name: callback
+    description: 出站回调配置（投递结果与退订回流）
+  - name: dispatch
+    description: 触发投递
+  - name: query
+    description: 投递状态与审计流
+security:
+  - AppToken: []
+paths:
+  /api/v1/notify:
+    post:
+      tags: [notify]
+      summary: 发送通知
+      description: 受理即返回。accepted 只代表受理，送达结果查 /api/v1/logs。全部渠道失败时 body code=422、HTTP 仍 200。
+      security:
+        - {}
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotifyRequest'
+      responses:
+        '200':
+          description: 受理结果（含全部失败 code=422 的形态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotifyResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+  /api/v1/apps/{app}:
+    get:
+      tags: [app]
+      summary: 命名空间自检
+      description: 确认凭据有效并回显 token 权限集。任意 HTTP 方法等价。
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      responses:
+        '200':
+          description: 权限集回显
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: { type: integer, const: 0 }
+                  message: { type: string }
+                  data:
+                    type: object
+                    required: [name, scopes]
+                    properties:
+                      name: { type: string }
+                      scopes:
+                        type: array
+                        items: { $ref: '#/components/schemas/Scope' }
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+  /api/v1/apps/{app}/categories:
+    parameters: [{ $ref: '#/components/parameters/AppName' }]
+    get:
+      tags: [category]
+      summary: 品类列表
+      description: 需 query scope。按 name 排序；新命名空间为空数组。
+      responses:
+        '200':
+          description: 品类数组
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer }
+                  message: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      categories:
+                        type: array
+                        items: { $ref: '#/components/schemas/Category' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [category]
+      summary: 注册品类
+      description: 需 config scope。同名同值幂等；同名不同默认紧急度 409。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '200':
+          description: 已创建（含幂等重复注册）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyOk' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/policies:
+    parameters: [{ $ref: '#/components/parameters/AppName' }]
+    get:
+      tags: [policy]
+      summary: 读策略覆盖集
+      description: 需 query scope。只输出非空族，全空时 data 为空对象。
+      responses:
+        '200':
+          description: 覆盖集
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policies' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/policies/intensity:
+    put:
+      tags: [policy]
+      summary: 覆盖渠道强度（整族替换）
+      description: 需 config scope。body 里没出现的键被清掉。
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: { $ref: '#/components/schemas/Intensity' }
+      responses:
+        '200':
+          description: 聚合后的完整覆盖集
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PoliciesResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/policies/delivery-mode:
+    put:
+      tags: [policy]
+      summary: 覆盖品类投递模式（整族替换）
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: { $ref: '#/components/schemas/DeliveryMode' }
+      responses:
+        '200':
+          description: 聚合后的完整覆盖集
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PoliciesResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/policies/escalation:
+    put:
+      tags: [policy]
+      summary: 覆盖升级链参数（整族替换）
+      description: ack_timeout 必填、非负 Go duration；"0s" 清除覆盖。
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ack_timeout: { type: string, examples: ['3m'] }
+      responses:
+        '200':
+          description: 聚合后的完整覆盖集
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PoliciesResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/policies/dedup:
+    put:
+      tags: [policy]
+      summary: 覆盖去重频控（整族替换）
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tiers:
+                  type: object
+                  additionalProperties: { $ref: '#/components/schemas/DedupTier' }
+                windows:
+                  type: object
+                  additionalProperties: { type: string, examples: ['10m'] }
+      responses:
+        '200':
+          description: 聚合后的完整覆盖集
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PoliciesResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/templates:
+    parameters: [{ $ref: '#/components/parameters/AppName' }]
+    get:
+      tags: [template]
+      summary: 命名空间模板列表
+      responses:
+        '200':
+          description: 模板对象数组
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Template' }
+    post:
+      tags: [template]
+      summary: 注册模板（upsert）
+      description: 需 config scope。同 id 幂等整体替换。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Template' }
+      responses:
+        '200':
+          description: 回显模板对象
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TemplateResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/templates/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/AppName' }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [template]
+      summary: 读单个模板
+      responses:
+        '200':
+          description: 模板对象
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TemplateResponse' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [template]
+      summary: 删除模板
+      description: 重复删除 404（删除未知 id 是错误，不是 no-op）。
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyOk' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/callback:
+    parameters: [{ $ref: '#/components/parameters/AppName' }]
+    get:
+      tags: [callback]
+      summary: 读回调配置
+      description: 永不回显 secret。
+      responses:
+        '200':
+          description: 配置（has_secret 布尔）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallbackConfig' }
+    put:
+      tags: [callback]
+      summary: 配置回调
+      description: url 须绝对 http(s)；secret 16–128 字符。整体替换。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallbackInput' }
+      responses:
+        '200':
+          description: 已配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyOk' }
+        '422': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [callback]
+      summary: 删除回调配置
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyOk' }
+  /api/v1/apps/{app}/dispatch:
+    post:
+      tags: [dispatch]
+      summary: 触发投递
+      description: |
+        品类须已注册。响应是受理结果：dispatched/refused/plan/suppressed。
+        全部渠道投递失败才 body code=422。被去重折叠时 suppressed=true、无 task_ids。
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DispatchRequest' }
+      responses:
+        '200':
+          description: 受理结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DispatchResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+        '404':
+          description: 品类未注册 422；无投递策略组件 404
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /api/v1/apps/{app}/events:
+    post:
+      tags: [dispatch]
+      summary: 事件接入适配面
+      description: kind→品类、severity→紧急度（critical/warning/info→critical/urgent/normal）、target→受众、id→event_id。响应同 dispatch。
+      parameters: [{ $ref: '#/components/parameters/AppName' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExternalEvent' }
+      responses:
+        '200':
+          description: 受理结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DispatchResponse' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/deliveries:
+    get:
+      tags: [query]
+      summary: 投递状态查询
+      description: 命名空间隔离，只含 source=app:<name> 的行。行在任务执行后才出现。
+      parameters:
+        - { $ref: '#/components/parameters/AppName' }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 500 } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TaskStatus' } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: audience, in: query, schema: { type: string, description: 受众 id；ref 形先转 id（user:5→user.5） } }
+      responses:
+        '200':
+          description: 投递行分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliveryPage' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/apps/{app}/audit:
+    get:
+      tags: [query]
+      summary: 命名空间审计流
+      description: 时间升序。去重折叠、关系变更都记在这里。
+      parameters:
+        - { $ref: '#/components/parameters/AppName' }
+        - { name: since, in: query, schema: { type: string, format: date-time }, description: RFC3339，严格晚于 }
+      responses:
+        '200':
+          description: 审计事件数组
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditPage' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404':
+          description: 审计存储未配置（先于认证检查）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+components:
+  securitySchemes:
+    AppToken:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 'app token（等价于 Authorization: Bearer <secret>）。config/trigger/query 三档 scope。'
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: 管理面 API Key 或 JWT，auth.enabled 开启后必需。
+  parameters:
+    AppName:
+      name: app
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-zA-Z0-9._-]{1,64}$' }
+  responses:
+    Error:
+      description: 错误信封（code 等于 HTTP 状态码，data 缺席）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    Scope:
+      type: string
+      enum: [config, trigger, query]
+    Category:
+      type: object
+      required: [name, default_urgency]
+      properties:
+        name: { type: string }
+        default_urgency: { $ref: '#/components/schemas/Urgency' }
+    CategoryInput:
+      type: object
+      required: [name, default_urgency]
+      properties:
+        name: { type: string, pattern: '^[a-zA-Z0-9._-]{1,64}$' }
+        default_urgency: { $ref: '#/components/schemas/Urgency' }
+    Urgency:
+      type: string
+      enum: [routine, normal, urgent, critical]
+      description: 接受中文别名 例行/一般/紧急/关键。
+    Intensity:
+      type: string
+      enum: [L0, L1, L2, L3, L4, L5]
+      description: 也接受 RSS/Mail/Inbox/IM/SMS/Phone 别名。
+    DeliveryMode:
+      type: string
+      enum: [fixed, escalation, parallel]
+    DedupTier:
+      type: string
+      enum: [once, throttle, always]
+    Policies:
+      type: object
+      properties:
+        channel_intensity:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/Intensity' }
+        mode_by_category:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/DeliveryMode' }
+        ack_timeout: { type: string, description: Go duration，如 3m0s }
+        dedup_tiers:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/DedupTier' }
+        dedup_windows:
+          type: object
+          additionalProperties: { type: string }
+    PoliciesResponse:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Policies' }
+    Template:
+      type: object
+      required: [id, name, title]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title:
+          type: string
+          description: Go text/template 语法 {{.field}}。
+        level: { type: string, description: 惯用 error/warning/info }
+        fields:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: string }
+              type: { type: string, description: text/number/datetime/link/markdown }
+        bindings:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              format: { type: string, enum: [html, markdown, plain, json] }
+              template_code: { type: string }
+              template_id: { type: string }
+              params:
+                type: object
+                additionalProperties: { type: string }
+              param_order:
+                type: array
+                items: { type: string }
+    TemplateResponse:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Template' }
+    CallbackInput:
+      type: object
+      required: [url, secret]
+      properties:
+        url: { type: string, format: uri, description: 绝对 http(s) 地址 }
+        secret: { type: string, minLength: 16, maxLength: 128 }
+    CallbackConfig:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            url: { type: string }
+            has_secret: { type: boolean }
+    NotifyRequest:
+      type: object
+      properties:
+        type: { type: string, description: 通知类型，路由主键 }
+        level:
+          type: string
+          description: 惯用 info/warning/error（critical 可用）；无枚举校验。
+        channels:
+          type: array
+          items: { type: string }
+          description: '渠道/接收方列表（provider 实例名、channels 块名、group:、user: 引用）。'
+        channel: { type: string, description: 单渠道写法，与 channels 并集 }
+        audience:
+          type: array
+          items: { type: string }
+          description: 受众引用（group:/user:/裸渠道名）。
+        recipients:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          description: 按渠道指定接收人。
+        template: { type: string }
+        params: { type: object, additionalProperties: true }
+        data: { type: object, additionalProperties: true, description: 与 params 合并，重名 params 优先 }
+        idempotency_key:
+          type: string
+          description: 进程生命周期内同键重放首次结果、不再投递。
+        title: { type: string }
+        body: { type: string }
+    NotifyResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: 0 受理；422 全部渠道失败（HTTP 仍 200）。
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            notification_id: { type: string }
+            task_ids:
+              type: array
+              items: { type: string }
+              description: 无路由/被全部拒绝时缺席或空。
+            accepted:
+              type: array
+              items: { type: string }
+            failed:
+              type: array
+              description: 仅非空时出现。
+              items:
+                type: object
+                properties:
+                  Channel: { type: string, description: wire 键首字母大写（历史形状） }
+                  Error: { type: string }
+    DispatchRequest:
+      type: object
+      required: [category, audiences]
+      properties:
+        category: { type: string }
+        urgency: { $ref: '#/components/schemas/Urgency' }
+        relation_type:
+          type: string
+          enum: [subscription, enrollment]
+          default: subscription
+        audiences:
+          type: array
+          minItems: 1
+          items: { type: string }
+        dedup_key: { type: string }
+        event_id: { type: string }
+        state: { type: string }
+        template: { type: string }
+        params: { type: object, additionalProperties: true }
+        title: { type: string }
+        body: { type: string }
+    DispatchResponse:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            notification_id: { type: string }
+            category: { type: string }
+            urgency: { $ref: '#/components/schemas/Urgency' }
+            mode: { $ref: '#/components/schemas/DeliveryMode' }
+            suppressed:
+              type: boolean
+              description: 去重折叠时 true，此时无 task_ids/dispatched。
+            plan:
+              type: array
+              items:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items: { type: string }
+                  ack_timeout: { type: string }
+            dispatched:
+              type: array
+              items:
+                type: object
+                properties:
+                  audience: { type: string }
+                  channels:
+                    type: array
+                    items: { type: string }
+            refused:
+              type: array
+              items:
+                type: object
+                properties:
+                  audience: { type: string }
+                  channel: { type: string }
+                  reason:
+                    type: string
+                    enum: [filtered, phone_disabled, intensity_exceeded, no_channels]
+            folded:
+              type: array
+              items: { type: string }
+            task_ids:
+              type: array
+              items: { type: string }
+            accepted:
+              type: array
+              items: { type: string }
+            failed:
+              type: array
+              items:
+                type: object
+                properties:
+                  Channel: { type: string }
+                  Error: { type: string }
+    ExternalEvent:
+      type: object
+      required: [kind, severity, target]
+      properties:
+        kind: { type: string, description: 映射为品类，须已注册 }
+        severity:
+          type: string
+          enum: [critical, warning, info]
+          description: critical→critical、warning→urgent、info→normal。
+        target: { type: string, description: 受众；ref 形 user:1 映射为 user.1 }
+        id: { type: integer, format: int64, description: 你方事件主键，转 event_id }
+        title: { type: string }
+        body: { type: string }
+        dedup_key: { type: string }
+        meta:
+          type: object
+          additionalProperties: true
+          description: 必须是 JSON object，映射为模板参数。
+        occurred_at: { type: string, format: date-time, description: 仅解析，时间戳以 herald 为准 }
+    TaskStatus:
+      type: string
+      enum: [success, failed, pending, shadow]
+    DeliveryLog:
+      type: object
+      properties:
+        id: { type: string }
+        provider: { type: string }
+        payload_kind: { type: string, description: content/provider_template/raw }
+        level: { type: string }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        duration: { type: integer, description: 毫秒 }
+        relation_type: { type: string }
+        source: { type: string, description: app:<name> }
+        audience_id: { type: string }
+        category: { type: string }
+    DeliveryPage:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            total: { type: integer }
+            offset: { type: integer }
+            limit: { type: integer }
+            logs:
+              type: array
+              items: { $ref: '#/components/schemas/DeliveryLog' }
+    AuditEvent:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [relation.subscribe, relation.enroll, relation.terminate, surface.bind, surface.rebind, surface.invalidate, delivery.deduped]
+        audience_id: { type: string }
+        category: { type: string }
+        channel: { type: string }
+        relation_type: { type: string }
+        source: { type: string }
+        detail: { type: string }
+        at: { type: string, format: date-time }
+    AuditPage:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            events:
+              type: array
+              items: { $ref: '#/components/schemas/AuditEvent' }
+    EmptyOk:
+      type: object
+      properties:
+        code: { type: integer, const: 0 }
+        message: { type: string }
+    ErrorEnvelope:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: integer, description: 等于 HTTP 状态码 }
+        message: { type: string }
