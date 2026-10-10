@@ -72,7 +72,7 @@ apps:
         scopes: [query]
 ```
 
-本页示例统一用这组演示凭证，照抄即可跑通；生产环境替换成自己的值（secret 全局不可重复，16 字符以上）。配置写错（scope 拼写超出三级词汇、app 名非法、secret 重复）heraldd 拒起。品类名与 app 名共用 `^[a-zA-Z0-9._-]{1,64}$`。
+本页示例统一用这组演示凭证，照抄即可跑通；生产环境替换成自己的值（token secret 全局不可重复，非空即可，无长度下限；回调面的 secret 才有 16–128 字符要求）。配置写错（scope 拼写超出三级词汇、app 名非法、secret 重复）heraldd 拒起。品类名与 app 名共用 `^[a-zA-Z0-9._-]{1,64}$`。
 
 app token 的用法与 API Key 相同：`Authorization: Bearer <secret>` 或 `X-API-Key: <secret>`。
 

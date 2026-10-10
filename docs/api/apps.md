@@ -94,8 +94,8 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 幂等 upsert：重复 POST 同 id 返回 200 并整体替换。成功 200，`data` 回显模板对象（带 created_at/updated_at）。
 
 **GET /templates**：`data` 直接是模板对象数组（不是包 map），新命名空间为 `[]`。
-**GET /templates/{id}**：未知 id 404 `template ghost: template not found: <id>`。
-**DELETE /templates/{id}**：成功 `{"code":0,"message":"deleted"}`；重复删除 404（删除未知 id 是错误，不是幂等 no-op）。
+**GET /templates/{id}**：未知 id 404 `template <id>: template not found: <id>`（示例 id 为 ghost 时即 `template ghost: template not found: ghost`）。
+**DELETE /templates/{id}**：成功 `{"code":0,"message":"deleted"}`；未知 id 404 `template not found: <id>`（删除未知 id 是错误，不是幂等 no-op）。
 
 ## 回调配置：GET / PUT / DELETE /api/v1/apps/{app}/callback
 
@@ -223,7 +223,7 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 | limit | 50 | `<=0` 归 50，`>500` 截 500 |
 | status | 全部 | `success`/`failed`/`pending`/`shadow` |
 | category | 全部 | 品类精确匹配 |
-| audience | 全部 | 受众 id 精确匹配；ref 形先转 id（`user:5`→`user.5`） |
+| audience | 全部 | 精确匹配触发时传入的受众串（dispatch 原样落库；events 的 `target` 先经 `user:5`→`user.5` 映射再落库，按映射后的 id 查） |
 
 ```json
 {"code":0,"message":"ok","data":{"total":1,"offset":0,"limit":50,"logs":[{
@@ -266,7 +266,7 @@ npx @openapitools/openapi-generator-cli generate \
 
 | HTTP | 何时发生 | 消息示例 |
 | --- | --- | --- |
-| 400 | 请求体非法 JSON / meta 非 object | `invalid JSON body` |
+| 400 | 请求体非法 JSON / meta 非 object | `invalid JSON body`（callback PUT 例外，报 `invalid request body`） |
 | 401 | token 错、app 名错、缺凭据（含用未播种的 app 名访问） | `invalid app credentials` |
 | 403 | scope 不够 | `token lacks trigger scope` |
 | 404 | audit 存储未配置；无投递策略组件 | `audit trail not configured` / `delivery policy not configured` |
