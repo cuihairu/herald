@@ -81,6 +81,19 @@ func run(ctx context.Context, cfg demoConfig) error {
 		fmt.Printf("category %s (default urgency: %s)\n", cat.Name, cat.DefaultUrgency)
 	}
 
+	// The demo's one event rides the "alerts" category. A fresh
+	// namespace registers none, so self-seed it while the token carries
+	// the config scope — the same first step the guide prescribes; with
+	// the category already present (or without the scope) this is a
+	// no-op.
+	if hasScope(show.Scopes, "trigger") && !hasCategory(cats, "alerts") &&
+		hasScope(show.Scopes, "config") {
+		if err := c.RegisterCategory(ctx, "alerts", "urgent"); err != nil {
+			return fmt.Errorf("register category: %w", err)
+		}
+		fmt.Println("category alerts registered (default urgency: urgent)")
+	}
+
 	// Trigger: one external event in the integrator's own vocabulary.
 	// Refused audiences (no relation, no surface, no channel) come back
 	// as rows of the outcome — answers, not failures.
@@ -122,6 +135,16 @@ func run(ctx context.Context, cfg demoConfig) error {
 func hasScope(scopes []string, want string) bool {
 	for _, s := range scopes {
 		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+// hasCategory reports whether the namespace already registered one.
+func hasCategory(cats []sdk.Category, name string) bool {
+	for _, c := range cats {
+		if c.Name == name {
 			return true
 		}
 	}

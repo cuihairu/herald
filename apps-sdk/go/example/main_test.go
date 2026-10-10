@@ -19,6 +19,14 @@ type demoStub struct {
 }
 
 func newDemoStub(t *testing.T, fail string, scopes []string) *demoStub {
+	return newDemoStubCats(t, fail, scopes, []map[string]any{
+		{"name": "alerts", "default_urgency": "urgent"},
+	})
+}
+
+// newDemoStubCats is newDemoStub with a caller-chosen category list
+// (nil = fresh namespace, nothing registered yet).
+func newDemoStubCats(t *testing.T, fail string, scopes []string, cats []map[string]any) *demoStub {
 	t.Helper()
 	s := &demoStub{hits: map[string]int{}}
 	ok := func(step string, data any) http.HandlerFunc {
@@ -37,7 +45,10 @@ func newDemoStub(t *testing.T, fail string, scopes []string) *demoStub {
 		"name": "demo-app", "scopes": scopes,
 	}))
 	mux.HandleFunc("GET /api/v1/apps/demo-app/categories", ok("categories", map[string]any{
-		"categories": []map[string]any{{"name": "alerts", "default_urgency": "urgent"}},
+		"categories": cats,
+	}))
+	mux.HandleFunc("POST /api/v1/apps/demo-app/categories", ok("register", map[string]any{
+		"name": "alerts", "default_urgency": "urgent",
 	}))
 	mux.HandleFunc("POST /api/v1/apps/demo-app/events", ok("trigger", map[string]any{
 		"notification_id": "n-1", "category": "alerts", "urgency": "normal", "task_ids": []string{"t-1"},
@@ -74,6 +85,10 @@ func TestRunWalksTheFlow(t *testing.T) {
 			t.Errorf("step %s: %d hits, want 1", step, s.hits[step])
 		}
 	}
+	// "alerts" is already registered: the self-seed stays out of the way.
+	if s.hits["register"] != 0 {
+		t.Errorf("register ran %d times with the category present, want 0", s.hits["register"])
+	}
 }
 
 func TestRunSkipsTriggerWithoutScope(t *testing.T) {
@@ -85,8 +100,50 @@ func TestRunSkipsTriggerWithoutScope(t *testing.T) {
 	if s.hits["trigger"] != 0 {
 		t.Errorf("trigger ran %d times without the scope, want skipped", s.hits["trigger"])
 	}
-	if s.hits["deliveries"] != 1 || s.hits["audit"] != 1 {
-		t.Errorf("reads: %v, want deliveries and audit each once", s.hits)
+	if s.hits["register"] != 0 || s.hits["deliveries"] != 1 || s.hits["audit"] != 1 {
+		t.Errorf("steps: %v, want no register/trigger and one deliveries+audit", s.hits)
+	}
+}
+
+// TestRunSelfSeedsMissingCategory: a fresh namespace has no categories,
+// so the walk registers "alerts" itself before triggering.
+func TestRunSelfSeedsMissingCategory(t *testing.T) {
+	s := newDemoStubCats(t, "", []string{"config", "trigger", "query"}, nil)
+	err := run(context.Background(), demoConfig{BaseURL: s.server.URL, App: "demo-app", Token: "tok"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s.hits["register"] != 1 {
+		t.Errorf("register: %d hits, want the missing category self-seeded", s.hits["register"])
+	}
+	if s.hits["trigger"] != 1 || s.hits["deliveries"] != 1 || s.hits["audit"] != 1 {
+		t.Errorf("steps: %v, want trigger/deliveries/audit each once", s.hits)
+	}
+}
+
+// TestRunSkipsRegisterWithoutConfigScope: a trigger-only token cannot
+// seed the category — the walk proceeds and lets the trigger step speak
+// for the missing category.
+func TestRunSkipsRegisterWithoutConfigScope(t *testing.T) {
+	s := newDemoStubCats(t, "", []string{"trigger", "query"}, nil)
+	err := run(context.Background(), demoConfig{BaseURL: s.server.URL, App: "demo-app", Token: "tok"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s.hits["register"] != 0 {
+		t.Errorf("register ran %d times without the scope, want skipped", s.hits["register"])
+	}
+	if s.hits["trigger"] != 1 {
+		t.Errorf("trigger: %d hits, want the walk to continue", s.hits["trigger"])
+	}
+}
+
+// TestRunRegisterFailure: a refused self-seed names the step.
+func TestRunRegisterFailure(t *testing.T) {
+	s := newDemoStubCats(t, "register", []string{"config", "trigger", "query"}, nil)
+	err := run(context.Background(), demoConfig{BaseURL: s.server.URL, App: "demo-app", Token: "tok"})
+	if err == nil || !strings.Contains(err.Error(), "register category:") {
+		t.Fatalf("want a register step error, got %v", err)
 	}
 }
 
