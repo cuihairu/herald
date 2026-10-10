@@ -48,6 +48,7 @@ jobs:
           python3 tools/covermerge.py coverage.out build/maincover/*.cov \
             --expect github.com/cuihairu/herald/cmd/heraldd/main.go \
             --expect github.com/cuihairu/herald/examples/quickstart/main.go \
+            --expect github.com/cuihairu/herald/apps-sdk/go/example/main.go \
             --expect github.com/cuihairu/herald/worker-sdk/go/example/main.go \
             -o coverage.merged.out
 

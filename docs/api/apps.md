@@ -260,7 +260,7 @@ npx @openapitools/openapi-generator-cli generate \
   -o ./herald-client
 ```
 
-规范里 `servers.url` 填你的部署地址；app token 对应的安全方案名 `AppToken`（apiKey，header `X-API-Key`），管理面 token 用 `BearerAuth`。Go 用户直接用官方 `apps-sdk/go`，不必生成。
+规范里 `servers.url` 填你的部署地址；app token 对应的安全方案名 `AppToken`（apiKey，header `X-API-Key`），管理面 token 用 `BearerAuth`。Go 用户直接用官方 `apps-sdk/go`（`apps-sdk/go/example` 附带一个走完全部面的可运行自检示例），不必生成。
 
 ## 错误码总表
 

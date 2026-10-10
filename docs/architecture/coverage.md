@@ -9,17 +9,17 @@
 - 因此我们的验收标准是：**profile 中每一个计数为零的块，要么补上确定性触发它的测试，要么按两条通道之一如实登记原因**：源码就地定性注释（`Defensive` / `Unreachable` / `not callable` / `Coverage note`），或仓库根 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记表。没有第三种处理。排除已登记不可达项后，语句覆盖率为 100%。
 - CI 口径带 `-coverpkg=./...`：所有包的语句都计入 profile，新增一个没有测试的包会直接拉低门禁，而不是被静默排除在统计之外。
 - 禁止用无断言的"路过式"测试或伪造调用路径制造覆盖数字。
-- **子进程口径（补充）**：`main()` 不在 `go test` 语句内执行，go-test 口径永远是零。这类入口用 `go build -cover` 把包编译成带插桩的二进制，作为子进程在 `GOCOVERDIR` 下真实运行，断言 `go tool covdata textfmt` 转储中 `main()` 区间内所有块非零。`os.Exit` 会跳过 profile 转储，因此成功路径必须经 `return` 退出（三个入口的 `main` 均已如此改写），失败路径 `os.Exit(n)` 属于 Go 工具链原理性不可测，见下文。
+- **子进程口径（补充）**：`main()` 不在 `go test` 语句内执行，go-test 口径永远是零。这类入口用 `go build -cover` 把包编译成带插桩的二进制，作为子进程在 `GOCOVERDIR` 下真实运行，断言 `go tool covdata textfmt` 转储中 `main()` 区间内所有块非零。`os.Exit` 会跳过 profile 转储，因此成功路径必须经 `return` 退出（四个入口的 `main` 均已如此改写），失败路径 `os.Exit(n)` 属于 Go 工具链原理性不可测，见下文。
 - **门禁 profile 是合并口径**：子进程守卫测试在 `HERALD_MAIN_COVERDIR` 下持久化各自的 textfmt 转储，[`tools/covermerge.py`](https://github.com/cuihairu/herald/blob/main/tools/covermerge.py) 把这些**实测计数**合并回 go-test profile，入口块从"登记豁免"升级为真实非零。合并器对假数据硬失败：空 dump、dump 中入口文件（按 basename == `main.go` 识别）无任何非零块、dump 出现主 profile 没有的块（工具链/代码漂移），任一命中即拒绝合并退出。
 
 ## 实测水位与门禁
 
 | 项目 | 值 |
 | --- | --- |
-| 语句覆盖率（go-test 口径原始值） | 99.67%（8384/8412，2026-10-08 实测；此前 2026-10-01 为 99.72%（5022/5036）） |
-| 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.75%**（8391/8412，2026-10-08 实测，子进程合并救回 3 块 7 条语句；2026-10-01 为 99.86%（5029/5036），批次 8-11/阶段③ 功能代码增长摊低原始水位；门禁等效口径不受影响） |
+| 语句覆盖率（go-test 口径原始值） | 99.61%（8532/8565，2026-10-10 实测；此前 2026-10-08 为 99.67%（8384/8412）） |
+| 语句覆盖率（**门禁口径**：合并四个 `main()` 子进程实测后） | **99.73%**（8542/8565，2026-10-10 实测，子进程合并救回 4 块 10 条语句；2026-10-08 为 99.75%（8391/8412），apps-sdk 可运行示例批新增第四个入口与配套代码摊低原始水位；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
-| 残余零块 | **14 块**（2026-10-08 go1.26.6 实测，**全部命中台账**；上一轮 2026-10-01 为 5 块）。台账现共登记 **15 条**：批次 8-11/阶段③ 期间新入账调度窗口与恒 nil 型 11 条（`reconcile.go:118/:127`、`sources.go:140/:150`、`handler_sources.go:237`、`handler_surfaces.go:82`、`rss.go:73`、`websocket/server.go:370`、`quickstart/main.go:23`、`client.go:275`、`example/main.go:35`）加 `main.go:411/:463` 两处构建守卫与 `main.go:60` 的 `os.Exit` 失败分支；原两处 gorilla `SetWriteDeadline` 恒 nil 条目随代码改写为 `_ =` 显式忽略（无分支可测）出清；wechatmp 写锁双检（`wechatmp.go:312`）偶发走到非零，本轮即为非零、未参与豁免。历史升格记录：`writeControl` 先例带动的六处（原 `main.go:556`、`client.go:197`、`handler_groups.go:71/:88`、`main.go:130/:381`）已移出台账 |
+| 残余零块 | **15 块**（2026-10-10 go1.26.6 实测，**全部命中台账**；上一轮 2026-10-08 为 14 块）。台账现共登记 **16 条**：批次 8-11/阶段③ 期间新入账调度窗口与恒 nil 型 11 条（`reconcile.go:118/:127`、`sources.go:140/:150`、`handler_sources.go:237`、`handler_surfaces.go:129`、`rss.go:73`、`websocket/server.go:370`、`quickstart/main.go:23`、`client.go:275`、`example/main.go:35`）加 `main.go:416/:468` 两处构建守卫与 `main.go:60` 的 `os.Exit` 失败分支，再加 apps-sdk 示例的 `example/main.go:36`（2026-10-10 随第四入口入账）；原两处 gorilla `SetWriteDeadline` 恒 nil 条目随代码改写为 `_ =` 显式忽略（无分支可测）出清；wechatmp 写锁双检（`wechatmp.go:312`）偶发走到非零，本轮即为非零、未参与豁免。历史升格记录：`writeControl` 先例带动的七处（原 `main.go:556`、`client.go:197`、`handler_groups.go:71/:88`、`main.go:130/:381`、`handler_surfaces.go` 的 RSSToken 500 守卫——熵源 seam 导出为 `audience.RandRead` 后由 `TestAudienceSurfacesReadTokenFailure` 实测）已移出台账 |
 | **前端分支覆盖（dashboard/）** | **100%**（276/276，2026-10-08 实测，四指标全满：stmts 498/498、funcs 156/156、lines 473/473；上一记录 2026-09-28 为 262/262）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
@@ -28,14 +28,14 @@
 
 ## 进程入口 main()：双口径实测
 
-`main()` 只能由 OS 启动进程调用，`go test` 永远测不到；而 `main` 里的 `os.Exit(n)` 会跳过 GOCOVERDIR 转储。三个入口做了同样的处理：
+`main()` 只能由 OS 启动进程调用，`go test` 永远测不到；而 `main` 里的 `os.Exit(n)` 会跳过 GOCOVERDIR 转储。四个入口做了同样的处理：
 
 1. `main` 改写为成功路径 `return`（`cmd/heraldd` 是 `if code := run(os.Args); code != 0 { os.Exit(code) }`），只有失败才退出进程；
-2. 各包 `main_cover_test.go` 用 `go build -cover -coverpkg=./...` 编译子进程，真实运行（heraldd 起 HTTP 服务后 SIGTERM 优雅退出；quickstart 同步派发后自然退出；worker-sdk 示例对 `ws://localhost:8081` 完成注册握手后 SIGTERM）；
+2. 各包 `main_cover_test.go` 用 `go build -cover -coverpkg=./...` 编译子进程，真实运行（heraldd 起 HTTP 服务后 SIGTERM 优雅退出；quickstart 同步派发后自然退出；worker-sdk 示例对 `ws://localhost:8081` 完成注册握手后 SIGTERM；apps-sdk 示例对进程内 stub 走完 §13 自检五步后自然退出）；
 3. 断言 GOCOVERDIR 转储中 `main()` 区间内除 `os.Exit` 行（`mainExitAllow`，工具链原理性不可测）之外每个块计数非零；
 4. 设了 `HERALD_MAIN_COVERDIR` 时，把 textfmt 转储持久化出来，由 `tools/covermerge.py` 合并进门禁 profile，入口块因此以**实测非零**进入门禁统计，不再依赖登记豁免。
 
-因此这三个包的 `main()` 在 go-test 口径下仍是零块，但合并口径下成功路径全部实测非零；残余是各 `main()` 的 `os.Exit` 失败分支：exit 跳过 GOCOVERDIR 转储，无法留下任何覆盖数据，已在台账登记。
+因此这四个包的 `main()` 在 go-test 口径下仍是零块，但合并口径下成功路径全部实测非零；残余是各 `main()` 的 `os.Exit` 失败分支：exit 跳过 GOCOVERDIR 转储，无法留下任何覆盖数据，已在台账登记。
 
 ## 台账登记的两条纪律
 

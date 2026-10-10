@@ -294,6 +294,8 @@ _ = c.SetCallback(ctx, "https://app.example.com/herald/callback", secret)
 
 错误分两类：`*sdk.Error`（herald 的拒绝，带 HTTP 状态与 message，重试无意义）与传输层故障（`sdk.IsTransport` 判别，是否重试自行决定）。
 
+`apps-sdk/go/example` 是一个可运行的最小示例：`HERALD_URL`/`HERALD_APP`/`HERALD_TOKEN` 指向部署后 `go run ./apps-sdk/go/example`，它会用这枚 token 把 show → categories → events → deliveries → audit 五个面各走一遍并打印结果，正好当作接入自检。
+
 其他语言不提供手写 SDK：接入协议就是 REST + 签名 webhook，任何 HTTP 客户端都能接。需要代码生成时，用[应用接入 API 的 OpenAPI 规范](/api/apps#openapi-规范)喂给 openapi-generator，无需等官方支持。
 
 ## 常见错误速查

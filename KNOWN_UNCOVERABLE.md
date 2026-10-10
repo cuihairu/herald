@@ -4,7 +4,7 @@
 
 登记格式（核对器解析）：`- \`<import路径>:<块起始行>\` — 原因`。
 
-排除本文件登记项后的等效语句覆盖率为 **100%**（`go test ... -coverprofile` + `tools/covermerge.py` 合并子进程口径后的门禁 profile，`tools/zero_check.py coverage.merged.out --gate 100` 强制）。三个 `main()` 的成功路径入口块已由 `TestMainProcessSuccessPath`（`go build -cover` 子进程 + GOCOVERDIR 转储）实测非零并合并进门禁 profile，不再登记；唯一残余是各 `main()` 的 `os.Exit` 失败分支——exit 跳过 GOCOVERDIR 转储，是 Go 工具链原理性不可测路径。
+排除本文件登记项后的等效语句覆盖率为 **100%**（`go test ... -coverprofile` + `tools/covermerge.py` 合并子进程口径后的门禁 profile，`tools/zero_check.py coverage.merged.out --gate 100` 强制）。四个 `main()` 的成功路径入口块已由 `TestMainProcessSuccessPath`（`go build -cover` 子进程 + GOCOVERDIR 转储）实测非零并合并进门禁 profile，不再登记；唯一残余是各 `main()` 的 `os.Exit` 失败分支——exit 跳过 GOCOVERDIR 转储，是 Go 工具链原理性不可测路径。
 
 **登记的行号以 go1.26.6（`go.mod` 钉定的最低工具链；CI 的 `go-version: '1.26'` 浮动版本恒 ≥ 它）发出的 coverprofile 为准。** Go 把 `if` 的条件与分支体切成独立的块，而块边界标注随工具链版本变化：go1.26 对单行 `if` 把分支体块也标在 `if` 那一行起（如 `main.go:49.37,51.3`），go1.27 起才改标到分支体首行。本地默认工具链是 go1.27.1，两边行号整体错一位——本台账一度按 go1.27 的行号登记，在 CI 的 go1.26 之下一条都匹配不上，台账形同虚设，`--gate 100` 立即变红。1.26 线内的补丁升级（1.26.2→1.26.6，2026-09-27 因 govulncheck 的 stdlib 漏洞修复抬版）不改块边界，已用整条门禁链复测实证。所以登记或核对前，用 `GOTOOLCHAIN=go1.26.6 go test -count=1 -race -coverpkg=./... -coverprofile=coverage.out ./...` 重新生成 profile，照它抄起始行，别按源码"看起来是哪行"猜。
 
@@ -59,6 +59,10 @@
 ## core/websocket/server.go
 
 - `github.com/cuihairu/herald/core/websocket/server.go:370` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。
+
+## apps-sdk/go/example/main.go
+
+- `github.com/cuihairu/herald/apps-sdk/go/example/main.go:36` — `if err := run(ctx, loadDemoConfig()); err != nil` 失败分支块（`fmt.Fprintln` + `os.Exit(1)`），同上：exit 路径跳过 GOCOVERDIR 转储。失败语义已由 `run()` 层的 `TestRunRefusesWithoutToken` / `TestRunStepFailures` 覆盖。行号 2026-10-10 随 apps-sdk 可运行示例批次（第四个门禁入口）登记。
 
 ## examples/quickstart/main.go
 
