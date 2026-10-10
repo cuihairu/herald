@@ -665,6 +665,8 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `digest` | Digest 时间窗聚合（窗口/时区/可选 redis 租约选主），旁路于主投递管道 | ✅ 已实现 |
 | `feeds` | RSS 拉式渠道（§9）：`/feeds/<品类>.xml` 公共 feed 与 `/feeds/private/<token>.xml` 私密 feed，投递记录拉式投影，可见性读取时判定 | ✅ 已实现 |
 | `sources` | 来源适配器（关系详设 §8）：bot/公众号/应用内三个订阅入口 + 外部状态定期对账，凭据即分入口开关 | ✅ 已实现 |
+| `delivery` | 投递策略件（§6）：品类默认紧急度/渠道强度/品类模式三张覆盖表 + 电话门配置侧同意；app 覆盖叠加其上 | ✅ 已实现 |
+| `apps` | 集成方命名空间（§13.1）：app 名 → 启动 token 种子（secret + scopes），无运行时铸造 API | ✅ 已实现 |
 
 `audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，接收人/端点表本身无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
 
@@ -728,6 +730,98 @@ sources:
 | `POST` / `DELETE /api/v1/audiences/{id}/subscriptions` | API token（与操作面同级） | 应用内勾选开/关；关掉 must-deliver 报 409 |
 
 对账的 probe 从 `providers:` 块按 `type: telegram|wechatmp` 构建：`enabled: false` 的 provider 不探，缺凭据（配置残缺）**启动即拒**；probe 报错的目标准确跳过——对账不猜平台状态。多实例经 redis 租约每轮只扫一次。
+
+## 投递策略配置（delivery）
+
+运营方的全局投递策略表（[事件与告警模型](/guide/events) 的强度与模式词汇表）。三张表都是可选覆盖——缺表回落到品类默认档（system=once 频控、alerts=throttle、其余窗口节流）；**不可解析的值启动即拒起**：
+
+```yaml
+delivery:
+  category_urgency:
+    incidents: critical        # 品类 → routine/normal/urgent/critical
+  channel_intensity:
+    sms: L4                    # 渠道名 → L0..L5
+  category_mode:
+    incidents: escalation      # 品类 → fixed/escalation/parallel
+  allow_phone: true            # 电话门配置侧同意（受众侧同意 = 绑定电话联系面）
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `category_urgency` | map | 空 | 品类 → 紧急度档，决定未带 `urgency` 的触发按哪档强度窗口匹配 |
+| `channel_intensity` | map | 空 | 渠道名 → 强度档 L0–L5（渠道默认值见事件模型页） |
+| `category_mode` | map | 空 | 品类 → 投递模式 fixed/escalation/parallel |
+| `allow_phone` | bool | false | 电话默认禁用的配置侧开关：开了之后 L5 渠道仍要求受众侧已绑定电话联系面（双重同意缺一不可） |
+
+app 命名空间的策略覆盖（`/api/v1/apps/{app}/policies/*`）叠加在这三张表之上；**手机闸门不可被 app 覆盖**，渠道×关系矩阵是安全底线。
+
+## Digest 聚合配置（digest）
+
+时间窗聚合（[受众领域模型总纲 §10](/design-audience-model)）：窗口内事件不直投，开窗时合并成一条摘要走全投递链。`enabled` 关掉则聚合器不运行：
+
+```yaml
+digest:
+  enabled: true
+  interval: 1m                  # flip-loop tick（到期窗口检查频率），零值默认 1m
+  daily: "09:00"                # 日聚合开窗时刻，零值默认 "09:00"
+  weekly: "Mon 09:00"           # 周聚合开窗时刻，零值默认 "Mon 09:00"
+  location: Asia/Shanghai       # IANA 时区，零值默认 Asia/Shanghai
+  redis_addr: ""                # 非空则经 redis 租约选主（多实例每轮只 flush 一次）
+  redis_password: ""
+  redis_db: 0
+  lease_ttl: 1m                 # 领导租约 TTL，零值默认 60s；持有期间每 tick 续约
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `enabled` | bool | false | 总开关 |
+| `interval` | duration | 1m | flip-loop tick |
+| `daily` / `weekly` | string | `09:00` / `Mon 09:00` | 开窗时刻，`daily` 为 `HH:MM`、`weekly` 为 `Weekday HH:MM` |
+| `location` | string | `Asia/Shanghai` | IANA 时区名；非法时区**启动即拒** |
+| `redis_addr` / `redis_password` / `redis_db` | | 空 | 领导租约选主；空 redis_addr = 单实例无锁直跑 |
+| `lease_ttl` | duration | 60s | 租约 TTL |
+
+开窗时刻或时区非法、redis 连不上，一律**启动即拒起**（`cmd/heraldd/main.go` digest 接线），不带病运行。
+
+## RSS 拉式配置（feeds）
+
+拉式投影（[受众领域模型总纲 §9](/design-audience-model)）：投递到 rss 类渠道时就地投影成 feed 条目，读者按品类/按受众自己来拉。`enabled` 关掉则 feed 端点关闭、rss 渠道按未知 provider 处理（投递报 provider 缺失失败）：
+
+```yaml
+feeds:
+  enabled: true
+  title: "Herald 通知"          # 频道标题，零值默认 "Herald 通知"（渲染器拒绝空标题）
+  link: "https://example.com"   # 首页链接，空则省略 <link> 元素
+  description: ""               # 频道描述，空则省略
+  max_items: 500                 # 每品类条目 FIFO 上限，零值默认 500
+```
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `enabled` | bool | false | 总开关；关 = 端点关闭 + rss 渠道按未知 provider |
+| `title` | string | `Herald 通知` | 频道标题 |
+| `link` / `description` | string | 空 | 空则省略对应 RSS 元素 |
+| `max_items` | int | 500 | 每品类条目 FIFO 上限，最旧的先丢 |
+
+公共 feed 地址 `/feeds/<品类>.xml`（品类名须匹配 `^[a-zA-Z0-9._-]{1,64}$`，否则 404）；私密 feed `/feeds/private/<rss_token>.xml`，token 随受众稳定签发，取关即从下一次拉取起消失。端点语义详见 [REST API](/api/rest#feeds-public)。
+
+## 集成方命名空间配置（apps）
+
+集成方接入的种子（[接入指南](/guide/integration) 有完整播种走查）。**没有运行时铸造 token 的 API**——app 与 token 只能在这里种子，heraldd 启动时校验（scope 拼写超出三级词汇、app 名非法、secret 重复或为空均**拒起**）：
+
+```yaml
+apps:
+  demo-app:
+    tokens:
+      - secret: "demo-config-token-0123456789abcdef"
+        scopes: [config]          # config 改配置 / trigger 触发投递 / query 读状态与审计
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `tokens` | list | 至少一枚 | 每个元素一个 token |
+| `tokens[].secret` | string | 是 | 全局不可重复，非空即可（无长度下限） |
+| `tokens[].scopes` | list | 是 | `config` / `trigger` / `query` 三档，互不继承 |
 
 ## Provider 类型
 

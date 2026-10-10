@@ -736,6 +736,16 @@ Telegram 平台回调入口（来源适配器：`/start` 兑换绑定、`/stop` 
 
 微信公众号回调入口（关注/取关来源适配器）。**不走 Bearer**，query 参数 `signature` / `timestamp` / `nonce` 三件套自证：`signature == hex(sha1(sort([timestamp, nonce, token]).join("")))`，`token` 来自 `sources.wechat_mp.token`，常量时间比对；缺一 403，token 未配置时端点整体 404。`GET` 用于控制台 URL 验证（原样回显 `echostr`）。POST body 是 XML（`FromUserName` + `Event` ∈ subscribe/unsubscribe）。openid 无绑定时静默 200。
 
+## GET /feeds/{name} {#feeds-public}
+
+公共品类 feed（RSS 拉式，匿名可读，不在 `/api/v1` 下）。`name` 形如 `<品类>.xml`，品类名须匹配 `^[a-zA-Z0-9._-]{1,64}$`——不匹配 404；合法但无人写过的品类回**空频道 200**（拉式源没人写过，这是诚实答案）。只含无受众引用的公开内容。响应 `Content-Type: application/rss+xml; charset=utf-8`。非 GET 方法 405、渲染失败 500（两者均为纯文本，不走 JSON 信封）。
+
+## GET /feeds/private/{name} {#feeds-private}
+
+受众私密 feed。`name` 形如 `<rss_token>.xml`，**token 即凭据**（随受众稳定签发，重置即失效）；未知 token 404。可见性在读取时判定：条目只在受众对该品类的实时订阅关系允许 rss 渠道时才出现——**取关即从下一次拉取起消失**，投影侧零记账。响应格式与错误语义同公共 feed。
+
+> **缺口（审计 #22，待拍板）**：token 目前**没有任何 API 或界面可读路径**——`RSSToken()` 仅在测试中被调用，绑定/关系/审计响应都不带 token。投影、端点、可见性判定均已工作，但读者拿不到自己的 feed 地址，私密 feed 实际不可达。补法（绑定响应带 token / 新增 surfaces 读口）属设计决策，见[一致性审计](/审计-文档一致性)。
+
 ## GET /api/v1/audiences/{id}/relations {#audience-relations}
 
 查询受众现有关系（订阅/指派）。未知受众返回 200 空列表（path id 不做格式校验）。
