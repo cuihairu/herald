@@ -80,7 +80,11 @@ def main() -> int:
 
     ledger = load_ledger(root)
     # 台账与就地注释窗口仍按 (文件, 起始行) 匹配；共享起始行的零块去重即可。
+    # 语句数合计则必须回到完整块区间：zero 里的二元组拿去查五元组键的
+    # blocks 会全部静默 miss（defaultdict 还会顺手插进 (0, 0) 假条目），
+    # 门禁的分母分子双双归零、恒报 100% 假绿——就是这么坏过。
     zero = sorted({(k[0], int(k[1])) for k, (c, _) in blocks.items() if c == 0})
+    zero_full = {k for k, (c, _) in blocks.items() if c == 0}
     unknown, exempted = [], []
     for fn, sln in zero:
         if (fn, sln) in ledger:
@@ -111,8 +115,10 @@ def main() -> int:
 
     if args.gate is not None:
         total = sum(s for _, s in blocks.values())
-        zero_stmts = sum(blocks[k][1] for k in zero)
-        excluded = sum(blocks[k][1] for k in exempted)
+        exempted_set = set(exempted)
+        zero_stmts = sum(s for _, s in (blocks[k] for k in zero_full))
+        excluded = sum(s for k, (_, s) in blocks.items()
+                       if k in zero_full and (k[0], int(k[1])) in exempted_set)
         denominator = total - excluded
         equivalent = 100.0 * (denominator - (zero_stmts - excluded)) / denominator if denominator else 100.0
         print(f"equivalent stmt coverage (ledger blocks excluded): "
