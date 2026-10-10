@@ -10,6 +10,7 @@ import (
 	"github.com/cuihairu/herald/core/audit"
 	"github.com/cuihairu/herald/core/dedup"
 	"github.com/cuihairu/herald/core/digest"
+	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/template"
 	"github.com/google/uuid"
 )
@@ -244,8 +245,13 @@ func (s *NotificationService) Dispatch(ctx context.Context, req DispatchRequest)
 
 	// Pass two — deliver. Escalation enqueues its first stage now; the
 	// remaining stages ride the plan summary and advance with the ack
-	// sources that arrive with the callback face.
-	stage := plan.Stages[0].Channels
+	// sources that arrive with the callback face. An all-refused dispatch
+	// builds an empty escalation plan (no kept channel, no stage) — pass
+	// two has nothing to walk then, and the refused rows are the answer.
+	var stage []string
+	if len(plan.Stages) > 0 {
+		stage = plan.Stages[0].Channels
+	}
 	for _, ap := range plans {
 		if ap.folded {
 			continue
@@ -295,7 +301,31 @@ func (s *NotificationService) dispatchCandidates(aud string) []deliveryTarget {
 		}
 	}
 	targets, _ := s.expandRefs([]string{aud})
-	return targets
+	return s.resolvePlain(aud, targets)
+}
+
+// resolvePlain keeps expandRef's literal fallback from turning an
+// undefined audience into a channel miss. A "group:"/"user:" reference
+// that survives expansion is genuine; a plain name resolves only as a
+// provider instance (the pre-model audience = channel compat) or as a
+// channels-block entry — expandRef answers anything else with the name
+// itself as the channel, which delivery then fails with "provider not
+// found" and (as the only audience) a 422 for the whole dispatch.
+// Dispatch's own convention is per audience: unresolved means refused
+// with no_channels, an answer the trigger can act on.
+func (s *NotificationService) resolvePlain(aud string, targets []deliveryTarget) []deliveryTarget {
+	if groups.IsRef(aud) || audience.IsUserRef(aud) {
+		return targets
+	}
+	if _, err := s.runtime.GetProvider(aud); err == nil {
+		return targets
+	}
+	if s.channels != nil {
+		if _, ok := s.channels.ExpandChannel(aud); ok {
+			return targets
+		}
+	}
+	return nil
 }
 
 // planSummary renders the plan stages in wire vocabulary.

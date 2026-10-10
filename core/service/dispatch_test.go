@@ -206,6 +206,116 @@ func TestDispatchRefusalReasons(t *testing.T) {
 	}
 }
 
+// TestDispatchUndefinedAudienceRefuses: a plain audience id that names
+// no surface, no provider instance and no channels-block entry has no
+// candidate at all — it must answer no_channels like any other
+// unresolved audience, not ride expandRef's literal fallback into a
+// guaranteed "provider not found" delivery failure that 422s the whole
+// dispatch. ("user.1" is what an events-face target `user:1` maps to.)
+func TestDispatchUndefinedAudienceRefuses(t *testing.T) {
+	svc, relations, surfaces, q, _ := dispatchService(t, time.Minute)
+
+	out, err := svc.Dispatch(context.Background(), DispatchRequest{
+		Spec: DispatchSpec{
+			App:       "demo-app",
+			Category:  "alerts",
+			Audiences: []string{"user.1"},
+		},
+		Policy: dispatchPolicy(t),
+		Filter: audience.NewFilter(relations, surfaces),
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if len(out.Refused) != 1 || out.Refused[0].Audience != "user.1" ||
+		out.Refused[0].Channel != "*" || out.Refused[0].Reason != "no_channels" {
+		t.Fatalf("refused: want [user.1/*/no_channels], got %v", out.Refused)
+	}
+	if len(q.tasks) != 0 || len(out.TaskIDs) != 0 || len(out.Dispatched) != 0 {
+		t.Fatalf("nothing may ship, got tasks=%d ids=%v dispatched=%v",
+			len(q.tasks), out.TaskIDs, out.Dispatched)
+	}
+}
+
+// TestDispatchPlainChannelAudienceKeepsCompat: a plain audience id that
+// IS a provider instance name is the pre-model audience = channel form
+// — it still resolves and delivers with no surfaces and no relations
+// (§14 兼容通道), which is exactly what separates it from the undefined
+// id above.
+func TestDispatchPlainChannelAudienceKeepsCompat(t *testing.T) {
+	svc, relations, surfaces, q, _ := dispatchService(t, time.Minute)
+
+	out, err := svc.Dispatch(context.Background(), DispatchRequest{
+		Spec: DispatchSpec{
+			App:       "demo-app",
+			Category:  "alerts",
+			Audiences: []string{"email"},
+		},
+		Policy: dispatchPolicy(t),
+		Filter: audience.NewFilter(relations, surfaces),
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if len(out.Refused) != 0 {
+		t.Fatalf("refused: want none, got %v", out.Refused)
+	}
+	if len(out.Dispatched) != 1 || out.Dispatched[0].Audience != "email" {
+		t.Fatalf("dispatched: want the provider-name audience, got %v", out.Dispatched)
+	}
+	if len(q.tasks) != 1 || len(out.TaskIDs) != 1 {
+		t.Fatalf("tasks: want one, got %d / %v", len(q.tasks), out.TaskIDs)
+	}
+}
+
+// TestDispatchChannelsBlockAudienceKeepsCompat: a plain audience id that
+// names a channels-block entry — not a provider instance — is the third
+// way a plain name is a real channel. With the block present it resolves
+// and delivers; with the resolver wired but no such entry, it refuses
+// no_channels like any other undefined audience.
+func TestDispatchChannelsBlockAudienceKeepsCompat(t *testing.T) {
+	svc, relations, surfaces, q, _ := dispatchService(t, time.Minute)
+	svc.SetChannelResolver(&stubChannelResolver{channels: map[string][]string{
+		"oncall": {"email"},
+	}})
+
+	delivers := DispatchRequest{
+		Spec: DispatchSpec{
+			App:       "demo-app",
+			Category:  "alerts",
+			Audiences: []string{"oncall"},
+		},
+		Policy: dispatchPolicy(t),
+		Filter: audience.NewFilter(relations, surfaces),
+	}
+	out, err := svc.Dispatch(context.Background(), delivers)
+	if err != nil {
+		t.Fatalf("block audience dispatch: %v", err)
+	}
+	if len(out.Refused) != 0 || len(out.Dispatched) != 1 || out.Dispatched[0].Audience != "oncall" {
+		t.Fatalf("want oncall delivered, got refused=%v dispatched=%v", out.Refused, out.Dispatched)
+	}
+	if len(q.tasks) != 1 || len(out.TaskIDs) != 1 {
+		t.Fatalf("tasks: want one, got %d / %v", len(q.tasks), out.TaskIDs)
+	}
+
+	// Same resolver, a name no entry holds: undefined again — refusal,
+	// never the literal fallback's delivery miss. (Fresh content so the
+	// dedup window can't fold the round.)
+	delivers.Spec.Title = "ghost probe"
+	delivers.Spec.Audiences = []string{"oncall-ghost"}
+	out, err = svc.Dispatch(context.Background(), delivers)
+	if err != nil {
+		t.Fatalf("ghost dispatch: %v", err)
+	}
+	if len(out.Refused) != 1 || out.Refused[0].Reason != "no_channels" {
+		t.Fatalf("refused: want [oncall-ghost/no_channels], got %v", out.Refused)
+	}
+	if len(q.tasks) != 1 {
+		t.Fatalf("nothing may ship, got %d tasks", len(q.tasks))
+	}
+}
+
 // TestDispatchDedupSuppression: a repeat dispatch of the same dedup_key
 // folds — no tasks, the outcome says suppressed, and the audit trail
 // names the fold.
