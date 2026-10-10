@@ -33,7 +33,40 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./docs
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      # The OpenAPI spec is the SDK source of truth for integrators; a YAML or
+      # $ref breakage must fail CI, not ship silently to docs pages.
+      - name: Validate OpenAPI spec
+        working-directory: ./docs
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+          spec = yaml.safe_load(open('api/openapi.yaml'))
+          assert spec['openapi'].startswith('3.'), 'openapi must be 3.x'
+          ops = 0
+          for path in spec.get('paths', {}).values():
+              ops += sum(1 for k in path if k in ('get', 'post', 'put', 'delete', 'patch'))
+          refs = []
+          def walk(node):
+              if isinstance(node, dict):
+                  for k, v in node.items():
+                      if k == '$ref':
+                          refs.append(v)
+                      else:
+                          walk(v)
+              elif isinstance(node, list):
+                  for item in node:
+                      walk(item)
+          walk(spec)
+          for ref in refs:
+              assert ref.startswith('#/'), f'external ref not allowed: {ref}'
+              target = spec
+              for part in ref[2:].split('/'):
+                  part = part.replace('~1', '/').replace('~0', '~')
+                  target = target[part]
+          print(f"openapi {spec['openapi']}: {len(spec.get('paths', {}))} paths, {ops} ops, {len(refs)} refs resolved")
+          PY
 
       - name: Build
         working-directory: ./docs
