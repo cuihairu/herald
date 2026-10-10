@@ -86,6 +86,11 @@ app.Dispatch(ctx, &core.Notification{
 | Getui                | Builtin  | ✅   |
 | WeChat Push          | Builtin  | ✅   |
 | WeChat Official (MP) | Builtin  | ✅   |
+| Worker (remote)      | Builtin  | ✅   |
+
+The `worker` type is the local placeholder for a remote worker node: its local
+`Deliver` is a no-op and the scheduler routes the task to the node named by
+`target` (see [Provider reference](./docs/providers/overview.md)).
 
 ## 快速开始
 
@@ -124,7 +129,7 @@ make dashboard-dev
 http://localhost:3000
 ```
 
-登录后侧边栏可用的页面：仪表盘、Providers、通知规则、通知群组、Workers、日志、发送消息。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
+登录后侧边栏可用的页面：仪表盘、Providers、通知规则、通知群组、on-call 值班表、事件账本、Workers、日志、发送消息。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
 
 ## 使用
 

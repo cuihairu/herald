@@ -86,6 +86,11 @@ The full exported surface and embedding guide are in [docs/library-usage.md](doc
 | Getui                | Builtin  | ✅   |
 | WeChat Push          | Builtin  | ✅   |
 | WeChat Official (MP) | Builtin  | ✅   |
+| Worker (remote)      | Builtin  | ✅   |
+
+The `worker` type is the local placeholder for a remote worker node: its local
+`Deliver` is a no-op and the scheduler routes the task to the node named by
+`target` (see [Provider reference](./docs/providers/overview.md)).
 
 ## Quick Start
 
@@ -124,7 +129,7 @@ make dashboard-dev
 http://localhost:3000
 ```
 
-After signing in, the sidebar exposes these pages: Dashboard, Providers, notification rules, notification groups, Workers, logs, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
+After signing in, the sidebar exposes these pages: Dashboard, Providers, notification rules, notification groups, on-call rosters, the incident ledger, Workers, logs, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
 
 ## Usage
 
@@ -319,7 +324,7 @@ Full documentation is at [docs/](./docs/)
 - [Events and alert model](./docs/guide/events.md) (level vocabularies, dedup and idempotency, at-least-once delivery guarantees)
 - [App integration API](./docs/api/apps.md) (per-endpoint reference for the `/apps/{app}/**` namespace) · [OpenAPI spec](./docs/api/openapi.yaml) (SDK code generation)
 - [Configuration guide](./docs/guide/configuration.md) (rule engine, notification groups, audiences and contact surfaces, Digest, queues, and the full provider configuration reference)
-- [Provider docs](./docs/providers/overview.md) (one page per channel: Telegram / Feishu / WeChat Work / DingTalk / Slack / Discord / WeChat / Email / Webhook / SMS / Log)
+- [Provider docs](./docs/providers/overview.md) (one page per channel: Telegram / Feishu / WeChat Work / DingTalk / Slack / Discord / WeChat Push / WeChat Official / Aliyun SMS / Tencent SMS / NetEase SMS / Email / FCM / APNs / JPush / Getui / Webhook / Log, plus the [SMS comparison](./docs/providers/sms.md))
 - [Audience domain model (overview)](./docs/design-audience-model.md) · [Audience subscription & delivery hub (detailed design)](./docs/design-audience-relations.md) · [Concept boundaries and layered audit](./docs/design-audience-boundaries.md)
 - [Rule engine decision-layer design](./docs/design-rule-engine.md) · [Notification groups design](./docs/design-notification-groups.md)
 
