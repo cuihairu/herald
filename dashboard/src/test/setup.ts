@@ -1,8 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { afterAll, afterEach } from 'vitest'
 import { act, cleanup, configure } from '@testing-library/react'
-import { unstableSetRender } from 'antd'
-import { createRoot } from 'react-dom/client'
 
 // RTL 的 waitFor/findBy 默认 1s 上限在负载下会批量击穿：jsdom 里 rc-motion
 // 的 rAF 兜底本身就是 setTimeout(16) 宏任务链，与 Go -race 全量套件并行或
@@ -24,51 +22,23 @@ async function flushPendingWork() {
 }
 
 // vitest 未开 globals 时 RTL 的 auto-cleanup 不注册，DOM 会跨用例残留。
-// antd message 的弹层挂在 body 的 portal 里，RTL cleanup 管不到——只清内容、
-// 不能删容器：holder 是 antd 全局单例，删掉后下一用例会往 detached 容器渲染，
-// 弹层永远进不了 document（表现为 findByText 超时）。
+// antd message 的弹层挂在 body 的 portal 里，RTL cleanup 管不到。v6 的
+// 关闭链（destroy 与 duration 自动消失都一样）在 jsdom+act 环境下静默
+// 失效——弹层挂上就成僵尸（开路径正常，close 的 setState 永不落地，
+// 2026-10-10 实证 4.5s 后仍不退场）。v5 时代的 innerHTML 整段清空会把
+// React 托管的节点从脚下抽走、毒化 holder 单例；这里只抹掉僵尸弹层的
+// 文本内容（close 已死，React 不会再渲染进它们），上一用例的提示文本
+// 就不会让下一用例的 findByText 撞出 multiple elements。
 afterEach(async () => {
   cleanup()
-  document.querySelectorAll('.ant-message').forEach(el => {
-    el.innerHTML = ''
+  document.querySelectorAll('.ant-message-notice').forEach((el) => {
+    el.textContent = ''
   })
   await flushPendingWork()
 })
-
-// antd 的 message/Modal 单例 root 不属于任何用例：RTL cleanup 卸不掉它，
-// 它的渲染也可能在用例结束后才被调度。光靠 afterEach 的定时排空是在赌
-// 帧时机——CI 上调度慢一点，immediate 就排在 flush 之后、环境销毁之后，
-// 照样抛 "window is not defined"。这里改为确定性收尾：登记注入渲染器创建
-// 的每个 root，文件结束时全部卸载。unmount 会同步冲刷并作废该 root 名下
-// 所有已排程工作，之后 scheduler 再无可为该 root 触发的回调。
-const liveRoots = new Set<ReturnType<typeof createRoot>>()
 
 afterAll(async () => {
-  for (const root of liveRoots) {
-    await act(async () => {
-      root.unmount()
-    })
-  }
-  liveRoots.clear()
   await flushPendingWork()
-})
-
-// 与 main.tsx 相同：React 19 下 antd 静态方法需要注入 createRoot，
-// 否则 message.success/error 静默不弹（每个测试文件的模块图是独立的）。
-// render/unmount 都包在 act 里：否则这次 createRoot 的调度工作会漏到用例
-// 之外，由 scheduler 在环境销毁后才冲刷（见上方 flushPendingWork 的注释）。
-unstableSetRender((node, container) => {
-  const root = createRoot(container)
-  liveRoots.add(root)
-  act(() => {
-    root.render(node)
-  })
-  return async () => {
-    liveRoots.delete(root)
-    await act(async () => {
-      root.unmount()
-    })
-  }
 })
 
 // jsdom 不实现 matchMedia / ResizeObserver / scrollTo，

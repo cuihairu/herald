@@ -117,9 +117,9 @@ describe('LogsPage', () => {
     // 打开「状态」下拉并选择「成功」。表格列头也叫「状态」，须限定 placeholder；
     // placeholder 自身 pointer-events: none，点击落在 selector 容器上。
     // 选中后 placeholder 节点会被移除，先抓取外层 select 根节点备用。
-    const statusPlaceholder = screen.getByText('状态', { selector: '.ant-select-selection-placeholder' })
+    const statusPlaceholder = screen.getByText('状态', { selector: '.ant-select-placeholder' })
     const selectNode = statusPlaceholder.closest('.ant-select')!
-    await user.click(selectNode.querySelector('.ant-select-selector')!)
+    await user.click(selectNode.querySelector('.ant-select-content')!)
     // 统计卡标题也有「成功」，须限定在下拉 option 内容里。
     await user.click(await screen.findByText('成功', { selector: '.ant-select-item-option-content' }))
 
@@ -157,15 +157,15 @@ describe('LogsPage', () => {
     await screen.findByText('正常一行')
 
     // Provider 下拉：placeholder 在选择后会被移除，先抓外层根节点
-    const providerPlaceholder = screen.getByText('Provider', { selector: '.ant-select-selection-placeholder' })
+    const providerPlaceholder = screen.getByText('Provider', { selector: '.ant-select-placeholder' })
     const providerSelect = providerPlaceholder.closest('.ant-select')!
-    await user.click(providerSelect.querySelector('.ant-select-selector')!)
+    await user.click(providerSelect.querySelector('.ant-select-content')!)
     await user.click(await screen.findByText('feishu', { selector: '.ant-select-item-option-content' }))
 
     // 级别下拉
-    const levelPlaceholder = screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })
+    const levelPlaceholder = screen.getByText('级别', { selector: '.ant-select-placeholder' })
     const levelSelect = levelPlaceholder.closest('.ant-select')!
-    await user.click(levelSelect.querySelector('.ant-select-selector')!)
+    await user.click(levelSelect.querySelector('.ant-select-content')!)
     await user.click(await screen.findByText('信息', { selector: '.ant-select-item-option-content' }))
 
     await vi.waitFor(() => {
@@ -293,9 +293,9 @@ describe('LogsPage', () => {
     // 打开「Provider」下拉并选一个值。placeholder 自身 pointer-events: none，
     // 点击要落在 selector 容器上（与状态筛选那条用例同一手法）。
     const pickInFilter = async (placeholderText: string, optionText: string) => {
-      const ph = screen.getByText(placeholderText, { selector: '.ant-select-selection-placeholder' })
+      const ph = screen.getByText(placeholderText, { selector: '.ant-select-placeholder' })
       const node = ph.closest('.ant-select')!
-      await user.click(node.querySelector('.ant-select-selector')!)
+      await user.click(node.querySelector('.ant-select-content')!)
       await user.click(await screen.findByText(optionText, { selector: '.ant-select-item-option-content' }))
       return node
     }
@@ -336,7 +336,7 @@ describe('LogsPage', () => {
     // 日志照常渲染，统计区与筛选器只是留空。
     expect(await screen.findByText('正常一行')).toBeInTheDocument()
     // 级别筛选器仍然在（providers 拿不到值时是空下拉，不是消失）。
-    expect(screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument()
+    expect(screen.getByText('级别', { selector: '.ant-select-placeholder' })).toBeInTheDocument()
   })
 
   // data.data.providers 缺失时 || [] 兜底：不能因为 API 未返回 providers
@@ -349,7 +349,7 @@ describe('LogsPage', () => {
     })
     render(<LogsPage />)
     // providers 拿到空数组，筛选器占位符仍渲染。
-    expect(screen.getByText('Provider', { selector: '.ant-select-selection-placeholder' })).toBeInTheDocument()
+    expect(screen.getByText('Provider', { selector: '.ant-select-placeholder' })).toBeInTheDocument()
   })
 
   // level 为空串时走 render 的 ':' 支：渲染 '-' 而不是 Tag。
@@ -388,9 +388,9 @@ describe('LogsPage', () => {
     await screen.findByText('正常一行')
 
     // 选一个级别（与 provider 选择同一手法）
-    const levelPlaceholder = screen.getByText('级别', { selector: '.ant-select-selection-placeholder' })
+    const levelPlaceholder = screen.getByText('级别', { selector: '.ant-select-placeholder' })
     const levelSelect = levelPlaceholder.closest('.ant-select')!
-    await user.click(levelSelect.querySelector('.ant-select-selector')!)
+    await user.click(levelSelect.querySelector('.ant-select-content')!)
     await user.click(await screen.findByText('信息', { selector: '.ant-select-item-option-content' }))
     await vi.waitFor(() => {
       const logs = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/logs?'))

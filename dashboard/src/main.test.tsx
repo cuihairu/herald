@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { screen, act } from '@testing-library/react'
+import { message } from 'antd'
 
 // 真实挂载入口：不 mock react-dom/client，让 createRoot 真跑一遍，
 // 断言应用确实渲染进 #root。路由 '/' 未登录时落在 LoginPage。
@@ -17,25 +18,13 @@ describe('main entry', () => {
     expect(await screen.findByText('请登录以继续')).toBeInTheDocument()
   })
 
-  it('routes antd static messages through the renderer injected in main', async () => {
-    // 静态 message 弹层在 jsdom 里退场动画收不到 transitionend，
-    // unmount 回调不会经 rc-motion 执行；改走 main 导出的 seam，
-    // 直接验证注入回调的 render 与 unmount 两条路径。
-    const { createStaticRenderer } = await import('./main')
-    const renderStatic = createStaticRenderer()
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    let unmount!: () => Promise<void>
+  it('renders antd static messages natively under antd 6', async () => {
+    // v5 时代靠 unstableSetRender 注入接缝保证 message 静态弹层可达；
+    // v6 原生 createRoot 已覆盖该路径，这里端到端验证弹层真的渲染进
+    // body 级 holder（setup.ts 的 @rc-component/util mock 负责 act 冲刷）。
     await act(async () => {
-      unmount = renderStatic(<span>渲染注入自检</span>, container)
+      message.success('静态弹层自检')
     })
-    expect(container.textContent).toContain('渲染注入自检')
-    await act(async () => {
-      await unmount()
-    })
-    container.remove()
+    expect(await screen.findByText('静态弹层自检')).toBeInTheDocument()
   })
 })
-
-// 让 tsc 把 render 引入保持使用（真实断言在上方通过 findByText 完成）。
-void render
