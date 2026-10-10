@@ -115,12 +115,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # tsc -b type-checks src including test files; failing fast here keeps
+      # type errors from waiting behind the slow coverage suite.
+      - name: Typecheck
+        run: pnpm typecheck
+
       # vitest coverage thresholds enforce 100% line AND branch coverage in
       # vitest.config.ts — the frontend gate mirrors the Go one.
       - name: Run tests with coverage
         run: pnpm test:coverage
 
-      # tsc -b type-checks the test files too, then vite bundles.
+      # vite bundles; types are already checked in the Typecheck step.
       - name: Build
         run: pnpm build
 
