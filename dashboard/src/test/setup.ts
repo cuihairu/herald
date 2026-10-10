@@ -56,7 +56,44 @@ afterEach(async () => {
   await flushPendingWork()
 })
 
+// antd 静态 message 的 holder 是独立 React root：@rc-component/util 的 render
+// 把 root 存在 container['__rc_react_root__'] 上，container 是一个
+// DocumentFragment（模块单例、从不暴露），RTL cleanup 只 unmount render()
+// 创建的 root，这个 root 永远活着。活着就不够——notice 挂载后
+// useNoticeTimer 启动 4.5s 进度条 rAF 步进链，每帧一次 setPercent setState；
+// 唯一能断链的地方是 effect cleanup 里的 raf.cancel，而 cleanup 只在
+// unmount 时跑。文件结束后步进链仍在排下一帧，vitest 销毁环境先删 window
+// 全局再关 window，夹缝里触发的一帧让 react-dom 一碰 window 就抛
+// unhandled "window is not defined"：183/183 全绿、覆盖率 100% 仍 exit 1
+//（2026-10-10 CI 三连实证，本地快机时序不同无法复现）。
+// 所以这里在文件收尾时对全部 DocumentFragment 记账，把带 rc root 标记的
+// 逐个真 unmount（act 内跑完卸载提交），再整体冲刷一遍余波。
+// 只在 afterAll 做：afterEach 就 unmount 会杀掉模块单例 holder，后续用例的
+// message 会渲染进已卸载的 root，断言文本全部落空。
+const rcRootContainers: DocumentFragment[] = []
+const originalCreateFragment = document.createDocumentFragment.bind(document)
+document.createDocumentFragment = ((...args: Parameters<Document['createDocumentFragment']>) => {
+  const fragment = originalCreateFragment(...args)
+  rcRootContainers.push(fragment)
+  return fragment
+}) as typeof document.createDocumentFragment
+
+async function unmountTrackedRoots() {
+  const RC_ROOT_MARK = '__rc_react_root__'
+  for (const container of rcRootContainers) {
+    const root = (container as unknown as Record<string, { unmount(): void } | undefined>)[RC_ROOT_MARK]
+    if (root) {
+      await act(async () => {
+        root.unmount()
+      })
+    }
+  }
+  rcRootContainers.length = 0
+}
+
 afterAll(async () => {
+  await flushPendingWork()
+  await unmountTrackedRoots()
   await flushPendingWork()
 })
 
