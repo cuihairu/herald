@@ -77,6 +77,7 @@ http://your-host:8080/api/v1
 | POST | /callbacks/wechat-mp | 公众号回调（关注/取关来源入口；共享密钥自证） |
 | GET  | /audiences/{id}/relations | 查询受众关系（订阅/指派） |
 | POST | /audiences/{id}/subscriptions | 偏好中心订阅/退订（来源适配器入口） |
+| GET  | /audiences/{id}/surfaces | 绑定面列表 + 私密 feed `rss_token`（首读签发、受众级稳定） |
 | POST | /audiences/{id}/surfaces | 管理侧代绑定联系面（可顺带落默认订阅） |
 | DELETE | /audiences/{id}/surfaces | 解绑联系面（`?channel=`） |
 
@@ -104,7 +105,7 @@ http://your-host:8080/api/v1
 | 方法 | 路径 | 描述 |
 | --- | --- | --- |
 | GET | /feeds/{name} | 公共 feed（每品类一个，只含无受众引用的公开内容） |
-| GET | /feeds/private/{name} | 私密 feed（按受众 rss_token 寻址，token 重置即失效） |
+| GET | /feeds/private/{name} | 私密 feed（按受众 rss_token 寻址，token 重置即失效；token 读取路径见 [surfaces 读口](/api/rest#audience-surfaces)） |
 
 规则、群组、值班表、告警与事件端点依赖对应组件已配置（如 `rules:`、`groups_store`、
 `rosters_store`），未配置时这些端点返回 503。
