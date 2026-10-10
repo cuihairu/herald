@@ -8,7 +8,7 @@ import (
 )
 
 // The §13 faces, in flow order: 配品类 (categories) → 策略与模板
-// (policies, templates, callback) → 触发 (dispatch) → 查状态
+// (policies, templates, callback) → 触发 (dispatch, events) → 查状态
 // (deliveries, audit, relations).
 
 // Category is one registered message category.
@@ -36,12 +36,49 @@ func (c *Client) Categories(ctx context.Context) ([]Category, error) {
 	return out.Categories, nil
 }
 
+// AppShow is the namespace self-check: the token's proven scopes.
+type AppShow struct {
+	Name   string   `json:"name"`
+	Scopes []string `json:"scopes"`
+}
+
+// Show answers with the namespace name and the scopes the token holds —
+// the cheapest way to prove a token works before wiring the rest.
+func (c *Client) Show(ctx context.Context) (*AppShow, error) {
+	var out AppShow
+	if err := c.call(ctx, http.MethodGet, "/api/v1/apps/"+c.app, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // PutPolicy replaces one policy family (§13.2 策略覆盖): family is one
 // of "intensity", "delivery-mode", "escalation", "dedup" — the
 // channel-matrix is a §5 safety bottom line and has no app-side
 // override. The payload shape is the family's endpoint body.
 func (c *Client) PutPolicy(ctx context.Context, family string, payload any) error {
 	return c.call(ctx, http.MethodPut, "/api/v1/apps/"+c.app+"/policies/"+family, payload, nil)
+}
+
+// Policies is the aggregate read-back of the namespace's policy
+// overrides. Families with no override are omitted — an untouched
+// namespace reads back empty; AckTimeout is the escalation chain's
+// wait-per-segment rendered as a Go duration string.
+type Policies struct {
+	ChannelIntensity map[string]string `json:"channel_intensity,omitempty"`
+	ModeByCategory   map[string]string `json:"mode_by_category,omitempty"`
+	AckTimeout       string            `json:"ack_timeout,omitempty"`
+	DedupTiers       map[string]string `json:"dedup_tiers,omitempty"`
+	DedupWindows     map[string]string `json:"dedup_windows,omitempty"`
+}
+
+// Policies reads the namespace's policy overrides back.
+func (c *Client) Policies(ctx context.Context) (*Policies, error) {
+	var out Policies
+	if err := c.call(ctx, http.MethodGet, "/api/v1/apps/"+c.app+"/policies", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // SetCallback points the §13.5 webhook face at the app's URL and signs
@@ -65,6 +102,13 @@ func (c *Client) Callback(ctx context.Context) (*CallbackConfig, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// DeleteCallback removes the callback configuration: delivery results
+// and unsubscribe backflow stop landing anywhere until SetCallback runs
+// again.
+func (c *Client) DeleteCallback(ctx context.Context) error {
+	return c.call(ctx, http.MethodDelete, "/api/v1/apps/"+c.app+"/callback", nil, nil)
 }
 
 // DispatchRequest is one §13.3 trigger. Category and Audiences are the
@@ -111,6 +155,36 @@ type Ref struct {
 func (c *Client) Dispatch(ctx context.Context, req DispatchRequest) (*DispatchOutcome, error) {
 	var out DispatchOutcome
 	if err := c.call(ctx, http.MethodPost, "/api/v1/apps/"+c.app+"/dispatch", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// EventsRequest is one §3 事件接入 event in the integrator's own
+// vocabulary. Kind names a registered category; Severity maps
+// critical→critical, warning→urgent, info→normal (anything else is a
+// 422); Target is one audience ref (user:5 maps to user.5). ID is the
+// source-side outbox id and rides the dedup gate as event_id — the
+// delivery callback echoes it back.
+type EventsRequest struct {
+	ID         int64          `json:"id,omitempty"`
+	Kind       string         `json:"kind"`
+	Severity   string         `json:"severity"`
+	Title      string         `json:"title,omitempty"`
+	Body       string         `json:"body,omitempty"`
+	Target     string         `json:"target"`
+	DedupKey   string         `json:"dedup_key,omitempty"`
+	Meta       map[string]any `json:"meta,omitempty"`
+	OccurredAt time.Time      `json:"occurred_at"`
+}
+
+// Events pushes one external event at the 事件接入适配面: herald maps
+// it onto a namespace dispatch and answers the same DispatchOutcome the
+// dispatch face answers. The event semantics stay the integrator's —
+// kind/severity/target are its words, not Herald's.
+func (c *Client) Events(ctx context.Context, req EventsRequest) (*DispatchOutcome, error) {
+	var out DispatchOutcome
+	if err := c.call(ctx, http.MethodPost, "/api/v1/apps/"+c.app+"/events", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -238,4 +312,45 @@ func (c *Client) Templates(ctx context.Context) ([]Template, error) {
 // DeleteTemplate removes one namespace template.
 func (c *Client) DeleteTemplate(ctx context.Context, id string) error {
 	return c.call(ctx, http.MethodDelete, "/api/v1/apps/"+c.app+"/templates/"+id, nil, nil)
+}
+
+// TemplateField is one template field: a display label carrying a
+// `{{.var}}` value template and an optional type hint.
+type TemplateField struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Type  string `json:"type,omitempty"`
+}
+
+// TemplateBinding is one channel's per-template configuration (content
+// format, vendor SMS template code/id, named param order).
+type TemplateBinding struct {
+	Format       string            `json:"format,omitempty"`
+	TemplateCode string            `json:"template_code,omitempty"`
+	TemplateID   string            `json:"template_id,omitempty"`
+	Params       map[string]string `json:"params,omitempty"`
+	ParamOrder   []string          `json:"param_order,omitempty"`
+}
+
+// TemplateDetail is one namespace template with its full definition —
+// the single-template read answers this; the list read answers the
+// trimmed Template.
+type TemplateDetail struct {
+	ID        string                     `json:"id"`
+	Name      string                     `json:"name"`
+	Title     string                     `json:"title,omitempty"`
+	Level     string                     `json:"level,omitempty"`
+	Fields    []TemplateField            `json:"fields,omitempty"`
+	Bindings  map[string]TemplateBinding `json:"bindings,omitempty"`
+	CreatedAt time.Time                  `json:"created_at"`
+	UpdatedAt time.Time                  `json:"updated_at"`
+}
+
+// Template reads one namespace template in full.
+func (c *Client) Template(ctx context.Context, id string) (*TemplateDetail, error) {
+	var out TemplateDetail
+	if err := c.call(ctx, http.MethodGet, "/api/v1/apps/"+c.app+"/templates/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

@@ -181,7 +181,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/apps/demo-app/events \
   -d '{"id": 42, "kind": "alerts", "severity": "critical", "title": "db down", "target": "user:5", "meta": {"host": "db-1"}}'
 ```
 
-响应与 dispatch 完全相同（`DispatchOutcome`）。`meta` 必须是 JSON object，映射为模板参数。
+响应与 dispatch 完全相同（`DispatchOutcome`）。`meta` 必须是 JSON object，映射为模板参数。Go 整合方直接走 SDK 的 `c.Events(ctx, sdk.EventsRequest{...})`，字段一一对应，不必手拼这条请求。
 
 ### 7. 查状态与审计
 

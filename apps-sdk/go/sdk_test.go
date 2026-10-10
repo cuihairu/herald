@@ -94,6 +94,12 @@ func TestClientFullFlow(t *testing.T) {
 	c := New(ts.URL, "demo-app", "demo-app-full")
 	ctx := context.Background()
 
+	// 自检: the token proves itself with name + scopes.
+	show, err := c.Show(ctx)
+	if err != nil || show.Name != "demo-app" || len(show.Scopes) != 3 {
+		t.Fatalf("show: %v / %+v", err, show)
+	}
+
 	// 配品类.
 	if err := c.RegisterCategory(ctx, "alerts", "urgent"); err != nil {
 		t.Fatalf("register category: %v", err)
@@ -114,12 +120,25 @@ func TestClientFullFlow(t *testing.T) {
 	if err := c.PutPolicy(ctx, "intensity", map[string]string{"sms": "L4"}); err != nil {
 		t.Fatalf("put policy: %v", err)
 	}
+	pols, err := c.Policies(ctx)
+	if err != nil || pols.ChannelIntensity["sms"] != "L4" {
+		t.Fatalf("policies: %v / %+v", err, pols)
+	}
 	if err := c.SetCallback(ctx, "https://app.example.com/hook", "sdk-callback-secret-32"); err != nil {
 		t.Fatalf("set callback: %v", err)
 	}
 	cb, err := c.Callback(ctx)
 	if err != nil || cb.URL != "https://app.example.com/hook" || !cb.HasSecret {
 		t.Fatalf("callback: %v / %+v", err, cb)
+	}
+	if err := c.DeleteCallback(ctx); err != nil {
+		t.Fatalf("delete callback: %v", err)
+	}
+	if cb, err = c.Callback(ctx); err != nil || cb.URL != "" || cb.HasSecret {
+		t.Fatalf("callback after delete: %v / %+v", err, cb)
+	}
+	if err := c.SetCallback(ctx, "https://app.example.com/hook", "sdk-callback-secret-32"); err != nil {
+		t.Fatalf("re-set callback: %v", err)
 	}
 
 	// 模板.
@@ -131,6 +150,14 @@ func TestClientFullFlow(t *testing.T) {
 	tmpls, err := c.Templates(ctx)
 	if err != nil || len(tmpls) != 1 || tmpls[0].ID != "node_down" || tmpls[0].Title != "节点 {{.node}} 下线" {
 		t.Fatalf("templates: %v / %+v", err, tmpls)
+	}
+	detail, err := c.Template(ctx, "node_down")
+	if err != nil || detail.Name != "节点下线" || detail.Level != "error" || len(detail.Fields) != 0 {
+		t.Fatalf("template detail: %v / %+v", err, detail)
+	}
+	_, err = c.Template(ctx, "ghost")
+	if asErr(err, &httpErr); httpErr.Status != 404 {
+		t.Fatalf("unknown template: want a 404 *Error, got %#v", httpErr)
 	}
 
 	// 触发: the namespace template renders, the urgent plan accepts, and
@@ -155,6 +182,24 @@ func TestClientFullFlow(t *testing.T) {
 		t.Fatalf("repeat dispatch: %v / %+v", err, rep)
 	}
 
+	// 事件适配面: the integrator's own words (kind/severity/target +
+	// outbox id) map onto the same dispatch — critical rides as urgency,
+	// the outbox id as event_id, and the outcome shape is identical.
+	evOut, err := c.Events(ctx, EventsRequest{
+		ID: 42, Kind: "alerts", Severity: "critical",
+		Title: "db down", Target: "alice", Meta: map[string]any{"host": "db-1"},
+	})
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if evOut.Suppressed || evOut.Urgency != "critical" || len(evOut.TaskIDs) != 1 || evOut.NotificationID == "" {
+		t.Fatalf("events outcome: %+v", evOut)
+	}
+	_, err = c.Events(ctx, EventsRequest{Kind: "alerts", Severity: "fatal", Target: "alice"})
+	if asErr(err, &httpErr); httpErr.Status != 422 {
+		t.Fatalf("bad severity: want a 422 *Error, got %#v", httpErr)
+	}
+
 	// 查状态: the settled row answers who/what/which source.
 	for q.Size() > 0 {
 		task, err := q.Pop(context.Background())
@@ -167,7 +212,7 @@ func TestClientFullFlow(t *testing.T) {
 		_ = q.Ack(context.Background(), task.ID)
 	}
 	page, err := c.Deliveries(ctx, DeliveriesQuery{})
-	if err != nil || page.Total != 1 {
+	if err != nil || page.Total != 2 { // one dispatch task + one events task
 		t.Fatalf("deliveries: %v / %+v", err, page)
 	}
 	row := page.Logs[0]
@@ -254,19 +299,27 @@ func TestClientEveryFaceRefuses(t *testing.T) {
 	c := New(ts.URL, "demo-app", "wrong-token")
 	ctx := context.Background()
 	checks := map[string]func() error{
+		"Show":             func() error { _, err := c.Show(ctx); return err },
 		"RegisterCategory": func() error { return c.RegisterCategory(ctx, "alerts", "urgent") },
 		"Categories":       func() error { _, err := c.Categories(ctx); return err },
+		"Policies":         func() error { _, err := c.Policies(ctx); return err },
 		"PutPolicy":        func() error { return c.PutPolicy(ctx, "intensity", map[string]string{"sms": "L4"}) },
 		"SetCallback":      func() error { return c.SetCallback(ctx, "https://x.example.com/h", "callback-secret-32bytes") },
 		"Callback":         func() error { _, err := c.Callback(ctx); return err },
+		"DeleteCallback":   func() error { return c.DeleteCallback(ctx) },
 		"Dispatch": func() error {
 			_, err := c.Dispatch(ctx, DispatchRequest{Category: "alerts", Audiences: []string{"alice"}})
+			return err
+		},
+		"Events": func() error {
+			_, err := c.Events(ctx, EventsRequest{Kind: "alerts", Severity: "info", Target: "alice"})
 			return err
 		},
 		"Deliveries":       func() error { _, err := c.Deliveries(ctx, DeliveriesQuery{}); return err },
 		"Audit":            func() error { _, err := c.Audit(ctx, time.Time{}); return err },
 		"RegisterTemplate": func() error { return c.RegisterTemplate(ctx, map[string]any{"id": "x", "name": "x", "title": "x"}) },
 		"Templates":        func() error { _, err := c.Templates(ctx); return err },
+		"Template":         func() error { _, err := c.Template(ctx, "x"); return err },
 		"DeleteTemplate":   func() error { return c.DeleteTemplate(ctx, "x") },
 	}
 	for name, call := range checks {
