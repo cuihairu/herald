@@ -51,9 +51,8 @@ func (h *Handler) HandleAudienceSurfaces(w http.ResponseWriter, r *http.Request)
 		token, err := h.sourceSurfaces.RSSToken(audienceID)
 		if err != nil {
 			// ValidID above shares RSSToken's id pattern, so the format
-			// refusal is unreachable here; the entropy source is the only
-			// failure left, injected through the audience.RandRead seam
-			// in TestAudienceSurfacesReadTokenFailure.
+			// refusal is unreachable here; tests inject entropy failure
+			// via the audience.RandRead seam.
 			h.respondError(w, http.StatusInternalServerError, "rss token generation failed")
 			return
 		}
