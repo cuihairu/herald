@@ -20,6 +20,8 @@
 
 - `github.com/cuihairu/herald/api/handler_surfaces.go:82` — DELETE 臂里 `Unfollow` 之后转 422 的守卫。到达条件：handler 前置校验放行后 `Unfollow` 仍拒绝——但两者校验完全同口径（`checkIDAndChannel` 内部就是 `idPattern`（≡ `audience.ValidID`）+ channel 1-64 界，handler 已先行同判），`source` 是常量 `audience.SourceAdmin` 恒合法。两层校验互为镜像时恒不可达的契约守卫（同 `handler_sources.go:237` 先例）；若日后 `Unfollow` 新增校验维度，此处应随之变为可达并补 422 实测。行号 2026-10-08 随阶段③集成方对接批次（联系面绑定面落地）登记。
 
+- `github.com/cuihairu/herald/api/handler_surfaces.go:129` — GET 读臂里 `RSSToken` 之后转 500 的守卫。到达条件：`audience.ValidID` 放行后 `RSSToken` 仍报错——但 `RSSToken` 的格式校验用的是同一个 `idPattern`（`core/audience/audience.go:52`），handler 已先行同判；剩余唯一错误源是 `newToken` 的熵源（`randRead`），那是 core 层的测试 seam（`core/audience/surfaces.go:419`），api 层无注入点。镜像校验 + 熵源不可注入，恒不可达的契约守卫；若日后 `RSSToken` 新增校验维度，此处应随之变为可达并补 500 实测。行号 2026-10-10 随私密 feed token 读口（审计 #22 拍板落地批）登记。
+
 ## api/handler_sources.go
 
 - `github.com/cuihairu/herald/api/handler_sources.go:237` — `HandleSubscriptions` POST 臂里 `Toggle` 之后转 422 的守卫。到达条件：`checkSourceFields` 放行后注册表仍拒绝——但两者校验完全同口径（受众 id 模式、品类/渠道 1-64 字符，`validateRelation` 之外无其他约束），动作方来源是常量 `preference_center`，且开启路径走 `Subscribe`（强制可退订策略位，不存在 must-deliver 拒绝）。两层校验互为镜像时恒不可达的契约守卫；若日后注册表新增校验维度，此处应随之变为可达并补 422 实测。

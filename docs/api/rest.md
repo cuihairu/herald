@@ -744,7 +744,7 @@ Telegram 平台回调入口（来源适配器：`/start` 兑换绑定、`/stop` 
 
 受众私密 feed。`name` 形如 `<rss_token>.xml`，**token 即凭据**（随受众稳定签发，重置即失效）；未知 token 404。可见性在读取时判定：条目只在受众对该品类的实时订阅关系允许 rss 渠道时才出现——**取关即从下一次拉取起消失**，投影侧零记账。响应格式与错误语义同公共 feed。
 
-> **缺口（审计 #22，待拍板）**：token 目前**没有任何 API 或界面可读路径**——`RSSToken()` 仅在测试中被调用，绑定/关系/审计响应都不带 token。投影、端点、可见性判定均已工作，但读者拿不到自己的 feed 地址，私密 feed 实际不可达。补法（绑定响应带 token / 新增 surfaces 读口）属设计决策，见[一致性审计](/审计-文档一致性)。
+token 的读取路径：`GET /api/v1/audiences/{id}/surfaces` 返回受众的 `rss_token`（首次读取签发、受众级稳定，见 [surfaces 读口](#audience-surfaces)）。
 
 ## GET /api/v1/audiences/{id}/relations {#audience-relations}
 
@@ -780,9 +780,20 @@ Telegram 平台回调入口（来源适配器：`/start` 兑换绑定、`/stop` 
 
 **DELETE** 用查询参数 `?category=&<>&channel=`：槽位无关系 404 `subscription not found`；must-deliver 关系不可退订 409。
 
-## POST / DELETE /api/v1/audiences/{id}/surfaces {#audience-surfaces}
+## GET / POST / DELETE /api/v1/audiences/{id}/surfaces {#audience-surfaces}
 
-管理侧代绑定联系面（用户联系信息在整合方库里的场景），操作入口记为 `admin` 并进审计流。来源适配器未配置时 404。
+管理侧联系面读写口。写臂（POST/DELETE）是代绑定入口（用户联系信息在整合方库里的场景），操作入口记为 `admin` 并进审计流，来源适配器未配置时 404。读臂（GET）只依赖注册表，返回该受众的绑定面列表与私密 RSS feed token。
+
+**GET**：未知受众（注册表无任何绑定面）404；合法受众返回绑定面列表 + `rss_token`——token **首次读取时签发、受众级稳定**（受众生存期内不变，重置即旧地址失效），读者拿它拼私密 feed 地址 `/feeds/private/<rss_token>.xml`（见 [私密 feed](#feeds-private)）：
+
+```json
+{"code":0,"message":"ok","data":{
+  "surfaces":[{"audience_id":"user.1","channel":"email","target":"u1@example.com","status":"active"}],
+  "rss_token":"3f9c2e..."
+}}
+```
+
+`token` 即凭据，本端点在操作面鉴权之后——不要把它下发到受众自己控制的面之外。
 
 **POST 请求体**：
 

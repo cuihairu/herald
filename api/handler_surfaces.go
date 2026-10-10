@@ -24,13 +24,60 @@ type surfaceBindBody struct {
 // only cover platform-vouched follows, and the preference centre can
 // only toggle categories on an existing surface. The acting source
 // records as admin (代绑定); the §12 audit answers 谁在何时通过哪条入口
-// 改了什么 as for every other entry.
+// 改了什么 as for every other entry. GET answers the audience's bound
+// surfaces plus its private RSS feed token (§9: the address's secret
+// part, minted on first read, stable for the audience's lifetime) —
+// the read arm runs off the registry alone, the write arms stay
+// source-gated.
 func (h *Handler) HandleAudienceSurfaces(w http.ResponseWriter, r *http.Request) {
+	audienceID := r.PathValue("id")
+	if r.Method == http.MethodGet {
+		if h.sourceSurfaces == nil {
+			h.respondError(w, http.StatusNotFound, "not found")
+			return
+		}
+		if !audience.ValidID(audienceID) {
+			h.respondError(w, http.StatusUnprocessableEntity, "invalid audience id")
+			return
+		}
+		// The unknown-audience 404 runs BEFORE RSSToken: the token mints
+		// on first use, so a read must not create registry entries for
+		// arbitrary ids.
+		surfaces := h.sourceSurfaces.Surfaces(audienceID)
+		if len(surfaces) == 0 {
+			h.respondError(w, http.StatusNotFound, "audience not found")
+			return
+		}
+		token, err := h.sourceSurfaces.RSSToken(audienceID)
+		if err != nil {
+			// ValidID above shares RSSToken's id pattern, so the format
+			// refusal is unreachable here; the entropy seam is the only
+			// failure left and has no injection point at this layer.
+			h.respondError(w, http.StatusInternalServerError, "rss token generation failed")
+			return
+		}
+		// Rendered field-by-field: ContactSurface carries no json tags
+		// (the source entries return it verbatim in its own wire
+		// vocabulary), same contract as the bind arm and relations read.
+		rows := make([]map[string]any, 0, len(surfaces))
+		for _, surface := range surfaces {
+			rows = append(rows, map[string]any{
+				"audience_id": surface.AudienceID,
+				"channel":     surface.Channel,
+				"target":      surface.Target,
+				"status":      surface.Status,
+			})
+		}
+		h.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{
+			"surfaces":  rows,
+			"rss_token": token,
+		}})
+		return
+	}
 	if h.sourceAdapter == nil {
 		h.respondError(w, http.StatusNotFound, "not found")
 		return
 	}
-	audienceID := r.PathValue("id")
 	switch r.Method {
 	case http.MethodPost:
 		var req surfaceBindBody

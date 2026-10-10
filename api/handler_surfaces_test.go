@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cuihairu/herald/core/audience"
+	"github.com/cuihairu/herald/core/auth"
 )
 
 // surfacesEnv wires the §8 source adapter over live registries — the
@@ -123,5 +124,94 @@ func TestAudienceSurfacesAuthZ(t *testing.T) {
 	}
 	if code, _ := e.do(t, "DELETE", "/api/v1/audiences/user.1/surfaces", "", h); code != http.StatusUnprocessableEntity {
 		t.Fatalf("delete missing channel: code = %d, want 422", code)
+	}
+}
+
+// TestAudienceSurfacesRead: the GET arm answers the audience's bound
+// surfaces plus its private RSS feed token — minted on first read and
+// stable for the audience's lifetime (§9). The unknown-audience 404 runs
+// before the mint, so a read cannot create registry entries for
+// arbitrary ids.
+func TestAudienceSurfacesRead(t *testing.T) {
+	e, _, surfaces := surfacesEnv(t)
+	h := map[string]string{"Authorization": "Bearer operator-token"}
+
+	// Unknown audience: 404, and the mint stays untouched — the token the
+	// read would have created does not exist (the later bind's token is
+	// issued fresh, not replayed from a ghost mint).
+	if code, _ := e.do(t, "GET", "/api/v1/audiences/ghost/surfaces", "", h); code != http.StatusNotFound {
+		t.Fatalf("unknown audience: code = %d, want 404", code)
+	}
+
+	if code, _ := e.do(t, "POST", "/api/v1/audiences/user.1/surfaces",
+		`{"channel":"email","target":"u1@example.com"}`, h); code != http.StatusOK {
+		t.Fatalf("bind: code = %d", code)
+	}
+
+	code, resp := e.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", h)
+	if code != http.StatusOK {
+		t.Fatalf("read: code = %d, resp = %v", code, resp)
+	}
+	data := dataOf(t, resp)
+	rows, ok := data["surfaces"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("surfaces: %v", data["surfaces"])
+	}
+	row := rows[0].(map[string]any)
+	if row["audience_id"] != "user.1" || row["channel"] != "email" ||
+		row["target"] != "u1@example.com" || row["status"] != string(audience.SurfaceActive) {
+		t.Fatalf("surface row: %v", row)
+	}
+	token, _ := data["rss_token"].(string)
+	if token == "" {
+		t.Fatalf("rss_token missing: %v", data)
+	}
+	if got, ok := surfaces.RSSAudience(token); !ok || got != "user.1" {
+		t.Fatalf("token does not resolve back: %q -> %q, %v", token, got, ok)
+	}
+
+	// §3.1 受众级稳定: a second read answers the same token.
+	_, resp2 := e.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", h)
+	if dataOf(t, resp2)["rss_token"] != token {
+		t.Fatalf("token not stable: %v vs %v", dataOf(t, resp2)["rss_token"], token)
+	}
+
+	// Invalid id format: 422 like the write arms.
+	if code, _ := e.do(t, "GET", "/api/v1/audiences/bad:id/surfaces", "", h); code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad id: code = %d, want 422", code)
+	}
+}
+
+// TestAudienceSurfacesReadFace: the read arm's face guard and its
+// placement behind the operator-token middleware.
+func TestAudienceSurfacesReadFace(t *testing.T) {
+	// No registry wired: the face is closed, GET answers 404 like the
+	// write arms do.
+	e := newTestEnv(t)
+	h := map[string]string{"Authorization": "Bearer operator-token"}
+	if code, _ := e.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", h); code != http.StatusNotFound {
+		t.Fatalf("unconfigured: code = %d, want 404", code)
+	}
+
+	// Auth enabled: no credentials is 401 — the read face sits behind the
+	// same middleware as every operator face; a valid API key passes and
+	// reaches the handler (unknown audience 404).
+	relations := audience.NewRegistry()
+	surfaces := audience.NewSurfaceRegistry()
+	e2 := newTestEnv(t, func(c *Config) {
+		c.Auth = auth.New(&auth.Config{
+			Enabled:   true,
+			SecretKey: "test-secret",
+			AdminUser: map[string]string{"admin": "pass123"},
+			APIKeys:   map[string]string{"key-1": "testing"},
+		})
+		c.Sources = audience.NewSourceAdapter(surfaces, relations)
+		c.SourceSurfaces = surfaces
+	})
+	if code, _ := e2.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("no auth: code = %d, want 401", code)
+	}
+	if code, _ := e2.do(t, "GET", "/api/v1/audiences/user.1/surfaces", "", map[string]string{"X-API-Key": "key-1"}); code != http.StatusNotFound {
+		t.Fatalf("api key: code = %d, want 404 (unknown audience)", code)
 	}
 }
