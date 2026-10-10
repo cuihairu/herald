@@ -85,16 +85,16 @@ http://your-host:8080/api/v1
 
 | 方法 | 路径 | 权限 | 描述 |
 | --- | --- | --- | --- |
-| GET | /apps/{app} | app token | 自检：回显 token 权限集 |
+| GET | /apps/{app} | query | 自检：回显 token 权限集 |
 | GET / POST | /apps/{app}/categories | query / config | 品类列表 / 注册品类（含默认紧急度） |
 | GET | /apps/{app}/policies | query | 读策略覆盖（未设置读回空对象） |
-| GET / PUT | /apps/{app}/policies/intensity | query / config | 渠道强度覆盖 |
-| GET / PUT | /apps/{app}/policies/delivery-mode | query / config | 投递模式覆盖 |
-| GET / PUT | /apps/{app}/policies/escalation | query / config | 升级链参数覆盖 |
-| GET / PUT | /apps/{app}/policies/dedup | query / config | 去重频控按品类覆盖 |
+| PUT | /apps/{app}/policies/intensity | config | 渠道强度覆盖 |
+| PUT | /apps/{app}/policies/delivery-mode | config | 投递模式覆盖 |
+| PUT | /apps/{app}/policies/escalation | config | 升级链参数覆盖 |
+| PUT | /apps/{app}/policies/dedup | config | 去重频控按品类覆盖 |
 | GET / POST | /apps/{app}/templates | query / config | 命名空间模板列表 / 注册 |
 | GET / DELETE | /apps/{app}/templates/{id} | query / config | 读 / 删命名空间模板 |
-| GET / PUT / DELETE | /apps/{app}/callback | config | 回调面配置（URL + secret；读口不回显密钥） |
+| GET / PUT / DELETE | /apps/{app}/callback | query / config | 回调面配置（URL + secret；读口不回显密钥） |
 | POST | /apps/{app}/dispatch | trigger | 触发投递（三方交集匹配，返回受理结果与投递计划） |
 | POST | /apps/{app}/events | trigger | 事件接入适配面（kind/severity/target 词汇映射） |
 | GET | /apps/{app}/deliveries | query | 投递状态查询（默认 50 条，上限 500） |
