@@ -256,6 +256,14 @@ Herald 的定位升级：从「应用主动推送的通知管道」补全为「*
 - 与既有规则引擎 escalation（升级到更多受众）正交：规则升级回答「**叫谁**」，强度升级回答「**怎么叫得更响**」；两者可叠加（同一受众先扩人再升强度）。
 - **折叠先于升级**：去重折叠（§11）发生在升级链之前——10 条重复告警先折叠成 1 条再计应答与升级，不会用重复触发把电话打出去。
 
+> **落地注记（2026-10-11 拍板：dispatch 面升级链后续段推进——封存）**：规则引擎路径的强度升级已完整落地（`core/escalation.Manager`：Schedule 武装 ack_timeout 定时器、ack 咨询、超时 firing、JSON 持久化、重启 Restore；`POST /api/v1/alerts/{id}/ack` 应答即停，与 ack store 共享告警身份空间）。app 命名空间的 dispatch 面**只投首段**——触发面 `plan` 字段回传全链供展示，`Stages[1:]` 不推进（`core/service/dispatch.go` pass two 取 `Stages[0]`，全仓无第二处消费）。后续段推进封存的理由：
+>
+> 1. **机制不适配**：`escalation.Pending{RuleID, AlertID, To []string}` 无受众维度，firing 走**无受众过滤的广播投递**（`DeliverEscalation` 直接 `enqueue`）；dispatch 的后续段是**按受众**的（各受众 kept 目标落在该段渠道上的绑定），且推进时必须按**当时**的关系×矩阵状态重判——窗口内受众可能已取关，复用等于要么违规投递、要么重写整套机制。
+> 2. **ack 源只能新增公开端点**：唯一 ack 入口 `POST /api/v1/alerts/{id}/ack` 挂管理面 `withAuth` 鉴权（app token 调它 401），且 alert id 空间与规则路径共享——误用会取消规则路径的待升级。app 面 ack 只能新增端点，身份只能取 dispatch 的 `event_id`（整合方自有主键，`delivery_result` 回调回带的就是它）。
+> 3. **能力在另一路径已具备**：组织级网关场景由规则路径升级链覆盖；app 命名空间的「升强度」可由整合方自行驱动（再次触发更高紧急度，§11 状态机与去重可控）。
+>
+> **复工触发条件**：有集成方需要组织侧托管 app 命名空间的超时升级，并接受 ack 身份 = dispatch `event_id`。拟议形状（未实施）：`POST /api/v1/apps/{app}/events/{event_id}/ack`（query scope）→ arm 记录（受众×段×目标 + 关系快照）→ 推进前重判 Filter → 超时投该段目标 → 持久化/恢复 → 回调面增 `escalated` 事件。在此之前 apps.md 的 plan 行以「首段先行投递，后续段不自动推进」为准。
+
 ### 6.4 用户偏好叠加：可降不可升
 
 用户偏好只能在紧急度允许的区间内**降档**，不能升档：
@@ -462,7 +470,7 @@ POST /api/v1/apps/{app}/dispatch
 ### 13.5 SDK 与回调
 
 - **Go SDK 首发**（对齐 worker-sdk 先例，落地 `apps-sdk/go`）：应用用受众 ID 完成「配品类 → 绑受众（操作侧入口）→ 触发 → 查状态」全流程；一枚 token 一个 Client，权限由 token 决定。错误二分：`*sdk.Error`（服务端拒绝，重试无意义）与传输错误（可重试）。
-- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次。落地注记（2026-10-08，集成方对接批次）：`delivery_result` 载荷回带**整合方自己的事件身份** `delivery.event_id`（dispatch 请求的 `event_id`，随任务贯通投递）——应用把回调对回自己的原始事件（整合方自有事件主键走这条线回家），与本回调事件的 `event_id`（herald 侧幂等 id）是两个东西。
+- **webhook 回调**：投递结果与**退订事件回流**给应用，应用侧同步其本地状态。落地词汇：两类事件 `delivery_result`（任务落定状态）与 `unsubscribe`；每个事件带 `event_id` 供应用幂等；请求头 `X-Herald-Signature: sha256=<hex>` 为请求体精确字节的 HMAC-SHA256（密钥即应用配置的 secret）。至少一次 + 重试由投递同一套队列管道白得；回调配置挂在 app 记录上（`PUT/GET/DELETE /api/v1/apps/{app}/callback`，读口不回显密钥）。落地注记（2026-10-07）：「每次尝试的状态」收敛为**每次任务落定**一条事件——重试是管道内部事务，应用关心的是落定结果；§6.3 升级链 ack 源接线（超时进下一段、ack 应答即停的运行时推进）不在回调面内，另行批次；该批次 **2026-10-11 拍板封存**（理由与复工触发条件见 §6.3 落地注记）：dispatch 面维持首段先行，后续段不自动推进。落地注记（2026-10-08，集成方对接批次）：`delivery_result` 载荷回带**整合方自己的事件身份** `delivery.event_id`（dispatch 请求的 `event_id`，随任务贯通投递）——应用把回调对回自己的原始事件（整合方自有事件主键走这条线回家），与本回调事件的 `event_id`（herald 侧幂等 id）是两个东西。
 
 ### 13.6 集成指南
 

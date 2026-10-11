@@ -185,7 +185,7 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 
 | 键 | 说明 |
 | --- | --- |
-| plan | 升级链全链展示，首段先行投递，后续段不自动推进（升级链 ack 源接线另行批次）；`mode` ∈ fixed/escalation/parallel |
+| plan | 升级链全链展示，首段先行投递，后续段不自动推进——ack 源未接，封存决策见设计 §6.3 落地注记；`mode` ∈ fixed/escalation/parallel |
 | dispatched | 命中并已生成投递的受众 |
 | refused | 被拒受众与原因：`filtered` / `phone_disabled` / `intensity_exceeded` / `no_channels` |
 | suppressed | 去重折叠时为 `true`，此时**只有** notification_id/category/urgency/suppressed 四个键，无 task_ids |
