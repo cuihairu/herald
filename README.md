@@ -56,7 +56,9 @@ The full exported surface and embedding guide are in [docs/library-usage.md](doc
 - **Delivery orchestration** - an expression rule engine (shadow mode observes before enforcing; for / group_by / inhibit / silence / escalation), Digest time-window aggregation (daily and weekly digests, realtime exemption, optional redis lease for leader election), content folding and dedup, request idempotency
 - **RSS pull channel** - a public feed per category plus a private token-bearing feed per audience (`/feeds/**`); delivery records are projected in place as pull entries, visibility is decided at read time, and unsubscribing hides the entries from the next fetch. Herald does not push here, so this channel is spam-free by construction
 - **Delivery audit** - a change trail for relations and contact surfaces, dedup folding details (why a given message was not delivered), and relation-type and entry-source snapshots in tasks and logs
-- **HTTP First** - curl-friendly REST API, no SDK required
+- **App integration namespace** - a per-app token scoped by `config` / `trigger` / `query`: category registration, namespace-isolated templates, policy overlays, dispatch with the same dedup/digest/state machinery, deliveries and audit reads, an events adapter that maps your own vocabulary, and signed at-least-once callbacks back to the caller
+- **Optional API auth** - `auth.enabled` puts Bearer / X-API-Key credentials on the management plane; app tokens authenticate the app face through their own switch, and `/status` plus `/feeds/**` stay anonymous
+- **HTTP First** - curl-friendly REST API; the official Go client ships in this repository (`apps-sdk/go`), and any HTTP client works without one
 - **Queue as Backbone** - the queue is the only task dispatch channel; memory and redis backends are supported
 - **Unified Worker** - one worker model; local and remote differ only in how they are deployed
 - **Template System** - channel-agnostic templates, defined once and reused across channels
@@ -314,6 +316,25 @@ routes:
 #   link: "https://herald.example" # feed home page link
 #   description: "notification feed" # feed description
 #   max_items: 500                 # per-category entry retention cap (default 500)
+
+# API auth (optional): management-plane credentials. With enabled: true and no
+# api key Herald refuses to start; /status and /feeds/** stay anonymous.
+# auth:
+#   enabled: true
+#   api_keys:
+#     operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> or X-API-Key: <key>
+#   secret_key: "$JWT_SECRET"      # optional: JWT verifier key
+#   admin_user:
+#     admin: "$ADMIN_PASSWORD"     # optional: dashboard login
+
+# Integrator namespace (optional): app name -> bootstrap tokens. Scopes are
+# config (categories/templates/policies/callback), trigger (dispatch/events)
+# and query (deliveries/audit); one token per scope set.
+# apps:
+#   demo-app:
+#     tokens:
+#       - secret: "$DEMO_TOKEN"
+#         scopes: [config, trigger, query]
 ```
 
 ## Documentation
@@ -321,6 +342,7 @@ routes:
 Full documentation is at [docs/](./docs/)
 
 - [Integration guide](./docs/guide/integration.md) (external projects: from service address to first alert, app namespace, signed callbacks — self-serve, no questions needed)
+- [Go SDK](./apps-sdk/go) (official client, one `Client` per token; [`apps-sdk/go/example`](./apps-sdk/go/example/main.go) is a runnable self-check — `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` and `go run` walk all five faces)
 - [Events and alert model](./docs/guide/events.md) (level vocabularies, dedup and idempotency, at-least-once delivery guarantees)
 - [App integration API](./docs/api/apps.md) (per-endpoint reference for the `/apps/{app}/**` namespace) · [OpenAPI spec](./docs/api/openapi.yaml) (SDK code generation)
 - [Configuration guide](./docs/guide/configuration.md) (rule engine, notification groups, audiences and contact surfaces, Digest, queues, and the full provider configuration reference)

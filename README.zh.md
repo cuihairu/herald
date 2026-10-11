@@ -56,7 +56,9 @@ app.Dispatch(ctx, &core.Notification{
 - **投递编排** - 表达式规则引擎（shadow 先观察后生效，for/group_by/inhibit/silence/escalation）、Digest 时间窗聚合（每日/每周摘要、实时豁免、可选 redis 租约选主）、内容折叠去重与请求幂等
 - **RSS 拉式渠道** - 每品类公共 feed + 每受众带 token 的私密 feed（`/feeds/**`），投递记录就地投影为拉式条目，可见性读取时判定、取关即从下一次拉取起消失；Herald 不推，天然无骚扰
 - **投递审计** - 关系/联系面变更流水、去重折叠明细（为什么这条没投）、关系类型与入口来源快照进任务与日志
-- **HTTP First** - curl 友好，REST API，无 SDK 依赖
+- **集成者命名空间** - 每应用一枚 token，`config` / `trigger` / `query` 三档权限：品类注册、命名空间隔离模板、策略覆盖、与全链同一套去重/摘要/状态机、投递与审计查询、映射自有词汇的事件适配面、签名且至少一次的回调回流
+- **可选 API 鉴权** - `auth.enabled` 给管理面挂 Bearer / X-API-Key 凭证；app token 走自己的开关鉴权 app 面，`/status` 与 `/feeds/**` 始终匿名
+- **HTTP First** - curl 友好，REST API；官方 Go 客户端随仓库提供（`apps-sdk/go`），任何 HTTP 客户端都能直接接
 - **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
 - **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
@@ -310,12 +312,33 @@ routes:
 #   link: "https://herald.example" # feed 主页链接
 #   description: "通知 feed"       # feed 描述
 #   max_items: 500                 # 每品类条目留存上限（默认 500）
+
+# API 鉴权（可选）：管理面凭证。enabled: true 且无任何 api key 时 heraldd 拒起；
+# /status 与 /feeds/** 始终匿名。
+# auth:
+#   enabled: true
+#   api_keys:
+#     operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> 或 X-API-Key: <key>
+#   secret_key: "$JWT_SECRET"      # 可选：JWT 校验密钥
+#   admin_user:
+#     admin: "$ADMIN_PASSWORD"     # 可选：控制台登录
+
+# 集成者命名空间（可选）：应用名 -> 引导 token。scope 三档：config（品类/模板/策略/回调）、
+# trigger（dispatch/事件）、query（deliveries/审计）；一枚 token 一个权限集。
+# apps:
+#   demo-app:
+#     tokens:
+#       - secret: "$DEMO_TOKEN"
+#         scopes: [config, trigger, query]
 ```
 
 ## 文档
 
 完整文档请访问 [docs/](./docs/)
 
+- [接入指南](./docs/guide/integration.md)（外部系统：从服务地址到第一条告警、app 命名空间、签名回调——自助接完，不用来问）
+- [Go SDK](./apps-sdk/go)（官方客户端，一枚 token 一个 `Client`；[`apps-sdk/go/example`](./apps-sdk/go/example/main.go) 是可运行自检——配 `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` 后 `go run` 走完五个面）
+- [应用接入 API](./docs/api/apps.md)（`/apps/{app}/**` 命名空间逐端点参考）· [OpenAPI 规范](./docs/api/openapi.yaml)（喂给代码生成器）
 - [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、受众与联系面、Digest、队列、Provider 全量配置项）
 - [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / Email / Webhook / SMS / Log）
 - [受众领域模型（总纲）](./docs/design-audience-model.md) · [受众订阅与投递中枢（关系详设）](./docs/design-audience-relations.md) · [概念边界与分层审计](./docs/design-audience-boundaries.md)
