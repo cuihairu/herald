@@ -105,7 +105,7 @@ curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / 
 | HTTP 422（body `code:422`）`all channels failed: [...]` | 全部渠道投递失败 | 看 `data.failed[].Error` 逐渠道定位（键首字母大写） |
 | HTTP 200 `code:0` 但 `data.accepted: null` + `task_ids: null` | 通知被去重闸折叠（窗口内同内容重复） | 预期行为；换个 type 或等 5 分钟窗口 |
 | HTTP 200 `suppressed: true` | app dispatch 同 dedup_key 窗口内重复 | 预期行为；确需重发换 dedup_key |
-| HTTP 200 含 `refused` 列表 | 受众没有出路（关系/强度/联系面缺一） | 按 `reason` 绑定：`intensity_exceeded` 换高紧急度品类，`phone_disabled` 查手机闸门，`no_channels` 查联系面，`filtered` 查渠道×关系矩阵 |
+| HTTP 200 含 `refused` 列表 | 受众没有出路（关系/强度/联系面缺一，或受众串没有落点） | 按 `reason` 绑定：`intensity_exceeded` 换高紧急度品类，`phone_disabled` 查手机闸门，`no_channels` 查联系面（没有绑定面且受众串既非渠道实例名也非渠道块条目时，先核对 id 拼写），`filtered` 查渠道×关系矩阵 |
 | HTTP 409 `rule already exists: x` / `group already exists: x` / `category already registered with a different default urgency` | 资源已存在（规则/组/品类默认紧急度冲突） | 规则走 PUT 替换；组走 PUT；品类换名或改回原默认值 |
 | HTTP 503 `rules engine is not configured` / `ack store is not configured` / `audit trail not configured` 等 | 对应组件未在配置启用 | 补对应配置块后重启 |
 | app 回调收不到 | 回调面未配置 / 非 2xx / secret 不匹配 | `GET /apps/{app}/callback` 看 url/has_secret；签名校验用 PUT 的 secret 重算 HMAC |
