@@ -168,13 +168,15 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
   "message": "all channels failed: [sms-x: provider not found: sms-x]",
   "data": {
     "notification_id": "550e8400-e29b-41d4-a716-446655440000",
-    "accepted": [],
+    "accepted": null,
     "failed": [
       { "Channel": "sms-x", "Error": "provider not found: sms-x" }
     ]
   }
 }
 ```
+
+这条路径 `accepted` 是 `null`（成功列表为空且未初始化，不带 `omitempty`），和全成功时 `failed` 整体缺席是同一类细节。
 
 ### 接收方与幂等 {#notify-receivers}
 

@@ -25,7 +25,7 @@ Notification → 受众解析(通知谁) → 路由(走哪条通道) → Deliver
 - **Notification ≠ Delivery**：一条通知可展开成多条投递（多渠道扇出），每条 Delivery 独立状态、独立重试
 - **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分（接收人/端点，配置化）与 `channels` 渠道块见 [受众领域模型总纲](/design-audience-model)与[配置参考](/guide/configuration)；运行时的联系面绑定与订阅/指派关系同见总纲
 
-- **HTTP First**：`POST /api/v1/notify` 一条 curl 即可发通知，curl 友好、无业务 SDK 依赖
+- **HTTP First**：`POST /api/v1/notify` 一条 curl 即可发通知，curl 友好；官方 Go 客户端随仓提供（`apps-sdk/go`），任何 HTTP 客户端都能直接接
 - **多渠道 Provider**：内置即时通讯（飞书、企微、钉钉、Slack、Discord、Telegram、微信）、邮件、短信（阿里云、腾讯云、网易）、Webhook 等十余个通道，统一接口面，见 [Provider 手册](/providers/overview)
 - **Runtime First**：Provider 可以内置在核心进程（Builtin），也可以跑在独立的 [Worker 节点](/runtime/worker)上——承认浏览器自动化这类场景的运行环境差异
 - **Event First**：处理的是事件而非裸消息——路由（按 type/level）、去重窗口、指数退避重试、按 Provider 限流、规则引擎决策（优先级、默认策略、shadow 观察、for/group_by/inhibit/silence/escalation）

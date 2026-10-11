@@ -22,7 +22,7 @@ hero:
 features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9.5h18"/><circle cx="6.3" cy="7.2" r="0.9"/><circle cx="9.3" cy="7.2" r="0.9"/><path d="M7 14h6"/><path d="m11 12 2 2-2 2"/></svg>'
     title: HTTP First
-    details: curl 友好，无业务 SDK 依赖，天然支持多语言和自动化
+    details: curl 友好，REST API；官方 Go 客户端随仓库提供（apps-sdk/go），任何 HTTP 客户端都能直接接
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><rect x="5" y="5" width="14" height="14" rx="2.5"/><path d="M9.5 9.5v5l4-2.5z"/><path d="M9 3v2"/><path d="M15 3v2"/><path d="M9 19v2"/><path d="M15 19v2"/></svg>'
     title: Runtime First
     details: 承认 Provider 的本质差异来自运行环境，支持 Builtin 和 Worker 两种 Runtime
@@ -52,7 +52,7 @@ Herald 是一个**轻量、Provider 无关的统一订阅与投递中枢**：业
 - **运营消息触达**：模板一次定义、多渠道复用；命名受众（Notification Groups）维护花名册，运营公告一发即达飞书/企微/邮件。
 - **验证码与事务短信**：对接阿里云/腾讯云/网易短信通道，内置限流防刷与失败重试，验证码这类高时效消息不丢单。
 - **多通道兜底重试**：同一事件可路由到多个渠道，主通道故障自动重试、换道送达，指数退避直到成功或达到重试上限。
-- **CI/CD 与自动化接入**：curl 一行接入，无 SDK 依赖；构建、部署、备份任务的结束状态直接进群，或经 Webhook 联动自建系统。
+- **CI/CD 与自动化接入**：curl 一行即可接入，也可用随仓 Go 客户端；构建、部署、备份任务的结束状态直接进群，或经 Webhook 联动自建系统。
 
 ## 界面速览
 

@@ -15,7 +15,7 @@
 
 ## GET /api/v1/apps/{app}
 
-自检端点：确认凭据有效并回显 token 权限集。无请求参数，任意 HTTP 方法等价。
+自检端点：确认凭据有效并回显 token 权限集。无请求参数，只收 GET；其他方法 405。
 
 ```bash
 curl -H "X-API-Key: demo-query-token-0123456789abcdef" \
@@ -188,7 +188,7 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 | plan | 升级链全链展示，首段先行投递，后续段不自动推进——ack 源未接，封存决策见设计 §6.3 落地注记；`mode` ∈ fixed/escalation/parallel |
 | dispatched | 命中并已生成投递的受众 |
 | refused | 被拒受众与原因：`filtered` / `phone_disabled` / `intensity_exceeded` / `no_channels` |
-| suppressed | 去重折叠时为 `true`，此时**只有** notification_id/category/urgency/suppressed 四个键，无 task_ids |
+| suppressed | 去重折叠时为 `true`，此时除 `dispatched` 恒为空数组外只有 notification_id/category/urgency/suppressed，无 task_ids |
 
 拒绝即答案：有 refused 也是 200；全部渠道投递失败才把 body `code` 写 422。无投递策略组件的部署 404 `delivery policy not configured`。
 
@@ -260,7 +260,7 @@ npx @openapitools/openapi-generator-cli generate \
   -o ./herald-client
 ```
 
-规范里 `servers.url` 填你的部署地址；app token 对应的安全方案名 `AppToken`（apiKey，header `X-API-Key`），管理面 token 用 `BearerAuth`。Go 用户直接用官方 `apps-sdk/go`（`apps-sdk/go/example` 附带一个走完全部面的可运行自检示例），不必生成。
+规范里 `servers.url` 填你的部署地址；app token 对应的安全方案名 `AppToken`（apiKey，header `X-API-Key`），管理面 token 用 `BearerAuth`。Go 用户直接用官方 `apps-sdk/go`（`apps-sdk/go/example` 附带一个可运行自检，走自检/品类/事件/投递记录/审计五个面），不必生成。
 
 ## 错误码总表
 

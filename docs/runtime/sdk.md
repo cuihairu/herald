@@ -34,7 +34,6 @@ func main() {
     config := &protocol.WorkerConfig{
         WorkerID:          "my-worker-001",
         CoreURL:           "ws://localhost:8081/worker",
-        ReconnectDelay:    5 * time.Second,
         HeartbeatInterval: 30 * time.Second,
         Capabilities:      []string{"wechat"},
     }
@@ -68,6 +67,8 @@ func main() {
 }
 ```
 
+注意：SDK 不自动重连——连接断开后客户端停在 `Disconnected`，恢复靠重新调用 `Run` 重新注册。`ReconnectDelay` 只有内置二进制（`heraldd worker`）读。
+
 ### 使用内置二进制
 
 也可以直接使用 `heraldd worker` 子命令，无需编写代码：
@@ -88,10 +89,12 @@ heraldd worker --config worker.yaml
 ## 连接状态
 
 ```
-Disconnected → Connecting → Connected → Registered → Ready
-     ↓              ↓              ↓            ↓
-   (error)       (error)        (error)     (error)
+Disconnected → Connecting → Ready
+     ↑                         ↓
+     └────── (error/close) ────┘
 ```
+
+`Connected` / `Registered` 是协议词表里的中间态，SDK 不经过它们——register-ack 落地即从 `Connecting` 直接进 `Ready`；连接断开回到 `Disconnected`，且不自动重连（见上）。
 
 ## 协议消息
 
@@ -114,12 +117,11 @@ Disconnected → Connecting → Connected → Registered → Ready
 {
   "type": "heartbeat",
   "worker_id": "wechat-node-01",
-  "timestamp": 1716000000,
-  "status": {
-    "tasks_done": 98
-  }
+  "timestamp": 1716000000
 }
 ```
+
+`status` 是协议里的可选自由映射，当前 SDK 与内置 worker 都不填充，示例只发 `worker_id` + `timestamp`。
 
 ### 事件消息
 

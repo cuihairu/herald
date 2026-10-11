@@ -56,7 +56,7 @@ paths:
     get:
       tags: [app]
       summary: 命名空间自检
-      description: 确认凭据有效并回显 token 权限集。任意 HTTP 方法等价。
+      description: 确认凭据有效并回显 token 权限集。只收 GET；其他方法 405。
       parameters: [{ $ref: '#/components/parameters/AppName' }]
       responses:
         '200':
@@ -133,7 +133,7 @@ paths:
           description: 覆盖集
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Policies' }
+              schema: { $ref: '#/components/schemas/PoliciesResponse' }
         '401': { $ref: '#/components/responses/Error' }
   /api/v1/apps/{app}/policies/intensity:
     put:
@@ -223,18 +223,15 @@ paths:
       summary: 命名空间模板列表
       responses:
         '200':
-          description: 模板对象数组
+          description: 模板对象数组（包一层统一信封，data 直接是数组）
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    type: object
-                    properties:
-                      data:
-                        type: array
-                        items: { $ref: '#/components/schemas/Template' }
+                    type: array
+                    items: { $ref: '#/components/schemas/Template' }
     post:
       tags: [template]
       summary: 注册模板（upsert）
@@ -337,7 +334,7 @@ paths:
               schema: { $ref: '#/components/schemas/DispatchResponse' }
         '422': { $ref: '#/components/responses/Error' }
         '404':
-          description: 品类未注册 422；无投递策略组件 404
+          description: 无投递策略组件（delivery policy not configured）。品类未注册是 422。
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
@@ -506,6 +503,8 @@ components:
               param_order:
                 type: array
                 items: { type: string }
+        created_at: { type: string, format: date-time, description: 注册时间，响应恒带 }
+        updated_at: { type: string, format: date-time, description: 最近更新时间，响应恒带 }
     TemplateResponse:
       type: object
       properties:
@@ -620,7 +619,7 @@ components:
             mode: { $ref: '#/components/schemas/DeliveryMode' }
             suppressed:
               type: boolean
-              description: 去重折叠时 true，此时无 task_ids/dispatched。
+              description: 去重折叠时 true，此时无 task_ids；dispatched 恒存在、为空数组。
             plan:
               type: array
               items:

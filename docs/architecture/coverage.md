@@ -20,7 +20,7 @@
 | 语句覆盖率（**门禁口径**：合并四个 `main()` 子进程实测后） | **99.73%**（8560/8583，2026-10-11 实测，子进程合并救回 4 块 10 条语句；2026-10-10 为 99.73%（8542/8565）；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
 | 残余零块 | **15 块**（2026-10-11 go1.26.6 实测，**全部命中台账**；上一轮 2026-10-08 为 14 块）。2026-10-11 的 dispatch 修复批里，新增 `resolvePlain` 的 channels 块分支一度成为未定性零块，由 `TestDispatchChannelsBlockAudienceKeepsCompat` 补测覆盖而非登记——门禁计数缺陷修复后第一次当场拦下真缺口。台账现共登记 **16 条**：批次 8-11/阶段③ 期间新入账调度窗口与恒 nil 型 11 条（`reconcile.go:118/:127`、`sources.go:140/:150`、`handler_sources.go:237`、`handler_surfaces.go:129`、`rss.go:73`、`websocket/server.go:370`、`quickstart/main.go:23`、`client.go:275`、`example/main.go:35`）加 `main.go:416/:468` 两处构建守卫与 `main.go:60` 的 `os.Exit` 失败分支，再加 apps-sdk 示例的 `example/main.go:36`（2026-10-10 随第四入口入账）；原两处 gorilla `SetWriteDeadline` 恒 nil 条目随代码改写为 `_ =` 显式忽略（无分支可测）出清；wechatmp 写锁双检（`wechatmp.go:312`）偶发走到非零，本轮即为非零、未参与豁免。历史升格记录：`writeControl` 先例带动的七处（原 `main.go:556`、`client.go:197`、`handler_groups.go:71/:88`、`main.go:130/:381`、`handler_surfaces.go` 的 RSSToken 500 守卫——熵源 seam 导出为 `audience.RandRead` 后由 `TestAudienceSurfacesReadTokenFailure` 实测）已移出台账 |
-| **前端分支覆盖（dashboard/）** | **100%**（276/276，2026-10-08 实测，四指标全满：stmts 498/498、funcs 156/156、lines 473/473；上一记录 2026-09-28 为 262/262）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
+| **前端分支覆盖（dashboard/）** | **100%**（349/349，2026-10-11 实测，守门两项满门：branches 349/349、lines 595/595；语句 630/635（99.21%）、函数 210/215（97.67%）不在门禁内——缺口全部是 `App.tsx` 里 5 个未被路由测试导航到的 lazy 加载箭头，行指标因同行部分执行仍计满；上一记录 2026-10-08 为 276/276 四指标全满）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
@@ -60,19 +60,21 @@
 
 ## Dashboard 前端：vitest + RTL，行覆盖 + 分支覆盖双 100% 门禁
 
-前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job），**行覆盖或分支覆盖低于 100% 直接失败**。测试共 15 个文件 147 个用例（2026-10-08 实测），覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 9 个页面组件与应用入口。四项指标（语句 / 分支 / 函数 / 行）实测均为 100%，但**门禁阈值只守分支与行两项**。为什么这两项仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-9779--100)。
+前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job），**行覆盖或分支覆盖低于 100% 直接失败**。测试共 17 个文件 183 个用例（2026-10-11 实测），覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、WebSocket hook（FakeWebSocket 手动驱动）、全部 11 个页面组件与应用入口。分支与行实测均为 100%（branches 349/349、lines 595/595），语句 99.21%、函数 97.67%（全部缺口在 `App.tsx` 的 lazy 加载箭头），但**门禁阈值只守分支与行两项**。为什么这两项仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-9779--100)。
 
 测试搭建过程中顺带修掉两个真实生产缺陷：
 
-1. **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法依赖 `ReactDOM.render`（React 19 已移除），必须调用 `unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx` + `src/test/setup.ts` 双处）。
+1. **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法依赖 `ReactDOM.render`（React 19 已移除），当时必须调用 `unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx` + `src/test/setup.ts` 双处）。**2026-10-10 antd 升 v6（`cd3af21`）后此接缝已整体拆除**——v6 静态方法原生走 `createRoot`（React 19 安全），`src/main.tsx` 仅留注释记这一段来历；测试侧随 v6 需要的是 rc-motion 链排空与确定性卸载，见下节。
 2. **SendPage 渲染期副作用死循环**：`if (providers.length === 0) fetchProviders()` 写在渲染体内，zustand 每次 `set` 都换 state 引用，形成「set → 重渲染 → 再 fetch」无限循环；已移入 `useEffect` 空依赖数组。
 
-`src/test/setup.ts` 另有一处不漏工作就测不干净的地方：注入的静态渲染器若不把 `createRoot().render()` 包进 `act()`，这次调度会漏到用例之外，由 scheduler 的 `processImmediate`（宏任务）在 **vitest 销毁 jsdom 之后**才冲刷，触发处 `window` 已不存在，抛 unhandled `ReferenceError`。它发生在覆盖率统计**之后**，所以行覆盖仍是 100%、门禁照样通过，vitest 却以 exit code 1 收场。**覆盖门禁抓不到这类泄漏**，只有 unhandled-error 报告能。
+`src/test/setup.ts` 的收尾纪律（v5 时代是「注入的静态渲染器必须把 `createRoot().render()` 包进 `act()`」；antd v6 拆除该接缝后，问题换成 rc-motion 退场链排空）——任何漏到用例之外的工作都由 scheduler 的 `processImmediate`（宏任务）冲刷，慢机上排在 **vitest 销毁 jsdom 之后**才触发，此时 `window` 已不存在，抛 unhandled `ReferenceError`。它发生在覆盖率统计**之后**，所以行覆盖仍是 100%、门禁照样通过，vitest 却以 exit code 1 收场。**覆盖门禁抓不到这类泄漏**，只有 unhandled-error 报告能。
 
-修法分两层，缺一层都会漏：
+修法分两层，缺一层都会漏（v5 时代的形态）：
 
 1. **`render`/`unmount` 都包 `act`**，否则这次 `createRoot().render()` 的调度工作从一开始就在用例作用域之外；
 2. **注入渲染器登记每个 root，`afterAll` 逐个 `root.unmount()`（同样包 `act`）**：unmount 同步冲刷并作废该 root 名下所有已排程工作，之后 scheduler 再无可为该 root 触发的回调，收尾是**确定性**的。
+
+antd v6 之后第 1 层消失，收尾换成 `afterEach` 的 `flushPendingWork`：循环 `act` + 20ms 直到文档里没有 rc-motion 活动态类名（退场链收敛，30 轮上限）；僵尸 message 弹层（v6 关闭链在 jsdom+act 下静默失效）只抹文本、不碰 React 托管节点。
 
 只做第 1 层加 `afterEach` 定时排空（两轮 `act` + `0`/`20ms` 定时器，跨 rc-motion 的 rAF 兜底窗口）是**赌帧时机**：CI 上调度慢一点，immediate 就排在 flush 之后、环境销毁之后，照样抛 `window is not defined`。`23e8dc8`/`2c9f164` 两期 CI 红（3 处 unhandled error）正是这么来的，本地三轮并行复跑全绿也没能提前发现。`afterEach` 的定时排空仍保留（按用例回收动画帧，避免跨用例残留），但**不再承担收尾职责**；收尾只认第 2 层的确定性卸载。
 
