@@ -340,7 +340,7 @@ routes:
 - [Go SDK](./apps-sdk/go)（官方客户端，一枚 token 一个 `Client`；[`apps-sdk/go/example`](./apps-sdk/go/example/main.go) 是可运行自检——配 `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` 后 `go run` 走完五个面）
 - [应用接入 API](./docs/api/apps.md)（`/apps/{app}/**` 命名空间逐端点参考）· [OpenAPI 规范](./docs/api/openapi.yaml)（喂给代码生成器）
 - [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、受众与联系面、Digest、队列、Provider 全量配置项）
-- [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / Email / Webhook / SMS / Log）
+- [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / 微信公众号 / 阿里云短信 / 腾讯云短信 / 网易云信短信 / Email / FCM / APNs / 极光推送 / 个推 / Webhook / Log，附 [短信对比](./docs/providers/sms.md)）
 - [受众领域模型（总纲）](./docs/design-audience-model.md) · [受众订阅与投递中枢（关系详设）](./docs/design-audience-relations.md) · [概念边界与分层审计](./docs/design-audience-boundaries.md)
 - [规则引擎决策层设计](./docs/design-rule-engine.md) · [通知群组设计](./docs/design-notification-groups.md)
 
