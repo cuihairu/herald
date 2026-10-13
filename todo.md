@@ -1,40 +1,36 @@
-# Herald 领域模型改造 — Phase 执行清单
+# Herald 受众层改造需求清单
 
-跟踪 [design-audience-model.md](/design-audience-model) 计划的落地批次，事实底稿与差异详见 [design-audience-audit.md](/design-audience-audit)（含逐批执行记录）。执行规则（硬约束）：每批提交前全量门禁全绿（race + 覆盖 gate 100 + golangci-lint + dashboard 100% + docs build）；push 仅当前分支；单批小步提交。
-
-> **计划已收官（2026-10-04）**：Phase 0-9 全批落地。留批项（Logs 事件流分离、受众/渠道运行时 API、group 成员渠道块展开）均为显式设计决策，理由见 audit 差异总表收官节。原留批两项 2026-10-05 已补齐落地并从清单移除：RateLimited 专项退避（Retry-After，`39979bb`）、`next_retry_at` / 异步重新入队（重试等待移入队列侧持留，worker 不再睡退避，`20e25d4`）。**2026-10-05 显式拍板**：余 3 项留批维持不做——① Logs 与 Delivery 状态分离、② audiences/recipients/channels 运行时 API 均不实施；③ group 成员渠道块展开既定不做；队列清零，后续新方向另行指派。
+Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍板见 [design-audience-audit](design-audience-audit)。测试数为该批收官提交时的 Go 测试函数数。
 
 ## 已完成
 
-- [x] **Phase 0 · 现状审计** — `d4a6f8c`：方案 vs 实现差异清单 13 项、词汇回填表、测试底稿盘点
-- [x] **Phase 1 · 领域模型（user: 受众配置化 MVP）** — `3b56660`：`core/audience` 包（Endpoint/Recipient/Audience/Manager 启动校验）、config `audiences`/`recipients` 块、service `expandRef` 新增 `user:` 分支 + 按 provider 合并端点；未知 user 单通道显式失败
-- [x] **Phase 3 · Delivery 状态机（枚举化 + 同步重试）** — `3b56660`：`DeliveryStatus` 枚举、`ErrMaxRetries` sentinel（errors.Is 判定 dead）、retrying 驱动 `RetryCount`、TaskLog wire 字符串不变
-- [x] **Phase 6 · API 领域字段** — `8dddeb8`：notify 新增 `channel`/`audience`/`data`/`idempotency_key`（全部可选、兼容）；内存幂等表（cap 1000 FIFO、仅记录成功结果）；`audience` 逐项走既有展开链
-- [x] **Phase 2 · Routing** — Routing ≠ Delivery 边界显式化：`expandRefs` 纯决策步骤（引用集合 → 目标，不触队列；单引用失败不阻断批量），`enqueue` 只消费决策结果执行入队；行为零变化 + 决策层直接单测（routing_test.go 5 场景）
-- [x] **Phase 4 · Queue / Worker** — 五项核对（enqueue/dequeue/ack/worker/retry）全部无缺口；§14 字段回填：`DeliveryTask` 新增 `MaxAttempts`（投递预算快照）+ `LastError`（终态错误残留，delivered 清空），`Retryer.MaxAttempts()` 暴露预算；全真链路核对测试（pool_phase4_test.go：delivered/failed/dead + 预算 + last_error）；`next_retry_at` 留异步批次
-- [x] **Phase 5 · Provider 错误分类** — `core/errclass` 六类词汇（temporary/permanent/rate_limited/authentication/invalid_request/timeout，分类骑错误链、文本不变）；httpclient 单点接入（408→timeout、429→rate_limited、≥500→temporary、传输错误按超时分类，其余 4xx 不分类不重试）+ retry `isRetryable` 分类优先（旧 RetryableError 标记兼容）；测试：分类表 / 状态码映射 / 重试判定 / 端到端终态（auth→failed、rate_limited→dead）；RateLimited per-class 退避留异步批次
-- [x] **Phase 7 · Configuration** — `channels` 独立配置块（`channels: {ci: {providers: [...]}}`，启动校验拒起：零 providers/未知 provider）；优先级「channel 显式 > channels 块 > routes 表」在 expandRef 落地（显式 provider 实例压过块、`routes` 键未删）；router.ExpandChannel + service ChannelResolver；配置参考文档 channels 节；channels 运行时 API 按受众一期口径留批
-- [x] **Phase 8 · 测试** — §31 逐块核对：Notification（创建/参数 422）、Audience（group→recipients、user→recipient→endpoints）、Routing（refs→tasks）、Retry（Temporary 重试/Permanent 立败）、State（queued→delivering→delivered、failed→retrying→delivered）、Idempotency（键回放不重复创建）**均有既有测试底稿**；唯一真实缺口 **Multi Provider 隔离**（同一 fan-out 中 telegram 恰投一次不被兄弟失败带偏、feishu 可重试落地）补 `pool_phase8_test.go` 全真链路测试（service 路由→计划→队列→worker→provider）
-- [x] **Phase 9 · Documentation** — 七个文档面对齐（Getting Started/Architecture/Configuration/Provider/Audience/Delivery/API）：终态改写 + providers/overview 新增错误分类与重试节 + troubleshooting 修正 logs status 词汇错误（success/failed/pending/shadow）；差异总表收官——全部行收敛为「✅ 已落地」或「留批 + 理由」，无未定性缺口
+- [x] Phase 0 现状审计：方案 vs 实现差异清单与测试底稿盘点 — `d4a6f8c`（1079 例）
+- [x] Phase 1 领域模型：user: 受众配置化 MVP — `3b56660`（1095 例）
+- [x] Phase 2 Routing 边界：expandRefs 纯决策步骤与投递执行分离 — `efaae6b`（1097 例）
+- [x] Phase 3 Delivery 状态机：枚举化 + 同步重试 — `3b56660`（1095 例）
+- [x] Phase 4 Queue/Worker：MaxAttempts/LastError 回填与全链路核对 — `d65d3e9`（1100 例）
+- [x] Phase 5 Provider 错误分类：errclass 六类词汇接入重试判定 — `35b9b37`（1107 例）
+- [x] Phase 6 API 领域字段：notify 增 channel/audience/data/idempotency_key — `8dddeb8`（1096 例）
+- [x] Phase 7 Configuration：channels 独立配置块与优先级链 — `edc81d3`（1111 例）
+- [x] Phase 8 测试：Multi Provider 隔离全真链路补齐 — `ba10542`（1112 例）
+- [x] Phase 9 Documentation：七文档对齐收官、差异总表清零 — `523746a`（1112 例）
+- [x] 留批补齐：RateLimited per-class 退避（Retry-After）— `39979bb`（1126 例）
+- [x] 留批补齐：next_retry_at 异步重新入队 — `20e25d4`（1160 例）
+- [x] 插批 A 概念边界与分层审计：五层地图与八词裁决成文 — `de4bbac`（1220 例）
+- [x] 受众层 1 关系模型与受众注册表：RelationType 枚举与 Subscribe/Enroll API — `3fc1a82`（1166 例）
+- [x] 受众层 2 联系面与绑定 API：SurfaceRegistry 三态与一次性 token 绑定 — `19cf16c`（1179 例）
+- [x] 受众层 3 偏好中心：Frequency/Preference/DefaultPolicy 与读写 API — `4df837a`（1184 例）
+- [x] 受众层 4 投递管道关系过滤：ChannelClass 四族与 MatrixAllows 门 — `4b18b4a`（1190 例）
+- [x] 受众层 5 投递审计：core/audit 流水与去重折叠明细 — `de05e94`（1195 例）
+- [x] 受众层 6 Digest 聚合器：窗口聚合与 FlipLoop 定时器 — `3204e90`（1220 例）
+- [x] 受众层 7 RSS 拉式渠道：feeds 存储、公开/私密 feed 与投递投影 — `a96e1a1`（1244 例）
+- [x] 受众层 8 来源适配器：三端点入口与定期对账 Reconciler — `dc5092e`/`2f3d867`（1282 例）
+- [x] 受众层 9 渠道强度与投递模式：Intensity/Urgency/Mode 与 DeliveryPolicy — `0c20459`（1314 例）
+- [x] 受众层 10 去重与频控：Gate 去重、折叠与频控三档 — `3c6c395`/`ca6ee39`（1297 例）
+- [x] 受众层 11 集成者 API 与 Go SDK：app 命名空间、触发/查询 API 与 SDK — `4899d8f`…`f062c20`（1355 例）
 
-## 进行中：受众层改进（统一订阅与投递中枢）
+## 留批（显式设计决策，不实施）
 
-设计与实现详见 [design-audience-relations](design-audience-relations)。三阶段推进（2026-10-05 立项）：① 文档优先（本篇，写全再动码）；② 代码实现按文档落；③ 集成方对接验证（告警/通知真实触发走一遍）。全部扩在既有受众层上，不另立「订阅者」实体；关系类型显式（subscription 主动订阅 / enrollment 被动指派），接口 Subscribe/Enroll 分名。
-
-- [x] **1. 关系模型与受众注册表** — `3fc1a82`：RelationType 枚举（subscription/enrollment）、来源标记、策略位（AllowUnsubscribe/MustDeliver 互斥底线在 Enroll 强制、Subscribe 强制可退订形态）；Subscribe/Enroll/Terminate/Lookup/RelationsByType；同槽位最新登记为准，Terminate 返回被移除关系供审计
-- [x] **2. 联系面与绑定 API** — `19cf16c`：SurfaceRegistry（pending/active/invalid 三态，invalid 槽位重绑免确认、仅 active 收投递）、IssueBinding/RedeemBinding 一次性 token（15 分钟 TTL、未知/已用与过期分报错）、换绑守卫（同槽换目标挂 pending 等旧渠道 ConfirmRebind，窗口同 TTL、超窗保在位者）、RSSToken 随受众稳定签发；时钟注入全确定性，core/audience 100% 覆盖。另修 `342caa1`：queue 到期等待改用注入时钟（due.Sub(now())），钉钟测试不再与真实时钟漂移自旋超时
-- [x] **3. 偏好中心** — `4df837a`：Frequency 枚举（realtime/daily/weekly/none）、Preference 品类×渠道×频率三元组（同槽最新为准）、DefaultPolicy 默认策略表（system/alerts 实时+禁静默底线、marketing 每周汇总、未知品类实时+可退）；Set/Get/Effective/List/Clear 读写 API（Set 校验字段与静默底线、Clear 瞄空报错、List 稳定序）；绑定×关系交集校验留批次 4
-- [x] **4. 投递管道关系过滤** — `4b18b4a`：ChannelClass 四族分类（未知渠道名按 instant 严判，错判宁拒不放宽）；三行矩阵 MatrixAllows（订阅全开=RSS 唯一入口、必达拒 RSS、营销仅 email/app）；矩阵入 Enroll 门（违规组合拒绝入表）+ AllowsOn 发送前复核（覆盖外部种子）；Filter.Allow 四步交集（零联系面兼容放行→绑定交集 active→关系交集 fail-closed→矩阵复核）；expandRef 管道挂接随批次 11 触发面（现 /notify 无品类维度）
-- [x] **5. 投递审计补齐** — `de05e94`：core/audit 审计流水（Recorder 接口 + FIFO 上限 Store，订阅/指派/退订与绑定/换绑/失效六类事件，按关系类型与受众分读、时间序返回）；Registry/SurfaceRegistry.SetRecorder 挂钩，拒绝性写入不记流水；去重折叠明细 `delivery.deduped`（NotificationService.SetFoldAudit，Detail 带内容指纹，答「为什么这条没投」）；关系类型/入口来源快照进 Notification→DeliveryTask→TaskLog 全链（planner.Plan 传导）；发送侧关系上下文随批次 8/11 触发面填充
-- [x] **6. Digest 聚合器** — `3204e90`：core/digest 包（聚合键 受众×品类×Mode，ParseDaily/ParseWeekly 解析，窗口首事件开启、翻转取开窗后首个严格晚到的时刻——翻转瞬间事件归下窗；Due 只发非空批且必推进 flipAt，漏拍自愈）；Resolve 豁免裁决（实时偏好短路直投——宁直投勿扣留；daily 压 weekly 取更紧窗；none 的静默在投递侧执行；无受众/无渠道直投，nil prefs 落品类默认表）；FlushDigestBatch 摘要走全投递链（复用重试/审计，内置「今日/本周 N 条品类」，`digest:<品类>` 模板可换皮（count/items/audience/mode 参数，渲染失败显式报错不静默丢窗），空渠道回退静态路由）；FlipLoop 进程内定时器 + LeaderLock 租约（SET NX/PExpire 续约，redis 可选——无 redis_addr 单机直跑，多实例租约互斥）；heraldd 接线（默认 09:00 / Mon 09:00 / Asia/Shanghai / 1m tick / 60s lease，关闭先还租约；坏配置拒绝启动）
-- [x] **插批 A · 概念边界与分层审计**（2026-10-07 评审指令，批次 7 前置）— `docs/design-audience-boundaries.md`：五层地图（集成/受众与偏好/编排/投递运行时/provider）+ 八词裁决（受众/渠道/联系面/provider/偏好/投递模式/紧急度/侵扰度——消息侧与渠道侧不共侧，不合并）+ 评审七点回执；定位句三处加「编排」；投递方向（push/pull）入渠道属性、「RSS=拉式渠道」成文并避让已被占用的「投递模式」词；幂等/折叠/频控/聚合四道闸措辞收紧；受众层实体七件封顶红线（不再新增同位实体）；Redis 可选核实批次 6 落地即合规
-- [x] **7. RSS 拉式渠道** — `a96e1a1`：core/feeds 拉式投影存储（FIFO 按品类留 500 条默认上限、Add 校验 ID/品类/标题、Public 只含无受众引用的公开内容、Private 读取时经 allows 回调逐条判准入）+ RSS 2.0 渲染（RFC1123Z UTC、guid=isPermaLink=false、encoding/xml 转义）；投递管道对 rss 类渠道**就地投影**——不产生 provider 任务、混合渠道双路都走（投影失败归 result.Failed 不吞）、无 feeds 存储时维持「provider not found」失败语义；`/feeds/<品类>.xml` 公共 feed（slug 校验 1-64 位 [A-Za-z0-9._-]，未知品类=空频道 200）与 `/feeds/private/<rss_token>.xml` 私密 feed（未认证端点、token 即凭据；可见性=SurfaceRegistry.RSSAudience 归属 × Registry.Lookup(受众,品类,"rss") 矩阵复核——取关即从下一次拉取起消失，投影侧零记账）；`feeds:` 配置块（enabled/title/link/description/max_items）+ heraldd 接线（token/关系注册表先行接线，数据随批次 8/11 触发面填入——之前私密 feed 对未知 token 一律 404）；多地址容灾按边界审计 §4 归阅读器侧不代码化；xml.MarshalIndent 恒 nil 分支入 KNOWN_UNCOVERABLE（2026-10-07 实证非法字符转义不报错）
-- [x] **8. 来源适配器** — `dc5092e` + `2f3d867`：`core/audience.SourceAdapter` 动作归一化（Follow=Activate+默认组、Unfollow=联系面 invalid+按渠道全停退订 TerminateFor、Toggle 勾选开关、must-deliver 经 ErrMustDeliver 拒绝关停）+ 三端点 `api/handler_sources.go`（bot webhook `/start <token>` RedeemBinding 一次性 token/`/stop` 全停/合法 update 一律 200、公众号 sha1 签名+GET echostr+subscribe/unsubscribe 收敛、应用内勾选 POST/DELETE 422/404/409 校验）+ `core/audience.Reconciler`（RunOnce 只探已登记 active 联系面、probe 报错 Skipped 从不猜、失效即 InvalidateFor+TerminateFor actor=reconcile 留审计）+ `providers/builtin/telegram`/`wechatmp` 各出 `SurfaceProbe`（TG 400/403+ok:false 记确定不认识、MP user/info subscribe 标志）+ `sources:` 配置块（enabled 总开关、凭据即分入口开关、reconcile.interval/lease_ttl 默认 1h/1m、probe 按 providers 的 type 构建、配置残缺拒起）+ heraldd `reconcileLoop`（digest 同款 redis 锁选主 `herald:sources:reconcile:leader`、复用 digest redis 连接）；审计由注册表 SetRecorder 统一记（feeds/sources 任一启用即挂 audit.Store）；未知 provider 类型跳过扫描、对账/全停守卫分支入 KNOWN_UNCOVERABLE（调度窗口论证 + 台账 11 条豁免后门禁 GREEN）
-- [x] **9. 渠道强度与投递模式** — `0c20459`：`core/audience` §6 策略件——Intensity L0–L5（RSS/邮件/站内信/IM/短信/电话）与 Urgency 四档（例行 L0–L1、一般 L0–L2、紧急 L0–L4、关键 L0–L5）及 Mode 三枚举（fixed/escalation/parallel），解析一律 refuse-not-clamp；`DeliveryPolicy` 持三张覆盖表（category_urgency/channel_intensity/category_mode，键大小写不敏感）+ `allow_phone` 电话门（§6.2 电话默认禁用，配置+受众双重同意，门按有效强度判——改档落 L5 同样要开），`MatchChannels` 按 过滤→电话门→紧急度窗口 出三方交集、逐渠道标注拒绝原因（filtered/phone_disabled/intensity_exceeded）；三模式执行器 `BuildPlan`/`RunPlan`——升级链按有效强度升序、等强度同段、ack 应答即停、投递失败即中止、等待超时后复查 ack 再进下一段，并行/固定单段；config `delivery:` 块四键透传、启动即构建策略件、不可解析值拒起（main_cover_test 错误表补 delivery 用例）；api.Config 预挂策略件，触发面（expandRef/品类维度）接线随批次 11；KNOWN_UNCOVERABLE 探测块随构建块下移 422→434
-- [x] **10. 去重与频控** — `3c6c395`+`ca6ee39`：`core/dedup.Gate` 按 §11 闸序落地事件幂等（event_id 重复即丢、内容漂移不影响）、状态机去重（首次与翻转必发、重复态折叠）、内容折叠（账本保留原始事件指纹，×N 计数恒真、单键展开上限 100）与频控三档（once/throttle/always，品类默认档 system=once、alerts=throttle、其余沿用窗口节流；各表 FIFO 4096 重启即清）。`Notification` 增 `event_id`/`dedup_key`/`state` 三字段，折叠审计行 Detail 升级为「层: 键 (×N)」；config 增 `category_tiers`/`category_windows` 覆盖表（Validate 拒绝不可解析档位与非正窗口）。用户偏好收窄（§11.2 Narrow 格已备）随批次 11 偏好端点接线
-- [x] **11. 集成者 API 与 Go SDK** — `4899d8f`+`79e71ac`+`07a16d8`+`18e500f`+`697070a`+`83e44a3`+`f062c20`+本提交（2026-10-07）：app 命名空间与 token 权限分级（config/trigger/query，`core/apps` 注册表+种子+拒起校验）；配置 API（品类注册带默认紧急度、模板命名空间隔离、策略覆盖四族——渠道强度/投递模式/升级链/去重频控，§5 渠道×关系矩阵是安全底线不做应用级覆盖）；触发 API（三方交集匹配=关系×紧急度强度区间×联系面绑定，dedup 闸先行、全 dispatch 一份投递计划、逐受众折叠、升级链首段先行）；查询 API（deliveries/audit/受众关系三读口，`app:<名>` source 戳命名空间隔离，任务链 audience_id/category 维度快照）；webhook 回调（`core/callback` 事件词汇 delivery_result/unsubscribe、event_id 幂等、HMAC-SHA256 签名、ride 队列管道 at-least-once+重试，settle 沉槽+退订钩子双接线）；`apps-sdk/go` SDK（全流程客户端，一枚 token 一个 Client）与 `docs/guide/integration.md`；设计 §13 同步（channel-matrix 端点拍板不落地、回调语义落地注记）
-
-## 说明
-
-- 本文件 2026-10-04 首次建立（此前计划只存在于设计/审计文档）；无历史待办条目需要清理，源文档中已被执行记录覆盖的过程性草稿（如早期审计稿的错误表述）均已在 [design-audience-audit.md](/design-audience-audit) 就地修正，不在此重复。
-- 批次顺序与计划书一致（Phase 6 因独立成批提前勾销，实际执行序 6 → 2 → 4 → 5 → 7 → 8 → 9）；全部批次收官，本清单转为归档。
+- [ ] Logs 与 Delivery 状态分离
+- [ ] audiences/recipients/channels 运行时 API
+- [ ] group 成员渠道块展开
