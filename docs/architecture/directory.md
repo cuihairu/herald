@@ -75,8 +75,8 @@ herald/
 │       ├── webhook/          # Webhook
 │       ├── aliyunsms/        # 阿里云 SMS
 │       ├── tencentsms/       # 腾讯云 SMS
-│       ├── neteasesms/       # 网易云 SMS
-│       ├── wechat/           # 微信（Server酱）
+│       ├── neteasesms/       # 网易云信短信
+│       ├── wechat/           # 微信（Server酱/PushPlus/WxPusher）
 │       ├── wechatmp/         # 微信公众号
 │       ├── fcm/              # FCM 推送
 │       ├── apns/             # APNs 推送

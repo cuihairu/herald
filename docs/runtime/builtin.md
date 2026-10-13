@@ -4,7 +4,7 @@ Builtin Runtime 直接运行在 Core 内，适合简单的 HTTP API 类 Provider
 
 ## 适合场景
 
-Telegram Bot API、Discord Webhook、飞书/企业微信机器人、Email SMTP、通用 Webhook、SMS（阿里云、腾讯云、网易云）——一个 HTTP 调用能发出去的渠道都适合。
+Telegram Bot API、Discord Webhook、飞书/企业微信机器人、Email SMTP、通用 Webhook、SMS（阿里云、腾讯云、网易云信）——一个 HTTP 调用能发出去的渠道都适合。
 
 ## 特点
 
@@ -280,7 +280,7 @@ providers:
 
 ### WeChat Provider
 
-微信个人推送（Server酱）。
+微信个人推送，三选一后端：Server酱（默认）/ PushPlus / WxPusher，由 `service` 键选择（见 [Provider 手册](/providers/wechat)）。
 
 ```yaml
 providers:

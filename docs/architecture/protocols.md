@@ -18,7 +18,7 @@ curl /notify
 
 ## 内部协议
 
-Herald 内部使用 **Persistent Session Protocol**，承载 Worker 注册、任务分发、心跳、重连与事件流五类交互。
+Herald 内部使用 **Persistent Session Protocol**，承载 Worker 注册、注册确认、心跳、重连、错误通报与事件流六类交互。`dispatch` 类型在协议里已定义（`protocol/message.go`）但全仓无生产调用点——任务分发走队列，Hub 不参与。
 
 ### 实际实现
 

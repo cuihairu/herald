@@ -41,9 +41,9 @@ Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
 │                          ↓                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                    Renderer                               │   │
-│  │  ┌─────────────┬─────────────┬─────────────┬──────────┐  │   │
-│  │  │ HTMLRenderer│MDRenderer   │PlainRenderer│JSONRenderer│ │   │
-│  │  └─────────────┴─────────────┴─────────────┴──────────┘  │   │
+│  │  ┌─────────────┬──────────────────┬─────────────┬──────────┐  │   │
+│  │  │ HTMLRenderer│MarkdownRenderer│PlainRenderer│JSONRenderer│ │   │
+│  │  └─────────────┴──────────────────┴─────────────┴──────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                          ↓                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -151,14 +151,14 @@ type ProviderCapability struct {
 
 ### 不同 Provider 的处理方式
 
-planner 按 Provider 声明的 `PayloadKinds` 生成投递载荷，三种取值：`payload_content`（Herald 渲染的标题+正文）、`payload_provider_template`（服务商模板）、`payload_raw`（原始字段兜底）。
+planner 按 Provider 声明的 `PayloadKinds` 生成投递载荷，三种取值（`core/types.go` 的 wire 值）：`content`（Herald 渲染的标题+正文）、`provider_template`（服务商模板）、`raw`（原始字段兜底）。
 
 | Provider 类型 | PayloadKind | 数据来源 |
 |-------------|---------|---------|
-| **Email** | payload_content | `task.Payload.Content`（Title/Body/Format） |
-| **SMS** | payload_provider_template | `task.Payload.ProviderTemplate.TemplateCode` |
-| **IM (Feishu/Telegram)** | payload_content | `task.Payload.Content` |
-| **Webhook** | payload_content，raw 兜底 | `task.Payload.Content`，无渲染数据时退 `Payload.Raw` |
+| **Email** | content | `task.Payload.Content`（Title/Body/Format） |
+| **SMS** | provider_template | `task.Payload.ProviderTemplate.TemplateCode` |
+| **IM (Feishu/Telegram)** | content | `task.Payload.Content` |
+| **Webhook** | content，raw 兜底 | `task.Payload.Content`，无渲染数据时退 `Payload.Raw` |
 
 ### SMS Provider 特殊处理
 

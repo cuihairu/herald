@@ -137,7 +137,7 @@ providers:
       app_key: "$NETEASE_APP_KEY"
       app_secret: "$NETEASE_APP_SECRET"
 
-  # 微信个人推送（Server酱）
+  # 微信个人推送（Server酱/PushPlus/WxPusher）
   wechat:
     type: wechat
     enabled: false

@@ -10,7 +10,7 @@ Provider 跑在哪个进程里，由 Runtime 决定。Herald 分两类：Builtin
 
 #### 适合场景
 
-Telegram、Discord、飞书、企业微信 Bot、Email、Webhook、SMS（阿里云、腾讯云、网易云）——纯 HTTP API 类渠道都算。
+Telegram、Discord、飞书、企业微信 Bot、Email、Webhook、SMS（阿里云、腾讯云、网易云信）——纯 HTTP API 类渠道都算。
 
 #### 特点
 
@@ -96,7 +96,7 @@ Worker 通过 WebSocket 与核心通信，支持以下消息类型：
 | `register` | Worker → Core | Worker 注册 |
 | `register_ack` | Core → Worker | 注册确认 |
 | `heartbeat` | Worker → Core | 心跳 |
-| `dispatch` | Core → Worker | 任务分发 |
+| `dispatch` | Core → Worker | 已定义未启用（全仓无生产调用点；任务分发走队列，Hub 不参与） |
 | `ack` | Worker → Core | 任务确认 |
 | `error` | 双向 | 错误通报 |
 | `event` | Worker → Core | 事件通知（online/offline/error） |

@@ -140,6 +140,8 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启�
 }
 ```
 
+协议共定义七类消息（`protocol/message.go`）：上文四类在用，`dispatch`/`ack`/`error` 已定义但全仓无生产调用点——任务结果走队列 Ack/Nack，不经 WebSocket。
+
 ## 适用场景
 
 Remote Worker 适用于：浏览器自动化（微信公众号、网页版工具）、移动端桥接（Android 通知桥接）、需要 GUI Session 或特殊系统权限的场景，以及想把渠道崩溃隔出调度器进程的部署。

@@ -7,9 +7,9 @@
 | Bot API | 官方 Bot API | Telegram / Discord |
 | Webhook | Webhook 接口 | 飞书 / 企业微信 / 钉钉 / Slack |
 | SMTP | 邮件协议 | Email |
-| SMS | 短信服务 | 阿里云 / 腾讯云 / 网易云 |
+| SMS | 短信服务 | 阿里云 / 腾讯云 / 网易云信 |
 | 移动推送 | APNs / FCM 等 | FCM / APNs / 极光 / 个推 |
-| Third-party Push | 第三方推送 | Server酱 |
+| Third-party Push | 第三方推送 | Server酱 / PushPlus / WxPusher |
 | Worker Proxy | Worker 代理 | type: worker 的转发渠道 |
 
 ## Builtin Providers
@@ -29,8 +29,8 @@
 | Webhook | 通用 | 通用 HTTP Webhook |
 | AliyunSMS | SMS | 阿里云短信 |
 | TencentSMS | SMS | 腾讯云短信 |
-| NetEaseSMS | SMS | 网易云短信 |
-| WeChat | Third-party | 微信个人推送（Server酱） |
+| NetEaseSMS | SMS | 网易云信短信 |
+| WeChat | Third-party | 微信个人推送（Server酱 / PushPlus / WxPusher） |
 | WeChatMP | Third-party | 微信公众号（模板消息/客服消息） |
 | FCM | 移动推送 | Firebase Cloud Messaging |
 | APNs | 移动推送 | Apple Push Notification service |

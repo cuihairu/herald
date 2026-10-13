@@ -87,7 +87,7 @@ type DeliveryTask struct {
     Payload     DeliveryPayload
     Level       string
     AlertID     string         // 确认身份透传到交互卡片按钮
-    Status      DeliveryStatus // 投递状态机（queued/delivered/failed/dead）
+    Status      DeliveryStatus // 投递状态机（queued/delivering/retrying/delivered/failed/dead）
     RetryCount  int            // 已重试次数（attempts = RetryCount + 1）
     MaxAttempts int            // 首次投递时记入的总尝试预算
     LastError   string         // 终态为 failed/dead 时的最后一次错误
