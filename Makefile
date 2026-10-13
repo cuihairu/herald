@@ -1,4 +1,4 @@
-.PHONY: build clean run docs docs-dev test test-integration docker-build docker-up docker-down docker-logs dashboard-dev dashboard-build
+.PHONY: build clean run docs-dev docs-build test test-integration docker-build docker-up docker-down docker-logs docker-ps dashboard-dev dashboard-build
 
 build:
 	@echo "Building herald..."

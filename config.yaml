@@ -120,7 +120,7 @@ providers:
     type: wechat
     enabled: false
     config:
-      sendkey: "$WECHAT_SENDKEY"
+      send_key: "$WECHAT_SERVERCHAN_SEND_KEY"
 
 # 路由配置
 routes:
