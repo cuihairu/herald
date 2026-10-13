@@ -175,8 +175,8 @@ func (s *NotificationService) SetFeeds(store *feeds.Store) {
 	s.feeds = store
 }
 
-// SetRuleEngine attaches the rule engine evaluated after dedup and before
-// routing. nil (the default) keeps processing unchanged.
+// SetRuleEngine attaches the rule engine evaluated before routing and
+// before dedup. nil (the default) keeps processing unchanged.
 func (s *NotificationService) SetRuleEngine(re RuleEvaluator) {
 	s.rules = re
 }
