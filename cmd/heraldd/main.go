@@ -282,13 +282,36 @@ func serveCmd(args []string) int {
 	}
 
 	// Create the user-level audience tables: "user:" channel references
-	// resolve through audiences/recipients to provider endpoints. The MVP
-	// is config-only — unlike groups there is no runtime API yet. An
-	// invalid table is configuration drift and refuses to start.
-	audienceManager, err := audience.NewManager(cfg.Audiences, cfg.Recipients)
+	// resolve through audiences/recipients to provider endpoints.
+	// Audiences carry a runtime API backed by audiences_store (config
+	// seeds win same-id collisions, mirroring groups); recipients stay
+	// config-only. An invalid table is configuration drift and refuses to
+	// start.
+	var audienceStore audience.Store
+	if cfg.AudiencesStore != "" {
+		store, err := audience.NewFileStore(cfg.AudiencesStore)
+		if err != nil {
+			logger.Error("failed to open audiences store", "path", cfg.AudiencesStore, "error", err)
+			return 1
+		}
+		audienceStore = store
+	}
+	audienceManager, err := audience.NewManager(audienceStore, cfg.Audiences, cfg.Recipients)
 	if err != nil {
 		logger.Error("failed to load audiences/recipients", "error", err)
 		return 1
+	}
+	if audienceStore != nil {
+		if err := audienceManager.Reload(context.Background()); err != nil {
+			logger.Error("failed to load audiences", "error", err)
+			return 1
+		}
+	}
+	for id, aud := range cfg.Audiences {
+		if err := audienceManager.Put(context.Background(), id, aud); err != nil {
+			logger.Error("failed to load audience", "id", id, "error", err)
+			return 1
+		}
 	}
 	if len(cfg.Audiences) > 0 || len(cfg.Recipients) > 0 {
 		logger.Info("audiences loaded", "audiences", len(cfg.Audiences), "recipients", len(cfg.Recipients))

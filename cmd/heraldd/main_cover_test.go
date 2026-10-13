@@ -35,6 +35,12 @@ func TestServeCmdStartupFailures(t *testing.T) {
 	if err := os.WriteFile(badRosters, []byte(`{"version":1,"rosters":[{"id":"bad","periods":[]}]}`), 0o600); err != nil {
 		t.Fatalf("write bad rosters store: %v", err)
 	}
+	// Same shape for audiences: parses, then fails validation on reload
+	// (the stored audience names a recipient the config never defines).
+	badAudiences := filepath.Join(dir, "audiences-invalid.json")
+	if err := os.WriteFile(badAudiences, []byte(`{"version":1,"audiences":[{"id":"bad","recipients":["ghost"]}]}`), 0o600); err != nil {
+		t.Fatalf("write bad audiences store: %v", err)
+	}
 	cases := map[string]string{
 		// A rules store pointing at a directory cannot be opened.
 		"rules store is a dir": fmt.Sprintf("rules_store: %s\n", dir),
@@ -59,6 +65,14 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"rosters store is a dir": fmt.Sprintf("rosters_store: %s\n", dir),
 		// A rosters store that opens but fails validation aborts the load.
 		"rosters reload failure": fmt.Sprintf("rosters_store: %s\n", badRosters),
+		// An audiences store pointing at a directory cannot be opened.
+		"audiences store is a dir": fmt.Sprintf("audiences_store: %s\n", dir),
+		// An audiences store that opens but fails validation aborts the load.
+		"audiences reload failure": fmt.Sprintf("audiences_store: %s\n", badAudiences),
+		// An audiences store whose parent directory does not exist opens
+		// empty (missing file) and reloads fine, then the config seed's
+		// persist fails: a store that cannot be written refuses the start.
+		"audiences store dir missing": fmt.Sprintf("audiences_store: %s\nrecipients:\n  alice:\n    endpoints:\n      - type: log\n        target: alice\naudiences:\n  ops:\n    recipients: [alice]\n", filepath.Join(dir, "missing-dir", "audiences.json")),
 		// An audience referencing an unknown recipient is configuration
 		// drift and refuses to start (user-level audience tables).
 		"audience references unknown recipient": "audiences:\n  ops:\n    recipients: [ghost]\n",

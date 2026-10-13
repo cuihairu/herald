@@ -533,6 +533,50 @@ Worker 的部署返回空列表（`count` 0）。
 
 删除群组，不存在返回 404。删除**不会**清理规则里对它的引用：仍在引用它的规则会在派发时因未知群组显式失败，这胜过悄悄改写用户的规则。
 
+## GET /api/v1/audiences {#audiences-list}
+
+查询受众列表（`user:` 级实体的运行时活表，含 YAML 种子与存储合并后的全部条目）。受众管理器未配置时返回 503。
+
+### audiences-响应 {#audiences-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "audiences": [
+      { "id": "ops", "recipients": ["alice", "bob"] }
+    ],
+    "count": 1
+  }
+}
+```
+
+## POST /api/v1/audiences {#audience-create}
+
+创建受众。ID 已存在返回 409；校验失败（非法 id、空 recipients、引用未配置的接收人）返回 400。
+
+### audience-create-请求 {#audience-create-request}
+
+```json
+{
+  "id": "ops",
+  "recipients": ["alice", "bob"]
+}
+```
+
+## GET /api/v1/audiences/{id} {#audience-get}
+
+查询单个受众，不存在返回 404。
+
+## PUT /api/v1/audiences/{id} {#audience-update}
+
+整体替换该受众（URL 里的 id 优先于请求体），替换立即对 `user:` 引用展开生效。校验失败返回 400。
+
+## DELETE /api/v1/audiences/{id} {#audience-delete}
+
+删除受众，不存在返回 404。删除**不会**清理通知与规则里对它的 `user:<id>` 引用：仍被引用的受众在展开时按未知引用显式失败，不静默解析为空。
+
 ## GET /api/v1/rosters {#rosters-list}
 
 查询值班表列表。值班表管理器未配置时返回 503。

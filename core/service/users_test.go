@@ -27,6 +27,7 @@ func usersNotification() *core.Notification {
 // feishu-oncall, carol only on sms-duty.
 func userTables() *audience.Manager {
 	m, err := audience.NewManager(
+		nil,
 		map[string]audience.Audience{
 			"ops":        {Recipients: []string{"alice", "bob"}},
 			"single-dir": {Recipients: []string{"carol"}},
@@ -109,6 +110,7 @@ func TestProcessUserReferences(t *testing.T) {
 
 	t.Run("audience table takes precedence over recipient table", func(t *testing.T) {
 		m, err := audience.NewManager(
+			nil,
 			map[string]audience.Audience{"shared": {Recipients: []string{"carol"}}},
 			map[string]audience.Recipient{
 				"shared": {Endpoints: []audience.Endpoint{{Type: "plain", Target: "direct-id"}}},

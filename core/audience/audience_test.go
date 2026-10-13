@@ -50,7 +50,7 @@ func validTables() (map[string]Audience, map[string]Recipient) {
 
 func TestNewManagerValid(t *testing.T) {
 	auds, recs := validTables()
-	m, err := NewManager(auds, recs)
+	m, err := NewManager(nil, auds, recs)
 	if err != nil {
 		t.Fatalf("NewManager(valid) = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestNewManagerValid(t *testing.T) {
 
 	// Empty tables are legal: a deployment without the user model resolves
 	// nothing but starts fine.
-	empty, err := NewManager(nil, nil)
+	empty, err := NewManager(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewManager(nil, nil) = %v", err)
 	}
@@ -91,7 +91,7 @@ func TestNewManagerRejects(t *testing.T) {
 		{"oversized endpoint target", nil, map[string]Recipient{"alice": {Endpoints: []Endpoint{{Type: "email", Target: strings.Repeat("t", maxNameChars+1)}}}}, "endpoint 0 target"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewManager(tc.auds, tc.recs)
+			_, err := NewManager(nil, tc.auds, tc.recs)
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -104,7 +104,7 @@ func TestNewManagerRejects(t *testing.T) {
 
 func TestExpandUser(t *testing.T) {
 	auds, recs := validTables()
-	m, err := NewManager(auds, recs)
+	m, err := NewManager(nil, auds, recs)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestExpandUserAudiencePrecedence(t *testing.T) {
 		"shared": {Endpoints: []Endpoint{{Type: "plain", Target: "direct"}}},
 		"alice":  {Endpoints: []Endpoint{{Type: "email", Target: "a@b.c"}}},
 	}
-	m, err := NewManager(auds, recs)
+	m, err := NewManager(nil, auds, recs)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}

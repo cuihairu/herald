@@ -242,6 +242,11 @@ rules:
 # 不设置时群组仅保存在内存中（groups 种子仍然生效）。
 # groups_store: ./data/groups.json
 
+# 受众持久化文件（可选）
+# 设置后通过 API 对 audiences 的增删改会落盘到该 JSON 文件，重启自动恢复；
+# 不设置时 audiences 仅保存在内存中（audiences 种子仍然生效，recipients 始终是纯配置）。
+# audiences_store: ./data/audiences.json
+
 # 值班表持久化文件（可选）
 # 值班表由外部排班系统通过 API 推送（无 YAML 种子——它是推送数据不是配置）；
 # 设置后推送的排班时段落盘到该 JSON 文件，重启自动恢复；
@@ -668,7 +673,7 @@ curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 | `delivery` | 投递策略件（§6）：品类默认紧急度/渠道强度/品类模式三张覆盖表 + 电话门配置侧同意；app 覆盖叠加其上 | ✅ 已实现 |
 | `apps` | 集成方命名空间（§13.1）：app 名 → 启动 token 种子（secret + scopes），无运行时铸造 API | ✅ 已实现 |
 
-`audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级，接收人/端点表本身无运行时 API）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
+`audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级；audiences 有运行时写口，接收人/端点表仍无——改 recipients = 改 YAML + 重启）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
 
 ```yaml
 recipients:
@@ -690,6 +695,29 @@ audiences:
 ```
 
 例如 `channels: ["user:ops"]` 展开为 3 个投递任务：feishu（@alice 与 @bob 捆绑）、email、sms-duty。
+
+audiences 支持**运行时写口**（语义同群组：`audiences:` YAML 是引导种子，启动时灌入后与存储并存，同 id 时配置种子覆盖存储条目）：
+
+```bash
+# 列出受众（含存储与种子合并后的活表）
+curl http://localhost:8080/api/v1/audiences
+
+# 创建受众（重复 id 返回 409；校验失败——非法 id/空接收人/引用未知接收人——返回 400）
+curl -X POST http://localhost:8080/api/v1/audiences \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"ops","recipients":["alice","bob"]}'
+
+# 查看 / 整体替换 / 删除（URL 中的 id 优先于 body）
+curl http://localhost:8080/api/v1/audiences/ops
+curl -X PUT http://localhost:8080/api/v1/audiences/ops \
+  -H 'Content-Type: application/json' \
+  -d '{"recipients":["alice"]}'
+curl -X DELETE http://localhost:8080/api/v1/audiences/ops
+```
+
+- 增删改即时生效（活表替换），下一条通知就用新受众；持久化与热加载语义同规则/群组存储（`audiences_store` 落盘、文件损坏启动失败）
+- 写口只覆盖 audiences 实体；recipients（接收人/端点表）与 channels 块仍是纯配置，写口留批
+- 被删除受众的 `user:<id>` 引用在展开时显式失败（unknown），不会静默解析为空
 
 `channels` 块为命名渠道声明其投递 providers（设计 §27）。渠道位上的**裸名称按优先级解析**：显式 provider 实例 > `channels` 块 > `routes` 表（`routes` 只在通知未指定任何渠道时按 type/level 路由）。名字既不是 provider 实例、也不在任何配置块中时，保持原有的「投递时按 provider 缺失失败」语义。群组成员的渠道名走同一条解析链——成员写块名即扇出到块的 providers：
 

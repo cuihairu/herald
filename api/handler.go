@@ -22,24 +22,25 @@ import (
 
 // Handler handles HTTP requests
 type Handler struct {
-	notificationSvc *service.NotificationService
-	runtime         *runtime.Manager
-	templateManager *template.Manager
-	workerRegistry  *worker.Registry
-	_wsServer       *websocket.Server
-	queue           core.Queue
-	rulesEngine     *rules.Engine
-	groupsManager   *groups.Manager
-	rostersManager  *roster.Manager
-	ackStore        ack.Store
-	escalation      *escalation.Manager
-	incidents       *incident.Store
-	cardEncryptKey  string
-	idempotency     *notifyIdempotency
-	feedStore       *feeds.Store
-	feedMeta        feeds.ChannelMeta
-	feedSurfaces    *audience.SurfaceRegistry
-	feedRelations   *audience.Registry
+	notificationSvc  *service.NotificationService
+	runtime          *runtime.Manager
+	templateManager  *template.Manager
+	workerRegistry   *worker.Registry
+	_wsServer        *websocket.Server
+	queue            core.Queue
+	rulesEngine      *rules.Engine
+	groupsManager    *groups.Manager
+	audiencesManager *audience.Manager
+	rostersManager   *roster.Manager
+	ackStore         ack.Store
+	escalation       *escalation.Manager
+	incidents        *incident.Store
+	cardEncryptKey   string
+	idempotency      *notifyIdempotency
+	feedStore        *feeds.Store
+	feedMeta         feeds.ChannelMeta
+	feedSurfaces     *audience.SurfaceRegistry
+	feedRelations    *audience.Registry
 	// §8 source adapters: the registry mutator, the reverse identity
 	// index, and the two platform entry configs (empty config = that
 	// endpoint stays 404).
@@ -103,6 +104,12 @@ func (h *Handler) SetRuleEngine(engine *rules.Engine) {
 // endpoints.
 func (h *Handler) SetGroupManager(m *groups.Manager) {
 	h.groupsManager = m
+}
+
+// SetAudiencesManager attaches the audience manager for audience CRUD
+// endpoints (the write half of the user-level tables).
+func (h *Handler) SetAudiencesManager(m *audience.Manager) {
+	h.audiencesManager = m
 }
 
 // SetRosterManager attaches the duty roster manager for roster CRUD

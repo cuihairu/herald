@@ -224,7 +224,7 @@ func TestHandleNotify(t *testing.T) {
 
 	t.Run("audience expands user references", func(t *testing.T) {
 		env := newTestEnv(t, func(c *Config) {
-			m, err := audience.NewManager(nil, map[string]audience.Recipient{
+			m, err := audience.NewManager(nil, nil, map[string]audience.Recipient{
 				"alice": {Endpoints: []audience.Endpoint{{Type: "p1", Target: "tok"}}},
 			})
 			if err != nil {

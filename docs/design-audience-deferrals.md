@@ -1,6 +1,7 @@
-# 留批解冻预案（3 项；① ② 待拍板，③ 已解冻落地）
+# 留批解冻预案（3 项；① 待拍板，② 部分解冻，③ 已解冻落地）
 
-> 状态：**① ② 待拍板，③ 已落地**。本文承接 [Audience 改造审计（存档）](./design-audience-audit)
+> 状态：**① 待拍板，② 部分解冻（audiences 写口已落地），③ 已落地**。本文承接
+> [Audience 改造审计（存档）](./design-audience-audit)
 > 2026-10-05 拍板维持不做的 3 项留批，为每项列出现状事实、可选路径与后果。审计第十一轮
 > 确认：除 todo.md 这 3 项外无其他未完成项，本仓无 open issue/PR，文档面十轮复扫无新增
 > 差异——审计已进入纯复扫，故按巡检指令转做本文。每项现状均带 file:line，选项为 A/B/C，
@@ -11,7 +12,7 @@
 | # | 条目 | 卡在哪 | 解锁需要 |
 |---|------|--------|----------|
 | ① | Logs 与 Delivery 状态分离 | 用户拍板（2026-10-05 维持不做：成本最高项） | 用户在 A/B/C 中选一个并给预算 |
-| ② | audiences/recipients/channels 运行时 API | 用户拍板（2026-10-05 维持纯配置化口径） | 用户选定写口范围 + 持久化口径 |
+| ② | audiences/recipients/channels 运行时 API | **部分解冻（2026-10-14 用户拍板解冻，audiences 写口）**——audiences 已落地，recipients/channels 写口仍留批 | 剩余范围（recipients/channels 写口）待拍板 |
 | ③ | group 成员渠道块展开 | **已解冻（2026-10-13 巡检指派开工，选项 B）** | 无需——`2a857ff` 落地，文档同步 `9b741ef` |
 
 ---
@@ -66,7 +67,15 @@
 | B 最小写口（audiences） | `POST /api/v1/audiences` 写入运行时注册表，YAML 保持引导种子 | 注册表现为内存态（YAML 加载），运行期新增需持久化；校验须与配置 `Validate()` 对齐；中成本 |
 | C 全量 CRUD + 持久化 + 回写 | audiences/recipients/channels 全量运行时增删改，配置回写 | 双源真相问题：文件 vs 运行时优先级与回写格式需额外裁决；最高成本 |
 
-**解锁**：用户选定范围（仅 audiences / 全量三实体）+ 持久化口径（是否回写配置文件）。
+**解锁**：~~用户选定范围（仅 audiences / 全量三实体）+ 持久化口径（是否回写配置文件）~~ → **部分解冻**（2026-10-14 用户拍板解冻，audiences 最小写口）。
+
+> 2026-10-14 解冻记录：巡检 AskUserQuestion 拍板「解冻 ② audiences/recipients 运行时
+> API」，实施为**选项 B（最小写口，audiences）+ 文件持久化**（语义同群组 store）：
+> `Store` 接口 + JSON `FileStore`（`audiences_store` 配置，原子写）+ Manager 活表
+> （Reload/Put/Delete，种子同 id 覆盖存储条目）+ `GET/POST /api/v1/audiences` 与
+> `GET/PUT/DELETE /api/v1/audiences/{id}`。recipients（接收人/端点表）与 channels 块
+> 的写口**仍留批**（写口范围只剩这部分，待再次拍板）。落地见 todo、
+> [configuration](/guide/configuration) 与 [REST](/api/rest#audiences-list)。
 
 ## ③ group 成员渠道块展开
 

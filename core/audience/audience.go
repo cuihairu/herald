@@ -6,9 +6,12 @@
 package audience
 
 import (
+	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 )
 
 // UserPrefix marks a channel reference as user-level: `user:alice` names
@@ -66,36 +69,49 @@ const (
 	maxNameChars          = 64
 )
 
-// Manager resolves "user:" references against the static audience and
-// recipient tables. The MVP shape is config-only: unlike groups there is
-// no runtime API yet, so the tables settle at startup.
+// Manager owns the live audience table and the static recipient table,
+// and resolves "user:" references against them. Audiences are mutable at
+// runtime through the store-backed CRUD API (the same shape groups use);
+// recipients stay config-only — their write API remains deferred. The
+// delivery hot path reads only the in-memory snapshot.
 type Manager struct {
+	mu         sync.RWMutex
+	store      Store // nil = memory only
 	audiences  map[string]Audience
+	order      []string // live-table order; config seeds land sorted
 	recipients map[string]Recipient
 }
 
-// NewManager builds a manager over the config tables, validating that
-// every audience references existing recipients and every recipient has
-// at least one bounded non-blank endpoint. Failures are configuration
-// drift and refuse to start: a "user:" reference must never silently
-// resolve to nothing at delivery time.
-func NewManager(audiences map[string]Audience, recipients map[string]Recipient) (*Manager, error) {
-	for id, aud := range audiences {
-		if !idPattern.MatchString(id) {
-			return nil, fmt.Errorf("audience: invalid audience id %q (want 1-64 chars of letters, digits, dot, dash, underscore)", id)
-		}
-		if len(aud.Recipients) == 0 {
-			return nil, fmt.Errorf("audience: audience %q: recipients must list at least one id", id)
-		}
-		if len(aud.Recipients) > maxAudienceRecipients {
-			return nil, fmt.Errorf("audience: audience %q: %d recipients, max is %d", id, len(aud.Recipients), maxAudienceRecipients)
-		}
-		for _, rid := range aud.Recipients {
-			if _, ok := recipients[rid]; !ok {
-				return nil, fmt.Errorf("audience: audience %q references unknown recipient %q", id, rid)
-			}
+// validateAudience enforces the write-path rules for one audience: the
+// same rules the config seed goes through at startup, applied to every
+// runtime write so the two sources cannot drift apart.
+func validateAudience(id string, aud Audience, recipients map[string]Recipient) error {
+	if !idPattern.MatchString(id) {
+		return fmt.Errorf("audience: invalid audience id %q (want 1-64 chars of letters, digits, dot, dash, underscore)", id)
+	}
+	if len(aud.Recipients) == 0 {
+		return fmt.Errorf("audience: audience %q: recipients must list at least one id", id)
+	}
+	if len(aud.Recipients) > maxAudienceRecipients {
+		return fmt.Errorf("audience: audience %q: %d recipients, max is %d", id, len(aud.Recipients), maxAudienceRecipients)
+	}
+	for _, rid := range aud.Recipients {
+		if _, ok := recipients[rid]; !ok {
+			return fmt.Errorf("audience: audience %q references unknown recipient %q", id, rid)
 		}
 	}
+	return nil
+}
+
+// NewManager builds a manager over the config tables and (optionally) a
+// store, validating that every audience references existing recipients
+// and every recipient has at least one bounded non-blank endpoint. The
+// config audiences seed the live table in sorted order; with a store
+// attached, call Reload once and re-Put the seeds so the config wins
+// same-id collisions (the exact groups startup semantics). Failures are
+// configuration drift and refuse to start: a "user:" reference must
+// never silently resolve to nothing at delivery time.
+func NewManager(store Store, audiences map[string]Audience, recipients map[string]Recipient) (*Manager, error) {
 	for id, rec := range recipients {
 		if !idPattern.MatchString(id) {
 			return nil, fmt.Errorf("audience: invalid recipient id %q (want 1-64 chars of letters, digits, dot, dash, underscore)", id)
@@ -115,17 +131,125 @@ func NewManager(audiences map[string]Audience, recipients map[string]Recipient) 
 			}
 		}
 	}
-	return &Manager{audiences: audiences, recipients: recipients}, nil
+	live := make(map[string]Audience, len(audiences))
+	order := make([]string, 0, len(audiences))
+	for id, aud := range audiences {
+		if err := validateAudience(id, aud, recipients); err != nil {
+			return nil, err
+		}
+		live[id] = aud
+		order = append(order, id)
+	}
+	sort.Strings(order)
+	return &Manager{store: store, audiences: live, order: order, recipients: recipients}, nil
+}
+
+// Reload re-reads every audience from the store into the live table. An
+// entry that fails validation aborts the reload keeping the previous
+// table serving, naming the offender.
+func (m *Manager) Reload(ctx context.Context) error {
+	if m.store == nil {
+		return nil
+	}
+	stored, err := m.store.List(ctx)
+	if err != nil {
+		return fmt.Errorf("audience: store list: %w", err)
+	}
+	order := make([]string, 0, len(stored))
+	live := make(map[string]Audience, len(stored))
+	for _, entry := range stored {
+		aud := Audience{Recipients: entry.Recipients}
+		if err := validateAudience(entry.ID, aud, m.recipients); err != nil {
+			return fmt.Errorf("audience: reload stopped at audience %q: %w", entry.ID, err)
+		}
+		live[entry.ID] = aud
+		order = append(order, entry.ID)
+	}
+	m.mu.Lock()
+	m.audiences = live
+	m.order = order
+	m.mu.Unlock()
+	return nil
+}
+
+// Put validates then persists an audience and refreshes the live table
+// in place (existing ids keep their position, new ids go last). A failed
+// persist leaves the live table untouched.
+func (m *Manager) Put(ctx context.Context, id string, aud Audience) error {
+	if err := validateAudience(id, aud, m.recipients); err != nil {
+		return err
+	}
+	if m.store != nil {
+		if err := m.store.Put(ctx, Entry{ID: id, Recipients: aud.Recipients}); err != nil {
+			return fmt.Errorf("audience: store put: %w", err)
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.audiences[id]; !ok {
+		m.order = append(m.order, id)
+	}
+	m.audiences[id] = aud
+	return nil
+}
+
+// Delete removes an audience from the store and the live table.
+// References to it are not cleaned up — a "user:" reference to a deleted
+// id fails loudly at expansion, never silently resolving to nothing.
+func (m *Manager) Delete(ctx context.Context, id string) error {
+	if m.store != nil {
+		if err := m.store.Delete(ctx, id); err != nil {
+			return err
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.audiences[id]; !ok {
+		return ErrNotFound
+	}
+	for i, existing := range m.order {
+		if existing == id {
+			m.order = append(m.order[:i], m.order[i+1:]...)
+			break
+		}
+	}
+	delete(m.audiences, id)
+	return nil
+}
+
+// Get returns an audience by id from the live table (the delivery
+// truth).
+func (m *Manager) Get(ctx context.Context, id string) (Audience, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	aud, ok := m.audiences[id]
+	if !ok {
+		return Audience{}, ErrNotFound
+	}
+	return aud, nil
+}
+
+// List returns the live table in stored order.
+func (m *Manager) List(ctx context.Context) ([]Entry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Entry, len(m.order))
+	for i, id := range m.order {
+		out[i] = Entry{ID: id, Recipients: m.audiences[id].Recipients}
+	}
+	return out, nil
 }
 
 // ExpandUser resolves a user id (the name after "user:") to the endpoints
 // it names. The audiences table takes precedence over the recipients
 // table when both carry the id; an unknown id reports not-found.
 func (m *Manager) ExpandUser(name string) ([]Endpoint, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if aud, ok := m.audiences[name]; ok {
 		eps := make([]Endpoint, 0, len(aud.Recipients))
 		for _, rid := range aud.Recipients {
-			// NewManager validated the reference: the recipient exists.
+			// The write path validated the reference: the recipient exists.
 			eps = append(eps, m.recipients[rid].Endpoints...)
 		}
 		return eps, true
@@ -134,5 +258,7 @@ func (m *Manager) ExpandUser(name string) ([]Endpoint, bool) {
 	if !ok {
 		return nil, false
 	}
-	return rec.Endpoints, true
+	out := make([]Endpoint, len(rec.Endpoints))
+	copy(out, rec.Endpoints)
+	return out, true
 }

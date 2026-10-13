@@ -68,7 +68,8 @@ type Config struct {
 	Rules           *rules.Engine   // optional; nil keeps static routing only
 	Groups          *groups.Manager // optional; nil keeps group endpoints off
 	// Users carries the user-level audience tables (core/audience);
-	// optional, nil keeps "user:" references unresolvable.
+	// optional, nil keeps "user:" references unresolvable and the
+	// audience CRUD endpoints off.
 	Users *audience.Manager
 	// Rosters supplies the silence schedule placeholder: nil keeps roster
 	// endpoints off and every roster-named silence gate open (fail open).
@@ -165,8 +166,10 @@ func NewServer(config *Config) *Server {
 	}
 	if config.Users != nil {
 		// "user:" references in any channel list resolve through the
-		// manager's audience/recipient tables.
+		// manager's audience/recipient tables, and the audience CRUD
+		// endpoints serve its live table.
 		notificationSvc.SetUserResolver(config.Users)
+		handler.SetAudiencesManager(config.Users)
 	}
 	// Plain channel names that are not provider instances resolve through
 	// the router's channels block (an explicit provider always wins).
@@ -264,6 +267,8 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/rules/{id}", s.withAuth(s.handleRuleByID))
 	mux.HandleFunc("/api/v1/groups", s.withAuth(s.handleGroups))
 	mux.HandleFunc("/api/v1/groups/{id}", s.withAuth(s.handleGroupByID))
+	mux.HandleFunc("/api/v1/audiences", s.withAuth(s.handleAudiences))
+	mux.HandleFunc("/api/v1/audiences/{id}", s.withAuth(s.handleAudienceByID))
 	mux.HandleFunc("/api/v1/rosters", s.withAuth(s.handleRosters))
 	mux.HandleFunc("/api/v1/rosters/{id}", s.withAuth(s.handleRosterByID))
 	mux.HandleFunc("/api/v1/alerts/{id}", s.withAuth(s.handleAlertByID))
@@ -502,6 +507,14 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGroupByID(w http.ResponseWriter, r *http.Request) {
 	s.handler.HandleGroupByID(w, r)
+}
+
+func (s *Server) handleAudiences(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleAudiences(w, r)
+}
+
+func (s *Server) handleAudienceByID(w http.ResponseWriter, r *http.Request) {
+	s.handler.HandleAudienceByID(w, r)
 }
 
 func (s *Server) handleRosters(w http.ResponseWriter, r *http.Request) {

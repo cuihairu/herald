@@ -211,7 +211,7 @@ func New(cfg *config.Config) (*App, error) {
 	// through audiences/recipients to provider endpoints. An invalid
 	// table is configuration drift and aborts construction — the same
 	// refusal the CLI performs at startup.
-	audienceManager, err := audience.NewManager(cfg.Audiences, cfg.Recipients)
+	audienceManager, err := audience.NewManager(nil, cfg.Audiences, cfg.Recipients)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("load audiences/recipients: %w", err)

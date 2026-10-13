@@ -16,7 +16,7 @@ http://your-host:8080/api/v1
 
 1. **Dashboard/API token**（`auth.enabled` 开启时要求 `Authorization: Bearer <token>`）：
    notify、providers、workers、queue、logs、config、templates、rules、groups、rosters、
-   alerts、incidents 以及 audiences 的 relations/subscriptions/surfaces。token 来自
+   alerts、incidents 以及 audiences（实体 CRUD 与 relations/subscriptions/surfaces）。token 来自
    `/auth/login`；`/auth/refresh` 凭旧 token 换新；`/auth/me` 不走该中间件，在 handler
    内部自行验证 token。Dashboard 登录后把 token 存在 `localStorage`，由 axios 请求拦截器统一带上。
 2. **App token**（`/api/v1/apps/{app}/**` 集成者面）：按 app 播种的 token 鉴权，
@@ -75,6 +75,8 @@ http://your-host:8080/api/v1
 | POST | /callbacks/feishu | 飞书卡片回调（ack 按钮 / URL 验证；不走 Bearer） |
 | POST | /callbacks/bot | Bot 平台回调（/start /stop 等来源入口；共享密钥自证） |
 | POST | /callbacks/wechat-mp | 公众号回调（关注/取关来源入口；共享密钥自证） |
+| GET / POST | /audiences | 受众列表 / 创建（`user:` 级实体的运行时写口；存储见 `audiences_store`） |
+| GET / PUT / DELETE | /audiences/{id} | 查 / 整体替换 / 删单个受众（URL id 优先） |
 | GET  | /audiences/{id}/relations | 查询受众关系（订阅/指派） |
 | POST | /audiences/{id}/subscriptions | 偏好中心订阅/退订（来源适配器入口） |
 | GET  | /audiences/{id}/surfaces | 绑定面列表 + 私密 feed `rss_token`（首读签发、受众级稳定） |

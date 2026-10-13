@@ -112,6 +112,10 @@ type Config struct {
 	// Audiences seeds the user-level audience table (core/audience): named
 	// sets of recipient ids that "user:" channel references can name.
 	Audiences map[string]audience.Audience `yaml:"audiences"`
+	// AudiencesStore points at the persistent audiences file. Empty keeps
+	// audiences in memory only (seeds from Audiences are still honored and
+	// the runtime API still serves, without persistence).
+	AudiencesStore string `yaml:"audiences_store"`
 	// Recipients seeds the user-level recipient table: each named person
 	// holds the provider endpoints they receive on. "user:<id>" in any
 	// channel list resolves through Audiences first, then Recipients.
