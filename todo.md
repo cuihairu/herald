@@ -31,6 +31,6 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 
 ## 留批（显式设计决策，不实施；待拍板 D4F1）
 
-- [ ] Logs 与 Delivery 状态分离 — 留批待拍板(2026-10-05)，记录见 [design-audience-audit](design-audience-audit)
-- [ ] audiences/recipients/channels 运行时 API — 留批待拍板(2026-10-05)，记录见 [design-audience-audit](design-audience-audit)
-- [ ] group 成员渠道块展开 — 留批待拍板(2026-10-05)，记录见 [design-audience-audit](design-audience-audit)
+- [ ] Logs 与 Delivery 状态分离 | 卡在用户拍板(2026-10-05 维持不做：成本最高项) | 需在解冻预案选定 A/B/C 口径；预案见 [design-audience-deferrals](design-audience-deferrals)
+- [ ] audiences/recipients/channels 运行时 API | 卡在用户拍板(2026-10-05 维持纯配置化) | 需选定写口范围与持久化口径；预案见 [design-audience-deferrals](design-audience-deferrals)
+- [ ] group 成员渠道块展开 | 卡在用户拍板(既定不做：成员即 provider 实例名) | 需在解冻预案选定语义；预案见 [design-audience-deferrals](design-audience-deferrals)

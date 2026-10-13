@@ -147,6 +147,7 @@ export default defineConfig({
             { text: '受众订阅与投递中枢（关系详设）', link: '/design-audience-relations' },
             { text: '概念边界与分层审计', link: '/design-audience-boundaries' },
             { text: 'Audience 改造审计（存档）', link: '/design-audience-audit' },
+            { text: '留批解冻预案（待拍板）', link: '/design-audience-deferrals' },
           ]
         }
       ],
