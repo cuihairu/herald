@@ -25,7 +25,7 @@ herald 今天描述受众的唯一粒度是**渠道实例名**（provider 实例
 ```go
 // core/groups
 type Member struct {
-    Channel    string   `json:"channel"`              // 渠道实例名（provider 名）
+    Channel    string   `json:"channel"`              // 渠道实例名（provider 名）或 channels 块名（投递时按块展开）
     Recipients []string `json:"recipients,omitempty"` // 该渠道的可选收件人钉死
 }
 
@@ -44,7 +44,7 @@ CRUD/审计/权限，而投递只需要"这条消息发给谁"；`Recipients` �
 发给特定人"的全部场景（短信号码、飞书 chat_id、邮件地址）。等真的需要用户体系时，
 用户系统生成群组成员即可，模型不用改。
 
-**群组不嵌套**。成员只能是渠道实例，不能是另一个 `group:`。备选：嵌套群组（组里含组）。
+**群组不嵌套**。成员渠道只能是 provider 实例名或 `channels` 块名，不能是另一个 `group:`。备选：嵌套群组（组里含组）。
 放弃：需要环检测、展开深度无界、一个成员被多层覆盖时收件人语义不清；而嵌套想表达的
 "梯队包含小组"用扁平成员列表已经够写。展开是**单层、无递归**的，可审计。
 
