@@ -838,7 +838,7 @@ apps:
 | `webhook` | 通用 Webhook | `type: webhook` |
 | `aliyunsms` | 阿里云短信 | `type: aliyunsms` |
 | `tencentsms` | 腾讯云短信 | `type: tencentsms` |
-| `neteasesms` | 网易云短信 | `type: neteasesms` |
+| `neteasesms` | 网易云信短信 | `type: neteasesms` |
 | `fcm` | Firebase 推送（Android/Web） | `type: fcm` |
 | `apns` | Apple 推送（iOS/macOS） | `type: apns` |
 | `jpush` | 极光推送（Android/iOS/鸿蒙） | `type: jpush` |
