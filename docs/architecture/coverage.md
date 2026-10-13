@@ -20,7 +20,7 @@
 | 语句覆盖率（**门禁口径**：合并四个 `main()` 子进程实测后） | **99.73%**（8560/8583，2026-10-11 实测，子进程合并救回 4 块 10 条语句；2026-10-13 复测 99.7% 同值；2026-10-10 为 99.73%（8542/8565）；门禁等效口径不受影响） |
 | CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
 | 残余零块 | **15 块**（2026-10-11 go1.26.6 实测，**全部命中台账**；上一轮 2026-10-08 为 14 块）。2026-10-11 的 dispatch 修复批里，新增 `resolvePlain` 的 channels 块分支一度成为未定性零块，由 `TestDispatchChannelsBlockAudienceKeepsCompat` 补测覆盖而非登记——门禁计数缺陷修复后第一次当场拦下真缺口。台账现共登记 **16 条**：批次 8-11/阶段③ 期间新入账调度窗口与恒 nil 型 11 条（`reconcile.go:118/:127`、`sources.go:140/:150`、`handler_sources.go:237`、`handler_surfaces.go:129`、`rss.go:73`、`websocket/server.go:370`、`quickstart/main.go:23`、`client.go:275`、`example/main.go:35`）加 `main.go:416/:468` 两处构建守卫与 `main.go:60` 的 `os.Exit` 失败分支，再加 apps-sdk 示例的 `example/main.go:36`（2026-10-10 随第四入口入账）；原两处 gorilla `SetWriteDeadline` 恒 nil 条目随代码改写为 `_ =` 显式忽略（无分支可测）出清；wechatmp 写锁双检（`wechatmp.go:312`）偶发走到非零，本轮即为非零、未参与豁免。历史升格记录：`writeControl` 先例带动的七处（原 `main.go:556`、`client.go:197`、`handler_groups.go:71/:88`、`main.go:130/:381`、`handler_surfaces.go` 的 RSSToken 500 守卫——熵源 seam 导出为 `audience.RandRead` 后由 `TestAudienceSurfacesReadTokenFailure` 实测）已移出台账 |
-| **前端分支覆盖（dashboard/）** | **100%**（336/336，2026-10-13 实测，守门两项满门：branches 336/336、lines 551/551；语句 585/590（99.15%）、函数 200/205（97.56%）不在门禁内——缺口全部是 `App.tsx` 里 5 个未被路由测试导航到的 lazy 加载箭头，行指标因同行部分执行仍计满；上一记录 2026-10-11（useWebSocket 死线摘除前）为 branches 349/349、lines 595/595）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
+| **前端分支覆盖（dashboard/）** | **100%**（2026-10-13 实测四项全满：statements 590/590、branches 336/336、functions 205/205、lines 551/551，16 文件 178 用例；此前语句 585/590、函数 200/205 不在门禁内的缺口全部是 `App.tsx` 里 5 个未被路由测试导航到的 lazy 加载箭头，本轮补 /groups、/logs、/send、/providers/:name/config、登录态 /workers 五个路由挂载测试后四项齐平。上一记录 2026-10-11（useWebSocket 死线摘除前）为 branches 349/349、lines 595/595）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
 
 覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
 
@@ -60,7 +60,7 @@
 
 ## Dashboard 前端：vitest + RTL，行覆盖 + 分支覆盖双 100% 门禁
 
-前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job），**行覆盖或分支覆盖低于 100% 直接失败**。测试共 16 个文件 173 个用例（2026-10-13 实测，useWebSocket 死线摘除后），覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、全部 11 个页面组件与应用入口。分支与行实测均为 100%（branches 336/336、lines 551/551），语句 99.15%、函数 97.56%（全部缺口在 `App.tsx` 的 lazy 加载箭头），但**门禁阈值只守分支与行两项**。为什么这两项仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-9779--100)。
+前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job），**行覆盖或分支覆盖低于 100% 直接失败**。测试共 16 个文件 178 个用例（2026-10-13 实测，useWebSocket 死线摘除后），覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、全部 11 个页面组件与应用入口。四项实测均 100%（statements 590/590、branches 336/336、functions 205/205、lines 551/551），**门禁阈值仍只守分支与行两项**——语句与函数缺口曾是 `App.tsx` 的 5 个 lazy 加载箭头，已由路由挂载测试补齐。为什么分支覆盖仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-97-69-→-100)。
 
 测试搭建过程中顺带修掉两个真实生产缺陷：
 

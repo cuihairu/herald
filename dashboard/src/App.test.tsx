@@ -80,6 +80,55 @@ describe('App routing', () => {
     expect((await screen.findAllByText('事件台账')).length).toBeGreaterThan(0)
   })
 
+  it('mounts the groups page', async () => {
+    localStorage.setItem('herald_token', 't')
+    renderAt('/groups')
+    expect(await screen.findByText('新建群组')).toBeInTheDocument()
+  })
+
+  it('mounts the logs page', async () => {
+    localStorage.setItem('herald_token', 't')
+    renderAt('/logs')
+    expect(await screen.findByText('任务日志')).toBeInTheDocument()
+  })
+
+  it('mounts the send page', async () => {
+    localStorage.setItem('herald_token', 't')
+    renderAt('/send')
+    // 菜单项与页面标题都叫「发送消息」，findAllByText 返回数组
+    expect((await screen.findAllByText('发送消息')).length).toBeGreaterThan(0)
+  })
+
+  it('mounts the provider config page', async () => {
+    localStorage.setItem('herald_token', 't')
+    // ProviderConfigPage 用原生 fetch 读配置，不经 heraldApi mock；
+    // 非空 schema 才渲染表单与「测试连接」按钮
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => ({
+            code: 0,
+            data: { config: { token: '' }, schema: { token: 'string' } },
+          }),
+        })
+      )
+    )
+    try {
+      renderAt('/providers/feishu/config')
+      expect(await screen.findByText('测试连接')).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('mounts the workers page for logged-in users', async () => {
+    localStorage.setItem('herald_token', 't')
+    renderAt('/workers')
+    expect(await screen.findByText('连接数量')).toBeInTheDocument()
+  })
+
   it('always renders /login outside the private area', async () => {
     renderAt('/login')
     expect(await screen.findByText('请登录以继续')).toBeInTheDocument()
