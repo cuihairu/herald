@@ -33,4 +33,4 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 
 - [ ] Logs 与 Delivery 状态分离 | 卡在用户拍板(2026-10-05 维持不做：成本最高项) | 需在解冻预案选定 A/B/C 口径；预案见 [design-audience-deferrals](design-audience-deferrals)
 - [ ] audiences/recipients/channels 运行时 API | 卡在用户拍板(2026-10-05 维持纯配置化) | 需选定写口范围与持久化口径；预案见 [design-audience-deferrals](design-audience-deferrals)
-- [ ] group 成员渠道块展开 | 卡在用户拍板(既定不做：成员即 provider 实例名) | 需在解冻预案选定语义；预案见 [design-audience-deferrals](design-audience-deferrals)
+- [x] group 成员渠道块展开 — 留批解冻(2026-10-13 巡检指派开工)：成员渠道接入既有解析链（provider 显式 > channels 块 > routes 表），块名扇出、显式 provider 不变；`2a857ff`（1398 例）
