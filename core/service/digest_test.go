@@ -169,6 +169,12 @@ func TestDigestDefaultTableDecides(t *testing.T) {
 	svc, agg, prefs, _ := newDigestService(t, &route.Config{})
 	_ = prefs
 
+	// Pin the window clock before the events land: the weekly window opens
+	// on this pinned Sunday and flips Monday 09:00, so the flush below is
+	// due. Pinning only at the flush would compute the flip time from the
+	// real clock and make the test pass only in the week before the flip.
+	agg.SetClock(func() time.Time { return time.Date(2026, time.October, 11, 9, 2, 0, 0, time.UTC) })
+
 	marketing := &core.Notification{
 		Type:       "marketing",
 		AudienceID: "alice",
