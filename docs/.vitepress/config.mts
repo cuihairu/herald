@@ -62,6 +62,7 @@ export default defineConfig({
             { text: '目录结构', link: '/architecture/directory' },
             { text: '测试覆盖率口径', link: '/architecture/coverage' },
             { text: '覆盖率收官报告', link: '/coverage-final-report-2026-09' },
+            { text: '覆盖率攻坚总结（2026-09）', link: '/coverage-initiative-2026-09' },
           ]
         }
       ],
