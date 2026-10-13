@@ -664,9 +664,10 @@ func (s *NotificationService) expandRefs(refs []string) ([]deliveryTarget, []Cha
 // provider target whose miss fails that channel at delivery time, as
 // before. The routes table sits below both — it only routes
 // notifications that named no channels at all. "group:" references
-// expand to the group's members (each carrying its optional recipient
-// pins); "user:" references expand to their endpoints, merged per
-// provider instance.
+// expand to the group's members, each member channel resolving through
+// the same priority (an explicit provider instance still wins; a block
+// key fans out to its providers); "user:" references expand to their
+// endpoints, merged per provider instance.
 func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
 	if groups.IsRef(ref) {
 		if s.groups == nil {
@@ -678,7 +679,9 @@ func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
 		}
 		out := make([]deliveryTarget, 0, len(members))
 		for _, m := range members {
-			out = append(out, deliveryTarget{channel: m.Channel, targets: m.Recipients})
+			for _, p := range s.resolveChannel(m.Channel) {
+				out = append(out, deliveryTarget{channel: p, targets: m.Recipients})
+			}
 		}
 		return out, nil
 	}
@@ -693,16 +696,24 @@ func (s *NotificationService) expandRef(ref string) ([]deliveryTarget, error) {
 		}
 		return mergeUserEndpoints(eps), nil
 	}
+	out := make([]deliveryTarget, 0, 1)
+	for _, p := range s.resolveChannel(ref) {
+		out = append(out, deliveryTarget{channel: p})
+	}
+	return out, nil
+}
+
+// resolveChannel resolves a channel name to concrete provider instances by
+// the same priority everywhere: an explicit provider instance wins over
+// the channels block; a block name expands to its providers in configured
+// order; a name in neither stays literal (delivery time decides).
+func (s *NotificationService) resolveChannel(ref string) []string {
 	if _, err := s.runtime.GetProvider(ref); err != nil && s.channels != nil {
 		if providers, ok := s.channels.ExpandChannel(ref); ok {
-			out := make([]deliveryTarget, 0, len(providers))
-			for _, p := range providers {
-				out = append(out, deliveryTarget{channel: p})
-			}
-			return out, nil
+			return providers
 		}
 	}
-	return []deliveryTarget{{channel: ref}}, nil
+	return []string{ref}
 }
 
 // mergeUserEndpoints folds endpoints onto their provider instance so a

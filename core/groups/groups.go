@@ -30,8 +30,10 @@ func IsRef(ref string) bool {
 // notification's own recipient list for that channel — the group's
 // audience is the group's decision.
 type Member struct {
-	// Channel is the provider instance name (never another group
-	// reference: groups do not nest, expansion is single-level).
+	// Channel is a provider instance name, or a name in the channels block
+	// (which then expands to its providers in configured order). Never
+	// another group reference: groups do not nest, expansion is
+	// single-level.
 	Channel string `json:"channel" yaml:"channel"`
 	// Recipients optionally pins the target list for this channel (phone
 	// numbers, chat ids, addresses — whatever the provider expects).

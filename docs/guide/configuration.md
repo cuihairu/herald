@@ -233,7 +233,7 @@ rules:
 #   - id: ops-oncall
 #     description: 值班花名册
 #     members:
-#       - channel: feishu            # 成员渠道（provider 名或静态路由渠道）
+#       - channel: feishu            # 成员渠道（provider 名、channels 块名或静态路由渠道）
 #         recipients: ["@zhang"]     # 可选：钉选收件人，覆盖渠道默认目标
 #       - channel: sms-duty
 
@@ -498,7 +498,7 @@ curl -X DELETE http://localhost:8080/api/v1/rules/p1
 
 ### 通知群组（`group:` 引用与受众管理）
 
-- 群组是**命名受众**：`id` + 成员列表；每个成员是一个渠道（provider 名或静态路由渠道）加可选的 `recipients` 钉选（投给该渠道时覆盖默认目标）
+- 群组是**命名受众**：`id` + 成员列表；每个成员是一个渠道（provider 实例名、`channels` 块名或静态路由渠道）加可选的 `recipients` 钉选（投给该渠道时覆盖默认目标）
 - 任何渠道位都可以写 `group:<id>`：通知的显式 `channels`、规则路由渠道、escalation 升级渠道、静态路由目标，投递计划时统一展开成成员渠道列表（见上方完整示例）
 - 展开是**单点、扁平**的：成员渠道不允许再写 `group:`（不嵌套，保存时拒绝）；去重键保留 `group:` 引用本身，花名册变更不影响进行中的去重窗口
 - 未配置群组管理器（`groups`/`groups_store` 均未设置）时引用 `group:` 即报错，宁可快速失败也不静默丢目标；引用不存在的群组按渠道级失败处理（记入本次投递的 `failed`，不阻断其他目标）
@@ -691,12 +691,17 @@ audiences:
 
 例如 `channels: ["user:ops"]` 展开为 3 个投递任务：feishu（@alice 与 @bob 捆绑）、email、sms-duty。
 
-`channels` 块为命名渠道声明其投递 providers（设计 §27）。渠道位上的**裸名称按优先级解析**：显式 provider 实例 > `channels` 块 > `routes` 表（`routes` 只在通知未指定任何渠道时按 type/level 路由）。名字既不是 provider 实例、也不在任何配置块中时，保持原有的「投递时按 provider 缺失失败」语义：
+`channels` 块为命名渠道声明其投递 providers（设计 §27）。渠道位上的**裸名称按优先级解析**：显式 provider 实例 > `channels` 块 > `routes` 表（`routes` 只在通知未指定任何渠道时按 type/level 路由）。名字既不是 provider 实例、也不在任何配置块中时，保持原有的「投递时按 provider 缺失失败」语义。群组成员的渠道名走同一条解析链——成员写块名即扇出到块的 providers：
 
 ```yaml
 channels:
   ci:
     providers: [telegram, feishu]   # channels: [ci] → 两个投递任务
+
+groups:
+  - id: ops
+    members:
+      - channel: ci                # 成员渠道为块名 → 同样两个投递任务
 ```
 
 配置非法（渠道没有 providers、引用了未配置的 provider 名）会在**启动时报错拒起**。`channels` 块只展开一层，其条目必须是 provider 实例而非其他渠道。

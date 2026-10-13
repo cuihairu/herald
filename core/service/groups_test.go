@@ -193,3 +193,84 @@ func TestProcessGroupReferences(t *testing.T) {
 		}
 	})
 }
+
+// TestProcessGroupMemberChannelBlock pins that group member channels resolve
+// through the same priority as top-level references: a channels block key
+// fans out to its providers in configured order, an explicit provider
+// instance still wins over the block, and a name in neither stays a
+// literal target that fails at delivery time (not in routing).
+func TestProcessGroupMemberChannelBlock(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("member block name fans out to its providers in order", func(t *testing.T) {
+		svc, queue := newGroupTestService(t)
+		svc.SetGroupResolver(&stubGroupResolver{groups: map[string][]groups.Member{
+			"ops": {{Channel: "ci"}},
+		}})
+		svc.SetChannelResolver(&stubChannelResolver{channels: map[string][]string{
+			"ci": {"feishu-oncall", "sms-duty"},
+		}})
+
+		n := groupsNotification()
+		n.Channels = []string{groups.Ref("ops")}
+		res, err := svc.Process(ctx, n)
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.Accepted) != 2 || res.Accepted[0] != "feishu-oncall" || res.Accepted[1] != "sms-duty" {
+			t.Fatalf("expected both block providers accepted, got %v (failed=%v)", res.Accepted, res.Failed)
+		}
+		if len(queue.tasks) != 2 || queue.tasks[0].Provider != "feishu-oncall" || queue.tasks[1].Provider != "sms-duty" {
+			t.Fatalf("expected tasks [feishu-oncall sms-duty], got %+v", queue.tasks)
+		}
+	})
+
+	t.Run("explicit provider member wins over the block", func(t *testing.T) {
+		svc, queue := newGroupTestService(t)
+		svc.SetGroupResolver(&stubGroupResolver{groups: map[string][]groups.Member{
+			"ops": {{Channel: "plain"}},
+		}})
+		svc.SetChannelResolver(&stubChannelResolver{channels: map[string][]string{
+			"plain": {"sms-duty"},
+		}})
+
+		n := groupsNotification()
+		n.Channels = []string{groups.Ref("ops")}
+		res, err := svc.Process(ctx, n)
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.Accepted) != 1 || res.Accepted[0] != "plain" || len(res.Failed) != 0 {
+			t.Fatalf("explicit member must pass through, got %v (failed=%v)", res.Accepted, res.Failed)
+		}
+		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "plain" {
+			t.Fatalf("expected one task for plain, got %+v", queue.tasks)
+		}
+	})
+
+	t.Run("unknown member channel fails at delivery time", func(t *testing.T) {
+		svc, queue := newGroupTestService(t)
+		svc.SetGroupResolver(&stubGroupResolver{groups: map[string][]groups.Member{
+			"ops": {{Channel: "ghost"}, {Channel: "feishu-oncall"}},
+		}})
+		svc.SetChannelResolver(&stubChannelResolver{channels: map[string][]string{
+			"ci": {"sms-duty"},
+		}})
+
+		n := groupsNotification()
+		n.Channels = []string{groups.Ref("ops")}
+		res, err := svc.Process(ctx, n)
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		if len(res.Accepted) != 1 || res.Accepted[0] != "feishu-oncall" {
+			t.Fatalf("the healthy member must still deliver, got %v", res.Accepted)
+		}
+		if len(res.Failed) != 1 || res.Failed[0].Channel != "ghost" {
+			t.Fatalf("expected ghost failed at delivery time, got %v", res.Failed)
+		}
+		if len(queue.tasks) != 1 || queue.tasks[0].Provider != "feishu-oncall" {
+			t.Fatalf("expected one task for the healthy member, got %+v", queue.tasks)
+		}
+	})
+}
