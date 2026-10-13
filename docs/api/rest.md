@@ -213,7 +213,8 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
         "name": "telegram",
         "type": "builtin",
         "status": "available",
-        "enabled": true
+        "enabled": true,
+        "since": "2026-05-18T08:00:00Z"
       }
     ]
   }
