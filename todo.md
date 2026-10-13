@@ -29,8 +29,8 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 - [x] 受众层 10 去重与频控：Gate 去重、折叠与频控三档 — `3c6c395`/`ca6ee39`（1297 例）
 - [x] 受众层 11 集成者 API 与 Go SDK：app 命名空间、触发/查询 API 与 SDK — `4899d8f`…`f062c20`（1355 例）
 
-## 留批（显式设计决策，不实施）
+## 留批（显式设计决策，不实施；待拍板 D4F1）
 
-- [ ] Logs 与 Delivery 状态分离
-- [ ] audiences/recipients/channels 运行时 API
-- [ ] group 成员渠道块展开
+- [ ] Logs 与 Delivery 状态分离 — 留批待拍板(2026-10-05)，记录见 [design-audience-audit](design-audience-audit)
+- [ ] audiences/recipients/channels 运行时 API — 留批待拍板(2026-10-05)，记录见 [design-audience-audit](design-audience-audit)
+- [ ] group 成员渠道块展开 — 留批待拍板(2026-10-05)，记录见 [design-audience-audit](design-audience-audit)
