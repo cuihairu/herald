@@ -47,7 +47,7 @@ token: "${TELEGRAM_BOT_TOKEN}"
 curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / failed / pending / shadow
 ```
 
-`pending` 还包括正在等重试的任务：可重试失败会带 `next_retry_at` 回队列到点重投（`/api/v1/logs` 该任务只有一行，`pending` 直到终态才翻 `success`/`failed`）。
+`pending` 还包括正在等重试的任务（`/api/v1/logs` 该任务只有一行，`pending` 直到终态才翻 `success`/`failed`）；重试进度与 `next_retry_at` 在投递状态面（`/api/v1/deliveries`，见 [REST API](/api/rest#deliveries-list)），重试耗尽（`dead`）与永久失败（`failed`）的区分也只在那边。
 
 ## 消息没到（受理成功但没收到）
 
