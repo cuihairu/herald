@@ -143,7 +143,7 @@ type compiledRule struct {
 // expression limiting which in-schedule events are silenced.
 type compiledSilence struct {
 	window *SilenceWindow
-	roster string     // "" when the gate is the daily window
+	roster string      // "" when the gate is the daily window
 	match  *vm.Program // nil = everything in the schedule is silenced
 }
 

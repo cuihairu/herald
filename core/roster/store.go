@@ -19,9 +19,9 @@ type Store interface {
 
 // MemoryStore is an in-process Store implementation.
 type MemoryStore struct {
-	mu     sync.RWMutex
+	mu      sync.RWMutex
 	rosters []Roster
-	byID   map[string]int
+	byID    map[string]int
 }
 
 // NewMemoryStore creates an empty MemoryStore.

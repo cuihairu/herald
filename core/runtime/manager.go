@@ -17,10 +17,10 @@ import (
 
 // Manager manages provider runtimes.
 type Manager struct {
-	mu            sync.RWMutex
-	providers     map[string]*registeredProvider
-	factories     map[string]core.ProviderFactory
-	logStore      *logstore.LogStore
+	mu        sync.RWMutex
+	providers map[string]*registeredProvider
+	factories map[string]core.ProviderFactory
+	logStore  *logstore.LogStore
 	// deliveryStore owns the delivery state machine (lifecycle status
 	// and retry progression) per task, separate from the log store which
 	// records factual events. Neither writes state into the other.

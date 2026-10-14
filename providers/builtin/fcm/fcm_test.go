@@ -429,9 +429,9 @@ func TestDeliverSendsNotificationToEachToken(t *testing.T) {
 		ID: "t1", Provider: "fcm",
 		Targets: []string{"device-token-a", "device-token-b"},
 		Payload: core.DeliveryPayload{
-			Kind: core.PayloadContent,
+			Kind:    core.PayloadContent,
 			Content: &core.RenderedContent{Title: "disk full", Body: "on /dev/sda1", Format: "plain"},
-			Raw: map[string]any{"host": "node-1"},
+			Raw:     map[string]any{"host": "node-1"},
 		},
 	})
 	if err != nil {

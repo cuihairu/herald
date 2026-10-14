@@ -22,10 +22,10 @@ type LogStore struct {
 // lifecycle and retry progression live in the delivery store
 // (core/deliverystore), which owns the state machine separately.
 type TaskLog struct {
-	ID          string     `json:"id"`
-	Provider    string     `json:"provider"`
-	PayloadKind string     `json:"payload_kind"`
-	Level       string     `json:"level,omitempty"`
+	ID          string `json:"id"`
+	Provider    string `json:"provider"`
+	PayloadKind string `json:"payload_kind"`
+	Level       string `json:"level,omitempty"`
 	// Status is the factual event outcome, not the delivery lifecycle:
 	// "success" and "failed" are attempt results, "pending" means the
 	// attempt is still open, "shadow" marks a rule-engine dry-run

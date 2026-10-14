@@ -33,11 +33,11 @@ type channelXML struct {
 }
 
 type itemXML struct {
-	Title       string `xml:"title"`
-	Link        string `xml:"link,omitempty"`
-	Description string `xml:"description,omitempty"`
+	Title       string  `xml:"title"`
+	Link        string  `xml:"link,omitempty"`
+	Description string  `xml:"description,omitempty"`
 	GUID        guidXML `xml:"guid"`
-	PubDate     string `xml:"pubDate"`
+	PubDate     string  `xml:"pubDate"`
 }
 
 type guidXML struct {

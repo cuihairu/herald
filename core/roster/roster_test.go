@@ -128,7 +128,7 @@ func TestRosterNormalize(t *testing.T) {
 func TestRosterCovers(t *testing.T) {
 	base := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
 	r := Roster{ID: "ops", Periods: []Period{
-		{Start: base, End: base.Add(8 * time.Hour)},          // Mon 09:00-17:00
+		{Start: base, End: base.Add(8 * time.Hour)},                      // Mon 09:00-17:00
 		{Start: base.Add(48 * time.Hour), End: base.Add(56 * time.Hour)}, // Wed 09:00-17:00
 	}}
 
@@ -136,13 +136,13 @@ func TestRosterCovers(t *testing.T) {
 		at     time.Time
 		covers bool
 	}{
-		{base.Add(-time.Minute), false},               // before the first period
-		{base, true},                                   // start inclusive
-		{base.Add(4 * time.Hour), true},               // inside
-		{base.Add(8 * time.Hour), false},              // end exclusive
-		{base.Add(24 * time.Hour), false},             // between periods
-		{base.Add(48 * time.Hour), true},              // second period start
-		{base.Add(56 * time.Hour), false},             // second period end
+		{base.Add(-time.Minute), false},   // before the first period
+		{base, true},                      // start inclusive
+		{base.Add(4 * time.Hour), true},   // inside
+		{base.Add(8 * time.Hour), false},  // end exclusive
+		{base.Add(24 * time.Hour), false}, // between periods
+		{base.Add(48 * time.Hour), true},  // second period start
+		{base.Add(56 * time.Hour), false}, // second period end
 	} {
 		if got := r.Covers(tc.at); got != tc.covers {
 			t.Errorf("Covers(%v) = %v, want %v", tc.at, got, tc.covers)

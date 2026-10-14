@@ -1599,7 +1599,7 @@ func (q *noScheduleQueue) Push(_ context.Context, _ *core.DeliveryTask) error { 
 func (q *noScheduleQueue) Pop(_ context.Context) (*core.DeliveryTask, error) {
 	return nil, nil
 }
-func (q *noScheduleQueue) Ack(_ context.Context, _ string) error   { return nil }
+func (q *noScheduleQueue) Ack(_ context.Context, _ string) error { return nil }
 func (q *noScheduleQueue) Nack(_ context.Context, _ string, _ error) error {
 	return nil
 }
