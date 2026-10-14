@@ -81,7 +81,7 @@ http://your-host:8080/api/v1
 | GET / POST | /audiences | 受众列表 / 创建（`user:` 级实体的运行时写口；存储见 `audiences_store`） |
 | GET / PUT / DELETE | /audiences/{id} | 查 / 整体替换 / 删单个受众（URL id 优先） |
 | GET  | /audiences/{id}/relations | 查询受众关系（订阅/指派） |
-| POST | /audiences/{id}/subscriptions | 偏好中心订阅/退订（来源适配器入口） |
+| POST / DELETE | /audiences/{id}/subscriptions | 偏好中心订阅/退订（来源适配器入口） |
 | GET  | /audiences/{id}/surfaces | 绑定面列表 + 私密 feed `rss_token`（首读签发、受众级稳定） |
 | POST | /audiences/{id}/surfaces | 管理侧代绑定联系面（可顺带落默认订阅） |
 | DELETE | /audiences/{id}/surfaces | 解绑联系面（`?channel=`） |
