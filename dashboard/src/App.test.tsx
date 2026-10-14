@@ -92,6 +92,19 @@ describe('App routing', () => {
     expect(await screen.findByText('任务日志')).toBeInTheDocument()
   })
 
+  it('mounts the deliveries page', async () => {
+    localStorage.setItem('herald_token', 't')
+    // DeliveriesPage 用原生 fetch 读投递状态机，不经 heraldApi mock
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => ({ code: 0, data: {} }) }))
+    )
+    renderAt('/deliveries')
+    // 菜单项与页面标题都叫「投递状态」，限定 h4 只取页面标题
+    expect(await screen.findByText('投递状态', { selector: 'h4' })).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+
   it('mounts the send page', async () => {
     localStorage.setItem('herald_token', 't')
     renderAt('/send')

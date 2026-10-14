@@ -203,12 +203,15 @@ type DeliveriesQuery struct {
 	Limit    int
 }
 
-// DeliveryRow is one delivery attempt's settled row.
+// DeliveryRow is one delivery attempt's settled row, as returned by the
+// delivery state machine store: Status is the lifecycle value and LastError
+// the last attempt's error, not the historical log's event outcome.
 type DeliveryRow struct {
 	ID         string    `json:"id"`
 	Provider   string    `json:"provider"`
+	Level      string    `json:"level,omitempty"`
 	Status     string    `json:"status"`
-	Error      string    `json:"error,omitempty"`
+	LastError  string    `json:"last_error,omitempty"`
 	AudienceID string    `json:"audience_id,omitempty"`
 	Category   string    `json:"category,omitempty"`
 	Source     string    `json:"source,omitempty"`
@@ -217,10 +220,10 @@ type DeliveryRow struct {
 
 // DeliveryPage is one page of the deliveries read.
 type DeliveryPage struct {
-	Total  int           `json:"total"`
-	Offset int           `json:"offset"`
-	Limit  int           `json:"limit"`
-	Logs   []DeliveryRow `json:"logs"`
+	Total      int           `json:"total"`
+	Offset     int           `json:"offset"`
+	Limit      int           `json:"limit"`
+	Deliveries []DeliveryRow `json:"deliveries"`
 }
 
 // Deliveries reads the namespace's delivery attempts, always scoped to

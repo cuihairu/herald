@@ -118,8 +118,8 @@ func run(ctx context.Context, cfg demoConfig) error {
 	if err != nil {
 		return fmt.Errorf("deliveries: %w", err)
 	}
-	fmt.Printf("deliveries: %d rows (showing %d)\n", page.Total, len(page.Logs))
-	for _, row := range page.Logs {
+	fmt.Printf("deliveries: %d rows (showing %d)\n", page.Total, len(page.Deliveries))
+	for _, row := range page.Deliveries {
 		fmt.Printf("  %s  %s  via %s  audience=%s\n", row.CreatedAt.Format(time.RFC3339), row.Status, row.Provider, row.AudienceID)
 	}
 

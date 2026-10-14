@@ -176,3 +176,50 @@ func TestDeliverSyncPathWritesStoreNotLogLifecycle(t *testing.T) {
 		t.Errorf("log = %+v, want failed", log)
 	}
 }
+
+// TestGetDeliveriesStatsAndClear covers the stats read face and the clear
+// path of the delivery store, mirroring the logs face's ClearLogs unit.
+func TestGetDeliveriesStatsAndClear(t *testing.T) {
+	m := newRetryTestManager()
+	if err := m.RegisterProvider("ok", &mockProvider{name: "ok", status: &core.ProviderStatus{Name: "ok"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RegisterProvider("bad", &failingProvider{name: "bad", err: errors.New("boom")}); err != nil {
+		t.Fatal(err)
+	}
+
+	deliver := func(id, provider string) {
+		t.Helper()
+		task := &core.DeliveryTask{
+			ID:        id,
+			Provider:  provider,
+			Status:    core.StatusQueued,
+			Payload:   core.DeliveryPayload{Kind: core.PayloadContent},
+			CreatedAt: time.Now(),
+		}
+		_ = m.Deliver(context.Background(), task)
+	}
+	deliver("d-s1", "ok")
+	deliver("d-s2", "ok")
+	deliver("d-s3", "bad")
+
+	stats := m.GetDeliveriesStats()
+	if stats.Total != 3 {
+		t.Fatalf("expected 3 deliveries, got %d", stats.Total)
+	}
+	if stats.ByStatus[string(core.StatusDelivered)] != 2 {
+		t.Errorf("expected 2 delivered, got %d", stats.ByStatus[string(core.StatusDelivered)])
+	}
+	if stats.ByProvider["ok"] != 2 {
+		t.Errorf("expected 2 for ok, got %d", stats.ByProvider["ok"])
+	}
+
+	m.ClearDeliveries()
+	if got := m.GetDeliveriesCount(nil); got != 0 {
+		t.Errorf("expected 0 deliveries after clear, got %d", got)
+	}
+	stats = m.GetDeliveriesStats()
+	if stats.Total != 0 {
+		t.Errorf("expected 0 total after clear, got %d", stats.Total)
+	}
+}

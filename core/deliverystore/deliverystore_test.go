@@ -145,6 +145,97 @@ func TestStore_List(t *testing.T) {
 			t.Errorf("expected only delivered a, got %v", got)
 		}
 	})
+
+	t.Run("list negative offset clamps to zero", func(t *testing.T) {
+		store := New(10)
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "a", Provider: "email", CreatedAt: time.Now()}))
+
+		got := store.List(-5, 10, nil)
+		if len(got) != 1 {
+			t.Errorf("expected negative offset to clamp to the first page, got %d rows", len(got))
+		}
+	})
+
+	t.Run("list offset beyond total returns empty page", func(t *testing.T) {
+		store := New(10)
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "a", Provider: "email", CreatedAt: time.Now()}))
+
+		if got := store.List(10, 10, nil); len(got) != 0 {
+			t.Errorf("expected empty page past the end, got %v", got)
+		}
+	})
+
+	t.Run("list filter by provider", func(t *testing.T) {
+		store := New(10)
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "a", Provider: "email", CreatedAt: time.Now()}))
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "b", Provider: "feishu", CreatedAt: time.Now()}))
+
+		got := store.List(0, 10, &Filter{Provider: "feishu"})
+		if len(got) != 1 || got[0].ID != "b" {
+			t.Errorf("expected only feishu b, got %v", got)
+		}
+	})
+
+	t.Run("list filter by level", func(t *testing.T) {
+		store := New(10)
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "a", Level: "info", CreatedAt: time.Now()}))
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "b", Level: "error", CreatedAt: time.Now()}))
+
+		got := store.List(0, 10, &Filter{Level: "error"})
+		if len(got) != 1 || got[0].ID != "b" {
+			t.Errorf("expected only error b, got %v", got)
+		}
+	})
+
+	t.Run("list filter by since and until", func(t *testing.T) {
+		store := New(10)
+		old := time.Now().Add(-2 * time.Hour)
+		fresh := time.Now()
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "old", CreatedAt: old}))
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "fresh", CreatedAt: fresh}))
+
+		since := time.Now().Add(-time.Hour)
+		got := store.List(0, 10, &Filter{Since: since})
+		if len(got) != 1 || got[0].ID != "fresh" {
+			t.Errorf("since: expected only fresh, got %v", got)
+		}
+
+		until := time.Now().Add(-time.Hour)
+		got = store.List(0, 10, &Filter{Until: until})
+		if len(got) != 1 || got[0].ID != "old" {
+			t.Errorf("until: expected only old, got %v", got)
+		}
+	})
+
+	t.Run("list filter by audience, category and source", func(t *testing.T) {
+		store := New(10)
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "a", AudienceID: "alice", Category: "alerts", Source: "app:demo", CreatedAt: time.Now()}))
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "b", AudienceID: "bob", Category: "alerts", Source: "app:demo", CreatedAt: time.Now()}))
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "c", AudienceID: "alice", Category: "digest", Source: "app:demo", CreatedAt: time.Now()}))
+		store.Put(NewDelivery(&core.DeliveryTask{ID: "d", AudienceID: "alice", Category: "alerts", Source: "hook", CreatedAt: time.Now()}))
+
+		if got := store.List(0, 10, &Filter{AudienceID: "alice"}); len(got) != 3 {
+			t.Errorf("audience: expected 3 alice rows, got %d", len(got))
+		}
+		if got := store.List(0, 10, &Filter{Category: "alerts"}); len(got) != 3 {
+			t.Errorf("category: expected 3 alerts rows, got %d", len(got))
+		}
+		if got := store.List(0, 10, &Filter{Source: "app:demo"}); len(got) != 3 {
+			t.Errorf("source: expected 3 app:demo rows, got %d", len(got))
+		}
+	})
+}
+
+func TestStore_Clear(t *testing.T) {
+	store := New(10)
+	store.Put(NewDelivery(&core.DeliveryTask{ID: "a", Provider: "email", CreatedAt: time.Now()}))
+	if got := store.Count(nil); got != 1 {
+		t.Fatalf("expected 1 delivery before clear, got %d", got)
+	}
+	store.Clear()
+	if got := store.Count(nil); got != 0 {
+		t.Errorf("expected 0 deliveries after clear, got %d", got)
+	}
 }
 
 func TestStore_Stats(t *testing.T) {

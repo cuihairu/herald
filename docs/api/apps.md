@@ -215,25 +215,29 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 
 都需 `query`，命名空间边界强制：只看得到 `source=app:<name>` 的行。
 
-**GET /deliveries**：
+**GET /deliveries**：读投递状态机（生命周期/重试演进），不是日志事实流。`status`
+是状态机词汇 `accepted/queued/delivering/retrying/delivered/failed/dead`——
+`failed`（有错终态）与 `dead`（重试耗尽）的区分只在这里，日志面的
+`success/failed` 事件结果不经此端点。
 
 | 参数 | 缺省 | 说明 |
 | --- | --- | --- |
-| offset | 0 | 非法/负值按 0 |
+| offset | 0 | 负值按 0 |
 | limit | 50 | `<=0` 归 50，`>500` 截 500 |
-| status | 全部 | `success`/`failed`/`pending`/`shadow` |
+| status | 全部 | 生命周期七值精确匹配 |
 | category | 全部 | 品类精确匹配 |
 | audience | 全部 | 精确匹配触发时传入的受众串（dispatch 原样落库；events 的 `target` 先经 `user:5`→`user.5` 映射再落库，按映射后的 id 查） |
 
 ```json
-{"code":0,"message":"ok","data":{"total":1,"offset":0,"limit":50,"logs":[{
-  "id": "6af218e5-...", "provider": "log", "payload_kind": "content",
-  "level": "warning", "status": "success",
-  "created_at": "2026-10-10T12:55:04+08:00", "completed_at": "2026-10-10T12:55:04+08:00",
+{"code":0,"message":"ok","data":{"total":1,"offset":0,"limit":50,"deliveries":[{
+  "id": "6af218e5-...", "provider": "log", "level": "warning", "status": "delivered",
+  "retry_count": 0, "created_at": "2026-10-10T12:55:04+08:00", "updated_at": "2026-10-10T12:55:04+08:00",
   "relation_type": "subscription", "source": "app:demo-app",
-  "audience_id": "log", "category": "alerts"
+  "audience_id": "user.1", "category": "alerts"
 }]}}
 ```
+
+行在任务真正执行后才出现；被去重折叠的触发不出现在这里（去 audit 找 `delivery.deduped`）。
 
 行在任务真正执行后才出现；被去重折叠的触发不出现在这里（去 audit 找 `delivery.deduped`）。
 

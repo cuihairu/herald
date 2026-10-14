@@ -215,8 +215,8 @@ func TestClientFullFlow(t *testing.T) {
 	if err != nil || page.Total != 2 { // one dispatch task + one events task
 		t.Fatalf("deliveries: %v / %+v", err, page)
 	}
-	row := page.Logs[0]
-	if row.AudienceID != "alice" || row.Category != "alerts" || row.Source != "app:demo-app" || row.Status != "success" {
+	row := page.Deliveries[0]
+	if row.AudienceID != "alice" || row.Category != "alerts" || row.Source != "app:demo-app" || row.Status != "delivered" {
 		t.Fatalf("delivery row: %+v", row)
 	}
 	narrow, err := c.Deliveries(ctx, DeliveriesQuery{Audience: "bob"})

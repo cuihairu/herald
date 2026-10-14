@@ -56,8 +56,8 @@ func newDemoStubCats(t *testing.T, fail string, scopes []string, cats []map[stri
 	}))
 	mux.HandleFunc("GET /api/v1/apps/demo-app/deliveries", ok("deliveries", map[string]any{
 		"total": 1, "offset": 0, "limit": 5,
-		"logs": []map[string]any{{
-			"id": "l-1", "provider": "email", "status": "success",
+		"deliveries": []map[string]any{{
+			"id": "l-1", "provider": "email", "status": "delivered", "level": "info",
 			"audience_id": "user.1", "category": "alerts", "created_at": "2026-10-10T12:00:00Z",
 		}},
 	}))
