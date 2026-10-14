@@ -32,5 +32,5 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 ## 留批（显式设计决策，不实施；待拍板 D4F1）
 
 - [x] Logs 与 Delivery 状态分离 — 留批解冻(2026-10-14 用户点名开工，选 B)：新增 deliveryStore 拥有状态机与重试演进（7 值生命周期），logs 收窄为事实事件（dead/failed 区分只在交付存储）；`/api/v1/deliveries` 独立查询面 + dashboard「投递状态」页 + apps-sdk 读口同步（`deliveries` 键与生命周期词汇）| commit `0effddf`…`6534269`（1432 例）
-- [ ] audiences/recipients/channels 运行时 API | 2026-10-14 部分解冻：audiences 最小写口已落地（store 持久化 + CRUD API，启动语义同群组）；recipients/channels 写口仍留批 | 剩余范围待拍板；预案见 [design-audience-deferrals](design-audience-deferrals)
+- [ ] audiences/recipients/channels 运行时 API | 2026-10-14 部分解冻：audiences 最小写口已落地（store 持久化 + CRUD API，启动语义同群组，`8193172`）；recipients/channels 写口仍留批 | 剩余范围待拍板；预案见 [design-audience-deferrals](design-audience-deferrals)
 - [x] group 成员渠道块展开 — 留批解冻(2026-10-13 巡检指派开工)：成员渠道接入既有解析链（provider 显式 > channels 块 > routes 表），块名扇出、显式 provider 不变；`2a857ff`（1398 例）

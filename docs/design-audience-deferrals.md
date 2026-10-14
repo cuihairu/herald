@@ -76,7 +76,7 @@
 > `Store` 接口 + JSON `FileStore`（`audiences_store` 配置，原子写）+ Manager 活表
 > （Reload/Put/Delete，种子同 id 覆盖存储条目）+ `GET/POST /api/v1/audiences` 与
 > `GET/PUT/DELETE /api/v1/audiences/{id}`。recipients（接收人/端点表）与 channels 块
-> 的写口**仍留批**（写口范围只剩这部分，待再次拍板）。落地见 todo、
+> 的写口**仍留批**（写口范围只剩这部分，待再次拍板）。落地 `8193172`，见 todo、
 > [configuration](/guide/configuration) 与 [REST](/api/rest#audiences-list)。
 
 ## ③ group 成员渠道块展开
