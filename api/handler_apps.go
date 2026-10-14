@@ -13,7 +13,7 @@ import (
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/dedup"
-	"github.com/cuihairu/herald/core/logstore"
+	"github.com/cuihairu/herald/core/deliverystore"
 	"github.com/cuihairu/herald/core/service"
 	"github.com/cuihairu/herald/core/template"
 )
@@ -657,20 +657,23 @@ func (s *Server) handleAppDeliveries(w http.ResponseWriter, r *http.Request) {
 		limit = 500
 	}
 	// The namespace boundary rides the source dimension: an app reads
-	// its own dispatches, never the operator's or a sibling's.
-	filter := &logstore.Filter{
+	// its own dispatches, never the operator's or a sibling's. The
+	// delivery state machine (not the log event stream) is the source
+	// of truth here: lifecycle status, retry progress and the dead/failed
+	// split are only in the delivery store.
+	filter := &deliverystore.Filter{
 		Status:     query.Get("status"),
 		Category:   query.Get("category"),
 		AudienceID: query.Get("audience"),
 		Source:     "app:" + r.PathValue("app"),
 	}
-	logs := s.handler.runtime.GetLogs(offset, limit, filter)
-	total := s.handler.runtime.GetLogsCount(filter)
+	deliveries := s.handler.runtime.GetDeliveries(offset, limit, filter)
+	total := s.handler.runtime.GetDeliveriesCount(filter)
 	s.handler.respondJSON(w, &Response{Code: 0, Message: "ok", Data: map[string]any{
-		"total":  total,
-		"offset": offset,
-		"limit":  limit,
-		"logs":   logs,
+		"total":      total,
+		"offset":     offset,
+		"limit":      limit,
+		"deliveries": deliveries,
 	}})
 }
 

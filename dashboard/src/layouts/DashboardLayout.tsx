@@ -10,6 +10,7 @@ import {
   TeamOutlined,
   AlertOutlined,
   FileTextOutlined,
+  FieldTimeOutlined,
   SendOutlined,
   LogoutOutlined,
 } from '@ant-design/icons'
@@ -25,6 +26,7 @@ const menuItems = [
   { key: '/incidents', icon: <AlertOutlined />, label: '事件台账' },
   { key: '/workers', icon: <TeamOutlined />, label: 'Workers' },
   { key: '/logs', icon: <FileTextOutlined />, label: '日志' },
+  { key: '/deliveries', icon: <FieldTimeOutlined />, label: '投递状态' },
   { key: '/send', icon: <SendOutlined />, label: '发送消息' },
 ]
 

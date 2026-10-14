@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/deliverystore"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/logstore"
 	"github.com/cuihairu/herald/core/retry"
@@ -20,6 +21,10 @@ type Manager struct {
 	providers     map[string]*registeredProvider
 	factories     map[string]core.ProviderFactory
 	logStore      *logstore.LogStore
+	// deliveryStore owns the delivery state machine (lifecycle status
+	// and retry progression) per task, separate from the log store which
+	// records factual events. Neither writes state into the other.
+	deliveryStore *deliverystore.Store
 	retryer       *retry.Retryer
 	shadowSampler *rules.ShadowSampler
 	limiters      *limiter.Manager
@@ -77,6 +82,7 @@ func NewManager(logLimit int, retryCfg ...*retry.Config) *Manager {
 		providers:     make(map[string]*registeredProvider),
 		factories:     make(map[string]core.ProviderFactory),
 		logStore:      logstore.New(logLimit),
+		deliveryStore: deliverystore.New(logLimit),
 		retryer:       r,
 		shadowSampler: rules.NewDefaultShadowSampler(),
 	}
@@ -430,9 +436,12 @@ func (m *Manager) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	m.logStore.Add(logEntry)
 
 	// Every attempt re-enters "delivering"; a retrying attempt was marked
-	// "retrying" by the retryer between attempts.
+	// "retrying" by the retryer between attempts. The delivery store owns
+	// that lifecycle — the log row is opened separately and never carries
+	// it.
 	deliverFn := func() error {
 		task.Status = core.StatusDelivering
+		m.deliveryStore.Put(deliverystore.NewDelivery(task))
 		return provider.Deliver(ctx, task)
 	}
 
@@ -468,6 +477,7 @@ func (m *Manager) DeliverOnce(ctx context.Context, task *core.DeliveryTask) erro
 	// The stamped wait is over: this attempt is happening now.
 	task.NextRetryAt = nil
 	task.Status = core.StatusDelivering
+	m.deliveryStore.Put(deliverystore.NewDelivery(task))
 	deliverErr := provider.Deliver(ctx, task)
 	if deliverErr == nil {
 		return m.settle(task, nil)
@@ -478,8 +488,10 @@ func (m *Manager) DeliverOnce(ctx context.Context, task *core.DeliveryTask) erro
 	deferErr := m.retryer.Defer(task, deliverErr)
 	var deferred *retry.Deferred
 	if errors.As(deferErr, &deferred) {
-		// Retry owed: nothing settles yet — the log row stays "pending"
-		// and the task comes back through the queue for the next attempt.
+		// Retry owed: nothing settles yet — the delivery store holds the
+		// retrying lifecycle, the log row stays "pending", and the task
+		// comes back through the queue for the next attempt.
+		m.deliveryStore.Put(deliverystore.NewDelivery(task))
 		return deferErr
 	}
 	return m.settle(task, deferErr)
@@ -516,6 +528,7 @@ func (m *Manager) deliverPrologue(ctx context.Context, task *core.DeliveryTask) 
 				m.logStore.UpdateStatus(task.ID, "failed", err.Error())
 				task.Status = core.StatusFailed
 				task.LastError = err.Error()
+				m.deliveryStore.Put(deliverystore.NewDelivery(task))
 				return nil, err
 			}
 		}
@@ -523,10 +536,13 @@ func (m *Manager) deliverPrologue(ctx context.Context, task *core.DeliveryTask) 
 	return provider, nil
 }
 
-// settle maps a delivery outcome onto the task and its log row: nil is
-// delivered, an ErrMaxRetries-wrapped error is dead (retries owed but
-// spent — a config/provider problem worth a distinct signal), anything
-// else failed (nothing was ever going to retry).
+// settle maps a delivery outcome onto the task and the two independent
+// records: nil is delivered, an ErrMaxRetries-wrapped error is dead
+// (retries owed but spent — a config/provider problem worth a distinct
+// signal), anything else failed (nothing was ever going to retry). The
+// state machine goes to the delivery store; the log row records its own
+// factual event outcome. The two vocabularies do not share a write: the
+// dead/failed distinction the state machine keeps never reaches the log.
 func (m *Manager) settle(task *core.DeliveryTask, deliverErr error) error {
 	// Snapshot under the lock: SetCallbackSink may race a settle, and
 	// the detector would rightly call the unlocked read a race.
@@ -539,19 +555,27 @@ func (m *Manager) settle(task *core.DeliveryTask, deliverErr error) error {
 	if deliverErr == nil {
 		task.Status = core.StatusDelivered
 		task.LastError = ""
-		m.logStore.UpdateStatus(task.ID, "success", "")
-		return nil
-	}
-
-	if errors.Is(deliverErr, retry.ErrMaxRetries) {
+	} else if errors.Is(deliverErr, retry.ErrMaxRetries) {
 		task.Status = core.StatusDead
 	} else {
 		task.Status = core.StatusFailed
 	}
 	// The task carries its own last_error: observers read the settled
-	// error off the task; the log store keeps the full history.
-	task.LastError = deliverErr.Error()
-	m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
+	// error off the task; the delivery store keeps the full lifecycle.
+	task.LastError = ""
+	if deliverErr != nil {
+		task.LastError = deliverErr.Error()
+	}
+	// State machine → delivery store: the authoritative lifecycle.
+	m.deliveryStore.Put(deliverystore.NewDelivery(task))
+	// Factual event → log: the attempt outcome is success or failed —
+	// a fact, not the lifecycle. The log row never learns the dead/failed
+	// split.
+	if deliverErr == nil {
+		m.logStore.UpdateStatus(task.ID, "success", "")
+	} else {
+		m.logStore.UpdateStatus(task.ID, "failed", deliverErr.Error())
+	}
 	return deliverErr
 }
 
@@ -629,6 +653,33 @@ func (m *Manager) GetLogsStats() *logstore.Stats {
 // ClearLogs clears all logs.
 func (m *Manager) ClearLogs() {
 	m.logStore.Clear()
+}
+
+// GetDeliveries returns the delivery state-machine records with optional
+// filtering. This read face answers the lifecycle question the log face
+// cannot (dead vs failed, retry progress, next retry).
+func (m *Manager) GetDeliveries(offset, limit int, filter *deliverystore.Filter) []*deliverystore.Delivery {
+	return m.deliveryStore.List(offset, limit, filter)
+}
+
+// GetDeliveriesCount returns the total count of delivery records.
+func (m *Manager) GetDeliveriesCount(filter *deliverystore.Filter) int {
+	return m.deliveryStore.Count(filter)
+}
+
+// GetDeliveryByID returns a delivery record by task ID.
+func (m *Manager) GetDeliveryByID(id string) (*deliverystore.Delivery, bool) {
+	return m.deliveryStore.Get(id)
+}
+
+// GetDeliveriesStats returns delivery statistics by lifecycle status.
+func (m *Manager) GetDeliveriesStats() *deliverystore.Stats {
+	return m.deliveryStore.Stats()
+}
+
+// ClearDeliveries clears all delivery records.
+func (m *Manager) ClearDeliveries() {
+	m.deliveryStore.Clear()
 }
 
 // ReplaceProvider replaces an existing provider instance.

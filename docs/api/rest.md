@@ -337,7 +337,7 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## GET /api/v1/logs {#get-logs}
 
-查询投递日志。
+查询投递日志——**事实事件流**：每次投递尝试的结果、耗时与错误码。投递的生命周期状态机（`queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`）不在这里，见 [投递状态](#deliveries-list)。
 
 ### logs-参数 {#logs-params}
 
@@ -345,7 +345,7 @@ Worker 的部署返回空列表（`count` 0）。
 | -------- | ------ | ----- |
 | offset   | int    | 偏移量 |
 | limit    | int    | 每页数量（默认 50，最大 500） |
-| status   | string | 按状态过滤（`success` / `failed` / `pending` / `shadow`，与 wire 词汇一致） |
+| status   | string | 按事件结果过滤（`success` / `failed` / `pending` / `shadow`，事件结果词汇，非生命周期） |
 | provider | string | 按 Provider 过滤 |
 | level    | string | 按级别过滤 |
 | since    | string | 起始时间（RFC3339） |
@@ -379,15 +379,71 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-每条投递任务一行，按 `created_at` 降序。`status` ∈ `success` / `failed` / `pending` / `shadow`（重试中的任务保持 `pending`，终态才翻转）。`payload_kind` ∈ `content` / `provider_template` / `raw`。`category` 是通知的 `type`（app 面投递为注册品类）。`matched_at` 为规则匹配时间，未经规则引擎的任务显示零值 `0001-01-01T00:00:00Z`。`duration`（毫秒）与 `error` 只在非零/非空时出现；shadow 行额外带 `would_fire` 与 `channels`。
+每条投递任务一行，按 `created_at` 降序。`status` ∈ `success` / `failed` / `pending` / `shadow`——这是**事件结果**词汇，不是生命周期：`pending` 表示该次尝试尚未结束（重试期间的任务保持 `pending`，终态才翻转为 `success` / `failed`）。日志不区分 `dead`（重试耗尽）与 `failed`（永久失败）——那个区分只存在于投递状态存储。`payload_kind` ∈ `content` / `provider_template` / `raw`。`category` 是通知的 `type`（app 面投递为注册品类）。`matched_at` 为规则匹配时间，未经规则引擎的任务显示零值 `0001-01-01T00:00:00Z`。`duration`（毫秒）与 `error` 只在非零/非空时出现；shadow 行额外带 `would_fire` 与 `channels`。
 
 ## GET /api/v1/logs/stats {#logs-stats}
 
-查询日志统计。
+查询日志统计（按事件结果 `by_status`、`by_provider`、`by_level` 分组）。
 
 ## GET /api/v1/logs/{id} {#log-by-id}
 
 查询单条日志。
+
+## GET /api/v1/deliveries {#deliveries-list}
+
+查询投递状态——**状态机读面**：投递的生命周期（`accepted` / `queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`）与重试演进。日志记录事实事件（结果/耗时/错误码），状态机与重试在这里；两处不互相写状态。按 task ID 键，独立保留环（与日志同容量、各自淘汰）。
+
+### deliveries-参数 {#deliveries-params}
+
+| 参数       | 类型     | 描述    |
+| -------- | ------ | ----- |
+| offset   | int    | 偏移量 |
+| limit    | int    | 每页数量（默认 50，最大 500） |
+| status   | string | 按生命周期过滤（`accepted` / `queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`） |
+| provider | string | 按 Provider 过滤 |
+| level    | string | 按级别过滤 |
+| since    | string | 起始时间（RFC3339，按 `created_at`） |
+| until    | string | 结束时间（RFC3339，按 `created_at`） |
+
+### deliveries-响应 {#deliveries-response}
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "total": 100,
+    "offset": 0,
+    "limit": 50,
+    "deliveries": [
+      {
+        "id": "21a2a819-9392-4b4d-b9a7-e868a658f6a9",
+        "provider": "log",
+        "level": "error",
+        "status": "retrying",
+        "retry_count": 1,
+        "max_attempts": 3,
+        "last_error": "transient",
+        "created_at": "2026-10-14T10:00:00+08:00",
+        "updated_at": "2026-10-14T10:00:05+08:00",
+        "next_retry_at": "2026-10-14T10:00:15+08:00",
+        "category": "server.alert",
+        "source": "app:demo-app"
+      }
+    ]
+  }
+}
+```
+
+每条投递任务一行，按 `updated_at` 降序。`status` 为 7 值生命周期：`accepted`（已存在未入队）/ `queued`（排队等 worker）/ `delivering`（worker 正在尝试）/ `retrying`（可重试失败，等退避）/ `delivered`（已送达）/ `failed`（永久失败，无可重试）/ `dead`（可重试错误耗尽预算）。`retry_count` 是已执行的退避重试次数，`max_attempts` 是投递预算（重试策略 + 首次），`next_retry_at` 仅在 `retrying` 期间出现。`failed` 与 `dead` 的区别只在状态机：日志对两者都报 `failed`。
+
+## GET /api/v1/deliveries/stats {#deliveries-stats}
+
+查询投递状态统计，按生命周期 `by_status`、`by_provider`、`by_level` 分组。
+
+## GET /api/v1/deliveries/{id} {#delivery-by-id}
+
+查询单条投递状态（按 task ID）。
 
 ## GET /api/v1/config/{name} {#config-get}
 

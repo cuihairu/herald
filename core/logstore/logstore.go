@@ -15,12 +15,22 @@ type LogStore struct {
 	limit int
 }
 
-// TaskLog is a task execution log
+// TaskLog is a factual delivery-event record: what was sent, its result,
+// how long it took and the error code. Status is the event outcome
+// (success, failed, pending, shadow) — not the delivery lifecycle
+// status. The accepted/queued/delivering/retrying/delivered/failed/dead
+// lifecycle and retry progression live in the delivery store
+// (core/deliverystore), which owns the state machine separately.
 type TaskLog struct {
 	ID          string     `json:"id"`
 	Provider    string     `json:"provider"`
 	PayloadKind string     `json:"payload_kind"`
 	Level       string     `json:"level,omitempty"`
+	// Status is the factual event outcome, not the delivery lifecycle:
+	// "success" and "failed" are attempt results, "pending" means the
+	// attempt is still open, "shadow" marks a rule-engine dry-run
+	// observation. The dead/failed lifecycle split is never here — it
+	// belongs to the delivery store.
 	Status      string     `json:"status"` // success, failed, pending, shadow
 	Error       string     `json:"error,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
@@ -93,7 +103,11 @@ func (s *LogStore) AddIfAbsent(log *TaskLog) bool {
 	return true
 }
 
-// UpdateStatus updates the status of a log entry
+// UpdateStatus records the factual event outcome of an open attempt:
+// "success" or "failed" plus the error and the completed time. This is
+// the event's own result, not the delivery lifecycle status — the
+// lifecycle goes to the delivery store, and the two do not share a
+// write.
 func (s *LogStore) UpdateStatus(id, status, errMsg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

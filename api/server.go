@@ -255,6 +255,9 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/logs", s.withAuth(s.handleLogs))
 	mux.HandleFunc("/api/v1/logs/stats", s.withAuth(s.handleLogsStats))
 	mux.HandleFunc("/api/v1/logs/{id}", s.withAuth(s.handleLogByID))
+	mux.HandleFunc("/api/v1/deliveries", s.withAuth(s.handleDeliveries))
+	mux.HandleFunc("/api/v1/deliveries/stats", s.withAuth(s.handleDeliveriesStats))
+	mux.HandleFunc("/api/v1/deliveries/{id}", s.withAuth(s.handleDeliveryByID))
 	mux.HandleFunc("/api/v1/config/{name}", s.withAuth(s.handleProviderConfig))
 
 	// Template management
@@ -424,6 +427,30 @@ func (s *Server) handleLogByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleLogByID(w, r)
+}
+
+func (s *Server) handleDeliveries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleDeliveries(w, r)
+}
+
+func (s *Server) handleDeliveriesStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleDeliveriesStats(w, r)
+}
+
+func (s *Server) handleDeliveryByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleDeliveryByID(w, r)
 }
 
 func (s *Server) handleProviderConfig(w http.ResponseWriter, r *http.Request) {

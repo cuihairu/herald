@@ -45,9 +45,12 @@ http://your-host:8080/api/v1
 | PUT  | /config/{name} | 更新 Provider 配置 |
 | GET  | /workers | 查询已连接的 Workers |
 | GET  | /queue | 查询队列深度 |
-| GET  | /logs | 查询投递日志 |
+| GET  | /logs | 查询投递日志（事实事件：结果/耗时/错误码） |
 | GET  | /logs/stats | 投递日志统计 |
 | GET  | /logs/{id} | 查询单条投递日志 |
+| GET  | /deliveries | 查询投递状态机（生命周期/重试演进） |
+| GET  | /deliveries/stats | 投递状态统计 |
+| GET  | /deliveries/{id} | 查询单条投递状态 |
 | GET  | /rules     | 查询规则列表 |
 | POST | /rules     | 创建规则（保存即编译表达式） |
 | GET  | /rules/{id} | 查询单个规则 |
@@ -99,7 +102,7 @@ http://your-host:8080/api/v1
 | GET / PUT / DELETE | /apps/{app}/callback | query / config | 回调面配置（URL + secret；读口不回显密钥） |
 | POST | /apps/{app}/dispatch | trigger | 触发投递（三方交集匹配，返回受理结果与投递计划） |
 | POST | /apps/{app}/events | trigger | 事件接入适配面（kind/severity/target 词汇映射） |
-| GET | /apps/{app}/deliveries | query | 投递状态查询（默认 50 条，上限 500） |
+| GET | /apps/{app}/deliveries | query | 投递状态查询（读状态机存储；默认 50 条，上限 500） |
 | GET | /apps/{app}/audit | query | 审计流（关系变更、去重折叠） |
 
 **RSS 拉式**（挂 `/feeds/**`，不在 `/api/v1` 下，公开读口）：

@@ -659,7 +659,7 @@ func TestAppQueryFaces(t *testing.T) {
 	if data["total"].(float64) != 1 {
 		t.Fatalf("total: want 1, got %v", data["total"])
 	}
-	logs, _ := data["logs"].([]any)
+	logs, _ := data["deliveries"].([]any)
 	row, _ := logs[0].(map[string]any)
 	if row["audience_id"] != "alice" || row["category"] != "alerts" || row["source"] != "app:demo-app" {
 		t.Fatalf("row: want alice/alerts/app:demo-app, got %v", row)

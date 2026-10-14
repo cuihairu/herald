@@ -12,6 +12,7 @@ const ProvidersPage = lazy(() => import('./pages/ProvidersPage'))
 const ProviderConfigPage = lazy(() => import('./pages/ProviderConfigPage'))
 const WorkersPage = lazy(() => import('./pages/WorkersPage'))
 const LogsPage = lazy(() => import('./pages/LogsPage'))
+const DeliveriesPage = lazy(() => import('./pages/DeliveriesPage'))
 const SendPage = lazy(() => import('./pages/SendPage'))
 const RulesPage = lazy(() => import('./pages/RulesPage'))
 const GroupsPage = lazy(() => import('./pages/GroupsPage'))
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="incidents" element={<IncidentsPage />} />
           <Route path="workers" element={<WorkersPage />} />
           <Route path="logs" element={<LogsPage />} />
+          <Route path="deliveries" element={<DeliveriesPage />} />
           <Route path="send" element={<SendPage />} />
         </Route>
       </Routes>
