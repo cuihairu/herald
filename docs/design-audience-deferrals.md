@@ -45,7 +45,7 @@
 
 **解锁**：~~用户选定 A/B/C；选 B/C 时需给是否新增 API 面的口径。~~ → **已解冻**（2026-10-14 用户点名开工，实施为 **B**）。
 
-> 2026-10-14 解冻记录：巡检开工单「现在用户点名要做①」，按预案权衡后选定 **B（拆分存储 + 独立查询面）**。理由：A 为维持现状（用户已明确要做，排除）；C（事件流）把日志降为审计事件的派生投影——状态机没有独立归宿，且把运维日志记录耦合到审计事件 schema，写入路径翻倍，与开工单「两处不再互相写状态 + Delivery 管状态机与重试」的形状不符；B 是新存储 + 新 API + dashboard 改面，但增量成本有界（Phase 3 已枚举化 7 值状态机、logstore 已有保留模型、API/dashboard 模式均已建立），且是唯一匹配开工单形状的选项。实施：新建 `core/deliverystore`（task ID 键、独立保留环）拥有状态机与重试演进；`core/runtime/manager.go` 在每次状态转换点（delivering / defer-retrying / settle 终态）写入交付存储；`core/logstore` 收窄为事实事件（发送/结果/耗时/错误码），`status` 字段语义改为事件结果，dead/failed 区分只在交付存储；新增 `GET /api/v1/deliveries`（列表/统计/单条）读交付存储，§13.4 app deliveries 查询面从 logstore 切到交付存储；dashboard 增「投递状态」页。落地见 todo 与 [REST](/api/rest#deliveries-list)。
+> 2026-10-14 解冻记录：巡检开工单「现在用户点名要做①」，按预案权衡后选定 **B（拆分存储 + 独立查询面）**。理由：A 为维持现状（用户已明确要做，排除）；C（事件流）把日志降为审计事件的派生投影——状态机没有独立归宿，且把运维日志记录耦合到审计事件 schema，写入路径翻倍，与开工单「两处不再互相写状态 + Delivery 管状态机与重试」的形状不符；B 是新存储 + 新 API + dashboard 改面，但增量成本有界（Phase 3 已枚举化 7 值状态机、logstore 已有保留模型、API/dashboard 模式均已建立），且是唯一匹配开工单形状的选项。实施：新建 `core/deliverystore`（task ID 键、独立保留环）拥有状态机与重试演进；`core/runtime/manager.go` 在每次状态转换点（delivering / defer-retrying / settle 终态）写入交付存储；`core/logstore` 收窄为事实事件（发送/结果/耗时/错误码），`status` 字段语义改为事件结果，dead/failed 区分只在交付存储；新增 `GET /api/v1/deliveries`（列表/统计/单条）读交付存储，§13.4 app deliveries 查询面从 logstore 切到交付存储；dashboard 增「投递状态」页；apps-sdk 的 §13.4 读口同步到 `deliveries` 键与生命周期词汇（`6534269`）。落地 `0effddf`+`6534269`，证据行见 todo 与 [REST](/api/rest#deliveries-list)。
 
 ## ② audiences/recipients/channels 运行时 API
 
