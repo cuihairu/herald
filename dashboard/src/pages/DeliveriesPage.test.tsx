@@ -108,12 +108,12 @@ describe('DeliveriesPage', () => {
       '/api/v1/providers': { code: 0, data: { providers: [] } },
     })
     render(<DeliveriesPage />)
-    // code != 0：行未写入，占位符渲染；统计卡照常（stats 是 code 0）。
-    await waitFor(() => {
-      expect(screen.queryByText('delivered')).not.toBeInTheDocument()
-      expect(screen.queryByText('boom')).not.toBeInTheDocument()
-    })
-    expect(screen.getByText('总数')).toBeInTheDocument()
+    // 统计卡是 code 0，照常渲染；先等它出现作为「加载已完成」的正向信号——
+    // 负断言本身不会等待，慢机下会先于加载完成通过，随后的存在性断言必挂。
+    expect(await screen.findByText('总数')).toBeInTheDocument()
+    // code != 0：行未写入，占位符渲染。
+    expect(screen.queryByText('delivered')).not.toBeInTheDocument()
+    expect(screen.queryByText('boom')).not.toBeInTheDocument()
   })
 
   it('survives network failures', async () => {
@@ -307,7 +307,9 @@ describe('DeliveriesPage', () => {
       '/api/v1/providers': { code: 0, data: { providers: [] } },
     })
     render(<DeliveriesPage />)
-    await waitFor(() => expect(screen.queryByText('boom')).not.toBeInTheDocument())
+    // 先等正向信号（统计卡），再断言占位符与缺行，避免负断言先于加载完成通过。
+    expect(await screen.findByText('总数')).toBeInTheDocument()
+    expect(screen.queryByText('boom')).not.toBeInTheDocument()
     expect(document.querySelector('.ant-table-placeholder')).not.toBeNull()
   })
 

@@ -81,16 +81,17 @@ describe('LogsPage', () => {
   })
 
   it('keeps the table empty when the API answers with a non-zero code', async () => {
-    const fetchMock = stubFetch({
+    stubFetch({
       '/api/v1/logs': { code: 1, message: 'denied' },
       '/api/v1/logs/stats': { code: 0, data: { total: 0 } },
       '/api/v1/providers': { code: 0, data: { providers: [] } },
     })
     render(<LogsPage />)
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    // code != 0：logs 未写入，统计卡也不出现
+    // 统计卡只依赖 stats 面（code 0），照常渲染；先等它出现作为「加载已完成」
+    // 的正向信号——负断言本身不会等待，时序上靠不住。
+    expect(await screen.findByText('总数')).toBeInTheDocument()
+    // code != 0：logs 未写入。
     expect(screen.queryByText('正常一行')).not.toBeInTheDocument()
-    expect(screen.queryByText('总数')).not.toBeInTheDocument()
   })
 
   it('survives network failures', async () => {
@@ -249,10 +250,10 @@ describe('LogsPage', () => {
       '/api/v1/providers': { code: 0, data: { providers: [] } },
     })
     render(<LogsPage />)
+    // 先等正向信号（统计卡），再断言占位符与缺行，避免负断言先于加载完成通过。
+    expect(await screen.findByText('总数')).toBeInTheDocument()
     // 表格没有数据行：既拿不到 fixture 的标题，也没有分页器。
-    await vi.waitFor(() => {
-      expect(screen.queryByText('正常一行')).not.toBeInTheDocument()
-    })
+    expect(screen.queryByText('正常一行')).not.toBeInTheDocument()
     expect(screen.queryByText('分支覆盖')).not.toBeInTheDocument()
     expect(document.querySelector('.ant-table-placeholder')).not.toBeNull()
   })
