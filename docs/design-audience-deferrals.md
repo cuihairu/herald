@@ -1,6 +1,6 @@
-# 留批解冻预案（3 项；①③ 已解冻落地，② 部分解冻）
+# 留批解冻预案（3 项；①③ 已解冻落地，② 全项收官）
 
-> 状态：**① 已解冻落地（选项 B），② 部分解冻（audiences 写口已落地），③ 已落地**。本文承接
+> 状态：**① 已解冻落地（选项 B），② 全项收官（audiences 写口落地 + recipients/channels 写口代决维持），③ 已落地**。本文承接
 > [Audience 改造审计（存档）](./design-audience-audit)
 > 2026-10-05 拍板维持不做的 3 项留批，为每项列出现状事实、可选路径与后果。审计第十一轮
 > 确认：除 todo.md 这 3 项外无其他未完成项，本仓无 open issue/PR，文档面十轮复扫无新增
@@ -12,7 +12,7 @@
 | # | 条目 | 卡在哪 | 解锁需要 |
 |---|------|--------|----------|
 | ① | Logs 与 Delivery 状态分离 | **已解冻（2026-10-14 用户点名开工，选项 B）** | 无需——落地见下文解冻记录 |
-| ② | audiences/recipients/channels 运行时 API | **部分解冻（2026-10-14 用户拍板解冻，audiences 写口）**——audiences 已落地，recipients/channels 写口仍留批 | 剩余范围（recipients/channels 写口）待拍板 |
+| ② | audiences/recipients/channels 运行时 API | **全项收官**——audiences 写口已落地（`8193172`）；recipients/channels 写口已代决(巡检 R1)：维持纯配置 | 无需——代决记录见下文 ② 节 |
 | ③ | group 成员渠道块展开 | **已解冻（2026-10-13 巡检指派开工，选项 B）** | 无需——`2a857ff` 落地，文档同步 `9b741ef` |
 
 ---
@@ -78,6 +78,13 @@
 > `GET/PUT/DELETE /api/v1/audiences/{id}`。recipients（接收人/端点表）与 channels 块
 > 的写口**仍留批**（写口范围只剩这部分，待再次拍板）。落地 `8193172`，见 todo、
 > [configuration](/guide/configuration) 与 [REST](/api/rest#audiences-list)。
+
+> 2026-10-14 代决(巡检 R1)：recipients/channels 写口**维持纯配置**（不新增写口），
+> ② 全项收官。理由：设计边界已把「运行时改地址」归给联系面 API——`SurfaceRegistry`
+> 的绑定/换绑/失效（`core/audience/surfaces.go`，audienceID → channel → ContactSurface
+> 独立运行时存储），静态 `recipients/endpoints` 只是它的种子
+> （[boundaries](/design-audience-boundaries)）；再加 CRUD 写口会造出同一概念的第二条
+> 运行时路径（双源真相），与既有边界冲突，且无消费方等待。
 
 ## ③ group 成员渠道块展开
 
