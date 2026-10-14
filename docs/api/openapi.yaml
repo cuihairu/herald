@@ -360,12 +360,12 @@ paths:
     get:
       tags: [query]
       summary: 投递状态查询
-      description: 命名空间隔离，只含 source=app:<name> 的行。行在任务执行后才出现。
+      description: 读投递状态机（生命周期与重试演进），不是日志事实流。命名空间隔离，只含 source=app:<name> 的行。行在任务执行后才出现。
       parameters:
         - { $ref: '#/components/parameters/AppName' }
         - { name: offset, in: query, schema: { type: integer, default: 0 } }
         - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 500 } }
-        - { name: status, in: query, schema: { $ref: '#/components/schemas/TaskStatus' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/DeliveryStatus' }, description: 生命周期七值精确匹配 }
         - { name: category, in: query, schema: { type: string } }
         - { name: audience, in: query, schema: { type: string, description: 受众 id；ref 形先转 id（user:5→user.5） } }
       responses:
@@ -683,25 +683,28 @@ components:
           additionalProperties: true
           description: 必须是 JSON object，映射为模板参数。
         occurred_at: { type: string, format: date-time, description: 仅解析，时间戳以 herald 为准 }
-    TaskStatus:
+    DeliveryStatus:
       type: string
-      enum: [success, failed, pending, shadow]
-    DeliveryLog:
+      enum: [accepted, queued, delivering, retrying, delivered, failed, dead]
+      description: 投递生命周期状态机。dead（重试耗尽）与 failed（永久失败）的区分只在投递状态面。
+    DeliveryRow:
       type: object
       properties:
         id: { type: string }
         provider: { type: string }
-        payload_kind: { type: string, description: content/provider_template/raw }
         level: { type: string }
-        status: { $ref: '#/components/schemas/TaskStatus' }
-        error: { type: string }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        retry_count: { type: integer, description: 已执行的退避重试次数 }
+        max_attempts: { type: integer, description: 投递预算（重试策略 + 首次） }
+        last_error: { type: string }
         created_at: { type: string, format: date-time }
-        completed_at: { type: string, format: date-time }
-        duration: { type: integer, description: 毫秒 }
+        updated_at: { type: string, format: date-time }
+        next_retry_at: { type: string, format: date-time, description: 仅 retrying 期间出现 }
         relation_type: { type: string }
         source: { type: string, description: app:<name> }
         audience_id: { type: string }
         category: { type: string }
+        event_id: { type: string, description: 回显 dispatch/events 声明的 event_id }
     DeliveryPage:
       type: object
       properties:
@@ -713,9 +716,9 @@ components:
             total: { type: integer }
             offset: { type: integer }
             limit: { type: integer }
-            logs:
+            deliveries:
               type: array
-              items: { $ref: '#/components/schemas/DeliveryLog' }
+              items: { $ref: '#/components/schemas/DeliveryRow' }
     AuditEvent:
       type: object
       properties:

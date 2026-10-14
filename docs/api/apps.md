@@ -239,8 +239,6 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 
 行在任务真正执行后才出现；被去重折叠的触发不出现在这里（去 audit 找 `delivery.deduped`）。
 
-行在任务真正执行后才出现；被去重折叠的触发不出现在这里（去 audit 找 `delivery.deduped`）。
-
 **GET /audit**：审计流，时间升序。参数 `since`（可选 RFC3339，非法 400）。审计存储未配置时**先于认证**返回 404 `audit trail not configured`。
 
 ```json
