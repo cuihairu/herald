@@ -1,7 +1,7 @@
 [English](README.md) | [中文](README.zh.md)
 
 <div align="center">
-  <img src="docs/public/logo.svg" width="120" alt="Herald logo" />
+  <img src="docs/public/logo.svg" width="64" alt="Herald logo" />
 
   # Herald
 

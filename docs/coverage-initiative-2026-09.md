@@ -1,3 +1,5 @@
+> 中文 · [English](./coverage-initiative-2026-09.en.md)
+
 # 覆盖率攻坚总结（2026-09）
 
 任务链的最终状态与提交链见[覆盖率任务收官报告](./coverage-final-report-2026-09.md)。
