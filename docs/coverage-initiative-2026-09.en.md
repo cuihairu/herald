@@ -2,11 +2,11 @@
 
 # Coverage Drive: Wrap-Up (2026-09)
 
-For the final state of the task chain and the commit chain, see the [Coverage Task Final Report](./coverage-final-report-2026-09.en.md).
+For the final state of the task chain and the commit chain, see the [Coverage Task Final Report](./coverage-final-report-2026-09.md.md).
 
 This round's task: bring Herald's whole-repo test coverage up to **line coverage and branch coverage both full**, judged by the test tooling, with no padding through fake coverage; every genuinely unreachable branch or defensive path records its reason site by site; CI gates are raised in step to the measured level.
 
-Final result: **statement coverage 99.5% (go-test basis)**; in phase 5, merging the three `main()` subprocess measured counts into the gate brings it to 99.7%, and the gate reads **"equivalent 100% after excluding ledger-registered blocks"** (`tools/zero_check.py --gate 100`, see the [final report](./coverage-final-report-2026-09.en.md)). The remaining zero blocks are only the `os.Exit` failure branches in the three entry packages' `main()` — exit skips the GOCOVERDIR dump, so this is unmeasurable at the toolchain level; the entry blocks have been **really executed and asserted** through `go build -cover` + GOCOVERDIR subprocess guard tests (see the three phases below); the dozens of defensive branches on the original list were all converted to measured tests, eliminated by refactor, or rewritten to be always-nil, with per-site explanations in [Test Coverage Basis](./architecture/coverage.md).
+Final result: **statement coverage 99.5% (go-test basis)**; in phase 5, merging the three `main()` subprocess measured counts into the gate brings it to 99.7%, and the gate reads **"equivalent 100% after excluding ledger-registered blocks"** (`tools/zero_check.py --gate 100`, see the [final report](./coverage-final-report-2026-09.md.md)). The remaining zero blocks are only the `os.Exit` failure branches in the three entry packages' `main()` — exit skips the GOCOVERDIR dump, so this is unmeasurable at the toolchain level; the entry blocks have been **really executed and asserted** through `go build -cover` + GOCOVERDIR subprocess guard tests (see the three phases below); the dozens of defensive branches on the original list were all converted to measured tests, eliminated by refactor, or rewritten to be always-nil, with per-site explanations in [Test Coverage Basis](./architecture/coverage.md).
 
 ## Basis and Method
 
