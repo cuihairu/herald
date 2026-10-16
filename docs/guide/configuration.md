@@ -1,3 +1,5 @@
+> 中文 · [English](./configuration.en.md)
+
 # 配置
 
 ## 配置文件

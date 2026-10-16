@@ -1,3 +1,5 @@
+> 中文 · [English](./modules.en.md)
+
 # 模块设计
 
 ## 核心模块

@@ -17,6 +17,7 @@ coverage.*
 coverage/
 coverage-*/
 !docs/architecture/coverage.md
+!docs/architecture/coverage.en.md
 *.coverprofile
 profile.cov
 

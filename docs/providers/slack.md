@@ -1,3 +1,5 @@
+> 中文 · [English](./slack.en.md)
+
 # Slack
 
 通过 Slack Incoming Webhook 将通知推送到 Slack 频道。

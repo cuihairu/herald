@@ -1,3 +1,5 @@
+> 中文 · [English](./getting-started.en.md)
+
 # 快速开始
 
 **第一条真实送达的通知**，两条路径可以走：

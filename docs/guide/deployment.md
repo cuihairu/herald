@@ -1,3 +1,5 @@
+> 中文 · [English](./deployment.en.md)
+
 # 部署
 
 ## 运行模式

@@ -1,3 +1,5 @@
+> 中文 · [English](./overview.en.md)
+
 # Runtime 概述
 
 Provider 跑在哪个进程里，由 Runtime 决定。Herald 分两类：Builtin（进程内直调）和 Worker（独立进程经 WebSocket 接入）。

@@ -1,3 +1,5 @@
+> 中文 · [English](./rest.en.md)
+
 # REST API
 
 ## 认证 {#auth}

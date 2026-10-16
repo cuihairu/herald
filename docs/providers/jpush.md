@@ -1,3 +1,5 @@
+> 中文 · [English](./jpush.en.md)
+
 # JPush (极光推送)
 
 向 Android / iOS / 鸿蒙设备发送推送通知，国内厂商通道到达率优化。

@@ -1,3 +1,5 @@
+> 中文 · [English](./telegram.en.md)
+
 # Telegram
 
 通过 Telegram Bot API 将通知推送到指定会话（私聊 / 群组 / 频道）。

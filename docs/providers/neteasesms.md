@@ -1,3 +1,5 @@
+> 中文 · [English](./neteasesms.en.md)
+
 # 网易云信短信
 
 通过网易云信（NetEase YunXin）短信服务发送国内/国际短信，适合验证码、通知、营销等场景。

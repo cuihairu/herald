@@ -1,3 +1,5 @@
+> 中文 · [English](./builtin.en.md)
+
 # Builtin Runtime
 
 Builtin Runtime 直接运行在 Core 内，适合简单的 HTTP API 类 Provider。

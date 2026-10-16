@@ -1,3 +1,5 @@
+> 中文 · [English](./directory.en.md)
+
 # 目录结构
 
 ## 项目结构

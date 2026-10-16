@@ -1,3 +1,5 @@
+> 中文 · [English](./use-cases.en.md)
+
 # 场景与接入
 
 这一页回答「**我该什么时候用 Herald、怎么接到我的业务上**」。四个典型场景各给：什么时候用 → 怎么配 → 怎么发 → 跑起来什么样。渠道凭据的申请方式见对应 [Provider 手册](/providers/overview)页，这里默认你已经有一个能用的通道（没有就先走[快速开始](/guide/getting-started)）。

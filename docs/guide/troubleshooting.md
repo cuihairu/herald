@@ -1,3 +1,5 @@
+> 中文 · [English](./troubleshooting.en.md)
+
 # 排错指南
 
 按「卡在哪一步」排查：先看启动，再看发送，最后看送达。

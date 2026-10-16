@@ -1,3 +1,5 @@
+> 中文 · [English](./worker.en.md)
+
 # Worker 架构
 
 ## 统一 Worker 模型

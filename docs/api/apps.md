@@ -1,3 +1,5 @@
+> 中文 · [English](./apps.en.md)
+
 # 应用接入 API
 
 `/api/v1/apps/{app}/**` 是集成者命名空间：品类、模板、策略、触发、回执全部按 app 隔离，凭证是播种在配置文件里的 app token。接入动作的引导见[接入指南](/guide/integration)，本页是逐端点参考。

@@ -1,3 +1,5 @@
+> 中文 · [English](./email.en.md)
+
 # Email (SMTP)
 
 通过 SMTP 协议发送邮件通知。

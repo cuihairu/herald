@@ -1,3 +1,5 @@
+> 中文 · [English](./templates.en.md)
+
 # 模板系统
 
 ## 概述

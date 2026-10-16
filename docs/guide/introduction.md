@@ -1,3 +1,5 @@
+> 中文 · [English](./introduction.en.md)
+
 # 简介
 
 ## 什么时候需要 Herald

@@ -1,3 +1,5 @@
+> 中文 · [English](./discord.en.md)
+
 # Discord
 
 通过 Discord Webhook（或 Bot API）将通知推送到 Discord 频道。

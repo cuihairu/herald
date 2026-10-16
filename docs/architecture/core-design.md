@@ -1,3 +1,5 @@
+> 中文 · [English](./core-design.en.md)
+
 # 核心设计
 
 ## 系统定位

@@ -1,3 +1,5 @@
+> 中文 · [English](./templates.en.md)
+
 # 模板系统架构
 
 ## 设计目标
