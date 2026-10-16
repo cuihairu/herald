@@ -1,3 +1,5 @@
+> 中文 · [English](./library-usage.en.md)
+
 # 作为 Go 库使用
 
 Herald 有两种使用形态，二者共享同一套核心管道（队列、路由、去重、模板、Provider）：

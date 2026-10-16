@@ -39,6 +39,7 @@ features:
     title: Worker Model
     details: 独立 Runtime 节点，支持浏览器自动化等复杂场景
 ---
+> 中文 · [English](./index.en.md)
 
 ## Herald 是什么
 

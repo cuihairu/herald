@@ -1,3 +1,5 @@
+> 中文 · [English](./design-notification-groups.en.md)
+
 # 通知群组设计：群组与成员模型、规则绑定与按组路由
 
 > 状态：已实施。通知群组（notification group）是**命名的投递受众**：一组"渠道实例 + 可选

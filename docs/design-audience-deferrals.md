@@ -1,3 +1,5 @@
+> 中文 · [English](./design-audience-deferrals.en.md)
+
 # 留批解冻预案（3 项；①③ 已解冻落地，② 全项收官）
 
 > 状态：**① 已解冻落地（选项 B），② 全项收官（audiences 写口落地 + recipients/channels 写口代决维持），③ 已落地**。本文承接

@@ -1,3 +1,5 @@
+> 中文 · [English](./design-audience-audit.en.md)
+
 # Audience 领域模型：Phase 0-9 改造审计（存档）
 
 > 状态：**存档**。承接原「Audience 领域模型：架构改进计划书」（Phase 0-9，已收官；
