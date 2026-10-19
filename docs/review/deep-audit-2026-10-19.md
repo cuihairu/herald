@@ -151,5 +151,5 @@ REST 路由实现覆盖管理 API、回调、feeds、app namespace 等路径 [ap
 - 测试：`TestAuthMiddlewareRejectsQueryCredentials`、`TestAuth_getJWTToken`、`TestAuth_getAPIKey`。
 
 
-- 公网鉴权门禁（commit `89c122edf38d834b5bf156d6c88ab2ef3f7d6be3`）：[config/config.go](/home/cui/workspaces/herald/config/config.go:553) 启动校验拒绝公网/通配绑定且 auth 未启用；loopback 可关闭鉴权。README 与配置指南说明公网必配 `auth.enabled: true` 和 `auth.api_keys`。
+- 公网鉴权门禁（commit `d0cb1ef52538e4ee69dffb162a07328c4eca212a`）：[config/config.go](/home/cui/workspaces/herald/config/config.go:553) 启动校验拒绝公网/通配绑定且 auth 未启用；loopback 可关闭鉴权。README 与配置指南说明公网必配 `auth.enabled: true` 和 `auth.api_keys`。
 - 测试：`TestValidate/rejects_public_bind_without_auth`、`TestValidate/allows_loopback_bind_without_auth`、`TestServer_AuthRejectsMissingCredentials`。
