@@ -313,12 +313,13 @@ routes:
 #   description: "通知 feed"       # feed 描述
 #   max_items: 500                 # 每品类条目留存上限（默认 500）
 
-# API 鉴权（可选）：管理面凭证。enabled: true 且无任何 api key 时 heraldd 拒起；
+# API 鉴权：公网/通配地址必须启用并配置 api key，否则 heraldd 拒绝启动；
+# 关闭鉴权时 server.addr 只能是 loopback（127.0.0.1、[::1] 或 localhost）。
 # /status 与 /feeds/** 始终匿名。
-# auth:
-#   enabled: true
-#   api_keys:
-#     operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> 或 X-API-Key: <key>
+auth:
+  enabled: true
+  api_keys:
+    operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> 或 X-API-Key: <key>
 #   secret_key: "$JWT_SECRET"      # 可选：JWT 校验密钥
 #   admin_user:
 #     admin: "$ADMIN_PASSWORD"     # 可选：控制台登录

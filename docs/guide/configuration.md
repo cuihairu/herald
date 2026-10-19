@@ -27,6 +27,9 @@ heraldd worker --config worker.yaml
 server:
   addr: ":8080"
   timeout: 30s
+  max_request_body_bytes: 1048576  # 全局默认 1 MiB
+  request_body_limits:             # 可选：按 URL path glob 收紧单路由上限
+    "/api/v1/notify": 262144       # 256 KiB
 
 # Provider 配置
 providers:
@@ -886,9 +889,10 @@ apps:
 
 ## 认证配置（auth）
 
-API 认证为可选项；开启后除登录/刷新与飞书卡片回调外，所有端点需要凭据（Bearer
-token 或 API Key）。`enabled: true` 时 `api_keys` 必须至少配置一条，否则**启动报
-错拒起**：
+API 认证开启后除登录/刷新与飞书卡片回调外，所有受保护端点需要凭据（Bearer
+token 或 API Key）。`enabled: true` 时 `api_keys` 必须至少配置一条，否则启动拒绝。
+监听公网地址（如 `:8080`、`0.0.0.0:8080`）时必须启用认证并配置至少一枚 API key；
+认证关闭只允许绑定 `127.0.0.1`、`[::1]` 或 `localhost`，否则服务拒绝启动。公网部署请设置：
 
 ```yaml
 auth:

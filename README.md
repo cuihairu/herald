@@ -317,12 +317,13 @@ routes:
 #   description: "notification feed" # feed description
 #   max_items: 500                 # per-category entry retention cap (default 500)
 
-# API auth (optional): management-plane credentials. With enabled: true and no
-# api key Herald refuses to start; /status and /feeds/** stay anonymous.
-# auth:
-#   enabled: true
-#   api_keys:
-#     operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> or X-API-Key: <key>
+# API auth: public/wildcard binds require auth enabled and at least one API key;
+# with auth disabled server.addr must be loopback (127.0.0.1, [::1], localhost).
+# /status and /feeds/** stay anonymous.
+auth:
+  enabled: true
+  api_keys:
+    operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> or X-API-Key: <key>
 #   secret_key: "$JWT_SECRET"      # optional: JWT verifier key
 #   admin_user:
 #     admin: "$ADMIN_PASSWORD"     # optional: dashboard login

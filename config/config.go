@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/cuihairu/herald/core/apps"
@@ -548,6 +550,9 @@ func (c *Config) Validate() error {
 	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
 		return fmt.Errorf("auth enabled but no api_keys configured")
 	}
+	if !c.Auth.Enabled && !isLoopbackBind(c.Server.Addr) {
+		return fmt.Errorf("refusing to bind public address %q while auth is disabled; enable auth and configure api_keys, or bind to loopback", c.Server.Addr)
+	}
 	for name, provider := range c.Providers {
 		if provider.Type == "" {
 			return fmt.Errorf("provider %s type is required", name)
@@ -594,4 +599,16 @@ func (c *Config) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func isLoopbackBind(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

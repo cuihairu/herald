@@ -149,6 +149,20 @@ func TestServer_RequestBodyLimit(t *testing.T) {
 	})
 }
 
+func TestServer_AuthRejectsMissingCredentials(t *testing.T) {
+	env := newTestEnv(t, func(c *Config) {
+		c.Auth = auth.New(&auth.Config{Enabled: true, APIKeys: map[string]string{"operator-key": "test"}})
+	})
+	code, _ := env.do(t, http.MethodGet, "/api/v1/providers", "", nil)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("missing credentials: expected 401, got %d", code)
+	}
+	code, _ = env.do(t, http.MethodGet, "/api/v1/providers", "", map[string]string{"X-API-Key": "operator-key"})
+	if code != http.StatusOK {
+		t.Fatalf("valid credentials: expected 200, got %d", code)
+	}
+}
+
 func TestServer_EmptyPathValues(t *testing.T) {
 	env := newTestEnv(t)
 

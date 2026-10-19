@@ -488,6 +488,7 @@ func TestExpandEnv(t *testing.T) {
 func TestValidate(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		cfg.Auth.APIKeys["admin"] = "secret"
 		cfg.Providers["webhook"] = ProviderConfig{Type: "webhook"}
@@ -498,6 +499,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("missing server addr", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Server.Addr = ""
 		err := cfg.Validate()
 		if err == nil {
@@ -507,6 +509,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("auth enabled without api keys", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		err := cfg.Validate()
 		if err == nil {
@@ -514,8 +517,25 @@ func TestValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects public bind without auth", func(t *testing.T) {
+		cfg := Default()
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth is disabled") {
+			t.Errorf("expected public unauthenticated bind refusal, got %v", err)
+		}
+	})
+
+	t.Run("allows loopback bind without auth", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Server.Addr = "127.0.0.1:8080"
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected loopback to be allowed, got %v", err)
+		}
+	})
+
 	t.Run("provider missing type", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Providers["log"] = ProviderConfig{Type: ""}
 		err := cfg.Validate()
 		if err == nil {
@@ -525,6 +545,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("channel without providers", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Channels["ci"] = ChannelConfig{}
 		err := cfg.Validate()
 		if err == nil {
@@ -534,6 +555,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("channel references unknown provider", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"ghost"}}
 		err := cfg.Validate()
 		if err == nil {
@@ -543,6 +565,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("channel naming a real provider", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Providers["feishu"] = ProviderConfig{Type: "webhook"}
 		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"feishu"}}
 		if err := cfg.Validate(); err != nil {
@@ -552,6 +575,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("dedup override tables parse", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Dedup.CategoryTiers = map[string]string{"bills": "always", "alerts": "once"}
 		cfg.Dedup.CategoryWindows = map[string]time.Duration{"alerts": 30 * time.Minute}
 		if err := cfg.Validate(); err != nil {
@@ -561,6 +585,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("dedup unparseable tier refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Dedup.CategoryTiers = map[string]string{"alerts": "hourly"}
 		err := cfg.Validate()
 		if err == nil || !strings.Contains(err.Error(), "alerts") {
@@ -570,6 +595,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("dedup non-positive window refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Dedup.CategoryWindows = map[string]time.Duration{"alerts": -time.Minute}
 		err := cfg.Validate()
 		if err == nil || !strings.Contains(err.Error(), "alerts") {
@@ -579,6 +605,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app seeds validate", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{
 				{Secret: "demo-app-a", Scopes: []string{"config", "trigger"}},
@@ -594,6 +621,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app without tokens refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{"demo-app": {}}
 		err := cfg.Validate()
 		if err == nil || !strings.Contains(err.Error(), "demo-app") {
@@ -603,6 +631,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app with unparseable scope refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"admin"}}}},
 		}
@@ -614,6 +643,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app secret shared across namespaces refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
 			"app-b":    {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
@@ -626,6 +656,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app with invalid name refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"bad name!": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"query"}}}},
 		}
