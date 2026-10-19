@@ -386,12 +386,12 @@ func TestAuth_getJWTToken(t *testing.T) {
 		}
 	})
 
-	t.Run("token from query parameter", func(t *testing.T) {
+	t.Run("rejects token from query parameter", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test?token=query-token-123", nil)
 		token := auth.getJWTToken(req)
 
-		if token != "query-token-123" {
-			t.Errorf("expected token 'query-token-123', got '%s'", token)
+		if token != "" {
+			t.Errorf("query credentials must be ignored, got '%s'", token)
 		}
 	})
 
@@ -439,12 +439,12 @@ func TestAuth_getAPIKey(t *testing.T) {
 		}
 	})
 
-	t.Run("API key from query parameter", func(t *testing.T) {
+	t.Run("rejects API key from query parameter", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test?api_key=query-api-key", nil)
 		key := auth.getAPIKey(req)
 
-		if key != "query-api-key" {
-			t.Errorf("expected API key 'query-api-key', got '%s'", key)
+		if key != "" {
+			t.Errorf("query credentials must be ignored, got '%s'", key)
 		}
 	})
 
@@ -468,6 +468,35 @@ func TestAuth_getAPIKey(t *testing.T) {
 			t.Errorf("expected Authorization Bearer token to have priority, got '%s'", key)
 		}
 	})
+}
+
+func TestAuthMiddlewareRejectsQueryCredentials(t *testing.T) {
+	a := New(&Config{Enabled: true, APIKeys: map[string]string{"valid-key": "test"}})
+	next := a.Middleware(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"JWT", "/protected?token=valid-key"},
+		{"API key", "/protected?api_key=valid-key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			next.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if rr.Code != http.StatusUnauthorized {
+				t.Fatalf("query credentials must be rejected, got %d", rr.Code)
+			}
+		})
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("X-API-Key", "valid-key")
+	next.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("header credential should pass, got %d", rr.Code)
+	}
 }
 
 func TestAuth_GetUserManager(t *testing.T) {

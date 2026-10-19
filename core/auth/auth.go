@@ -242,7 +242,7 @@ func (a *Auth) getJWTToken(r *http.Request) string {
 		return cookie.Value
 	}
 
-	return r.URL.Query().Get("token")
+	return ""
 }
 
 // getAPIKey extracts the API key from the request
@@ -261,8 +261,7 @@ func (a *Auth) getAPIKey(r *http.Request) string {
 		return key
 	}
 
-	// Try query parameter
-	return r.URL.Query().Get("api_key")
+	return ""
 }
 
 // unauthorized sends an unauthorized response

@@ -145,6 +145,8 @@ REST 路由实现覆盖管理 API、回调、feeds、app namespace 等路径 [ap
 
 ## 修复记录
 
-- HTTP 体积限制（commit `249efe37bb6207acbccb71799f4ce5820497dd4a`）：[api/server.go](/home/cui/workspaces/herald/api/server.go:350) 所有入站请求默认 1 MiB、`server.max_request_body_bytes` 与 `server.request_body_limits` 可覆盖；超限返回 413 并仅记录请求元数据。[core/httpclient/client.go](/home/cui/workspaces/herald/core/httpclient/client.go:99) 上游响应限制 1 MiB，超限截断读取并拒绝，状态错误不携带响应正文；日志/投递分页已有 500 条上限。
+- HTTP 体积限制（commit `53a3a7194678de856efcedcab9bb39c30c245ff7`）：[api/server.go](/home/cui/workspaces/herald/api/server.go:350) 所有入站请求默认 1 MiB、`server.max_request_body_bytes` 与 `server.request_body_limits` 可覆盖；超限返回 413 并仅记录请求元数据。[core/httpclient/client.go](/home/cui/workspaces/herald/core/httpclient/client.go:99) 上游响应限制 1 MiB，超限截断读取并拒绝，状态错误不携带响应正文；日志/投递分页已有 500 条上限。
 - 测试：`TestServer_RequestBodyLimit`、`TestClientRejectsOversizedResponseBody`、`TestStatusCodesRetryableClassification`。
+- 查询凭据（commit `8f30a2976c5cdce04cc0aec35a44277351678c7f`）：[core/auth/auth.go](/home/cui/workspaces/herald/core/auth/auth.go:229) 原读取点为 `getJWTToken` 中 `?token=`（原 245 行）和 `getAPIKey` 中 `?api_key=`（原 265 行），现只接受 Authorization/X-API-Key header 与 token cookie；全仓搜索未发现其它服务端从 query 取 token/secret/key。策略：直接拒绝 query 凭据，不留兼容版。服务端没有记录请求 URL 的 access-log middleware；超限日志也不记录 URL/body。
+- 测试：`TestAuthMiddlewareRejectsQueryCredentials`、`TestAuth_getJWTToken`、`TestAuth_getAPIKey`。
 
