@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
+	"path"
 	"time"
 
 	"github.com/cuihairu/herald/core"
@@ -30,10 +33,12 @@ import (
 
 // Server is the herald server
 type Server struct {
-	addr    string
-	handler *Handler
-	server  *http.Server
-	auth    *auth.Auth
+	addr                string
+	handler             *Handler
+	server              *http.Server
+	auth                *auth.Auth
+	maxRequestBodyBytes int64
+	requestBodyLimits   map[string]int64
 	// apps is the §13.1 integration-namespace registry; nil keeps the
 	// whole app face 404 (not configured = closed).
 	apps *apps.Registry
@@ -55,8 +60,10 @@ type Server struct {
 
 // Config is the server configuration
 type Config struct {
-	Addr    string
-	Timeout time.Duration
+	Addr                string
+	Timeout             time.Duration
+	MaxRequestBodyBytes int64
+	RequestBodyLimits   map[string]int64
 
 	Router          *route.Router
 	Queue           core.Queue
@@ -127,6 +134,9 @@ type Config struct {
 func NewServer(config *Config) *Server {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
+	}
+	if config.MaxRequestBodyBytes <= 0 {
+		config.MaxRequestBodyBytes = 1 << 20
 	}
 
 	notificationSvc := service.NewNotificationService(
@@ -216,15 +226,17 @@ func NewServer(config *Config) *Server {
 	}
 
 	s := &Server{
-		addr:            config.Addr,
-		handler:         handler,
-		auth:            config.Auth,
-		apps:            config.Apps,
-		delivery:        config.Delivery,
-		filter:          config.Filter,
-		audit:           config.Audit,
-		relations:       config.FeedRelations,
-		notificationSvc: notificationSvc,
+		addr:                config.Addr,
+		maxRequestBodyBytes: config.MaxRequestBodyBytes,
+		requestBodyLimits:   config.RequestBodyLimits,
+		handler:             handler,
+		auth:                config.Auth,
+		apps:                config.Apps,
+		delivery:            config.Delivery,
+		filter:              config.Filter,
+		audit:               config.Audit,
+		relations:           config.FeedRelations,
+		notificationSvc:     notificationSvc,
 	}
 	if config.Audit != nil {
 		// Dispatch fold audits (§11 去重/折叠明细) land in the same
@@ -331,12 +343,39 @@ func NewServer(config *Config) *Server {
 
 	s.server = &http.Server{
 		Addr:         config.Addr,
-		Handler:      mux,
+		Handler:      s.limitRequestBodies(mux),
 		ReadTimeout:  config.Timeout,
 		WriteTimeout: config.Timeout,
 	}
 
 	return s
+}
+
+func (s *Server) limitRequestBodies(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := s.maxRequestBodyBytes
+		for pattern, routeLimit := range s.requestBodyLimits {
+			if routeLimit > 0 {
+				if matched, _ := path.Match(pattern, r.URL.Path); matched && routeLimit < limit {
+					limit = routeLimit
+				}
+			}
+		}
+		if r.Body != nil && r.Body != http.NoBody {
+			body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+			if err != nil {
+				http.Error(w, "failed to read request body", http.StatusBadRequest)
+				return
+			}
+			if int64(len(body)) > limit {
+				logger.Warn("request body exceeds configured limit", "method", r.Method, "remote", r.RemoteAddr, "limit_bytes", limit)
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Start starts the server

@@ -743,8 +743,8 @@ func TestDeliverHTTPErrorSurfacesBody(t *testing.T) {
 	if err == nil {
 		t.Fatal("Deliver against 429 = nil error")
 	}
-	if !strings.Contains(err.Error(), "429") || !strings.Contains(err.Error(), "TooManyRequests") {
-		t.Errorf("error = %v, want status and APNs reason", err)
+	if !strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "TooManyRequests") {
+		t.Errorf("error = %v, want status without upstream response content", err)
 	}
 	if strings.Contains(err.Error(), "succeeded") == false {
 		t.Errorf("error = %v, want aggregated form", err)

@@ -91,7 +91,8 @@ func classifyStatus(code int) (errclass.Class, bool) {
 // response itself is still returned so callers can inspect the body for
 // diagnostics.
 func statusError(code int, body []byte, header http.Header) error {
-	err := fmt.Errorf("unexpected status code: %d, body: %s", code, string(body))
+	_ = body // Response.Body remains available to callers; never copy upstream data into logs/errors.
+	err := fmt.Errorf("unexpected status code: %d", code)
 	class, ok := classifyStatus(code)
 	if !ok {
 		return err
@@ -102,6 +103,19 @@ func statusError(code int, body []byte, header http.Header) error {
 		}
 	}
 	return errclass.New(class, err)
+}
+
+const maxResponseBodyBytes = 1 << 20
+
+func readResponseBody(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, maxResponseBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if len(b) > maxResponseBodyBytes {
+		return nil, fmt.Errorf("upstream response body exceeds %d bytes", maxResponseBodyBytes)
+	}
+	return b, nil
 }
 
 // parseRetryAfter decodes a Retry-After value (delay-seconds or HTTP-date
@@ -201,9 +215,9 @@ func (c *Client) DoJSON(ctx context.Context, method, url string, body interface{
 	defer func() { _ = resp.Body.Close() }()
 
 	// Read response
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readResponseBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	// Check status code
@@ -242,9 +256,9 @@ func (c *Client) PostForm(ctx context.Context, reqURL string, data url.Values) (
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readResponseBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -273,9 +287,9 @@ func (c *Client) Get(ctx context.Context, url string) (*Response, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readResponseBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

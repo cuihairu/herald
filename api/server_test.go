@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +126,27 @@ func TestServer_Routes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServer_RequestBodyLimit(t *testing.T) {
+	t.Run("rejects oversized request before handler", func(t *testing.T) {
+		env := newTestEnv(t)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/status", strings.NewReader(strings.Repeat("x", (1<<20)+1)))
+		rr := httptest.NewRecorder()
+		env.server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected 413, got %d", rr.Code)
+		}
+	})
+	t.Run("accepts request at configured limit", func(t *testing.T) {
+		env := newTestEnv(t, func(c *Config) { c.MaxRequestBodyBytes = 4 })
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/status", strings.NewReader("1234"))
+		rr := httptest.NewRecorder()
+		env.server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected handler response 405, got %d", rr.Code)
+		}
+	})
 }
 
 func TestServer_EmptyPathValues(t *testing.T) {

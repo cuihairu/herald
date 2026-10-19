@@ -143,3 +143,8 @@ REST 路由实现覆盖管理 API、回调、feeds、app namespace 等路径 [ap
 2. 停止接受 query-string 管理凭据并给旧客户端迁移窗口，避免密钥进入 URL 日志 [core/auth/auth.go:240](/home/cui/workspaces/herald/core/auth/auth.go:240)-[core/auth/auth.go:265](/home/cui/workspaces/herald/core/auth/auth.go:265)。
 3. 为公网部署建立显式安全配置门（至少要求鉴权启用），并补对应配置/HTTP 集成验证 [core/auth/auth.go:83](/home/cui/workspaces/herald/core/auth/auth.go:83)-[core/auth/auth.go:105](/home/cui/workspaces/herald/core/auth/auth.go:105)。
 
+## 修复记录
+
+- HTTP 体积限制（commit `249efe37bb6207acbccb71799f4ce5820497dd4a`）：[api/server.go](/home/cui/workspaces/herald/api/server.go:350) 所有入站请求默认 1 MiB、`server.max_request_body_bytes` 与 `server.request_body_limits` 可覆盖；超限返回 413 并仅记录请求元数据。[core/httpclient/client.go](/home/cui/workspaces/herald/core/httpclient/client.go:99) 上游响应限制 1 MiB，超限截断读取并拒绝，状态错误不携带响应正文；日志/投递分页已有 500 条上限。
+- 测试：`TestServer_RequestBodyLimit`、`TestClientRejectsOversizedResponseBody`、`TestStatusCodesRetryableClassification`。
+

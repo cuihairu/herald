@@ -568,17 +568,16 @@ func TestDeliverPartialFailureAggregates(t *testing.T) {
 	if !strings.Contains(err.Error(), "bad1:") {
 		t.Errorf("error = %q, want untruncated short target", err.Error())
 	}
-	if !strings.Contains(err.Error(), "1011") {
-		t.Errorf("error = %q, want JPush error body", err.Error())
+	if strings.Contains(err.Error(), "1011") {
+		t.Errorf("error = %q, must not expose JPush response body", err.Error())
 	}
 	if got := atomic.LoadInt32(&successCount); got != 1 {
 		t.Errorf("successful sends = %d, want 1", got)
 	}
 }
 
-// TestDeliverHTTPErrorSurfacesBody checks a rate-limited response (429,
-// JPush error code 2002) reaches the aggregated error with both status
-// and body — retryability stays with httpclient's statusError.
+// TestDeliverHTTPErrorSurfacesStatus checks status remains visible without
+// copying untrusted upstream response content into propagated errors.
 func TestDeliverHTTPErrorSurfacesBody(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -600,8 +599,8 @@ func TestDeliverHTTPErrorSurfacesBody(t *testing.T) {
 	if err == nil {
 		t.Fatal("Deliver against 429 = nil error")
 	}
-	if !strings.Contains(err.Error(), "429") || !strings.Contains(err.Error(), "2002") {
-		t.Errorf("error = %v, want status and JPush code", err)
+	if !strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "2002") {
+		t.Errorf("error = %v, want status without upstream response content", err)
 	}
 	if !strings.Contains(err.Error(), "succeeded") {
 		t.Errorf("error = %v, want aggregated form", err)

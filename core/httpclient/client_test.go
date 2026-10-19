@@ -38,6 +38,17 @@ func TestNewClientWithConfig(t *testing.T) {
 	}
 }
 
+func TestClientRejectsOversizedResponseBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("x", maxResponseBodyBytes+1))
+	}))
+	defer srv.Close()
+	client := NewClient(nil)
+	if _, err := client.Get(context.Background(), srv.URL); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized-response error, got %v", err)
+	}
+}
+
 func TestClientGet(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -555,8 +566,11 @@ func TestStatusCodesRetryableClassification(t *testing.T) {
 			if resp == nil || resp.StatusCode != tc.status {
 				t.Fatalf("status %d: expected response with status for diagnostics, got %+v", tc.status, resp)
 			}
-			if tc.retryable && !strings.Contains(err.Error(), "upstream said no") {
-				t.Errorf("retryable error should carry the body for diagnostics, got %v", err)
+			if strings.Contains(err.Error(), "upstream said no") {
+				t.Errorf("error must not include upstream response content: %v", err)
+			}
+			if string(resp.Body) != "upstream said no" {
+				t.Errorf("response body should remain available to caller, got %q", resp.Body)
 			}
 		})
 	}

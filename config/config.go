@@ -158,8 +158,10 @@ type RulesStateConfig struct {
 
 // ServerConfig is the server configuration
 type ServerConfig struct {
-	Addr    string        `yaml:"addr"`
-	Timeout time.Duration `yaml:"timeout"`
+	Addr                string           `yaml:"addr"`
+	Timeout             time.Duration    `yaml:"timeout"`
+	MaxRequestBodyBytes int64            `yaml:"max_request_body_bytes"`
+	RequestBodyLimits   map[string]int64 `yaml:"request_body_limits"`
 }
 
 // WebSocketConfig is the websocket worker server configuration
@@ -376,6 +378,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Server.Timeout == 0 {
 		cfg.Server.Timeout = 30 * time.Second
 	}
+	if cfg.Server.MaxRequestBodyBytes <= 0 {
+		cfg.Server.MaxRequestBodyBytes = 1 << 20
+	}
 	if cfg.WebSocket.Addr == "" {
 		cfg.WebSocket.Addr = ":8081"
 	}
@@ -450,8 +455,9 @@ func Load(path string) (*Config, error) {
 func Default() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Addr:    ":8080",
-			Timeout: 30 * time.Second,
+			Addr:                ":8080",
+			Timeout:             30 * time.Second,
+			MaxRequestBodyBytes: 1 << 20,
 		},
 		WebSocket: WebSocketConfig{
 			Addr:         ":8081",
