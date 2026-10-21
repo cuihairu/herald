@@ -1,6 +1,6 @@
 # Herald 受众层改造需求清单
 
-Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍板见 [design-audience-audit](design-audience-audit)。测试数为该批收官提交时的 Go 测试函数数。
+Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍板见 design-audience-audit。测试数为该批收官提交时的 Go 测试函数数。
 
 ## 已完成
 
@@ -32,7 +32,7 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 ## 留批（显式设计决策，不实施；待拍板 D4F1）
 
 - [x] Logs 与 Delivery 状态分离 — `0effddf`…`6534269`（1432 例）
-- [x] audiences/recipients/channels 运行时 API — audiences 写口已落地（`8193172`）；recipients/channels 写口已代决(巡检 R1)：维持纯配置——运行时地址变更归联系面 API（ContactSurface 绑定/换绑/失效），静态 recipients/endpoints 只是种子，再加 CRUD 写口会造出同一概念第二条运行时路径（双源真相）；预案见 [design-audience-deferrals](design-audience-deferrals)
+- [x] audiences/recipients/channels 运行时 API — audiences 写口已落地（`8193172`）；recipients/channels 写口已代决(巡检 R1)：维持纯配置——运行时地址变更归联系面 API（ContactSurface 绑定/换绑/失效），静态 recipients/endpoints 只是种子，再加 CRUD 写口会造出同一概念第二条运行时路径（双源真相）；预案见 design-audience-deferrals
 - [x] group 成员渠道块展开 — `2a857ff`（1398 例）
 
 ## docs 双语补齐（2026-10-16 执行单）

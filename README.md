@@ -343,7 +343,7 @@ auth:
 Full documentation is at [docs/](./docs/)
 
 - [Integration guide](./docs/guide/integration.md) (external projects: from service address to first alert, app namespace, signed callbacks — self-serve, no questions needed)
-- [Go SDK](./apps-sdk/go) (official client, one `Client` per token; [`apps-sdk/go/example`](./apps-sdk/go/example/main.go) is a runnable self-check — `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` and `go run` walk all five faces)
+- Go SDK (official client, one `Client` per token; [`apps-sdk/go/example`](./apps-sdk/go/example/main.go) is a runnable self-check — `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` and `go run` walk all five faces)
 - [Worker SDK](./docs/runtime/sdk.md) (build your own remote worker node — register, consume tasks, heartbeat; or just run the builtin `heraldd worker` binary)
 - [Events and alert model](./docs/guide/events.md) (level vocabularies, dedup and idempotency, at-least-once delivery guarantees)
 - [App integration API](./docs/api/apps.md) (per-endpoint reference for the `/apps/{app}/**` namespace) · [OpenAPI spec](./docs/api/openapi.yaml) (SDK code generation)

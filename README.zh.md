@@ -338,7 +338,7 @@ auth:
 完整文档请访问 [docs/](./docs/)
 
 - [接入指南](./docs/guide/integration.md)（外部系统：从服务地址到第一条告警、app 命名空间、签名回调——自助接完，不用来问）
-- [Go SDK](./apps-sdk/go)（官方客户端，一枚 token 一个 `Client`；[`apps-sdk/go/example`](./apps-sdk/go/example/main.go) 是可运行自检——配 `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` 后 `go run` 走完五个面）
+- Go SDK（官方客户端，一枚 token 一个 `Client`；[`apps-sdk/go/example`](./apps-sdk/go/example/main.go) 是可运行自检——配 `HERALD_URL` / `HERALD_APP` / `HERALD_TOKEN` 后 `go run` 走完五个面）
 - [Worker SDK](./docs/runtime/sdk.md)（自建远端 Worker 节点：注册、消费任务、心跳；也可直接跑内置 `heraldd worker` 二进制）
 - [应用接入 API](./docs/api/apps.md)（`/apps/{app}/**` 命名空间逐端点参考）· [OpenAPI 规范](./docs/api/openapi.yaml)（喂给代码生成器）
 - [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、受众与联系面、Digest、队列、Provider 全量配置项）
