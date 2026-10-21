@@ -1,26 +1,24 @@
-> 中文 · [English](./slack.en.md)
-
 # Slack
 
-通过 Slack Incoming Webhook 将通知推送到 Slack 频道。
+Push notifications to a Slack channel via a Slack Incoming Webhook.
 
-## 作用
+## What it does
 
-`slack` Builtin Provider 调用 Slack Incoming Webhook，以带色 attachment 的形式把 Herald 的通知发送到固定频道，消息附带级别与来源 Provider 字段。
+The `slack` Builtin Provider calls a Slack Incoming Webhook and sends Herald notifications to a fixed channel as colored attachments; messages carry level and source-Provider fields.
 
-## 申请凭据
+## Get credentials
 
-无需审批，但要在 Slack 后台创建 App：
+No approval needed, but you do need to create an App in the Slack admin console:
 
-1. 打开 [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch** → 起名、选工作区
-2. 左侧 **Incoming Webhooks** → 打开 **Activate Incoming Webhooks** → **Add New Webhook to Workspace** → 选择目标频道
-3. 复制生成的 Webhook URL（形如 `https://hooks.slack.com/services/T00/B00/xxxx`）
+1. Open [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch** → name it and pick a workspace
+2. In the left sidebar **Incoming Webhooks** → turn on **Activate Incoming Webhooks** → **Add New Webhook to Workspace** → choose the target channel
+3. Copy the generated Webhook URL (shaped like `https://hooks.slack.com/services/T00/B00/xxxx`)
 
-> ⚠️ Slack 这家是唯一**没有启动校验**的 Provider：`webhook_url` 配错也要到发送时才报错，所以拿到 URL 后务必按下面发一条验证。
+> ⚠️ Slack is the only Provider **without startup validation**: a misconfigured `webhook_url` only errors at send time, so once you have the URL, be sure to send a verification message as shown below.
 
-## 发第一条消息
+## Send your first message
 
-配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+After configuring (see below) and starting with `heraldd serve --config config.yaml`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -28,25 +26,25 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "demo",
     "level": "error",
-    "title": "Herald 第一条推送",
+    "title": "Herald first push",
     "body": "from curl",
     "channels": ["slack"]
   }'
 ```
 
-API 返回 `"accepted":["slack"]`，频道里出现 **Herald** 发的红色 attachment 消息（带 Level/Provider 字段）。没收到？查[排错指南](/guide/troubleshooting)。
+The API returns `"accepted":["slack"]` and a red attachment message from **Herald** (with Level/Provider fields) appears in the channel. Nothing arrived? Check the [troubleshooting guide](/guide/troubleshooting).
 
-## 配置项
+## Configuration options
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `webhook_url` | ✅（实际必需） | Incoming Webhook 地址（Slack App → Incoming Webhooks → Add New Webhook 获得） | 无 |
+| `webhook_url` | ✅ (required in practice) | Incoming Webhook URL (obtained via Slack App → Incoming Webhooks → Add New Webhook) | none |
 
-> **说明**：代码的 Config 结构体里还声明了 `workspace` / `app_id` / `app_secret` 三个字段，但当前实现只读取 `webhook_url`，其余为预留，配置不会生效。
+> **Note**: the code's Config struct also declares `workspace` / `app_id` / `app_secret`, but the current implementation only reads `webhook_url`; the rest are reserved and have no effect.
 >
-> **⚠️ 无启动校验**：与其他 Provider 不同，`webhook_url` 为空时 Provider 仍能创建成功，错误会在发送阶段暴露（请求构造失败）。请确认配置加载后跑通一次发送验证。
+> **⚠️ No startup validation**: unlike other Providers, an empty `webhook_url` still lets the Provider be created successfully; the error surfaces at send time (request construction fails). After the config loads, run one send to verify.
 
-## 配置示例
+## Configuration example
 
 ```yaml
 providers:
@@ -57,53 +55,53 @@ providers:
       webhook_url: "$SLACK_WEBHOOK_URL"
 ```
 
-## 环境变量
+## Environment variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When loading config, Herald replaces string values in provider config **that start with `$`** with the value of the environment variable of the same name (the `$VAR` form, looked up as `VAR`). Note: the braced form `"${VAR}"` **is not expanded** (it is looked up as `{VAR}` and kept as-is); use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment variable | Corresponding config key | Description |
 |----------|-----------|------|
-| `SLACK_WEBHOOK_URL` | `webhook_url` | Incoming Webhook 地址（`.env.example` 惯用名） |
+| `SLACK_WEBHOOK_URL` | `webhook_url` | Incoming Webhook URL (the conventional name in `.env.example`) |
 
-## 消息模板与限制
+## Message template and limits
 
-消息以 attachment 形式发送，发送者为 **Herald**（头像 `:bell:`）：
+Messages are sent as attachments from **Herald** (avatar `:bell:`):
 
-| 字段 | 取值 |
+| Field | Value |
 |------|------|
-| `title` / `text` | 通知标题 / 正文（原样，不做级别前缀或标题加色） |
-| `color` | 按级别着色，见下表 |
-| `fields` | `Level`（级别）、`Provider`（来源 Provider 名），均为短字段 |
+| `title` / `text` | notification title / body (as-is; no level prefix or title coloring) |
+| `color` | colored by level, see table below |
+| `fields` | `Level` (severity) and `Provider` (source Provider name), both short fields |
 | `footer` | `Herald` |
-| `ts` | 通知创建时间（Unix 秒） |
+| `ts` | notification creation time (Unix seconds) |
 
-级别颜色：
+Level colors:
 
-| 级别 | color |
+| Level | color |
 |------|-------|
-| `error` | `danger`（红） |
-| `warning` | `warning`（黄） |
-| `info` | `#36a64f`（绿） |
-| 其他 | `#808080`（灰） |
+| `error` | `danger` (red) |
+| `warning` | `warning` (yellow) |
+| `info` | `#36a64f` (green) |
+| other | `#808080` (gray) |
 
-- Provider 能力声明支持 `markdown` / `plain` 两种内容格式（attachment text 支持 Slack mrkdwn）
-- 请求超时 30s；HTTP 408/429/5xx 会被包装为可重试错误，走统一重试
-- Slack 侧限制：Incoming Webhook 只能发到创建时绑定的频道，1 条 Webhook 每秒约 1 条，超限返回 `HTTP 429`（带 `Retry-After`）
+- The Provider's capability declaration supports both `markdown` and `plain` content formats (attachment text supports Slack mrkdwn)
+- Request timeout is 30s; HTTP 408/429/5xx are wrapped as retryable errors and go through unified retry
+- Slack-side limits: an Incoming Webhook can only post to the channel it was bound to at creation, roughly 1 message per second per Webhook; exceeding that returns `HTTP 429` (with `Retry-After`)
 
-## 常见错误
+## Common errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and fix |
 |------|-----------|
-| `slack API error: invalid_payload` | 请求体不合法（一般为超长或字段异常），精简正文后重试 |
-| `slack API error: channel_not_found` | Webhook 绑定的频道已被删除，重新创建 Webhook |
-| `slack API error: channel_is_archived` | 频道已归档，换频道重建 Webhook |
-| `slack API error: invalid_credentials` / HTTP 404 | Webhook 地址已失效（App 卸载或 Webhook 被撤销），重新生成 |
-| `failed to send request: …` | `webhook_url` 为空或地址非法——发送阶段才会暴露，检查配置 |
+| `slack API error: invalid_payload` | request body is invalid (usually too long or malformed fields); trim the body and retry |
+| `slack API error: channel_not_found` | the channel bound to the Webhook has been deleted; recreate the Webhook |
+| `slack API error: channel_is_archived` | the channel is archived; pick another channel and recreate the Webhook |
+| `slack API error: invalid_credentials` / HTTP 404 | the Webhook URL is no longer valid (App uninstalled or Webhook revoked); regenerate it |
+| `failed to send request: …` | `webhook_url` is empty or malformed — it only surfaces at send time; check the config |
 
-错误格式说明：Slack 返回 `{"ok": false, "error": …}` 时报 `slack API error: {error}`；HTTP 非 2xx 时报 `unexpected status code: {code}, body: …`。
+Error format notes: when Slack returns `{"ok": false, "error": …}` the error is `slack API error: {error}`; on non-2xx HTTP the error is `unexpected status code: {code}, body: …`.
 
-## 下一步
+## Next steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [Discord](./discord.md) - Discord Webhook 推送
-- [Telegram](./telegram.md) - Telegram Bot 推送
+- [Provider overview](./overview.md) - see all Providers and how to enable them
+- [Discord](./discord.md) - Discord Webhook push
+- [Telegram](./telegram.md) - Telegram Bot push

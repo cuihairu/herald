@@ -1,23 +1,26 @@
-> 中文 · [English](./rest.en.md)
-
 # REST API
 
-## 认证 {#auth}
+## Auth {#auth}
 
-本页端点在开启 `auth.enabled` 后都需要 `Authorization: Bearer <token>`（或
-`X-API-Key` 头携带 API Key；GET 请求也可用 `?api_key=` 查询参数）；未开启时匿名可用。
-API Key 与 JWT 混用时先按 API Key 比对。JWT 由 `/auth/login` 签发，**有效期固定 24 小时**，
-过期用 `/auth/refresh` 换新。四个例外域另见
-[API 概述](./overview.md#认证)：`/auth/*` 自身、集成者 app 面（按 app token 三级
-scope 鉴权，独立于 `auth.enabled`）、平台自证回调（bot/公众号/飞书）与公开读口
-（`/api/v1/status`、`/feeds/**`）。
+The endpoints on this page require `Authorization: Bearer <token>` (or an API Key
+carried in the `X-API-Key` header; GET requests may also use the `?api_key=`
+query parameter) once `auth.enabled` is turned on; when it is not, anonymous
+access is allowed. When an API Key and a JWT are mixed, the API Key is checked
+first. JWTs are issued by `/auth/login` with a **fixed 24-hour validity period**;
+use `/auth/refresh` to exchange for a new one after expiry. The four exception
+domains are described in [API Overview](./overview.md): `/auth/*` itself, the
+integrator app surface (authenticated by app token with a three-level scope,
+independent of `auth.enabled`), platform self-authentication callbacks (bot /
+WeChat Official Account / Feishu), and the public read surface
+(`/api/v1/status`, `/feeds/**`).
 
 ## POST /api/v1/auth/login {#auth-login}
 
-登录换取 JWT token。用户名或密码错误返回 401。token 也可通过 `X-API-Key` 头携带
-API Key 代替（见[认证](#auth)）。
+Log in to exchange for a JWT token. A wrong username or password returns 401. The
+token may also be replaced by an API Key carried in the `X-API-Key` header (see
+[Auth](#auth)).
 
-### login-请求 {#login-request}
+### login-request {#login-request}
 
 ```json
 {
@@ -26,7 +29,7 @@ API Key 代替（见[认证](#auth)）。
 }
 ```
 
-### login-响应 {#login-response}
+### login-response {#login-response}
 
 ```json
 {
@@ -41,10 +44,11 @@ API Key 代替（见[认证](#auth)）。
 
 ## POST /api/v1/auth/refresh {#auth-refresh}
 
-刷新 JWT：凭 Bearer token（或 `herald_token` cookie / `?token=` 查询参数）换发新
-token。token 缺失、无效或过期返回 401。
+Refresh the JWT: exchange the Bearer token (or the `herald_token` cookie / the
+`?token=` query parameter) for a new token. A missing, invalid, or expired token
+returns 401.
 
-### refresh-响应 {#refresh-response}
+### refresh-response {#refresh-response}
 
 ```json
 { "token": "eyJ..." }
@@ -52,9 +56,10 @@ token。token 缺失、无效或过期返回 401。
 
 ## GET /api/v1/auth/me {#auth-me}
 
-查询当前登录用户。token 缺失、无效或过期返回 401；用户不存在返回 404。
+Query the currently logged-in user. A missing, invalid, or expired token returns
+401; a nonexistent user returns 404.
 
-### me-响应 {#me-response}
+### me-response {#me-response}
 
 ```json
 {
@@ -66,18 +71,26 @@ token。token 缺失、无效或过期返回 401。
 
 ## POST /api/v1/notify
 
-发送通知。
+Send a notification.
 
-模型语义：这里受理的是 **Notification**（通知），展开出的每一条渠道投递是 **Delivery**。`accepted` 只代表 Herald 已受理，不代表所有 Provider 均已送达（投递结果看 [/api/v1/logs](#get-logs)）。请求按 `type` + `level` 路由，也可显式命名接收方（`channels` / `channel` / `audience`）；`template` + `params`/`data` 走模板渲染，`title`/`body` 走直接内容。幂等语义见 [接收方与幂等](#notify-receivers)，字段演进依据 [受众领域模型总纲](/design-audience-model)。
+Model semantics: what is accepted here is the **Notification**; each channel
+delivery expanded from it is a **Delivery**. `accepted` only means Herald has
+accepted it, not that all Providers have delivered (see
+[GET /api/v1/logs](#get-logs) for delivery results). Requests are routed by
+`type` + `level`, and recipients can also be named explicitly (`channels` /
+`channel` / `audience`); `template` + `params`/`data` goes through template
+rendering, while `title`/`body` goes through direct content. Idempotency
+semantics are in [Recipients and idempotency](#notify-receivers); field evolution
+follows the [Audience domain model charter](/design-audience-model).
 
-### notify-请求 {#notify-request}
+### notify-request {#notify-request}
 
 ```http
 POST /api/v1/notify
 Content-Type: application/json
 ```
 
-**使用模板：**
+**With a template:**
 
 ```json
 {
@@ -92,7 +105,7 @@ Content-Type: application/json
 }
 ```
 
-**直接内容：**
+**Direct content:**
 
 ```json
 {
@@ -104,30 +117,31 @@ Content-Type: application/json
 }
 ```
 
-### notify-参数 {#notify-params}
+### notify-params {#notify-params}
 
-| 字段       | 类型     | 必填   | 描述    |
+| Field | Type | Required | Description |
 | -------- | ------ | ---- | ----- |
-| type     | string | 是    | 通知类型（用于路由） |
-| level    | string | 否    | 级别。无枚举校验（任意字符串透传），惯用 `info` / `warning` / `error`，`critical` 可用；与紧急度、事件 severity 的映射见[事件与告警模型](/guide/events) |
-| channels | array  | 否    | 指定渠道，不指定则根据 type/level 路由 |
-| channel  | string | 否    | 单渠道写法，与 `channels` 并列并集（见[接收方与幂等](#notify-receivers)） |
-| audience | array  | 否    | 受众引用（`group:` / `user:` / 裸渠道名），逐项按渠道展开 |
-| recipients | map | 否    | 按渠道指定接收人 `{ "telegram": ["chat_id_1"] }` |
-| template | string | 否    | 模板 ID |
-| params   | map    | 否    | 模板参数 |
-| data     | map    | 否    | 模板数据，与 `params` 合并、`params` 优先 |
-| idempotency_key | string | 否    | 幂等键：进程生命周期内同键重复请求返回首次结果、不再投递 |
-| title    | string | 否    | 直接标题（无模板时使用） |
-| body     | string | 否    | 直接内容（无模板时使用） |
+| type | string | Yes | Notification type (used for routing) |
+| level | string | No | Level. No enum validation (any string passes through); conventionally `info` / `warning` / `error`, `critical` is also usable; the mapping to Urgency and event severity is in [Events and alerting model](/guide/events) |
+| channels | array | No | Explicitly specify channels; if omitted, routing is by type/level |
+| channel | string | No | Single-channel spelling, unioned with `channels` (see [Recipients and idempotency](#notify-receivers)) |
+| audience | array | No | Audience references (`group:` / `user:` / bare channel name), each expanded per channel |
+| recipients | map | No | Specify recipients per channel `{ "telegram": ["chat_id_1"] }` |
+| template | string | No | Template ID |
+| params | map | No | Template parameters |
+| data | map | No | Template data, merged with `params`; `params` takes precedence on name conflicts |
+| idempotency_key | string | No | Idempotency key: repeated requests with the same key within a process lifetime return the first result and do not deliver again |
+| title | string | No | Direct title (used when there is no template) |
+| body | string | No | Direct content (used when there is no template) |
 
-### notify-响应 {#notify-response}
+### notify-response {#notify-response}
 
-三种结果（成功 / 部分失败 / 全部失败）的 **HTTP 状态码都是 200**：部分失败的
-body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP 状态码只用于
-传输层错误（如请求体不合法 400）。
+For all three outcomes (success / partial failure / total failure) the **HTTP
+status code is 200**: on partial failure the body `code` is still 0; only on
+total failure is the body `code` written as 422. The HTTP status code is reserved
+for transport-layer errors (e.g. an invalid request body returns 400).
 
-**成功：**
+**Success:**
 
 ```json
 {
@@ -141,9 +155,9 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 }
 ```
 
-`failed` 键只在非空时出现（全成功时整体缺席）。
+The `failed` key only appears when non-empty (entirely absent on full success).
 
-**部分失败：**
+**Partial failure:**
 
 ```json
 {
@@ -160,9 +174,10 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 }
 ```
 
-`failed` 条目的键是首字母大写的 `Channel` / `Error`（历史形状，无小写别名）。
+The keys of `failed` entries are the capitalized `Channel` / `Error` (historical
+shape, no lowercase alias).
 
-**全部失败：**
+**Total failure:**
 
 ```json
 {
@@ -178,11 +193,19 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 }
 ```
 
-这条路径 `accepted` 是 `null`（成功列表为空且未初始化，不带 `omitempty`），和全成功时 `failed` 整体缺席是同一类细节。
+On this path `accepted` is `null` (the success list is empty and uninitialized,
+without `omitempty`), the same class of detail as `failed` being entirely absent
+on full success.
 
-### 接收方与幂等 {#notify-receivers}
+### Recipients and idempotency {#notify-receivers}
 
-**接收方拼集**：`channels`、`channel`、`audience` 三个字段并列、可任意混用，最终接收方为三者合并。`audience` 的每一项按受众引用展开：`group:` 解析为群组成员、`user:` 解析为[配置化接收人](/guide/configuration#领域模型与配置块)、裸名字按渠道名处理。`data` 与 `params` 同为模板数据、合并生效，重名时 `params` 优先。
+**Recipient union**: `channels`, `channel`, and `audience` sit side by side and
+can be mixed freely; the final recipient set is the union of the three. Each
+item of `audience` is expanded as an audience reference: `group:` resolves to
+group members, `user:` resolves to a [configured
+recipient](/guide/configuration), and a bare name is treated as a channel
+name. `data` and `params` are both template data and take effect merged; on name
+conflicts `params` wins.
 
 ```json
 {
@@ -196,13 +219,20 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 }
 ```
 
-**幂等**：携带 `idempotency_key` 的请求，在 **进程生命周期内**重复发送同键请求时，返回首次请求的记录结果（同样的 `notification_id` / `task_ids`），且**不产生新的投递**。只有成功受理（`code` 0）的请求会被记录；全部失败（422）的请求不记录、可修正后重试同键。幂等表为内存实现（约 1000 条 FIFO 逐出，服务重启即清空）。需要跨重启幂等的场景请由调用方自行去重。
+**Idempotency**: for requests carrying `idempotency_key`, repeated same-key
+requests **within the process lifetime** return the recorded result of the first
+request (the same `notification_id` / `task_ids`) and **produce no new
+delivery**. Only successfully accepted requests (`code` 0) are recorded; totally
+failed (422) requests are not recorded and may be retried with the same key after
+correction. The idempotency table is an in-memory implementation (about 1000
+entries FIFO eviction, cleared on service restart). Scenarios needing
+cross-restart idempotency should deduplicate on the caller side.
 
 ## GET /api/v1/status {#get-status}
 
-查询服务状态。
+Query service status.
 
-### status-响应 {#status-response}
+### status-response {#status-response}
 
 ```json
 {
@@ -225,9 +255,9 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 
 ## GET /api/v1/providers {#get-providers}
 
-查询 Provider 列表。
+Query the Provider list.
 
-### providers-响应 {#providers-response}
+### providers-response {#providers-response}
 
 ```json
 {
@@ -256,15 +286,15 @@ body `code` 仍是 0，只有全部失败才把 body `code` 写成 422。HTTP �
 
 ## POST /api/v1/providers/{name}/enable {#provider-enable}
 
-启用指定的 Provider。
+Enable the specified Provider.
 
-### enable-请求 {#enable-request}
+### enable-request {#enable-request}
 
 ```http
 POST /api/v1/providers/telegram/enable
 ```
 
-### enable-响应 {#enable-response}
+### enable-response {#enable-response}
 
 ```json
 {
@@ -275,15 +305,15 @@ POST /api/v1/providers/telegram/enable
 
 ## POST /api/v1/providers/{name}/disable {#provider-disable}
 
-禁用指定的 Provider。
+Disable the specified Provider.
 
-### disable-请求 {#disable-request}
+### disable-request {#disable-request}
 
 ```http
 POST /api/v1/providers/telegram/disable
 ```
 
-### disable-响应 {#disable-response}
+### disable-response {#disable-response}
 
 ```json
 {
@@ -294,9 +324,9 @@ POST /api/v1/providers/telegram/disable
 
 ## GET /api/v1/workers {#get-workers}
 
-查询已连接的 Workers。
+Query connected Workers.
 
-### workers-响应 {#workers-response}
+### workers-response {#workers-response}
 
 ```json
 {
@@ -318,14 +348,14 @@ POST /api/v1/providers/telegram/disable
 }
 ```
 
-`mode` 为 `local` / `remote`；`status` 为字符串 `online` / `offline`。未接入远程
-Worker 的部署返回空列表（`count` 0）。
+`mode` is `local` / `remote`; `status` is the string `online` / `offline`.
+Deployments without a remote Worker return an empty list (`count` 0).
 
 ## GET /api/v1/queue {#get-queue}
 
-查询队列状态。
+Query queue status.
 
-### queue-响应 {#queue-response}
+### queue-response {#queue-response}
 
 ```json
 {
@@ -339,21 +369,24 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## GET /api/v1/logs {#get-logs}
 
-查询投递日志——**事实事件流**：每次投递尝试的结果、耗时与错误码。投递的生命周期状态机（`queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`）不在这里，见 [投递状态](#deliveries-list)。
+Query delivery logs — the **fact event stream**: the result, duration, and error
+code of each delivery attempt. The delivery lifecycle state machine (`queued` /
+`delivering` / `retrying` / `delivered` / `failed` / `dead`) is not here; see
+[Delivery state](#deliveries-list).
 
-### logs-参数 {#logs-params}
+### logs-params {#logs-params}
 
-| 参数       | 类型     | 描述    |
+| Param | Type | Description |
 | -------- | ------ | ----- |
-| offset   | int    | 偏移量 |
-| limit    | int    | 每页数量（默认 50，最大 500） |
-| status   | string | 按事件结果过滤（`success` / `failed` / `pending` / `shadow`，事件结果词汇，非生命周期） |
-| provider | string | 按 Provider 过滤 |
-| level    | string | 按级别过滤 |
-| since    | string | 起始时间（RFC3339） |
-| until    | string | 结束时间（RFC3339） |
+| offset | int | Offset |
+| limit | int | Page size (default 50, max 500) |
+| status | string | Filter by event outcome (`success` / `failed` / `pending` / `shadow`; event-outcome vocabulary, not lifecycle) |
+| provider | string | Filter by Provider |
+| level | string | Filter by level |
+| since | string | Start time (RFC3339) |
+| until | string | End time (RFC3339) |
 
-### logs-响应 {#logs-response}
+### logs-response {#logs-response}
 
 ```json
 {
@@ -381,33 +414,50 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-每条投递任务一行，按 `created_at` 降序。`status` ∈ `success` / `failed` / `pending` / `shadow`——这是**事件结果**词汇，不是生命周期：`pending` 表示该次尝试尚未结束（重试期间的任务保持 `pending`，终态才翻转为 `success` / `failed`）。日志不区分 `dead`（重试耗尽）与 `failed`（永久失败）——那个区分只存在于投递状态存储。`payload_kind` ∈ `content` / `provider_template` / `raw`。`category` 是通知的 `type`（app 面投递为注册品类）。`matched_at` 为规则匹配时间，未经规则引擎的任务显示零值 `0001-01-01T00:00:00Z`。`duration`（毫秒）与 `error` 只在非零/非空时出现；shadow 行额外带 `would_fire` 与 `channels`。
+One row per delivery task, sorted by `created_at` descending. `status` ∈
+`success` / `failed` / `pending` / `shadow` — this is the **event outcome**
+vocabulary, not the lifecycle: `pending` means the attempt has not finished
+(tasks stay `pending` during retries and only flip to `success` / `failed` at a
+terminal state). Logs do not distinguish `dead` (retries exhausted) from `failed`
+(permanent failure) — that distinction exists only in the delivery state store.
+`payload_kind` ∈ `content` / `provider_template` / `raw`. `category` is the
+notification's `type` (app-surface deliveries use the registered category).
+`matched_at` is the rule-match time; tasks that never went through the rule
+engine show the zero value `0001-01-01T00:00:00Z`. `duration` (milliseconds) and
+`error` appear only when nonzero/non-empty; shadow rows additionally carry
+`would_fire` and `channels`.
 
 ## GET /api/v1/logs/stats {#logs-stats}
 
-查询日志统计（按事件结果 `by_status`、`by_provider`、`by_level` 分组）。
+Query log statistics (grouped by event outcome `by_status`, `by_provider`,
+`by_level`).
 
 ## GET /api/v1/logs/{id} {#log-by-id}
 
-查询单条日志。
+Query a single log entry.
 
 ## GET /api/v1/deliveries {#deliveries-list}
 
-查询投递状态——**状态机读面**：投递的生命周期（`accepted` / `queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`）与重试演进。日志记录事实事件（结果/耗时/错误码），状态机与重试在这里；两处不互相写状态。按 task ID 键，独立保留环（与日志同容量、各自淘汰）。
+Query delivery state — the **state machine read surface**: the delivery lifecycle
+(`accepted` / `queued` / `delivering` / `retrying` / `delivered` / `failed` /
+`dead`) and retry evolution. Logs record fact events (result/duration/error
+code); the state machine and retries live here; the two never write each other's
+state. Keyed by task ID, with an independent retention ring (same capacity as
+logs, each evicting on its own).
 
-### deliveries-参数 {#deliveries-params}
+### deliveries-params {#deliveries-params}
 
-| 参数       | 类型     | 描述    |
+| Param | Type | Description |
 | -------- | ------ | ----- |
-| offset   | int    | 偏移量 |
-| limit    | int    | 每页数量（默认 50，最大 500） |
-| status   | string | 按生命周期过滤（`accepted` / `queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`） |
-| provider | string | 按 Provider 过滤 |
-| level    | string | 按级别过滤 |
-| since    | string | 起始时间（RFC3339，按 `created_at`） |
-| until    | string | 结束时间（RFC3339，按 `created_at`） |
+| offset | int | Offset |
+| limit | int | Page size (default 50, max 500) |
+| status | string | Filter by lifecycle (`accepted` / `queued` / `delivering` / `retrying` / `delivered` / `failed` / `dead`) |
+| provider | string | Filter by Provider |
+| level | string | Filter by level |
+| since | string | Start time (RFC3339, by `created_at`) |
+| until | string | End time (RFC3339, by `created_at`) |
 
-### deliveries-响应 {#deliveries-response}
+### deliveries-response {#deliveries-response}
 
 ```json
 {
@@ -437,29 +487,38 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-每条投递任务一行，按 `updated_at` 降序。`status` 为 7 值生命周期：`accepted`（已存在未入队）/ `queued`（排队等 worker）/ `delivering`（worker 正在尝试）/ `retrying`（可重试失败，等退避）/ `delivered`（已送达）/ `failed`（永久失败，无可重试）/ `dead`（可重试错误耗尽预算）。`retry_count` 是已执行的退避重试次数，`max_attempts` 是投递预算（重试策略 + 首次），`next_retry_at` 仅在 `retrying` 期间出现。`failed` 与 `dead` 的区别只在状态机：日志对两者都报 `failed`。
+One row per delivery task, sorted by `updated_at` descending. `status` is the
+7-value lifecycle: `accepted` (exists, not yet enqueued) / `queued` (queued
+waiting for a worker) / `delivering` (a worker is attempting) / `retrying`
+(retryable failure, waiting for backoff) / `delivered` (delivered) / `failed`
+(permanent failure, nothing retryable) / `dead` (retryable errors exhausted the
+budget). `retry_count` is the number of backoff retries already executed,
+`max_attempts` is the delivery budget (retry policy + the first attempt), and
+`next_retry_at` appears only during `retrying`. The `failed` vs `dead`
+distinction exists only in the state machine: logs report `failed` for both.
 
 ## GET /api/v1/deliveries/stats {#deliveries-stats}
 
-查询投递状态统计，按生命周期 `by_status`、`by_provider`、`by_level` 分组。
+Query delivery state statistics, grouped by lifecycle `by_status`, `by_provider`,
+`by_level`.
 
 ## GET /api/v1/deliveries/{id} {#delivery-by-id}
 
-查询单条投递状态（按 task ID）。
+Query a single delivery state (by task ID).
 
 ## GET /api/v1/config/{name} {#config-get}
 
-查询 Provider 配置。
+Query Provider configuration.
 
 ## PUT /api/v1/config/{name} {#config-update}
 
-更新 Provider 配置。
+Update Provider configuration.
 
 ## GET /api/v1/rules {#rules-list}
 
-查询规则列表。规则引擎未配置时返回 503。
+Query the rule list. Returns 503 when the rule engine is not configured.
 
-### rules-响应 {#rules-response}
+### rules-response {#rules-response}
 
 ```json
 {
@@ -482,15 +541,33 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-`mode` 是启停载体：`active` 生效、`shadow` 只观察不动作、`off` 停用（省略时按 `shadow` 处理）。`action` 是决策层动词：`route` 改道（默认）、`allow` 放行、`suppress` 抑制；`route` 步骤只属于 `action=route`，带上会被拒。`priority` 从高到低排序，同级保持写入顺序，第一条命中的生效规则决定结果并停止求值。
+`mode` is the enable/disable carrier: `active` takes effect, `shadow` only
+observes without acting, `off` disables (treated as `shadow` when omitted).
+`action` is the decision-layer verb: `route` reroutes (default), `allow` permits,
+`suppress` suppresses; the `route` step belongs only to `action=route` and is
+rejected if carried otherwise. `priority` orders from high to low;
+same-priority rules keep write order, and the first matching active rule decides
+the result and stops evaluation.
 
-`shadow_hits` 是该规则在影子期累计的命中次数（`GET /api/v1/rules/{id}` 也带这个字段）：只统计"本会触发"的影子命中，因 `for` 挂起、组折叠、抑制、静默、丢弃而扣下的事件各记各的、不计入其中。它是**进程内观测状态**：重启归零、不随规则持久化；把规则切到 `active` 后计数停止增长，切回 `shadow` 继续。切之前先看这个数：它就是激活后真实会发出去的量。列表只带累计计数；近 24 小时/近 7 天窗口与最近命中样本在**规则详情**的 `shadow_stats` 里（见 `GET /api/v1/rules/{id}`）。
+`shadow_hits` is the cumulative hit count of this rule during its shadow period
+(`GET /api/v1/rules/{id}` also carries this field): it counts only shadow hits
+that *would have fired*; events held back by `for` suspension, group folding,
+suppression, silence, or dropping are each counted separately and do not count
+toward it. It is **in-process observational state**: reset on restart, not
+persisted with the rule; after switching the rule to `active` the count stops
+growing, and switching back to `shadow` resumes it. Check this number before
+switching: it is the volume that would actually go out once activated. The list
+only carries the cumulative count; the last-24h / last-7d windows and recent hit
+samples live in `shadow_stats` on the **rule detail** (see
+`GET /api/v1/rules/{id}`).
 
 ## POST /api/v1/rules {#rule-create}
 
-创建规则。**保存即编译**：表达式在这里编译，非法表达式直接 400，不会进入求值路径。ID 已存在返回 409。
+Create a rule. **Save compiles**: the expression is compiled here; an invalid
+expression is a direct 400 and never enters the evaluation path. An existing ID
+returns 409.
 
-### rule-create-请求 {#rule-create-request}
+### rule-create-request {#rule-create-request}
 
 ```json
 {
@@ -505,7 +582,10 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## GET /api/v1/rules/{id} {#rule-get}
 
-查询指定规则，不存在返回 404。响应是规则文档加上与列表同一份 `shadow_hits` 统计，以及完整的影子统计读面 `shadow_stats`（控制台「详情」抽屉渲染的就是它）：
+Query the specified rule; a nonexistent rule returns 404. The response is the
+rule document plus the same `shadow_hits` statistics as the list, and the
+complete shadow statistics read surface `shadow_stats` (this is what the
+console's "Details" drawer renders):
 
 ```json
 {
@@ -520,28 +600,37 @@ Worker 的部署返回空列表（`count` 0）。
       "last_24h": 9,
       "last_7d": 30,
       "samples": [
-        { "at": "2026-10-03T08:00:00Z", "type": "deploy", "level": "error", "title": "上线完成", "channels": ["feishu-oncall"] }
+        { "at": "2026-10-03T08:00:00Z", "type": "deploy", "level": "error", "title": "Deployment complete", "channels": ["feishu-oncall"] }
       ]
     }
   }
 }
 ```
 
-`samples` 是最近命中（最新在前，最多 20 条，从未命中时省略），来自独立于投递日志的采样环形缓冲，每条影子命中都进环。窗口按整点小时桶累计（`last_24h`/`last_7d`）。与 `shadow_hits` 一样是进程内观测状态：重启归零。未接 Runtime 的部署省略 `shadow_stats` 字段。
+`samples` is the recent hits (newest first, at most 20, omitted when there have
+never been hits), coming from a sampling ring buffer independent of the delivery
+logs; every shadow hit enters the ring. Windows are accumulated in whole-hour
+buckets (`last_24h`/`last_7d`). Like `shadow_hits`, this is in-process
+observational state: reset on restart. Deployments without Runtime attached omit
+the `shadow_stats` field.
 
 ## PUT /api/v1/rules/{id} {#rule-update}
 
-整体替换该规则（PUT 语义，**URL 里的 id 优先于请求体**）。启停开关走的就是这条：带上原字段、只改 `mode` 即可。同样在写入前编译表达式。
+Replace the rule wholesale (PUT semantics, **the id in the URL takes precedence
+over the request body**). The enable/disable switch goes through this endpoint:
+carry the original fields and change only `mode`. The expression is likewise
+compiled before writing.
 
 ## DELETE /api/v1/rules/{id} {#rule-delete}
 
-删除规则，不存在返回 404。
+Delete a rule; a nonexistent rule returns 404.
 
 ## GET /api/v1/groups {#groups-list}
 
-查询通知群组列表。群组管理器未配置时返回 503。
+Query the notification group list. Returns 503 when the group manager is not
+configured.
 
-### groups-响应 {#groups-response}
+### groups-response {#groups-response}
 
 ```json
 {
@@ -551,7 +640,7 @@ Worker 的部署返回空列表（`count` 0）。
     "groups": [
       {
         "id": "ops",
-        "description": "值班花名册",
+        "description": "On-call roster",
         "members": [
           { "channel": "feishu-oncall", "recipients": ["@zhang"] },
           { "channel": "sms-duty" }
@@ -563,39 +652,48 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-`recipients` 是可选的渠道内收件人钉选，省略表示该渠道的全部收件人。群组可以被规则的路由渠道以 `group:<id>` 形式引用（见 [rules-响应](#rules-response)），引用一个不存在的群组会在派发时显式失败，而不是静默丢弃。
+`recipients` is an optional per-channel recipient pin; omitting it means all
+recipients of that channel. Groups can be referenced by a rule's routing channels
+in the form `group:<id>` (see [rules-response](#rules-response)); referencing a
+nonexistent group fails explicitly at dispatch time rather than being silently
+dropped.
 
 ## POST /api/v1/groups {#group-create}
 
-创建群组。ID 已存在返回 409。
+Create a group. An existing ID returns 409.
 
-### group-create-请求 {#group-create-request}
+### group-create-request {#group-create-request}
 
 ```json
 {
   "id": "ops",
-  "description": "值班花名册",
+  "description": "On-call roster",
   "members": [{ "channel": "feishu-oncall", "recipients": ["@zhang"] }]
 }
 ```
 
 ## GET /api/v1/groups/{id} {#group-get}
 
-查询指定群组，不存在返回 404。
+Query the specified group; a nonexistent group returns 404.
 
 ## PUT /api/v1/groups/{id} {#group-update}
 
-整体替换该群组（URL 里的 id 优先于请求体），替换立即对派发热路径生效。
+Replace the group wholesale (the id in the URL takes precedence over the request
+body); the replacement takes effect immediately on the dispatch hot path.
 
 ## DELETE /api/v1/groups/{id} {#group-delete}
 
-删除群组，不存在返回 404。删除**不会**清理规则里对它的引用：仍在引用它的规则会在派发时因未知群组显式失败，这胜过悄悄改写用户的规则。
+Delete a group; a nonexistent group returns 404. Deleting does **not** clean up
+references to it in rules: rules still referencing it fail explicitly at dispatch
+time due to the unknown group, which beats silently rewriting the user's rules.
 
 ## GET /api/v1/audiences {#audiences-list}
 
-查询受众列表（`user:` 级实体的运行时活表，含 YAML 种子与存储合并后的全部条目）。受众管理器未配置时返回 503。
+Query the audience list (the runtime live table of `user:`-level entities,
+containing all entries after YAML seeds and storage are merged). Returns 503 when
+the audience manager is not configured.
 
-### audiences-响应 {#audiences-response}
+### audiences-response {#audiences-response}
 
 ```json
 {
@@ -612,9 +710,10 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## POST /api/v1/audiences {#audience-create}
 
-创建受众。ID 已存在返回 409；校验失败（非法 id、空 recipients、引用未配置的接收人）返回 400。
+Create an audience. An existing ID returns 409; validation failure (illegal id,
+empty recipients, referencing an unconfigured recipient) returns 400.
 
-### audience-create-请求 {#audience-create-request}
+### audience-create-request {#audience-create-request}
 
 ```json
 {
@@ -625,21 +724,26 @@ Worker 的部署返回空列表（`count` 0）。
 
 ## GET /api/v1/audiences/{id} {#audience-get}
 
-查询单个受众，不存在返回 404。
+Query a single audience; a nonexistent audience returns 404.
 
 ## PUT /api/v1/audiences/{id} {#audience-update}
 
-整体替换该受众（URL 里的 id 优先于请求体），替换立即对 `user:` 引用展开生效。校验失败返回 400。
+Replace the audience wholesale (the id in the URL takes precedence over the
+request body); the replacement takes effect immediately for `user:` reference
+expansion. Validation failure returns 400.
 
 ## DELETE /api/v1/audiences/{id} {#audience-delete}
 
-删除受众，不存在返回 404。删除**不会**清理通知与规则里对它的 `user:<id>` 引用：仍被引用的受众在展开时按未知引用显式失败，不静默解析为空。
+Delete an audience; a nonexistent audience returns 404. Deleting does **not** clean
+up its `user:<id>` references in notifications and rules: a still-referenced
+audience fails explicitly as an unknown reference during expansion, and is never
+silently resolved to empty.
 
 ## GET /api/v1/rosters {#rosters-list}
 
-查询值班表列表。值班表管理器未配置时返回 503。
+Query the roster list. Returns 503 when the roster manager is not configured.
 
-### rosters-响应 {#rosters-response}
+### rosters-response {#rosters-response}
 
 ```json
 {
@@ -649,7 +753,7 @@ Worker 的部署返回空列表（`count` 0）。
     "rosters": [
       {
         "id": "ops-oncall",
-        "description": "周末值班",
+        "description": "Weekend on-call",
         "periods": [
           { "start": "2026-10-10T09:00:00+08:00", "end": "2026-10-10T18:00:00+08:00" }
         ]
@@ -660,39 +764,52 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-值班表是外部排班系统推进 herald 的绝对时段表：规则的 `silence: {roster: "ops-oncall"}` 在任一时段覆盖的每一刻静默该规则（见 [rules-响应](#rules-response) 的 silence 字段）。herald 只存与判定推送来的时段，不做排班。
+A roster is the absolute time-period table that an external scheduling system
+pushes into herald: a rule's `silence: {roster: "ops-oncall"}` silences that
+rule at every moment covered by any period (see the silence field in
+[rules-response](#rules-response)). Herald only stores and evaluates the pushed
+periods; it does no scheduling itself.
 
 ## POST /api/v1/rosters {#roster-create}
 
-推送值班表（排班系统整表全量推送）。ID 已存在返回 409；时段校验失败（缺时间戳、零长度/倒置时段、时段重叠、超过 512 段、空时段表）返回 400。乱序时段会被自动按 start 排序。
+Push a roster (the scheduling system pushes the whole table in full). An existing
+ID returns 409; period validation failure (missing timestamps, zero-length or
+inverted periods, overlapping periods, more than 512 periods, empty period table)
+returns 400. Out-of-order periods are automatically sorted by start.
 
-### roster-create-请求 {#roster-create-request}
+### roster-create-request {#roster-create-request}
 
 ```json
 {
   "id": "ops-oncall",
-  "description": "周末值班",
+  "description": "Weekend on-call",
   "periods": [{ "start": "2026-10-10T09:00:00+08:00", "end": "2026-10-10T18:00:00+08:00" }]
 }
 ```
 
 ## GET /api/v1/rosters/{id} {#roster-get}
 
-查询指定值班表，不存在返回 404。
+Query the specified roster; a nonexistent roster returns 404.
 
 ## PUT /api/v1/rosters/{id} {#roster-update}
 
-整体替换该值班表的时段（URL 里的 id 优先于请求体），替换立即对静默判定生效。
+Replace the roster's periods wholesale (the id in the URL takes precedence over
+the request body); the replacement takes effect immediately for silence
+evaluation.
 
 ## DELETE /api/v1/rosters/{id} {#roster-delete}
 
-删除值班表，不存在返回 404。删除不会改写引用它的规则：引用它的静默立即失效（fail-open，缺日程数据不等于该静默生效），恢复投递比悄悄静默安全。
+Delete a roster; a nonexistent roster returns 404. Deleting does not rewrite the
+rules referencing it: the silence referencing it fails open immediately (missing
+schedule data does not mean that silence applies), because restoring delivery is
+safer than silently silencing.
 
 ## GET /api/v1/alerts/{id} {#alert-get}
 
-查询告警的确认状态。ack 存储未配置返回 503。
+Query an alert's acknowledgment status. Returns 503 when the ack store is not
+configured.
 
-### alert-get-响应 {#alert-get-response}
+### alert-get-response {#alert-get-response}
 
 ```json
 {
@@ -711,40 +828,45 @@ Worker 的部署返回空列表（`count` 0）。
 }
 ```
 
-未确认时 `acknowledged` 为 `false` 且省略 `ack` 字段。
+When unacknowledged, `acknowledged` is `false` and the `ack` field is omitted.
 
 ## POST /api/v1/alerts/{id}/ack {#alert-ack}
 
-确认告警。**幂等**：同一告警首条确认生效，重复确认返回同一条记录。及时确认会
-取消该告警待触发的升级（`escalation`），并把事件账本上的对应事件标为已确认。
-ack 存储未配置返回 503。
+Acknowledge an alert. **Idempotent**: for the same alert the first acknowledgment
+takes effect and repeated acknowledgments return the same record. A timely
+acknowledgment cancels that alert's pending `escalation` and marks the
+corresponding event on the event ledger as acknowledged. Returns 503 when the ack
+store is not configured.
 
-### alert-ack-请求 {#alert-ack-request}
+### alert-ack-request {#alert-ack-request}
 
 ```json
 { "acked_by": "alice" }
 ```
 
-`acked_by` 可省略（认领人为空）。响应为确认记录本体（同上例的 `ack` 字段）。
+`acked_by` may be omitted (the claimer is empty). The response is the
+acknowledgment record itself (the `ack` field in the example above).
 
 ## GET /api/v1/incidents {#incidents-list}
 
-查询事件账本（规则路由的投递打开的事件，确认与恢复关闭），最新在前。事件存储
-未配置返回 503。
+Query the event ledger (events opened by rule-routed deliveries, closed by
+acknowledgment and resolution), newest first. Returns 503 when the event store is
+not configured.
 
-### incidents-参数 {#incidents-params}
+### incidents-params {#incidents-params}
 
-| 参数       | 类型     | 描述    |
+| Param | Type | Description |
 | -------- | ------ | ----- |
-| status   | string | 按状态过滤：`open` / `acked` / `resolved`（省略或 `all` 为全部；其他值 400） |
-| rule_id  | string | 按规则过滤 |
-| alert_id | string | 按告警过滤 |
-| limit    | int    | 返回条数（默认 100，最大 1000，越界 400） |
+| status | string | Filter by status: `open` / `acked` / `resolved` (omitted or `all` means everything; other values return 400) |
+| rule_id | string | Filter by rule |
+| alert_id | string | Filter by alert |
+| limit | int | Number of entries returned (default 100, max 1000, out of range returns 400) |
 
-状态不是响应里的字段：`open` / `acked` / `resolved` 由 `resolved_at` / `acked_at`
-是否存在**派生**，过滤按派生状态执行。
+Status is not a field in the response: `open` / `acked` / `resolved` are
+**derived** from the existence of `resolved_at` / `acked_at`, and filtering runs
+on the derived status.
 
-### incidents-响应 {#incidents-response}
+### incidents-response {#incidents-response}
 
 ```json
 {
@@ -756,7 +878,7 @@ ack 存储未配置返回 503。
         "id": "incident-1",
         "rule_id": "prod-payment-failure",
         "alert_id": "alert-42",
-        "title": "支付失败率过高",
+        "title": "Payment failure rate too high",
         "level": "error",
         "opened_at": "2026-10-04T08:00:00Z",
         "events": 7,
@@ -770,25 +892,30 @@ ack 存储未配置返回 503。
 
 ## GET /api/v1/incidents/{id} {#incident-get}
 
-查询单个事件及其完整时间线（`timeline`），不存在返回 404。
+Query a single event and its full timeline (`timeline`); a nonexistent event
+returns 404.
 
 ## POST /api/v1/callbacks/feishu {#feishu-callback}
 
-飞书互动卡片回调入口（卡片上的确认按钮）。**不走 Bearer 认证**，调用方是飞书
-的服务器，凭 `card_callback.encrypt_key` 认证：应答飞书的 `url_verification`
-挑战；加密回调（`encrypt` 字段，AES-256-CBC）在配置了加密密钥时解密处理，未
-配置返回 501；明文回调始终可处理。确认动作与 `POST /alerts/{id}/ack` 走同一套
-存储：首条确认生效、取消待触发升级、事件账本落账。ack 存储未配置返回 503。
+Feishu interactive card callback entry (the acknowledge button on the card).
+**Does not go through Bearer auth**; the caller is Feishu's server, authenticated
+by `card_callback.encrypt_key`: answer Feishu's `url_verification` challenge;
+encrypted callbacks (the `encrypt` field, AES-256-CBC) are decrypted and
+processed when an encryption key is configured, and return 501 when it is not;
+plaintext callbacks are always processable. The acknowledge action goes through
+the same store as `POST /alerts/{id}/ack`: the first acknowledgment takes effect,
+pending escalations are canceled, and the event ledger records it. Returns 503
+when the ack store is not configured.
 
-### feishu-callback-响应 {#feishu-callback-response}
+### feishu-callback-response {#feishu-callback-response}
 
-挑战应答：
+Challenge answer:
 
 ```json
 { "code": 0, "message": "ok", "data": { "challenge": "..." } }
 ```
 
-确认动作：
+Acknowledge action:
 
 ```json
 {
@@ -800,60 +927,91 @@ ack 存储未配置返回 503。
 
 ## GET /api/v1/templates {#templates-list}
 
-查询模板列表。
+Query the template list.
 
 ## POST /api/v1/templates/create {#template-create}
 
-创建模板。
+Create a template.
 
-### create-请求 {#create-request}
+### create-request {#create-request}
 
 ```json
 {
   "id": "server_alert",
-  "name": "服务器告警",
-  "title": "服务器 {{.host}} 告警",
+  "name": "Server alert",
+  "title": "Server {{.host}} alert",
   "level": "error",
   "fields": [
-    { "label": "主机", "value": "{{.host}}" },
-    { "label": "状态", "value": "{{.status}}" }
+    { "label": "Host", "value": "{{.host}}" },
+    { "label": "Status", "value": "{{.status}}" }
   ]
 }
 ```
 
 ## GET /api/v1/templates/{id} {#template-get}
 
-查询指定模板。
+Query the specified template.
 
 ## PUT /api/v1/templates/{id} {#template-update}
 
-更新模板。
+Update a template.
 
 ## DELETE /api/v1/templates/{id} {#template-delete}
 
-删除模板。
+Delete a template.
 
 ## POST /api/v1/callbacks/bot {#bot-callback}
 
-Telegram 平台回调入口（来源适配器：`/start` 兑换绑定、`/stop` 全停订阅）。**不走 Bearer**，凭请求头 `X-Telegram-Bot-Api-Secret-Token` 与 `sources.bot.secret` 常量时间比对；不匹配 403，secret 未配置时端点整体 404。payload 是 Telegram update JSON 子集（`message.chat.id` + `message.text`）。一切良构 update 恒回 200（Telegram 对非 2xx 会重试）。
+Telegram platform callback entry (source adapter: `/start` exchanges a binding,
+`/stop` stops all subscriptions). **Does not go through Bearer**; it
+authenticates by constant-time comparison of the request header
+`X-Telegram-Bot-Api-Secret-Token` against `sources.bot.secret`; mismatch returns
+403, and when the secret is not configured the whole endpoint returns 404. The
+payload is a subset of the Telegram update JSON (`message.chat.id` +
+`message.text`). Every well-formed update always returns 200 (Telegram retries on
+non-2xx).
 
 ## POST /api/v1/callbacks/wechat-mp {#wechat-mp-callback}
 
-微信公众号回调入口（关注/取关来源适配器）。**不走 Bearer**，query 参数 `signature` / `timestamp` / `nonce` 三件套自证：`signature == hex(sha1(sort([timestamp, nonce, token]).join("")))`，`token` 来自 `sources.wechat_mp.token`，常量时间比对；缺一 403，token 未配置时端点整体 404。`GET` 用于控制台 URL 验证（原样回显 `echostr`）。POST body 是 XML（`FromUserName` + `Event` ∈ subscribe/unsubscribe）。openid 无绑定时静默 200。
+WeChat Official Account callback entry (subscribe/unsubscribe source adapter).
+**Does not go through Bearer**; it self-authenticates via the query parameter
+trio `signature` / `timestamp` / `nonce`:
+`signature == hex(sha1(sort([timestamp, nonce, token]).join("")))` where `token`
+comes from `sources.wechat_mp.token`, compared in constant time; a missing piece
+returns 403, and when the token is not configured the whole endpoint returns 404.
+`GET` is used for console URL verification (echoes `echostr` verbatim). The POST
+body is XML (`FromUserName` + `Event` ∈ subscribe/unsubscribe). An unbound openid
+gets a silent 200.
 
 ## GET /feeds/{name} {#feeds-public}
 
-公共品类 feed（RSS 拉式，匿名可读，不在 `/api/v1` 下）。`name` 形如 `<品类>.xml`，品类名须匹配 `^[a-zA-Z0-9._-]{1,64}$`——不匹配 404；合法但无人写过的品类回**空频道 200**（拉式源没人写过，这是诚实答案）。只含无受众引用的公开内容。响应 `Content-Type: application/rss+xml; charset=utf-8`。非 GET 方法 405、渲染失败 500（两者均为纯文本，不走 JSON 信封）。
+Public category feed (RSS pull model, anonymously readable, not under `/api/v1`).
+`name` looks like `<category>.xml`, and the category name must match
+`^[a-zA-Z0-9._-]{1,64}$` — no match returns 404; a legal but never-written
+category returns an **empty channel 200** (no one has ever written to this
+pull-model source; that is the honest answer). Contains only public content with
+no audience references. Response `Content-Type: application/rss+xml;
+charset=utf-8`. Non-GET methods return 405, render failure returns 500 (both plain
+text, not the JSON envelope).
 
 ## GET /feeds/private/{name} {#feeds-private}
 
-受众私密 feed。`name` 形如 `<rss_token>.xml`，**token 即凭据**（随受众稳定签发，重置即失效）；未知 token 404。可见性在读取时判定：条目只在受众对该品类的实时订阅关系允许 rss 渠道时才出现——**取关即从下一次拉取起消失**，投影侧零记账。响应格式与错误语义同公共 feed。
+Audience private feed. `name` looks like `<rss_token>.xml`, and **the token is
+the credential** (issued stably per audience, invalidated on reset); an unknown
+token returns 404. Visibility is decided at read time: an entry appears only while
+the audience's live subscription relation for that category allows the rss
+channel — **unsubscribing removes it from the next pull onward**, with zero
+bookkeeping on the projection side. Response format and error semantics are the
+same as the public feed.
 
-token 的读取路径：`GET /api/v1/audiences/{id}/surfaces` 返回受众的 `rss_token`（首次读取签发、受众级稳定，见 [surfaces 读口](#audience-surfaces)）。
+The token read path: `GET /api/v1/audiences/{id}/surfaces` returns the audience's
+`rss_token` (issued on first read, stable at the audience level; see the
+[surfaces read surface](#audience-surfaces)).
 
 ## GET /api/v1/audiences/{id}/relations {#audience-relations}
 
-查询受众现有关系（订阅/指派）。未知受众返回 200 空列表（path id 不做格式校验）。
+Query an audience's existing relations (subscription/enrollment). An unknown
+audience returns a 200 empty list (the path id is not format-validated).
 
 ```json
 {"code":0,"message":"ok","data":{"relations":[{
@@ -863,33 +1021,50 @@ token 的读取路径：`GET /api/v1/audiences/{id}/surfaces` 返回受众的 `r
 }]}}
 ```
 
-`type` ∈ `subscription`（主动订阅，永远可退订）/ `enrollment`（被动指派，must-deliver 或可退订二选一）；`source` ∈ `bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`。
+`type` ∈ `subscription` (active subscription, always unsubscribable) /
+`enrollment` (passive assignment; must-deliver or unsubscribable, pick one);
+`source` ∈ `bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`.
 
 ## POST / DELETE /api/v1/audiences/{id}/subscriptions {#audience-subscriptions}
 
-偏好中心勾选/退订入口。来源适配器未配置时 404。
+Preference center check/unsubscribe entry. Returns 404 when the source adapter is
+not configured.
 
-**POST 请求体**：
+**POST request body**:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| category | string | 是 | 1–64 字符 |
-| channel | string | 是 | 1–64 字符 |
+| category | string | Yes | 1–64 characters |
+| channel | string | Yes | 1–64 characters |
 
-落下 `type=subscription`、`source=preference_center` 的关系。**响应是关系对象本体，wire 键是 Go 字段名（首字母大写）**：
+Writes a relation with `type=subscription`, `source=preference_center`. **The
+response is the relation object itself, and the wire keys are Go field names
+(capitalized)**:
 
 ```json
 {"AudienceID":"alice","Category":"bills","Channel":"email","Type":"subscription",
  "Source":"preference_center","Policy":{"AllowUnsubscribe":true,"MustDeliver":false}}
 ```
 
-**DELETE** 用查询参数 `?category=&<>&channel=`：槽位无关系 404 `subscription not found`；must-deliver 关系不可退订 409。
+**DELETE** uses query parameters `?category=&<>&channel=`: no relation in the
+slot returns 404 `subscription not found`; a must-deliver relation cannot be
+unsubscribed and returns 409.
 
 ## GET / POST / DELETE /api/v1/audiences/{id}/surfaces {#audience-surfaces}
 
-管理侧联系面读写口。写臂（POST/DELETE）是代绑定入口（用户联系信息在整合方库里的场景），操作入口记为 `admin` 并进审计流，来源适配器未配置时 404。读臂（GET）只依赖注册表，返回该受众的绑定面列表与私密 RSS feed token。
+Admin-side ContactSurface read/write surface. The write arms (POST/DELETE) are the
+delegated-binding entry (for scenarios where user contact information lives in
+the integrator's database); the operation is recorded as `admin` and enters the
+audit stream; returns 404 when the source adapter is not configured. The read
+arm (GET) depends only on the registry and returns the audience's bound surface
+list plus the private RSS feed token.
 
-**GET**：未知受众（注册表无任何绑定面）404；合法受众返回绑定面列表 + `rss_token`——token **首次读取时签发、受众级稳定**（受众生存期内不变，重置即旧地址失效），读者拿它拼私密 feed 地址 `/feeds/private/<rss_token>.xml`（见 [私密 feed](#feeds-private)）：
+**GET**: an unknown audience (no bound surfaces at all in the registry) returns
+404; a legal audience returns the bound surface list + `rss_token` — the token is
+**issued on first read and stable at the audience level** (unchanged for the
+audience's lifetime; a reset invalidates the old address), and the reader uses it
+to assemble the private feed address `/feeds/private/<rss_token>.xml` (see
+[private feed](#feeds-private)):
 
 ```json
 {"code":0,"message":"ok","data":{
@@ -898,15 +1073,16 @@ token 的读取路径：`GET /api/v1/audiences/{id}/surfaces` 返回受众的 `r
 }}
 ```
 
-`token` 即凭据，本端点在操作面鉴权之后——不要把它下发到受众自己控制的面之外。
+The `token` is the credential, and this endpoint sits behind operation-surface
+authentication — do not hand it out beyond surfaces the audience itself controls.
 
-**POST 请求体**：
+**POST request body**:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| channel | string | 是 | 1–64 字符 |
-| target | string | 是 | 联系目标（≤256 字符） |
-| categories | array | 否 | 随绑定一并订阅的默认品类 |
+| channel | string | Yes | 1–64 characters |
+| target | string | Yes | Contact target (≤256 characters) |
+| categories | array | No | Default categories subscribed along with the binding |
 
 ```json
 {"code":0,"message":"ok","data":{
@@ -916,6 +1092,13 @@ token 的读取路径：`GET /api/v1/audiences/{id}/surfaces` 返回受众的 `r
 }}
 ```
 
-`status` ∈ `pending` / `active` / `invalid`；`bind_changed` 表示 surface 状态是否迁移；`subscribed` 是成功落地的默认订阅**数量**。活跃槽位已持有不同 target 时拒绝（422 重绑守卫）。
+`status` ∈ `pending` / `active` / `invalid`; `bind_changed` indicates whether
+the surface state transitioned; `subscribed` is the **count** of default
+subscriptions successfully written. An active slot already holding a different
+target is rejected (422 rebinding guard).
 
-**DELETE** 用查询参数 `?channel=`：surface 标记 `invalid`（停投），该 channel 上所有 subscription 型关系终止，**enrollment 关系保留**（must-deliver 底线不是受众可撤销的）。未知/已 invalid 的 surface 返回 200 `{"surface_invalidated":false,"terminated":0}`。
+**DELETE** uses query parameter `?channel=`: the surface is marked `invalid`
+(delivery stopped), all subscription-type relations on that channel terminate, and
+**enrollment relations are kept** (the must-deliver baseline is not revocable by
+the audience). An unknown or already-invalid surface returns 200
+`{"surface_invalidated":false,"terminated":0}`.

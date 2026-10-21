@@ -1,44 +1,42 @@
-> 中文 · [English](./protocols.en.md)
+# Protocol Design
 
-# 协议设计
-
-## 外部协议
+## External Protocol
 
 ### HTTP REST + JSON
 
-这是 **唯一公开协议**。curl、shell 脚本、CI/CD、监控系统的 webhook、任何语言，都直接调 REST 接口，不需要额外的客户端约定。
+This is the **only public protocol**. curl, shell scripts, CI/CD, monitoring-system webhooks, and any language all call the REST interface directly, with no extra client convention required.
 
-## 关于业务 SDK
+## About the Business SDKs
 
-线协议始终只有 REST：notify API 一个 POST 就能调，
+The wire protocol has always been REST only: the notify API can be called with a single POST,
 
 ```bash
 curl /notify
 ```
 
-任何语言都够用。在此之上，仓库随批次 11 落地了两枚**便利层** Go SDK（不改线协议）：`apps-sdk/go`（集成方 app 命名空间接入）与 `worker-sdk/go`（远程 Worker 侧对接）。
+which is enough for any language. On top of that, the repo landed two **convenience-layer** Go SDKs with batch 11 (without changing the wire protocol): `apps-sdk/go` (integrator onboarding through the app namespace) and `worker-sdk/go` (for the remote Worker side).
 
-## 内部协议
+## Internal Protocol
 
-Herald 内部使用 **Persistent Session Protocol**，承载 Worker 注册、注册确认、心跳、重连、错误通报与事件流六类交互。`dispatch` 类型在协议里已定义（`protocol/message.go`）但全仓无生产调用点——任务分发走队列，Hub 不参与。
+Internally Herald uses the **Persistent Session Protocol**, carrying six kinds of interaction: Worker registration, registration acknowledgement, heartbeat, reconnection, error notification, and event stream. The `dispatch` type is defined in the protocol (`protocol/message.go`) but has no production call site anywhere in the repo — task distribution goes through the queue, and the Hub does not take part.
 
-### 实际实现
+### Actual Implementation
 
-线上跑的线格式是 **WebSocket + JSON**。传输用 `gorilla/websocket`（go.mod 依赖），消息体由 `protocol.MarshalMessage` 编码，`Message{Type, Payload}` 序列化后注入 type 字段。选型时曾对比过下表，protobuf / Raw TCP 两条都未实现：
+The wire format running in production is **WebSocket + JSON**. Transport uses `gorilla/websocket` (a go.mod dependency); the message body is encoded by `protocol.MarshalMessage`, and `Message{Type, Payload}` is serialized and then injected with the type field. The table below was compared at selection time; both the protobuf and Raw TCP options were never implemented:
 
-| 协议                       | 选型结论 | 实现状态 |
+| Protocol | Selection outcome | Implementation status |
 | ------------------------ | --- | --- |
-| WebSocket + JSON | 采用 | 已实现（`core/websocket` + `protocol/message.go`） |
-| WebSocket + protobuf | 备选 | 未实现 |
-| Raw TCP + protobuf   | 备选 | 未实现 |
-| gRPC                 | 不采用 | — |
+| WebSocket + JSON | adopted | implemented (`core/websocket` + `protocol/message.go`) |
+| WebSocket + protobuf | alternative | not implemented |
+| Raw TCP + protobuf | alternative | not implemented |
+| gRPC | not adopted | — |
 
-### 为什么不使用 gRPC
+### Why gRPC Is Not Used
 
-- C++ 体积巨大
-- Windows 编译复杂
-- Debug PDB 爆炸
-- 不适合 Runtime Node
-- 不适合事件流
+- Huge C++ footprint
+- Complex builds on Windows
+- Exploding debug PDBs
+- Unsuitable for Runtime Node
+- Unsuitable for event streams
 
-Herald 更像 **Session System**，而不是 **RPC Framework**。
+Herald is more of a **Session System** than an **RPC Framework**.

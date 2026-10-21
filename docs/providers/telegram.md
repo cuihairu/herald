@@ -1,24 +1,22 @@
-> 中文 · [English](./telegram.en.md)
-
 # Telegram
 
-通过 Telegram Bot API 将通知推送到指定会话（私聊 / 群组 / 频道）。
+Push notifications to a given chat (private / group / channel) via the Telegram Bot API.
 
-## 作用
+## What it does
 
-`telegram` Builtin Provider 调用 Telegram Bot API 的 `sendMessage` 接口，把 Herald 的通知内容发送到 `chat_id` 指定的会话。适合个人告警接收、群组值班通知等场景。
+The `telegram` Builtin Provider calls the Telegram Bot API's `sendMessage` endpoint and sends Herald notifications to the chat given by `chat_id`. Good for personal alert intake, group on-call notifications, and similar scenarios.
 
-## 申请凭据
+## Get credentials
 
-全程无需审批，两样东西：Bot Token 和 chat_id。
+No approval anywhere; you need two things: a Bot Token and a chat_id.
 
-1. Telegram 里找 [@BotFather](https://t.me/BotFather) → 发送 `/newbot` → 按提示起名 → 得到 **Bot Token**（形如 `123456:ABC-DEF...`）
-2. **给你的机器人发一条消息**（私聊必须用户先发起，否则机器人无法主动推送给你；拉进群则自动可见）
-3. 拿 **chat_id**：浏览器打开 `https://api.telegram.org/bot<你的Token>/getUpdates`，在返回的 JSON 里找 `result[].message.chat.id`（私聊是正数，群组是 `-100…` 负数）
+1. Find [@BotFather](https://t.me/BotFather) on Telegram → send `/newbot` → follow the prompts to name it → you get a **Bot Token** (shaped like `123456:ABC-DEF...`)
+2. **Send your bot a message** (a private chat must be initiated by the user first, otherwise the bot cannot push to you; in a group it can see messages automatically)
+3. Get the **chat_id**: open `https://api.telegram.org/bot<yourToken>/getUpdates` in a browser and look for `result[].message.chat.id` in the returned JSON (positive for private chats, negative like `-100…` for groups)
 
-## 发第一条消息
+## Send your first message
 
-配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+After configuring (see below) and starting with `heraldd serve --config config.yaml`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -26,26 +24,26 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "demo",
     "level": "error",
-    "title": "Herald 第一条推送",
+    "title": "Herald first push",
     "body": "from curl",
     "channels": ["telegram"]
   }'
 ```
 
-API 返回 `"accepted":["telegram"]`，你的 Telegram 会收到 `🔴 Herald 第一条推送`。没收到？先 `getUpdates` 确认 token 和 chat_id 有效，再查[排错指南](/guide/troubleshooting)。
+The API returns `"accepted":["telegram"]` and your Telegram receives `🔴 Herald first push` (the text = your `title`). Nothing arrived? First run `getUpdates` to confirm the token and chat_id are valid, then check the [troubleshooting guide](/guide/troubleshooting).
 
-## 配置项
+## Configuration options
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `token` | ✅ | Bot Token，从 [@BotFather](https://t.me/BotFather) 创建机器人获得 | 无 |
-| `chat_id` | ✅ | 目标会话 ID（私聊为数字 ID，群组为 `-100…` 负数 ID） | 无 |
-| `parse_mode` | ❌ | 消息解析模式：`markdown` 或 `html`；留空则按纯文本发送 | 空 |
-| `api_url` | ❌ | API 根地址，自建代理 / 反代时替换 | `https://api.telegram.org` |
+| `token` | ✅ | Bot Token, obtained by creating a bot with [@BotFather](https://t.me/BotFather) | none |
+| `chat_id` | ✅ | target chat ID (a numeric ID for private chats, a negative `-100…` ID for groups) | none |
+| `parse_mode` | ❌ | message parse mode: `markdown` or `html`; empty sends as plain text | empty |
+| `api_url` | ❌ | API root URL; replace when using a self-hosted proxy / reverse proxy | `https://api.telegram.org` |
 
-缺 `token` 或 `chat_id` 时 Provider 创建即失败（`telegram: token is required` / `telegram: chat_id is required`），启动日志可见。
+If `token` or `chat_id` is missing, Provider creation fails immediately (`telegram: token is required` / `telegram: chat_id is required`); it shows up in startup logs.
 
-## 配置示例
+## Configuration example
 
 ```yaml
 providers:
@@ -55,56 +53,56 @@ providers:
     config:
       token: "$TELEGRAM_BOT_TOKEN"
       chat_id: "$TELEGRAM_CHAT_ID"
-      parse_mode: "markdown"        # 可选：markdown / html，留空纯文本
-      # api_url: "https://api.telegram.org"   # 走自建代理时替换
+      parse_mode: "markdown"        # optional: markdown / html, empty for plain text
+      # api_url: "https://api.telegram.org"   # replace when using a self-hosted proxy
 ```
 
-## 环境变量
+## Environment variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When loading config, Herald replaces string values in provider config **that start with `$`** with the value of the environment variable of the same name (the `$VAR` form, looked up as `VAR`). Note: the braced form `"${VAR}"` **is not expanded** (it is looked up as `{VAR}` and kept as-is); use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment variable | Corresponding config key | Description |
 |----------|-----------|------|
-| `TELEGRAM_BOT_TOKEN` | `token` | Bot Token（`.env.example` 惯用名） |
-| `TELEGRAM_CHAT_ID` | `chat_id` | 目标会话 ID |
+| `TELEGRAM_BOT_TOKEN` | `token` | Bot Token (the conventional name in `.env.example`) |
+| `TELEGRAM_CHAT_ID` | `chat_id` | target chat ID |
 
-## 消息模板与限制
+## Message template and limits
 
-消息文本格式（级别 emoji + 粗体标题 + 正文）：
+Message text format (level emoji + bold title + body):
 
 ```
-{级别emoji} *{title}*
+{level emoji} *{title}*
 
 {body}
 ```
 
-| 级别 | emoji |
+| Level | emoji |
 |------|-------|
 | `error` | 🔴 |
 | `warning` | 🟡 |
 | `info` | 🔵 |
-| 其他 | 无前缀 |
+| other | no prefix |
 
-- 粗体（`*…*`）需要 `parse_mode: "markdown"` 才会渲染；留空时星号原样显示
-- Provider 能力声明支持 `markdown` / `plain` 两种内容格式
-- Telegram 侧限制：单条消息文本最长 4096 字符，超长会被 API 拒绝（`message is too long`）
-- 请求超时 30s；HTTP 408/429/5xx 会被包装为可重试错误，走统一重试
+- Bold (`*…*`) only renders with `parse_mode: "markdown"`; when empty, the asterisks show as-is
+- The Provider's capability declaration supports both `markdown` and `plain` content formats
+- Telegram-side limits: message text is at most 4096 characters; longer messages are rejected by the API (`message is too long`)
+- Request timeout is 30s; HTTP 408/429/5xx are wrapped as retryable errors and go through unified retry
 
-## 常见错误
+## Common errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and fix |
 |------|-----------|
-| `telegram: token is required` | 未配置 `token` |
-| `telegram: chat_id is required` | 未配置 `chat_id` |
-| `telegram API error: Unauthorized` | Token 无效或被吊销，重新向 @BotFather 获取 |
-| `telegram API error: chat not found` | `chat_id` 错误，或用户未先给机器人发过消息（私聊需用户主动 `/start`） |
-| `telegram API error: message is too long` | 超过 4096 字符上限，精简正文 |
-| `telegram API error: Bad Request: can't parse entities` | `parse_mode` 与内容不匹配（如 markdown 星号未闭合），改纯文本或修正语法 |
+| `telegram: token is required` | `token` is not configured |
+| `telegram: chat_id is required` | `chat_id` is not configured |
+| `telegram API error: Unauthorized` | Token is invalid or revoked; get a new one from @BotFather |
+| `telegram API error: chat not found` | wrong `chat_id`, or the user never messaged the bot first (private chats need the user to `/start`) |
+| `telegram API error: message is too long` | over the 4096-character limit; trim the body |
+| `telegram API error: Bad Request: can't parse entities` | `parse_mode` doesn't match the content (e.g. unclosed markdown asterisks); switch to plain text or fix the syntax |
 
-错误格式说明：API 返回 `ok: false` 时报 `telegram API error: {description}`；HTTP 非 2xx 时报 `unexpected status code: {code}, body: …`。
+Error format notes: when the API returns `ok: false` the error is `telegram API error: {description}`; on non-2xx HTTP the error is `unexpected status code: {code}, body: …`.
 
-## 下一步
+## Next steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [飞书](./feishu.md) - 飞书机器人推送
-- [企业微信](./wecom.md) - 企业微信群机器人推送
+- [Provider overview](./overview.md) - see all Providers and how to enable them
+- [Feishu](./feishu.md) - Feishu bot push
+- [WeCom](./wecom.md) - WeCom group bot push

@@ -1,18 +1,16 @@
-> 中文 · [English](./builtin.en.md)
-
 # Builtin Runtime
 
-Builtin Runtime 直接运行在 Core 内，适合简单的 HTTP API 类 Provider。
+The Builtin Runtime runs directly inside the Core and suits simple HTTP API style Providers.
 
-## 适合场景
+## Suitable Scenarios
 
-Telegram Bot API、Discord Webhook、飞书/企业微信机器人、Email SMTP、通用 Webhook、SMS（阿里云、腾讯云、网易云信）——一个 HTTP 调用能发出去的渠道都适合。
+Telegram Bot API, Discord Webhook, Feishu/WeCom bots, Email SMTP, generic Webhook, SMS (Aliyun, Tencent Cloud, NetEase Yunxin) — any channel that can go out with a single HTTP call fits.
 
-## 特点
+## Key Features
 
-投递是进程内一次函数调用，没有 IPC 和额外进程；接一个新渠道就是一段 `providers:` 配置。
+Delivery is a single in-process function call, with no IPC and no extra process; adding a new channel takes just one `providers:` configuration block.
 
-## 接口
+## Interface
 
 ```go
 type Provider interface {
@@ -23,13 +21,13 @@ type Provider interface {
 }
 ```
 
-## 已实现 Providers
+## Implemented Providers
 
 ### Log Provider
 
-用于测试和调试的日志 Provider。
+A log Provider for testing and debugging.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -42,9 +40,9 @@ providers:
 
 ### Telegram Provider
 
-通过 Telegram Bot API 发送消息。
+Sends messages via the Telegram Bot API.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -54,19 +52,19 @@ providers:
     config:
       token: "$TELEGRAM_BOT_TOKEN"
       chat_id: "$TELEGRAM_CHAT_ID"
-      parse_mode: "markdown"  # 可选: markdown, html
+      parse_mode: "markdown"  # Optional: markdown, html
 ```
 
-**环境变量：**
+**Environment variables:**
 
 - `TELEGRAM_BOT_TOKEN` - Bot Token
-- `TELEGRAM_CHAT_ID` - Chat ID 或 Channel 用户名
+- `TELEGRAM_CHAT_ID` - Chat ID or channel username
 
 ### Feishu Provider
 
-通过飞书 Webhook 发送消息。
+Sends messages via Feishu Webhook.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -75,19 +73,19 @@ providers:
     enabled: false
     config:
       webhook_url: "$FEISHU_WEBHOOK_URL"
-      sign_secret: "$FEISHU_SIGN_SECRET"  # 可选
+      sign_secret: "$FEISHU_SIGN_SECRET"  # Optional
 ```
 
-**环境变量：**
+**Environment variables:**
 
 - `FEISHU_WEBHOOK_URL` - Webhook URL
-- `FEISHU_SIGN_SECRET` - 签名密钥（可选）
+- `FEISHU_SIGN_SECRET` - Signing secret (optional)
 
 ### WeCom Provider
 
-通过企业微信 Webhook 发送消息。
+Sends messages via WeCom (WeChat Work) Webhook.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -96,20 +94,20 @@ providers:
     enabled: false
     config:
       webhook_url: "$WECOM_WEBHOOK_URL"
-      # 或使用 key
+      # or use key
       key: "$WECOM_KEY"
 ```
 
-**环境变量：**
+**Environment variables:**
 
-- `WECOM_WEBHOOK_URL` - 完整 Webhook URL
-- `WECOM_KEY` - Webhook Key
+- `WECOM_WEBHOOK_URL` - Full Webhook URL
+- `WECOM_KEY` - Webhook key
 
 ### DingTalk Provider
 
-通过钉钉 Webhook 发送消息。
+Sends messages via DingTalk Webhook.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -123,9 +121,9 @@ providers:
 
 ### Slack Provider
 
-通过 Slack Webhook 发送消息。
+Sends messages via Slack Webhook.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -138,9 +136,9 @@ providers:
 
 ### Discord Provider
 
-通过 Discord Webhook 或 Bot API 发送消息。
+Sends messages via Discord Webhook or Bot API.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -149,16 +147,16 @@ providers:
     enabled: false
     config:
       webhook_url: "$DISCORD_WEBHOOK_URL"
-      # 或使用 bot API
+      # or use the bot API
       bot_token: "$DISCORD_BOT_TOKEN"
       channel_id: "$DISCORD_CHANNEL_ID"
 ```
 
 ### Email Provider
 
-通过 SMTP 发送邮件。
+Sends email via SMTP.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -174,7 +172,7 @@ providers:
       from_name: "Herald"
 ```
 
-**使用示例：**
+**Usage example:**
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
@@ -188,7 +186,7 @@ curl -X POST http://localhost:8080/api/v1/notify \
   }'
 ```
 
-**指定收件人：**
+**Specifying recipients:**
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
@@ -207,9 +205,9 @@ curl -X POST http://localhost:8080/api/v1/notify \
 
 ### Webhook Provider
 
-通用 Webhook Provider，可向任意 URL 发送 POST 请求。
+A generic Webhook Provider that can send POST requests to any URL.
 
-**配置：**
+**Configuration:**
 
 ```yaml
 providers:
@@ -223,7 +221,7 @@ providers:
         Authorization: "Bearer your_webhook_token"
 ```
 
-**发送格式：**
+**Payload format:**
 
 ```json
 {
@@ -240,7 +238,7 @@ providers:
 
 ### SMS Providers
 
-#### 阿里云短信
+#### Aliyun SMS
 
 ```yaml
 providers:
@@ -254,7 +252,7 @@ providers:
       region: "cn-hangzhou"
 ```
 
-#### 腾讯云短信
+#### Tencent Cloud SMS
 
 ```yaml
 providers:
@@ -268,7 +266,7 @@ providers:
       region: "ap-guangzhou"
 ```
 
-#### 网易云信短信
+#### NetEase Yunxin SMS
 
 ```yaml
 providers:
@@ -282,7 +280,7 @@ providers:
 
 ### WeChat Provider
 
-微信个人推送，三选一后端：Server酱（默认）/ PushPlus / WxPusher，由 `service` 键选择（见 [Provider 手册](/providers/wechat)）。
+WeChat personal push with a choice of three backends: ServerChan (default) / PushPlus / WxPusher, selected via the `service` key (see the [Provider Handbook](/providers/wechat)).
 
 ```yaml
 providers:
@@ -293,22 +291,22 @@ providers:
       send_key: "$WECHAT_SERVERCHAN_SEND_KEY"
 ```
 
-### 其余内置 Provider
+### Other Builtin Providers
 
-移动端推送四件套与公众号的完整配置见 [Provider 手册](/providers/overview)，这里只列类型名：
+See the [Provider Handbook](/providers/overview) for the full configuration of the four mobile push providers and the Official Account; only the type names are listed here:
 
-| type | 渠道 |
-|------|------|
+| type | Channel |
+|------|---------|
 | `fcm` | Firebase Cloud Messaging |
 | `apns` | Apple Push Notification service |
-| `jpush` | 极光推送 |
-| `getui` | 个推 |
-| `wechatmp` | 微信公众号（模板消息/客服消息） |
-| `worker` | 远程 Worker 代理（不是真实渠道，转发给 Worker 进程执行） |
+| `jpush` | JPush (Aurora Push) |
+| `getui` | Getui |
+| `wechatmp` | WeChat Official Account (template messages / customer-service messages) |
+| `worker` | Remote Worker proxy (not a real channel; forwards to a Worker process for execution) |
 
-## 自定义 Builtin Provider
+## Custom Builtin Provider
 
-创建自定义 Provider：
+To create a custom Provider:
 
 ```go
 package myprovider
@@ -323,7 +321,7 @@ type Provider struct {
 }
 
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
-    // 实现发送逻辑
+    // Implement the send logic
     return nil
 }
 
@@ -358,7 +356,7 @@ func (f *Factory) Type() string {
 }
 ```
 
-在 `providers/builtin/registry/registry.go` 中注册：
+Register it in `providers/builtin/registry/registry.go`:
 
 ```go
 import "github.com/cuihairu/herald/providers/builtin/myprovider"

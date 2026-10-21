@@ -1,20 +1,18 @@
-> 中文 · [English](./events.en.md)
+# Events and Alert Model
 
-# 事件与告警模型
+The four questions integrators ask most often: how are levels determined, why is the same alert not resent, is delivery guaranteed, and is ordering guaranteed. This page states all of those rules in one place.
 
-接入方最常问的四件事：级别怎么定、同一条告警为什么没重发、能不能保证送达、顺序有没有保证。这一页把这些口径一次说清。
+## Three Vocabularies for Levels
 
-## 三套级别词汇
+Herald has one vocabulary at each of three layers, with fixed mappings between them:
 
-Herald 在三个层面各有一套词汇，映射关系固定：
-
-| 层面 | 字段 | 取值 | 谁在用 |
+| Layer | Field | Values | Who uses it |
 | --- | --- | --- | --- |
-| 通知层 | `level` | 惯用 `info` / `warning` / `error`（`critical` 可用，仪表盘按四级着色）；**无枚举校验，任意字符串透传** | `POST /notify`、规则表达式、`level_routes` 路由 |
-| 紧急度 | `urgency` | `routine` / `normal` / `urgent` / `critical`（接受中文别名 例行/一般/紧急/关键） | app dispatch、品类默认值、投递策略 |
-| 事件适配面 | `severity` | `critical` / `warning` / `info`，**只认这三个值** | `POST /apps/{app}/events` |
+| Notification layer | `level` | Conventionally `info` / `warning` / `error` (`critical` is also valid; the dashboard colors by the four levels); **no enum validation — any string passes through** | `POST /notify`, rule expressions, `level_routes` routing |
+| Urgency | `urgency` | `routine` / `normal` / `urgent` / `critical` | app dispatch, category default values, delivery strategy |
+| Event adaptation surface | `severity` | `critical` / `warning` / `info` — **only these three values are recognized** | `POST /apps/{app}/events` |
 
-事件适配面的固定映射（其余值一律 422，不猜不钳制）：
+Fixed mapping for the event adaptation surface (any other value is a 422; nothing is guessed or clamped):
 
 | severity | urgency |
 | --- | --- |
@@ -22,54 +20,54 @@ Herald 在三个层面各有一套词汇，映射关系固定：
 | `warning` | `urgent` |
 | `info` | `normal` |
 
-紧急度决定渠道匹配的天花板——渠道强度（L0–L5，从 RSS 拉式到电话强打断）不得超过紧急度上限：
+Urgency sets the ceiling for channel matching — a channel's Intensity (L0–L5, from RSS pull-style up to a phone hard interruption) must not exceed the Urgency cap:
 
-| urgency | 强度上限 |
+| urgency | Intensity cap |
 | --- | --- |
-| routine | L1（邮件） |
-| normal | L2（webhook/站内） |
-| urgent | L4（短信） |
-| critical | L5（电话） |
+| routine | L1 (email) |
+| normal | L2 (webhook / in-app) |
+| urgent | L4 (SMS) |
+| critical | L5 (phone) |
 
-渠道默认强度：`rss`/`feed`→L0，`email` 系→L1，`webhook`→L2，`sms` 系→L4，`phone`/`call`→L5，**未列出的渠道（含 `log`）默认 L3**。超出上限的渠道在 dispatch 结果里标 `refused`，原因 `intensity_exceeded`。
+Default channel Intensity: `rss`/`feed` → L0, the `email` family → L1, `webhook` → L2, the `sms` family → L4, `phone`/`call` → L5, and **channels not listed here (including `log`) default to L3**. A channel that exceeds the cap is marked `refused` in the dispatch result, with reason `intensity_exceeded`.
 
-## 去重与幂等
+## Dedup and Idempotency
 
-去重闸在「要不要发」这一层起作用，门闩顺序固定：**事件幂等 → 状态机 → 频控**。
+The dedup gate acts at the "should we send, or not" layer, with a fixed latch order: **event idempotency → state machine → frequency control**.
 
-| 层 | 触发条件 | 效果 |
+| Layer | Trigger | Effect |
 | --- | --- | --- |
-| 事件幂等 | 同一 `event_id` 再次出现（内容漂移也拦） | 抑制，原因 `idempotent` |
-| 状态机 | 同一 `dedup_key` + 同一 `state` 重复上报 | 抑制，原因 `state-repeat`；状态翻转重发并开新一轮 |
-| 频控 | 同一去重键在窗口内再次出现 | 抑制，原因 `once` 或 `throttled` |
+| Event idempotency | The same `event_id` appears again (content drift is caught too) | Suppressed, reason `idempotent` |
+| State machine | The same `dedup_key` + the same `state` reported repeatedly | Suppressed, reason `state-repeat`; a state flip resends and opens a new round |
+| Frequency control | The same dedup key appears again within the window | Suppressed, reason `once` or `throttled` |
 
-频控三档按品类配置：`once`（进程生命周期内一次）、`throttle`（窗口内一次，窗口默认 5 分钟，可按品类覆盖）、`always`（全部放行）。默认档：`system`→once，`alerts`→throttle，其余 throttle。
+The three frequency control tiers are configured per category: `once` (once per process lifetime), `throttle` (once per window; the window defaults to 5 minutes and can be overridden per category), `always` (let everything through). Default tiers: `system` → once, `alerts` → throttle, everything else → throttle.
 
-去重键：显式 `dedup_key` 优先；没带时对内容（type/level/template/channels/recipients/params/title/body）做规范化哈希。**注意：level 变化等于换了键**——同一故障从 warning 升到 error 会重发，这是特性不是缺陷。
+Dedup key: an explicit `dedup_key` takes priority; if none is supplied, a normalized hash is computed over the content (type/level/template/channels/recipients/params/title/body). **Note: a change in level is a different key** — the same fault escalating from warning to error will resend. This is a feature, not a defect.
 
-被抑制的通知返回 `suppressed: true`、HTTP 200，不出现在投递记录里；展开明细（`×N`）在审计流的 `delivery.deduped` 事件上。
+A suppressed notification returns `suppressed: true` with HTTP 200 and does not appear in the delivery records; the expanded detail (`×N`) is on the `delivery.deduped` event in the audit stream.
 
-幂等表、去重表都是**进程内存表**（容量 4096–1000，FIFO 逐出），重启即清空——语义是「重启后重投一次」，不是静默丢弃。需要跨重启幂等的调用方自己拿 `event_id` 做持久去重。
+Both the idempotency table and the dedup table are **in-memory process tables** (capacity 4096–1000, FIFO eviction), and are cleared on restart — the semantics are "resend once after a restart", not silent drop. Callers that need idempotency across restarts must persist and dedup on `event_id` themselves.
 
-`POST /notify` 另有请求体级的 `idempotency_key`：同键重复请求返回首次受理结果（同样的 notification_id），不产生新投递。只有成功受理的结果入表；全部失败的请求可修正后同键重试。
+`POST /notify` additionally has a request-body-level `idempotency_key`: repeated requests with the same key return the first accepted result (the same notification_id) and produce no new deliveries. Only successfully accepted results enter the table; a request that failed entirely can be corrected and retried with the same key.
 
-## 投递保证
+## Delivery Guarantees
 
-**至少一次，尽力而为；无顺序保证。**
+**At least once, best effort; no ordering guarantee.**
 
-- 每条通知展开成多个投递任务，各自独立重试。可重试错误（超时、HTTP 408/429/5xx、网络故障）按退避策略重投，默认 `max: 3`（总尝试 4 次）、指数退避 1s→1m；上游 429 的 `Retry-After` 优先于退避曲线，封顶 `max_delay`。
-- 确定性错误（凭据无效、号码不存在、请求被拒等 4xx）**不重试**，直接记失败。
-- 最终失败的任务在投递日志里落 `failed` 状态，重试期间是 `pending`，每任务一行。
-- 多 worker 并发消费、重排队、扇出都会打乱顺序，herald 不承诺投递顺序，也不提供顺序补偿。需要顺序的调用方在内容里带序号自行处理。
-- 队列实现：`memory`（默认，重启丢队列内任务）与 `redis`（Streams，跨重启保任务，但崩溃在延迟重投的窗口内可能丢一条 due 任务）。
-- app 回调同样至少一次：事件走投递同一套队列与重试管道，非 2xx 重试，可能重复，接收方按 `event_id` 去重。
+- Each notification fans out into multiple delivery tasks, each retrying independently. Retriable errors (timeouts, HTTP 408/429/5xx, network failures) are re-sent per the backoff strategy, default `max: 3` (4 attempts in total), exponential backoff 1s → 1m; an upstream 429's `Retry-After` takes precedence over the backoff curve, capped at `max_delay`.
+- Deterministic errors (invalid credentials, nonexistent numbers, rejected requests, and other 4xx) are **not retried** and are recorded as failed directly.
+- A task that ultimately fails lands in `failed` state in the delivery logs; while retrying it is `pending`, one row per task.
+- Concurrent consumption by multiple workers, requeueing, and fan-out all scramble ordering; herald does not promise delivery order and provides no ordering compensation. Callers that need ordering should carry a sequence number in the content and handle it themselves.
+- Queue implementations: `memory` (default; tasks still in the queue are lost on restart) and `redis` (Streams; tasks survive restarts, but a crash within the delayed-resend window may lose one due task).
+- App callbacks are likewise at least once: events go through the same queue and retry pipeline as delivery, non-2xx is retried, duplicates are possible, and receivers dedup on `event_id`.
 
-「受理」与「送达」是两件事：`code:0`/`accepted` 只代表进入投递管线；每个渠道的最终成败看投递日志（`/logs` 或 `/apps/{app}/deliveries`）与回调。
+Acceptance and delivery are two different things: `code:0` / `accepted` only means it entered the delivery pipeline; each channel's final outcome is shown by the delivery logs (`/logs` or `/apps/{app}/deliveries`) and the callbacks.
 
-**RSS 渠道例外**：路由到 `rss` 的投递不产生投递任务，就地投影成 feed 条目，由订阅读者拉取——`accepted` 为空是预期行为。
+**RSS channel exception**: deliveries routed to `rss` produce no delivery task; they are projected in place as feed entries that subscribers pull — an empty `accepted` is expected behavior.
 
-## 事件的生命周期
+## The Lifecycle of an Event
 
-规则路由的投递会打开事件账本（incident）条目：`open` → 确认（`POST /alerts/{id}/ack` 或飞书卡片按钮）→ 恢复（规则表达式的 match 不再成立时自动 resolve 并发恢复摘要）。确认是幂等的：首条生效，重复确认返回同一条记录，及时确认会取消待触发的升级链。
+A rule-routed delivery opens an event ledger (incident) entry: `open` → acknowledged (`POST /alerts/{id}/ack` or the Feishu card button) → resolved (when the rule expression no longer matches, it resolves automatically and sends a recovery summary). Acknowledgment is idempotent: the first one takes effect, repeated acknowledgments return the same record, and acknowledging in time cancels a pending escalation chain.
 
-配置了 `escalation` 的规则，`ack_timeout` 内没人确认就向升级渠道重发（绕过规则评估与去重）。alert id 取通知 `params.alert_id`，缺省回退到内容去重键。
+For rules with `escalation` configured, if nobody acknowledges within `ack_timeout` the notification is resent to the escalation channels (bypassing rule evaluation and dedup). The alert id comes from the notification's `params.alert_id`, falling back to the content dedup key when absent.

@@ -1,110 +1,108 @@
-> 中文 · [English](./directory.en.md)
+# Directory Structure
 
-# 目录结构
-
-## 项目结构
+## Project Structure
 
 ```
 herald/
-├── herald.go                 # 库形态入口（herald.New Facade）
+├── herald.go                 # library-form entry (herald.New Facade)
 ├── cmd/
-│   └── heraldd/              # 统一入口（serve / worker 子命令）
+│   └── heraldd/              # unified entry (serve / worker subcommands)
 │
-├── config/                   # 配置管理（Load/Default）
+├── config/                   # configuration management (Load/Default)
 │   └── config.go
 │
-├── core/                     # 核心模块
-│   ├── types.go              # 核心类型（Notification, DeliveryTask, Queue）
-│   ├── provider.go           # Provider/CapableProvider 接口 + Capability
-│   ├── worker/               # 统一 Worker 架构
-│   │   ├── pool.go           # Worker Pool（管理 local worker goroutine）
-│   │   └── registry.go       # Worker 注册表（local + remote）
-│   ├── dispatch/             # 调度器（Worker Pool 的薄封装）
+├── core/                     # core modules
+│   ├── types.go              # core types (Notification, DeliveryTask, Queue)
+│   ├── provider.go           # Provider/CapableProvider interfaces + Capability
+│   ├── worker/               # unified Worker architecture
+│   │   ├── pool.go           # Worker Pool (manages local worker goroutines)
+│   │   └── registry.go       # Worker registry (local + remote)
+│   ├── dispatch/             # dispatcher (a thin wrapper over the Worker Pool)
 │   │   └── dispatcher.go
-│   ├── queue/                # 任务队列
-│   │   ├── queue.go          # Queue 接口
-│   │   ├── memory.go         # 内存队列实现
-│   │   ├── redis.go          # Redis Stream 实现
-│   │   └── factory.go        # 队列工厂
-│   ├── route/                # 路由引擎（routes + level_routes）
-│   ├── retry/                # 重试机制
-│   ├── errclass/             # Provider 错误六类分类
-│   ├── dedup/                # 去重机制
-│   ├── limiter/              # 限流机制
-│   ├── runtime/              # Runtime 管理（Provider 注册 + 投递 + 重试）
+│   ├── queue/                # task queue
+│   │   ├── queue.go          # Queue interface
+│   │   ├── memory.go         # in-memory queue implementation
+│   │   ├── redis.go          # Redis Stream implementation
+│   │   └── factory.go        # queue factory
+│   ├── route/                # route engine (routes + level_routes)
+│   ├── retry/                # retry mechanism
+│   ├── errclass/             # six-class Provider error classification
+│   ├── dedup/                # dedup mechanism
+│   ├── limiter/              # rate limiting mechanism
+│   ├── runtime/              # Runtime management (Provider registration + delivery + retry)
 │   │   └── manager.go
-│   ├── service/              # 服务层
-│   │   ├── notification.go   # NotificationService 编排层
-│   │   └── planner.go        # DeliveryPlanner（payload/格式选择）
-│   ├── template/             # 模板系统
-│   ├── audience/             # 受众与收件人（audiences/recipients 表）
-│   ├── groups/               # 通知群组（group: 展开）
-│   ├── roster/               # 值班花名册
-│   ├── rules/                # 规则引擎（silence/inhibit/for/改道）
-│   ├── ack/                  # 告警确认
-│   ├── escalation/           # 升级策略
-│   ├── incident/             # 事件（ack 聚合、状态派生）
-│   ├── auth/                 # 认证（login/refresh/me）
-│   ├── jwt/                  # JWT 签发校验
-│   ├── user/                 # 用户模型
-│   ├── logstore/             # 投递日志存储
-│   ├── httpclient/           # 统一 HTTP 客户端
-│   ├── websocket/            # WebSocket（远程 Worker 管理通道）
-│   │   ├── server.go         # WebSocket 服务器
-│   │   └── hub.go            # Worker 注册/心跳管理
+│   ├── service/              # service layer
+│   │   ├── notification.go   # NotificationService orchestration layer
+│   │   └── planner.go        # DeliveryPlanner (payload/format selection)
+│   ├── template/             # template system
+│   ├── audience/             # audiences and recipients (audiences/recipients tables)
+│   ├── groups/               # notification groups (group: expansion)
+│   ├── roster/               # on-call roster
+│   ├── rules/                # rule engine (silence/inhibit/for/rerouting)
+│   ├── ack/                  # alert acknowledgement
+│   ├── escalation/           # escalation policies
+│   ├── incident/             # incidents (ack aggregation, state derivation)
+│   ├── auth/                 # authentication (login/refresh/me)
+│   ├── jwt/                  # JWT issuing and verification
+│   ├── user/                 # user model
+│   ├── logstore/             # delivery log storage
+│   ├── httpclient/           # unified HTTP client
+│   ├── websocket/            # WebSocket (remote Worker management channel)
+│   │   ├── server.go         # WebSocket server
+│   │   └── hub.go            # Worker registration/heartbeat management
 │   └── ...
 │
 ├── api/                      # HTTP API
-│   ├── handler.go            # 请求处理器 + 通用响应
-│   ├── handler_*.go          # 各资源处理器（notify/alerts/incidents/... 共 15 个）
-│   ├── idempotency.go        # 幂等键存储
-│   └── server.go             # HTTP 服务器 + 路由注册
+│   ├── handler.go            # request handlers + common responses
+│   ├── handler_*.go          # per-resource handlers (notify/alerts/incidents/... 15 in total)
+│   ├── idempotency.go        # idempotency key storage
+│   └── server.go             # HTTP server + route registration
 │
-├── protocol/                 # 内部协议定义
-│   └── message.go            # WebSocket 消息类型
+├── protocol/                 # internal protocol definitions
+│   └── message.go            # WebSocket message types
 │
-├── providers/                # Provider 实现
-│   └── builtin/              # 内置 Provider（19 个 Factory）
-│       ├── registry/         # Provider 注册
-│       ├── log/              # 日志
+├── providers/                # Provider implementations
+│   └── builtin/              # built-in Providers (19 Factories)
+│       ├── registry/         # Provider registration
+│       ├── log/              # log
 │       ├── telegram/         # Telegram
-│       ├── feishu/           # 飞书
-│       ├── wecom/            # 企业微信
-│       ├── dingtalk/         # 钉钉
+│       ├── feishu/           # Feishu
+│       ├── wecom/            # WeCom
+│       ├── dingtalk/         # DingTalk
 │       ├── slack/            # Slack
 │       ├── discord/          # Discord
-│       ├── email/            # 邮件
+│       ├── email/            # email
 │       ├── webhook/          # Webhook
-│       ├── aliyunsms/        # 阿里云 SMS
-│       ├── tencentsms/       # 腾讯云 SMS
-│       ├── neteasesms/       # 网易云信短信
-│       ├── wechat/           # 微信（Server酱/PushPlus/WxPusher）
-│       ├── wechatmp/         # 微信公众号
-│       ├── fcm/              # FCM 推送
-│       ├── apns/             # APNs 推送
-│       ├── jpush/            # 极光推送
-│       ├── getui/            # 个推
-│       └── worker/           # Worker Provider（代理远程 Worker）
+│       ├── aliyunsms/        # Alibaba Cloud SMS
+│       ├── tencentsms/       # Tencent Cloud SMS
+│       ├── neteasesms/       # NetEase Yunxin SMS
+│       ├── wechat/           # WeChat (ServerChan/PushPlus/WxPusher)
+│       ├── wechatmp/         # WeChat Official Account
+│       ├── fcm/              # FCM push
+│       ├── apns/             # APNs push
+│       ├── jpush/            # JPush
+│       ├── getui/            # Getui
+│       └── worker/           # Worker Provider (proxies remote Workers)
 │
-├── apps-sdk/                 # 集成方 SDK（app 命名空间接入）
+├── apps-sdk/                 # integrator SDK (app namespace onboarding)
 │   └── go/                   # Go SDK
 ├── worker-sdk/               # Worker SDK
 │   └── go/                   # Go SDK + example
 │
-├── internal/                 # 内部包
-│   └── logger/               # 日志管理
+├── internal/                 # internal packages
+│   └── logger/               # log management
 │
-├── examples/                 # 示例
-│   └── quickstart/           # 快速开始示例（计入覆盖率门禁）
-├── dashboard/                # 前端控制台（Vite + Vitest）
-├── tools/                    # 覆盖率门禁脚本（covermerge/zero_check）
-├── docs/                     # 文档
-├── config.yaml               # 配置文件
-├── Makefile                  # 构建脚本
+├── examples/                 # examples
+│   └── quickstart/           # quickstart example (counted in the coverage gate)
+├── dashboard/                # frontend console (Vite + Vitest)
+├── tools/                    # coverage gate scripts (covermerge/zero_check)
+├── docs/                     # documentation
+├── config.yaml               # configuration file
+├── Makefile                  # build script
 └── README.md
 ```
 
-## 数据流
+## Data Flow
 
 ```mermaid
 graph LR
@@ -116,15 +114,15 @@ graph LR
     Queue -->|remote| P2["Provider"]
 ```
 
-## 配置示例
+## Configuration Example
 
 ```yaml
-# 调度器模式
+# scheduler mode
 queue:
   type: memory          # memory | redis
   workers: 0            # 0 = CPU*2+1
 
-# 分布式模式
+# distributed mode
 queue:
   type: redis
   workers: 4

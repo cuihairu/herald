@@ -1,35 +1,33 @@
-> 中文 · [English](./getui.en.md)
+# Getui (GeTui Push)
 
-# Getui (个推推送)
+Send push notifications to Android / iOS / HarmonyOS devices, with delivery-rate optimization for domestic vendor channels.
 
-向 Android / iOS / 鸿蒙设备发送推送通知，国内厂商通道到达率优化。
+## What It Does
 
-## 作用
+The `getui` Builtin Provider calls the Getui REST API v2 directly (`POST {BaseUrl}/push/single/cid`, where `BaseUrl` is `https://restapi.getui.com/v2/$appId`, see the [API calling specification](https://docs.getui.com/getui/server/rest_v2/standard/)). Authentication is the interface token, obtained via `POST {BaseUrl}/auth`, with the signature being the fixed-order concatenation `sha256(appkey + timestamp + mastersecret)`.
 
-`getui` Builtin Provider 直接调用个推 REST API v2（`POST {BaseUrl}/push/single/cid`，`BaseUrl` 为 `https://restapi.getui.com/v2/$appId`，见[接口调用规范](https://docs.getui.com/getui/server/rest_v2/standard/)），鉴权为接口 token：`POST {BaseUrl}/auth` 换取，签名是 `sha256(appkey + timestamp + mastersecret)` 的固定顺序拼接。
+Each delivery target is a **CID** (the user unique identifier Getui assigns per device). Sending happens device by device, and one message has two carriers:
 
-每个投递目标是一个 **CID**（个推为设备分配的用户唯一标识），按设备逐次发送，一条消息两种承载：
+- Content (title/body) → the `push_message.notification` segment, which enters the system notification center
+- Raw payload → the `push_message.transmission` passthrough segment, which does not enter the notification center and is handled by the Getui SDK callback integrated in the app
+- Notifications on the Getui channel only display on Android/HarmonyOS; iOS goes through `push_channel.ios.aps` instead (added automatically by Herald for messages carrying Content)
 
-- Content（title/body）→ `push_message.notification` 通知段，进系统通知栏
-- Raw 载荷 → `push_message.transmission` 透传段，不上通知栏，由 App 内集成的个推 SDK 回调处理
-- 个推通道的通知只在 Android/鸿蒙展示，iOS 另走 `push_channel.ios.aps`（Herald 对带 Content 的消息自动补上）
+## Obtaining Credentials
 
-## 申请凭据
+Prerequisite: a [Getui account](https://dev.getui.com/) (registration is free).
 
-前提：一个[个推账号](https://dev.getui.com/)（注册免费）。
+1. **Create the app**: the [Developer Center](https://dev.getui.com/dev/#/appManage) → **App Management** → create the app (enter the package name for Android, the Bundle ID for iOS)
+2. **Note the AppID**: the app's unique identifier, and also a segment of the API path (the `$appId` in `BaseUrl`)
+3. **Note the AppKey**: generated when the app is created; used for the `/auth` `appkey` and the signature
+4. **Note the MasterSecret**: visible on the app details page; it is equivalent to full push credentials and is used on the server side only
+5. **Device CID**: obtained after the app integrates the [Getui SDK](https://docs.getui.com/getui/mobile/android/androidstudio/), via the `onReceiveClientId` callback on Android and the `GeTuiSdkDidRegisterClient` callback on iOS. Your business service stores the CID in a roster/user table and passes it in as the recipient at delivery time; Herald does not fetch CIDs from Getui.
 
-1. **创建应用**：[开发者中心](https://dev.getui.com/dev/#/appManage) → **应用管理** → 创建应用（Android 填包名，iOS 填 Bundle ID）
-2. **记下 AppID**：应用唯一标识，也是接口路径的一段（`BaseUrl` 里的 `$appId`）
-3. **记下 AppKey**：创建应用时生成，用于 `/auth` 的 `appkey` 与签名
-4. **记下 MasterSecret**：应用详情页可查，等同推送全权凭据，只在服务端使用
-5. **设备 CID**：App 集成[个推 SDK](https://docs.getui.com/getui/mobile/android/androidstudio/)后拿到，Android 在 `onReceiveClientId` 回调、iOS 在 `GeTuiSdkDidRegisterClient` 回调。CID 由你的业务服务端存进花名册/用户表，投递时作为收件人传入；Herald 不负责从个推获取。
+## Sending Your First Message
 
-## 发第一条消息
-
-按下面配好并 `heraldd serve --config config.yaml` 启动后（**必须带 CID 收件人**）：
+Configure as below and start with `heraldd serve --config config.yaml` (**a CID recipient is required**):
 
 ```yaml
-# config.yaml 追加（AppID/AppKey/MasterSecret 从上面的申请步骤取）
+# config.yaml append (AppID/AppKey/MasterSecret come from the application steps above)
 providers:
   getui:
     type: getui
@@ -37,7 +35,7 @@ providers:
     config:
       app_id: "your_app_id"
       app_key: "your_app_key"
-      master_secret: "$GETUI_MASTER_SECRET"   # 见环境变量
+      master_secret: "$GETUI_MASTER_SECRET"   # see Environment Variables
 ```
 
 ```bash
@@ -46,40 +44,40 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "order.notice",
     "level": "info",
-    "title": "订单已发货",
-    "body": "您的订单 SF123456 已发出",
+    "title": "Order shipped",
+    "body": "Your order SF123456 has shipped",
     "channels": ["getui"],
-    "recipients": {"getui": ["CID-字符串"]}
+    "recipients": {"getui": ["CID-string"]}
   }'
 ```
 
-手机通知栏收到「订单已发货」。没收到？检查 CID 是否正确、App 是否集成个推 SDK 且处于可推送状态，查[排错指南](/guide/troubleshooting)与下面的[常见错误](#常见错误)。
+The phone's notification center shows "Order shipped". Didn't arrive? Check that the CID is correct and that the app has integrated the Getui SDK and is in a pushable state; see the [Troubleshooting Guide](/guide/troubleshooting) and [Common Errors](#common-errors) below.
 
-## 配置项
+## Configuration
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `app_id` | ✅ | 应用唯一标识（接口路径的一段） | 无 |
-| `app_key` | ✅ | 应用 AppKey（`/auth` 的 `appkey` 与签名输入） | 无 |
-| `master_secret` | ✅ | 应用 MasterSecret（签名输入，仅服务端） | 无 |
-| `ttl` | ❌ | 离线保留时长（毫秒），`-1` 表示不设离线保留；范围 `-1` ～ `259200000`（3 天） | 个推默认 2 小时 |
-| `click_type` | ❌ | 点击通知的后续动作，见下表 | `none` |
-| `endpoint` | ❌ | API 端点（测试/代理场景覆盖） | `https://restapi.getui.com/v2` |
+| `app_id` | ✅ | The app's unique identifier (a segment of the API path) | None |
+| `app_key` | ✅ | The app AppKey (the `/auth` `appkey` and signature input) | None |
+| `master_secret` | ✅ | The app MasterSecret (signature input, server side only) | None |
+| `ttl` | ❌ | Offline retention duration in milliseconds; `-1` means no offline retention; range `-1` to `259200000` (3 days) | Getui's default of 2 hours |
+| `click_type` | ❌ | The follow-up action when the notification is tapped, see the table below | `none` |
+| `endpoint` | ❌ | API endpoint (override for testing/proxy scenarios) | `https://restapi.getui.com/v2` |
 
-`click_type` 可选值（Herald 只支持不需要额外字段的四种）：
+Allowed `click_type` values (Herald supports only the four that need no extra fields):
 
-| 值 | 行为 |
+| Value | Behavior |
 |----|------|
-| `none` | 纯通知，无后续动作 |
-| `startapp` | 打开应用首页 |
-| `payload` | 自定义消息内容，**启动应用** |
-| `payload_custom` | 自定义消息内容，**不启动应用** |
+| `none` | Plain notification, no follow-up action |
+| `startapp` | Open the app home page |
+| `payload` | Custom message content, **launches the app** |
+| `payload_custom` | Custom message content, **does not launch the app** |
 
-个推还支持 `url`（打开网页）与 `intent`（打开应用内特定页面），但两者分别要求额外的 `url`/`intent` 字段，Herald 的消息模型不携带，故不支持——配了会在启动时报 `getui: unsupported click_type`。
+Getui also supports `url` (open a web page) and `intent` (open a specific in-app page), but both require extra `url`/`intent` fields that Herald's message model does not carry, so they are unsupported — configuring them fails at startup with `getui: unsupported click_type`.
 
-缺 `app_id`/`app_key`/`master_secret` 时 Provider 创建即失败（`getui: app_id is required` 等），启动日志可见。
+Missing `app_id` / `app_key` / `master_secret` makes Provider creation fail immediately (`getui: app_id is required`, etc.); this is visible in the startup logs.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -90,105 +88,105 @@ providers:
       app_id: "your_app_id"
       app_key: "your_app_key"
       master_secret: "$GETUI_MASTER_SECRET"
-      ttl: 86400000          # 离线保留 1 天
-      click_type: "startapp" # 点击回 App 首页
+      ttl: 86400000          # keep offline for 1 day
+      click_type: "startapp" # tapping returns to the app home page
 ```
 
-## 环境变量
+## Environment Variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment Variable | Config Key | Description |
 |----------|-----------|------|
-| `GETUI_APP_ID` | `app_id` | 应用唯一标识（`.env.example` 惯用名） |
-| `GETUI_APP_KEY` | `app_key` | 应用 AppKey |
-| `GETUI_MASTER_SECRET` | `master_secret` | 应用 MasterSecret |
+| `GETUI_APP_ID` | `app_id` | The app's unique identifier (conventional name in `.env.example`) |
+| `GETUI_APP_KEY` | `app_key` | The app AppKey |
+| `GETUI_MASTER_SECRET` | `master_secret` | The app MasterSecret |
 
-## 消息模板与限制
+## Message Templates and Limits
 
-### 内容映射
+### Content Mapping
 
-| 场景 | body 结构 |
+| Scenario | body structure |
 |------|-----------|
-| 带 title/body 的通知 | `push_message.notification{title,body,click_type}` + `push_channel.ios.aps{alert,sound:default}` |
-| 纯 Raw 载荷 | `push_message.transmission`——透传给 App，不上通知栏；内容是 Raw 的 JSON |
-| Content + Raw 同时有 | 只发 `notification`，Raw 进 `notification.payload`；仅 `click_type` 为 `payload`/`payload_custom` 时携带 |
+| Notification with title/body | `push_message.notification{title,body,click_type}` + `push_channel.ios.aps{alert,sound:default}` |
+| Pure Raw payload | `push_message.transmission` — passed through to the app, not shown in the notification center; the content is the Raw JSON |
+| Both Content and Raw | Only `notification` is sent, with Raw going into `notification.payload`; carried only when `click_type` is `payload`/`payload_custom` |
 
-- 个推把 `notification.title`/`body` 都标为必填，所以 title-only 或 body-only 的消息会让另一字段取同样的值兜底
-- `notification` 与 `transmission` 个推要求三选一（与 `revoke` 互斥），不能同发；Herald 据此把 Raw 降级成点击回传的 `payload`
-- Raw 的值经 JSON 序列化后按**字符数**（`utf8.RuneCountInString`）计长度上限
-- Content 与 Raw 至少其一，否则报 `getui: payload needs content or raw data`
+- Getui marks both `notification.title`/`body` as required, so for a title-only or body-only message the other field falls back to the same value
+- Getui requires exactly one of `notification` and `transmission` (mutually exclusive with `revoke`); they cannot be sent together — Herald therefore downgrades Raw into the tap-callback `payload`
+- The Raw value is JSON-serialized and its length limit is counted in **characters** (`utf8.RuneCountInString`)
+- Content and Raw — at least one is required, otherwise you get `getui: payload needs content or raw data`
 
-### 长度与取值限制
+### Length and Value Limits
 
-| 字段 | 限制 | 谁来拦 |
+| Field | Limit | Who enforces it |
 |------|------|--------|
-| `transmission`、`notification.payload` | ≤ 3072 字 | `transmission` 超限直接报错；`payload` 超限则丢弃该字段（通知照发） |
-| `notification.title` | ≤ 50 字 | 个推服务端校验（返回 20001），Herald 不预检 |
-| `notification.body` | ≤ 256 字 | 同上 |
-| `settings.ttl` | `-1` ～ `259200000` 毫秒 | Herald 启动时校验 |
-| `request_id` | 10-32 位，且不可重复 | Herald 每次发送生成 24 位随机 id；重复会导致个推**丢消息** |
+| `transmission`, `notification.payload` | ≤ 3072 characters | An over-limit `transmission` errors out immediately; an over-limit `payload` drops that field (the notification still sends) |
+| `notification.title` | ≤ 50 characters | Validated by the Getui server (returns 20001); Herald does not pre-check |
+| `notification.body` | ≤ 256 characters | Same as above |
+| `settings.ttl` | `-1` to `259200000` ms | Validated by Herald at startup |
+| `request_id` | 10-32 characters, and must not repeat | Herald generates a 24-character random id per send; duplicates make Getui **drop the message** |
 
-### 发送语义
+### Delivery Semantics
 
-- 收件人逐 CID 发送；部分失败聚合为 `getui: N/M succeeded - failed: ...`（与 FCM/APNs/JPush 一致），失效 CID 只算它自己失败
-- 业务码 `10001`（token 失效）触发个推推荐的被动刷新：丢弃缓存 token 重新 `/auth`，并用**同一个 `request_id`** 重试一次（首次未投递，复用 id 不会撞上个推的去重）
-- `/auth` 每分钟最多 100 次、每天最多 10 万次。token 有效期是「调用时间 + 1 天」，Herald 按返回的 `expire_time` 缓存并提前 5 分钟刷新，且刷新在缓存锁内完成——冷启动时并发投递只会触发一次 `/auth`
+- Recipients are sent to one CID at a time; partial failure is aggregated into `getui: N/M succeeded - failed: ...` (consistent with FCM/APNs/JPush), and an invalid CID only counts as its own failure
+- Business code `10001` (invalid token) triggers the passive refresh Getui recommends: drop the cached token, `/auth` again, and retry once with the **same `request_id`** (the first attempt was never delivered, so reusing the id will not collide with Getui's dedup)
+- `/auth` allows at most 100 calls per minute and 100,000 per day. The token is valid for "call time + 1 day"; Herald caches by the returned `expire_time` and refreshes 5 minutes early, and the refresh happens inside the cache lock — concurrent deliveries at cold start trigger only one `/auth`
 
-### 能力声明
+### Capability Declaration
 
-- `PayloadKinds`: `Content`、`Raw`
+- `PayloadKinds`: `Content`, `Raw`
 - `ContentFormats`: `plain`
 
-### 重试语义
+### Retry Semantics
 
-- 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
-- 400（20001 参数不合法）、401（10001/10002/10003）、403（30000 段）为确定性错误，不重试
-- 业务码 `10001` 是唯一的例外：Herald 已在 provider 内做过一次被动刷新 + 重试
+- Request timeouts, 408/429/5xx are wrapped by `httpclient` as retryable errors and go through unified retry
+- 400 (20001 invalid parameter), 401 (10001/10002/10003), 403 (the `30000` range) are deterministic errors and are not retried
+- Business code `10001` is the sole exception: Herald has already done one passive refresh + retry inside the provider
 
-## 常见错误
+## Common Errors
 
-### 启动即失败
+### Fails at Startup
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `getui: app_id is required` | 没配 AppID |
-| `getui: app_key is required` | 没配 AppKey |
-| `getui: master_secret is required` | 没配 MasterSecret |
-| `getui: ttl must be between -1 and 259200000 ms` | 离线保留时长超出个推范围（注意单位是毫秒） |
-| `getui: unsupported click_type "url"` | `url`/`intent` 需要额外字段，Herald 不支持 |
-| `getui: transmission exceeds 3072 chars: N` | 纯透传消息超长，裁剪 Raw 载荷 |
-| `getui: payload needs content or raw data` | Content 和 Raw 都为空 |
+| `getui: app_id is required` | AppID not configured |
+| `getui: app_key is required` | AppKey not configured |
+| `getui: master_secret is required` | MasterSecret not configured |
+| `getui: ttl must be between -1 and 259200000 ms` | The offline retention is outside Getui's range (note the unit is milliseconds) |
+| `getui: unsupported click_type "url"` | `url`/`intent` require extra fields; Herald does not support them |
+| `getui: transmission exceeds 3072 chars: N` | The pure passthrough message is too long; trim the Raw payload |
+| `getui: payload needs content or raw data` | Both Content and Raw are empty |
 
-### 接口返回的业务码
+### Business Codes Returned by the API
 
-| code | HTTP | 含义与处理 |
+| code | HTTP | Meaning and remedy |
 |------|------|-----------|
-| `10001` | 401 | token 错误/失效：Herald 已自动刷新并重试一次；持续出现说明 `/auth` 频繁超限或凭据不对 |
-| `10002` | 401 | appId 或 IP 在黑名单中 |
-| `10003` | 401 | 每分钟鉴权频率超限（上限 100 次/分钟） |
-| `10005` | 401 | 每分钟调用频率超限 |
-| `20001` | 400 | 参数不合法，`msg` 会指明字段（如 `title is invalid`、`ios长度不能超过...`） |
-| `30007` | 403 | `app/all` 推送次数超每日上限（每日最多 20 次）——本 provider 走单推，正常不会碰到 |
-| `30014` | 403 | app 推送频率超每分钟上限（每分钟最多 5 次） |
-| `30015` | 403 | list 推送频率超每分钟上限 |
-| `5000` | — | 请求未到个推服务器：查本地网络、代理、IP 白名单 |
+| `10001` | 401 | Token wrong/expired: Herald has already refreshed and retried once; if it keeps happening, `/auth` is being rate limited or the credentials are wrong |
+| `10002` | 401 | The appId or IP is on a blacklist |
+| `10003` | 401 | Per-minute auth frequency exceeded (limit 100 per minute) |
+| `10005` | 401 | Per-minute call frequency exceeded |
+| `20001` | 400 | Invalid parameter; `msg` names the field (for example `title is invalid`, `ios length must not exceed ...`) |
+| `30007` | 403 | `app/all` push count over the daily limit (at most 20 per day) — this provider sends single pushes, so you normally never hit it |
+| `30014` | 403 | App push frequency over the per-minute limit (at most 5 per minute) |
+| `30015` | 403 | List push frequency over the per-minute limit |
+| `5000` | — | The request never reached Getui's server: check the local network, proxy, and IP allowlist |
 
-`30000` 段（30000-30028）是套餐/权限类限制，非 VIP 账号设置厂商策略或用定时推送时会碰到。
+The `30000` range (30000-30028) covers plan/permission restrictions; you hit them when a non-VIP account configures vendor policies or uses scheduled pushes.
 
-错误格式：HTTP 非 2xx 返回 `unexpected status code: {code}, body: {"code":..,"msg":".."}`；HTTP 200 但 `code` 非 0 时返回 `getui: push failed (code N): msg`。整体排错见[排错指南](/guide/troubleshooting)。
+Error format: non-2xx HTTP responses return `unexpected status code: {code}, body: {"code":..,"msg":".."}`; when HTTP is 200 but `code` is non-zero, `getui: push failed (code N): msg` is returned. For overall troubleshooting, see the [Troubleshooting Guide](/guide/troubleshooting).
 
-## 安全建议
+## Security Recommendations
 
-1. **MasterSecret 等同推送全权凭据**：只放服务端环境变量/密管系统，不进客户端与代码仓库；怀疑泄露立即在开发者中心重置
-2. **token 是全局接口凭据**：Herald 只在内存里缓存，不落盘、不打日志；`master_secret` 已被 `core.SensitiveFields` 标记，API 查询配置时返回掩码值
-3. **CID 是设备标识**：按个人数据对待，落库、传输注意合规
-4. **别把 `/auth` 打满**：Herald 已按 `expire_time` 缓存并去重并发刷新；自行加签发实例时注意每分钟 100 次上限
+1. **The MasterSecret is equivalent to full push credentials**: keep it only in server-side environment variables / a secrets-management system, never in clients or code repositories; if you suspect a leak, reset it immediately in the Developer Center
+2. **The token is a global interface credential**: Herald caches it only in memory — never on disk, never in logs; `master_secret` is flagged by `core.SensitiveFields`, and the API returns a masked value when the config is queried
+3. **The CID is a device identifier**: treat it as personal data and mind compliance when storing and transmitting it
+4. **Don't exhaust `/auth`**: Herald already caches by `expire_time` and dedups concurrent refreshes; if you add signing instances of your own, watch the 100-per-minute limit
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [JPush](./jpush.md) - 另一家国内厂商推送通道
-- [FCM](./fcm.md) - Android/Web 推送通道
-- [APNs](./apns.md) - iOS/macOS 推送通道
-- [排错指南](/guide/troubleshooting) - 启动失败、消息没到、重试不生效
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [JPush](./jpush.md) - another domestic vendor push channel
+- [FCM](./fcm.md) - Android/Web push channel
+- [APNs](./apns.md) - iOS/macOS push channel
+- [Troubleshooting Guide](/guide/troubleshooting) - startup failure, message not delivered, retries not taking effect

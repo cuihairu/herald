@@ -1,73 +1,71 @@
-> 中文 · [English](./configuration.en.md)
+# Configuration
 
-# 配置
+## Configuration file
 
-## 配置文件
+Herald uses a YAML configuration file (`config.yaml`).
 
-Herald 使用 YAML 配置文件（`config.yaml`）。
+## Run modes
 
-## 运行模式
-
-Herald 使用统一二进制，通过子命令区分运行模式：
+Herald ships as a single binary; subcommands select the run mode:
 
 ```bash
-# 调度器模式（API + Queue + 本地 Worker）
+# Scheduler mode (API + Queue + local workers)
 heraldd serve --config config.yaml
 
-# 远程 Worker 模式（从共享 Queue 消费任务）
+# Remote worker mode (consumes tasks from the shared Queue)
 heraldd worker --config worker.yaml
 ```
 
-## 完整配置示例
+## Complete configuration example
 
-### 调度器配置（scheduler.yaml）
+### Scheduler configuration (scheduler.yaml)
 
 ```yaml
-# 服务配置
+# Server configuration
 server:
   addr: ":8080"
   timeout: 30s
-  max_request_body_bytes: 1048576  # 全局默认 1 MiB
-  request_body_limits:             # 可选：按 URL path glob 收紧单路由上限
+  max_request_body_bytes: 1048576  # global default: 1 MiB
+  request_body_limits:             # optional: tighten per-route limits by URL path glob
     "/api/v1/notify": 262144       # 256 KiB
 
-# Provider 配置
+# Provider configuration
 providers:
-  # 日志 Provider（默认启用）
+  # Log provider (enabled by default)
   log:
     type: log
     enabled: true
     config:
       name: "log"
 
-  # Telegram 机器人
+  # Telegram bot
   telegram:
     type: telegram
     enabled: true
     config:
       token: "$TELEGRAM_BOT_TOKEN"
       chat_id: "$TELEGRAM_CHAT_ID"
-      # 可选：自建 Bot API 服务器或镜像（默认 https://api.telegram.org）
+      # Optional: self-hosted Bot API server or mirror (default https://api.telegram.org)
       # api_url: "https://my-bot-api.example.com"
 
-  # 飞书
+  # Feishu
   feishu:
     type: feishu
     enabled: false
     config:
       webhook_url: "$FEISHU_WEBHOOK_URL"
-      # 可选：卡片模式（投递告警时发带「确认告警」按钮的交互卡片，
-      # 需配合 card_callback 回调端点，见「飞书卡片按钮回调（P3）」）
+      # Optional: card mode (send alerts as interactive cards carrying an "Acknowledge Alert" button,
+      # requires the card_callback endpoint, see "Feishu card button callback (P3)")
       # interactive_cards: true
 
-  # 企业微信
+  # WeCom (WeChat Work)
   wecom:
     type: wecom
     enabled: false
     config:
       webhook_url: "$WECOM_WEBHOOK_URL"
 
-  # 钉钉
+  # DingTalk
   dingtalk:
     type: dingtalk
     enabled: false
@@ -88,13 +86,13 @@ providers:
     enabled: false
     config:
       webhook_url: "$DISCORD_WEBHOOK_URL"
-      # 或使用 bot API
+      # or use the bot API
       bot_token: "$DISCORD_BOT_TOKEN"
       channel_id: "$DISCORD_CHANNEL_ID"
-      # 可选：自建/代理 Bot API（默认 https://discord.com/api/v10）
+      # Optional: self-hosted/proxied Bot API (default https://discord.com/api/v10)
       # api_url: "https://my-discord-api.example.com"
 
-  # 邮件
+  # Email
   email:
     type: email
     enabled: false
@@ -114,7 +112,7 @@ providers:
       url: "$WEBHOOK_URL"
       method: "POST"
 
-  # 阿里云短信
+  # Aliyun SMS
   aliyunsms:
     type: aliyunsms
     enabled: false
@@ -124,7 +122,7 @@ providers:
       sign_name: "$ALIYUN_SMS_SIGN_NAME"
       region: "cn-hangzhou"
 
-  # 腾讯云短信
+  # Tencent Cloud SMS
   tencentsms:
     type: tencentsms
     enabled: false
@@ -134,7 +132,7 @@ providers:
       app_id: "$TENCENT_SMS_APP_ID"
       region: "ap-guangzhou"
 
-  # 网易云信短信
+  # NetEase Yunxin SMS
   neteasesms:
     type: neteasesms
     enabled: false
@@ -142,14 +140,14 @@ providers:
       app_key: "$NETEASE_APP_KEY"
       app_secret: "$NETEASE_APP_SECRET"
 
-  # 微信个人推送（Server酱/PushPlus/WxPusher）
+  # WeChat personal push (ServerChan/PushPlus/WxPusher)
   wechat:
     type: wechat
     enabled: false
     config:
       send_key: "$WECHAT_SERVERCHAN_SEND_KEY"
 
-# 路由配置
+# Routing configuration
 routes:
   error:
     - log
@@ -158,209 +156,210 @@ routes:
   info:
     - log
 
-# 队列配置
+# Queue configuration
 queue:
   type: memory          # memory | redis
-  size: 10000           # 队列容量
-  workers: 0            # 本地 Worker 数量（0 = 自动，默认 CPU核心数*2+1）
-  # redis:              # type=redis 时需要配置
+  size: 10000           # queue capacity
+  workers: 0            # number of local workers (0 = auto, default CPU cores*2+1)
+  # redis:              # required when type=redis
   #   addr: "localhost:6379"
-  #   password: ""      # 可选
-  #   db: 0             # 可选
+  #   password: ""      # optional
+  #   db: 0             # optional
   #   stream: "herald:tasks"
   #   group: "herald-workers"
 
-# 重试配置
+# Retry configuration
 retry:
   max: 3
   backoff: exponential
   initial_delay: 1s
   max_delay: 1m
 
-# 去重配置
+# Dedup configuration
 dedup:
   enabled: true
   window: 5m
 
-# 通知规则种子（可选）
-# 规则在去重之后、路由解析之前对每条通知求值；命中 active 规则且调用方
-# 未显式指定 channels 时，改走规则的渠道路径；shadow 规则只记录不投递。
+# Notification rule seed (optional)
+# Rules are evaluated against every notification after dedup and before route resolution;
+# when an active rule matches and the caller did not explicitly specify channels,
+# the rule's channel path is taken instead; shadow rules only record, they do not deliver.
 rules:
-  - id: prod-fail-rate            # 1-64 字符：字母、数字与 . _ -
+  - id: prod-fail-rate            # 1-64 characters: letters, digits, and . _ -
     match: 'params.fail_rate > 0.05 && params.env == "prod"'
-    mode: shadow                  # shadow（默认，观察）| active | off
-    for: 3m                       # 可选：持续判定防抖，见「for 持续判定」
-    group_by: [env, service]      # 可选：同组事件折叠计数 + 摘要，见「group_by 聚合通知（P2）」
-    # group_interval: 10m         # 可选：组静默期，默认 5m，需配合 group_by
-    # silence: {start: "22:00", end: "06:00"}   # 可选：每日静默窗，见「silence 静默窗（P2）」
-    route:                        # steps 按序求值，首个 match 命中生效
+    mode: shadow                  # shadow (default, observe) | active | off
+    for: 3m                       # optional: sustained-condition debounce, see "for sustained-condition (P2)"
+    group_by: [env, service]      # optional: fold same-group events with a count + summary, see "group_by notification aggregation (P2)"
+    # group_interval: 10m         # optional: group silence period, default 5m, requires group_by
+    # silence: {start: "22:00", end: "06:00"}   # optional: daily silence window, see "silence (P2)"
+    route:                        # steps are evaluated in order, the first matching step wins
       - match: 'level == "error"'
         channels: [oncall]
-      - channels: [devops]        # match 留空 = 恒命中的兜底 step
+      - channels: [devops]        # an empty match = an always-matching fallback step
   - id: leaf-service-unreachable
     match: 'type == "alert" && params.service == "api"'
     mode: active
-    inhibit:                      # 可选：根因在场时抑制本规则，见「inhibit 抑制（P2）」
-      source: prod-fail-rate      #   根因规则的 id
-      equal: [env]                #   这些字段值相同才抑制
-      # ttl: 30m                  #   在场条目存活期，默认 30m
+    inhibit:                      # optional: suppress this rule while the root cause is present, see "inhibit (P2)"
+      source: prod-fail-rate      #   the root-cause rule's id
+      equal: [env]                #   suppress only when these field values are equal
+      # ttl: 30m                  #   lifetime of a presence entry, default 30m
     route:
       - channels: [devops]
-  - id: prod-disk-down            # 带升级链的规则，见「escalation 升级链（P3）」
+  - id: prod-disk-down            # a rule with an escalation chain, see "escalation chain (P3)"
     match: 'type == "alert" && params.check == "disk"'
     mode: active
-    escalation:                   # ack_timeout 内无确认 → 升级到 to 渠道
-      ack_timeout: 5m             #   可选，默认 5m，上限 24h
-      to: [phone-bridge]          #   升级渠道（如 webhook 桥接的电话网关）
+    escalation:                   # no ack within ack_timeout → escalate to the to channels
+      ack_timeout: 5m             #   optional, default 5m, capped at 24h
+      to: [phone-bridge]          #   escalation channels (e.g. a phone gateway bridged via webhook)
     route:
       - channels: [oncall]
 
-# 默认策略（可选：allow | deny，默认 allow）
-# 无 active 规则命中时通知的去向：allow 保持静态路由，deny 直接扣下。
+# Default policy (optional: allow | deny, default allow)
+# Where notifications go when no active rule matches: allow keeps static routing, deny holds them back outright.
 # rules_default_policy: allow
 
-# 规则持久化文件（可选）
-# 设置后通过 API 对规则的新增/修改/删除会落盘到该 JSON 文件，重启自动恢复；
-# 不设置时规则仅保存在内存中（rules 种子仍然生效）。
+# Rule persistence file (optional)
+# When set, rule additions/modifications/deletions made through the API are persisted to this JSON file and restored on restart;
+# when unset, rules live only in memory (the rules seed still takes effect).
 # rules_store: ./data/rules.json
 
-# 规则状态存储（可选，for 持续判定与 group_by 聚合使用）
-# type: memory（默认，单实例，进程重启后进行中的窗口重新计时）
-# type: redis（多实例/重启共享窗口与组状态，连接参数如下）
+# Rule state storage (optional, used by for sustained-condition and group_by aggregation)
+# type: memory (default, single instance; in-flight windows restart counting after a process restart)
+# type: redis (windows and group state shared across instances/restarts, connection parameters below)
 # rules_state:
 #   type: redis
 #   addr: "localhost:6379"
 #   # password: "..."
 #   # db: 0
 
-# 通知群组种子（可选）：命名受众，任何渠道位都可以写 "group:<id>" 引用
+# Notification group seed (optional): named audiences, any channel slot may reference one as "group:<id>"
 # groups:
 #   - id: ops-oncall
-#     description: 值班花名册
+#     description: On-call roster
 #     members:
-#       - channel: feishu            # 成员渠道（provider 名、channels 块名或静态路由渠道）
-#         recipients: ["@zhang"]     # 可选：钉选收件人，覆盖渠道默认目标
+#       - channel: feishu            # member channel (provider name, channels-block name, or static route channel)
+#         recipients: ["@zhang"]     # optional: pinned recipients overriding the channel's default target
 #       - channel: sms-duty
 
-# 群组持久化文件（可选）
-# 设置后通过 API 对群组的增删改会落盘到该 JSON 文件，重启自动恢复；
-# 不设置时群组仅保存在内存中（groups 种子仍然生效）。
+# Group persistence file (optional)
+# When set, group additions/modifications/deletions made through the API are persisted to this JSON file and restored on restart;
+# when unset, groups live only in memory (the groups seed still takes effect).
 # groups_store: ./data/groups.json
 
-# 受众持久化文件（可选）
-# 设置后通过 API 对 audiences 的增删改会落盘到该 JSON 文件，重启自动恢复；
-# 不设置时 audiences 仅保存在内存中（audiences 种子仍然生效，recipients 始终是纯配置）。
+# Audience persistence file (optional)
+# When set, audience additions/modifications/deletions made through the API are persisted to this JSON file and restored on restart;
+# when unset, audiences live only in memory (the audiences seed still takes effect; recipients are always pure configuration).
 # audiences_store: ./data/audiences.json
 
-# 值班表持久化文件（可选）
-# 值班表由外部排班系统通过 API 推送（无 YAML 种子——它是推送数据不是配置）；
-# 设置后推送的排班时段落盘到该 JSON 文件，重启自动恢复；
-# 不设置时值班表仅保存在内存中（重启后等排班系统重推）。
+# Roster persistence file (optional)
+# Rosters are pushed by an external scheduling system through the API (no YAML seed — it is pushed data, not configuration);
+# when set, pushed on-call periods are persisted to this JSON file and restored on restart;
+# when unset, rosters live only in memory (after a restart, wait for the scheduling system to push again).
 # rosters_store: ./data/rosters.json
 
-# 升级链待决记录持久化（可选）
-# 设置后 escalation 的待决升级落盘到该 JSON 文件，重启时恢复：
-# 已过期的补发升级（停机期间的 ack 仍会被尊重），未到期的按剩余时间重建定时器。
-# 不设置时待决升级仅保存在内存中（重启即丢，等于放弃升级）。
+# Escalation pending-record persistence (optional)
+# When set, pending escalations are persisted to this JSON file and restored on restart:
+# expired ones re-send their escalation (acks that happened during downtime are still honored), unexpired ones rebuild timers with the remaining time.
+# When unset, pending escalations live only in memory (lost on restart, i.e. the escalation is abandoned).
 # escalation_store: ./data/escalations.json
 
-# 事故台账容量（可选，默认 1000）
-# 规则路由投递开事故、ack/恢复关事故，见「事故台账与恢复摘要（P3）」。
-# 超限只淘汰已关闭的旧事故，open 状态的事故不参与容量淘汰。
+# Incident ledger capacity (optional, default 1000)
+# Rule-routed deliveries open incidents, ack/recovery closes them, see "Incident ledger and recovery summary (P3)".
+# On overflow only closed old incidents are evicted; incidents in the open state never take part in capacity eviction.
 # incident_limit: 1000
 
-# 飞书卡片按钮回调（可选）
-# 交互卡片的「确认告警」按钮回调到 POST /api/v1/callbacks/feishu，
-# 走与 ack API 相同的身份与存储（ack 记录、升级取消、事故台账）。
-# encrypt_key 是飞书开放平台配置回调时生成的「Encrypt Key」：
-# 加密回调用它解密；不配置时加密回调被拒（明文回调与 URL 验证挑战不受影响）。
+# Feishu card button callback (optional)
+# The interactive card's "Acknowledge Alert" button calls back to POST /api/v1/callbacks/feishu,
+# using the same identity and storage as the ack API (ack records, escalation cancellation, incident ledger).
+# encrypt_key is the "Encrypt Key" generated when configuring the callback on the Feishu open platform:
+# encrypted callbacks are decrypted with it; when unset, encrypted callbacks are rejected (plaintext callbacks and URL verification challenges are unaffected).
 # card_callback:
 #   encrypt_key: "$FEISHU_ENCRYPT_KEY"
 
-# Provider 限流（可选，token bucket）
-# 投递前按 provider 取令牌；规则引擎会把一条事件扇出到多个渠道，
-# 限流是渠道风暴的最后安全阀。不配置 = 不限流。
+# Provider rate limiting (optional, token bucket)
+# A token is taken per provider before delivery; the rule engine fans one event out to multiple channels,
+# and rate limiting is the last safety valve against channel storms. Unset = no rate limiting.
 # providers:
 #   oncall:
 #     type: feishu
 #     config: { webhook_url: "..." }
 #     rate_limit:
-#       rate: 10      # 每秒补充令牌数
-#       burst: 100    # 桶容量（允许的突发量）
+#       rate: 10      # tokens replenished per second
+#       burst: 100    # bucket capacity (the allowed burst)
 
-# WebSocket 配置（远程 Worker 管理通道）
+# WebSocket configuration (remote worker management channel)
 websocket:
   addr: ":8081"
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s
-  # allowed_origins:       # WebSocket 允许的来源列表
+  # allowed_origins:       # list of allowed WebSocket origins
   #   - "https://your-domain.com"
-  #   - "*"                 # 允许所有来源（仅开发环境）
-  # 未配置时默认允许 localhost/127.0.0.1
+  #   - "*"                 # allow all origins (development only)
+  # When unset, localhost/127.0.0.1 are allowed by default
 
-# 模板定义
+# Template definitions
 templates:
-  # 服务器告警模板
+  # Server alert template
   server_alert:
-    name: "服务器告警"
-    title: "【告警】{{.Level}} - {{.Service}}"
+    name: "Server alert"
+    title: "[Alert] {{.Level}} - {{.Service}}"
     level: "error"
     fields:
-      - label: "服务器"
+      - label: "Server"
         value: "{{.Server}}"
         type: "text"
-      - label: "错误信息"
+      - label: "Error"
         value: "{{.Error}}"
         type: "text"
-      - label: "时间"
+      - label: "Time"
         value: "{{.Timestamp}}"
         type: "text"
 
-  # 部署通知模板
+  # Deployment notification template
   deploy_notify:
-    name: "部署通知"
-    title: "部署完成: {{.Env}} 环境"
+    name: "Deployment notification"
+    title: "Deployment complete: {{.Env}}"
     level: "info"
     fields:
-      - label: "环境"
+      - label: "Environment"
         value: "{{.Env}}"
         type: "text"
-      - label: "版本"
+      - label: "Version"
         value: "{{.Version}}"
         type: "text"
-      - label: "分支"
+      - label: "Branch"
         value: "{{.Branch}}"
         type: "text"
-      - label: "耗时"
+      - label: "Duration"
         value: "{{.Duration}}"
         type: "text"
 ```
 
-### 远程 Worker 配置（worker.yaml）
+### Remote worker configuration (worker.yaml)
 
-远程 Worker 从共享 Queue 消费任务，需要使用 `redis` 类型的队列：
+Remote workers consume tasks from the shared Queue and require a `redis`-type queue:
 
 ```yaml
-# 队列配置（必须与调度器使用相同的 Queue 后端）
+# Queue configuration (must use the same Queue backend as the scheduler)
 queue:
   type: redis
-  workers: 0            # Worker 数量（0 = 自动，默认 CPU核心数*2+1）
+  workers: 0            # number of workers (0 = auto, default CPU cores*2+1)
   redis:
     addr: "localhost:6379"
     stream: "herald:tasks"
     group: "herald-workers"
 
-# Worker 控制面连接（推荐写法：显式给出调度器 WebSocket 地址）
+# Worker control-plane connection (recommended: state the scheduler's WebSocket address explicitly)
 worker:
-  id: "worker-01"             # 可选，缺省自动生成
-  server_url: "ws://localhost:8081/worker"   # 调度器管理通道（注意带 /worker 路径）
+  id: "worker-01"             # optional, auto-generated by default
+  server_url: "ws://localhost:8081/worker"   # scheduler management channel (note the /worker path)
 
-# 兼容写法：不配 worker.server_url 时回退到 websocket.addr（自动补 /worker 路径）
+# Compatible form: without worker.server_url, falls back to websocket.addr (the /worker path is appended automatically)
 websocket:
   addr: "localhost:8081"
 
-# Worker 本地 Provider（可选）
+# Worker-local providers (optional)
 providers:
   wechatmp:
     type: wechatmp
@@ -370,32 +369,32 @@ providers:
       app_secret: "$WECHAT_APP_SECRET"
 ```
 
-## 队列配置说明
+## Queue configuration notes
 
-| 字段 | 类型 | 默认值 | 说明 |
+| Field | Type | Default | Notes |
 |------|------|--------|------|
-| `type` | string | `memory` | 队列类型：`memory`（单机）或 `redis`（分布式） |
-| `size` | int | `10000` | 队列容量 |
-| `workers` | int | `CPU*2+1` | 本地 Worker 并发数 |
+| `type` | string | `memory` | Queue type: `memory` (single machine) or `redis` (distributed) |
+| `size` | int | `10000` | Queue capacity |
+| `workers` | int | `CPU*2+1` | Local worker concurrency |
 
-`queue.timeout` 是保留键，当前没有任何队列实现读取它（Redis 队列内部使用固定的
-命令超时）；配置了不会生效。
+`queue.timeout` is a reserved key that no queue implementation currently reads (the Redis queue uses a fixed
+internal command timeout); configuring it has no effect.
 
-### 部署模式对照
+### Deployment mode comparison
 
-| 场景 | queue.type | 说明 |
+| Scenario | queue.type | Notes |
 |------|-----------|------|
-| 单机开发/小规模 | `memory` | 所有 Worker 在同一进程内 |
-| 分布式/高可用 | `redis` | 调度器和 Worker 可以独立部署 |
+| Single-machine development/small scale | `memory` | All workers in the same process |
+| Distributed/high availability | `redis` | Scheduler and workers can be deployed independently |
 
-### Redis 队列要求
+### Redis queue requirements
 
-- **最低版本**：Redis 6.2+（Streams 与 Consumer Groups 需 5.0+，延迟重试的 `ZRANGE ... BYSCORE` 需 6.2+）
-- Redis Streams 的 `XADD`、`XREADGROUP`、`XACK` 命令是核心依赖
+- **Minimum version**: Redis 6.2+ (Streams and Consumer Groups need 5.0+, and delayed retry's `ZRANGE ... BYSCORE` needs 6.2+)
+- The Redis Streams commands `XADD`, `XREADGROUP`, and `XACK` are core dependencies
 
-## 环境变量
+## Environment variables
 
-provider config 里以 `$` 开头的字符串值会在加载时展开为同名环境变量的值：
+A string value starting with `$` inside a provider config is expanded at load time to the value of the environment variable with the same name:
 
 ```yaml
 providers:
@@ -404,128 +403,128 @@ providers:
       token: "$TELEGRAM_BOT_TOKEN"
 ```
 
-> 注意：`"${VAR_NAME}"` 带花括号的写法**不会被展开**：Herald 按首个 `$` 之后的全部字符作为变量名查找（即 `{VAR_NAME}`），找不到时原样保留。请使用 `$VAR_NAME` 形式。
+> Note: the braced form `"${VAR_NAME}"` is **not expanded**: Herald takes everything after the first `$` as the variable name to look up (that is, `{VAR_NAME}`) and keeps it as-is when not found. Use the `$VAR_NAME` form.
 
-## 规则配置说明
+## Rule configuration notes
 
-`rules` 是可选配置；不配置时通知行为与静态路由完全一致。
+`rules` is optional; when unset, notification behavior is exactly that of static routing.
 
-### 表达式环境
+### Expression environment
 
-| 标识符 | 含义 |
+| Identifier | Meaning |
 |--------|------|
-| `type` | 通知类型（`Notification.Type`） |
-| `level` | 通知级别 |
-| `title` / `body` | 内联内容（模板渲染前的直接内容；模板渲染产物不参与匹配） |
-| `params` | 模板参数 map，如 `params.fail_rate` |
+| `type` | Notification type (`Notification.Type`) |
+| `level` | Notification level |
+| `title` / `body` | Inline content (the direct content before template rendering; template render output does not participate in matching) |
+| `params` | Template parameter map, e.g. `params.fail_rate` |
 
-### 安全边界
+### Security boundaries
 
-- 表达式在加载/保存时**编译一次**，语法或类型错误直接拒绝（启动失败/保存失败），运行期只执行编译产物
-- 长度 ≤ 2048 字符、AST ≤ 256 节点
-- 内置函数与 `range` 操作符被禁用。表达式是对通知环境的纯比较/逻辑运算，无函数调用、无循环
+- Expressions are **compiled once** at load/save time; syntax or type errors are rejected outright (startup failure/save failure), and only the compiled artifact is executed at runtime
+- Length ≤ 2048 characters, AST ≤ 256 nodes
+- Built-in functions and the `range` operator are disabled. An expression is pure comparison/logic over the notification environment — no function calls, no loops
 
-### 影子模式
+### Shadow mode
 
-- 新规则默认 `mode: shadow`：每次通知照常求值，但只记录不投递
-- 命中写入投递日志（状态 `shadow`，含 `rule_id`、`would_fire` 与本应走到的渠道），按规则采样（首条 + 每 100 条记录一条），命中总数计入日志统计
-- 规则列表的「影子命中」列是累计计数；`GET /api/v1/rules/{id}` 的 `shadow_stats`（控制台「详情」抽屉）另提供近 24 小时/近 7 天窗口计数与最近 20 条命中样本：每条影子命中都进样本环（不受日志采样影响），窗口按整点小时桶累计；同是进程内状态，重启归零
-- 观察真实命中量符合预期后切 `mode: active` 生效
+- New rules default to `mode: shadow`: every notification is evaluated as usual, but only recorded, never delivered
+- A hit is written to the delivery log (status `shadow`, carrying `rule_id`, `would_fire`, and the channels it would have taken), sampled per rule (the first entry plus one per 100), and the total hit count feeds the log statistics
+- The "shadow hits" column in the rule list is a cumulative count; `shadow_stats` from `GET /api/v1/rules/{id}` (the console's "details" drawer) additionally provides counts for the last 24 hours / last 7 days plus the 20 most recent hit samples: every shadow hit enters the sample ring (unaffected by log sampling), and the windows accumulate in whole-hour buckets; this too is in-process state, reset to zero on restart
+- Once the observed real hit volume matches expectations, switch to `mode: active` to take effect
 
-### 决策层：动作、优先级与默认策略
+### Decision layer: actions, priority, and default policy
 
-- 规则的动作 `action` 决定命中后的去向：`route`（默认，改道到规则的路由渠道）、`allow`（放行，保持原渠道）、`suppress`（抑制，不入队不投递）
-- 非路由动作不与有状态语义组合（`for` / `group_by` / `inhibit` / `escalation` / `silence`）。持续判定与聚合都在改道路由上工作，组合只会造成歧义，保存时直接拒绝
-- `priority`（可选，默认 0，可为负）：数值大的先求值，同优先级按创建顺序（稳定排序）；第一条 active 命中即为裁决，后续规则不再看
-- 默认策略 `rules_default_policy`：一条 active 规则都没命中时，`allow`（默认）保持静态路由，`deny` 把通知扣下（按采样记入投递日志，状态 `suppressed`，无 `rule_id`；「默认策略扣下」与「规则抑制」在日志里可区分）
-- 抑制（规则的 `suppress` 或默认策略 `deny`）对显式 `channels` 的通知不生效，显式意图优先；与静默/for/抑制的既有语义一致
+- A rule's `action` decides where a hit goes: `route` (default, reroute to the rule's route channels), `allow` (pass through, keep the original channels), `suppress` (suppress — no enqueue, no delivery)
+- Non-route actions do not combine with stateful semantics (`for` / `group_by` / `inhibit` / `escalation` / `silence`). Sustained-condition and aggregation both work on rerouted deliveries, and combining them only creates ambiguity, so it is rejected outright at save time
+- `priority` (optional, default 0, may be negative): a larger value is evaluated first; equal priorities go by creation order (stable sort); the first active hit is the verdict and later rules are not consulted
+- Default policy `rules_default_policy`: when not a single active rule matches, `allow` (the default) keeps static routing and `deny` holds the notification back (recorded into the delivery log per sampling, status `suppressed`, no `rule_id`; "held back by the default policy" and "suppressed by a rule" are distinguishable in the log)
+- Suppression (a rule's `suppress` or the default policy's `deny`) does not apply to notifications with explicit `channels` — explicit intent wins; consistent with the existing semantics of silence/for/inhibit
 
-### for 持续判定（P2）
+### for sustained-condition (P2)
 
-- 规则可带 `for: <时长>`（如 `for: 3m`，Go duration 语法，上限 24h）：同一逻辑告警的条件**持续成立达到时长**才真正触发，过滤单点闪断噪声
-- 归组粒度：默认通知的完整内容（类型/级别/标题/正文/参数）相同才算同一组，每组独立计时；配置 `group_by` 后改按字段值归组（见下一节）；窗口从组内首条命中起算，后续每次命中判定「首条至今是否已满时长」；调用方显式指定 `channels` 的通知不受 for 拦截（显式意图优先）
-- 触发一次后同组静默（不再重复投递），状态过期（`for` + 1 小时）或规则被修改/删除后重新计时；注意：事件驱动判定无法感知「无恢复事件」的闪断；配置 `group_by` 后，静默期内的后续命中会转入组折叠计数，摘要仍然有效
-- active 规则的窗口未满时事件被拦下（不入队、不投递，类似去重命中），每次拦下按规则采样记入投递日志（状态 `pending`）；shadow 规则只记录「窗口已满」的命中，影子期看到的就是真实触发节奏
-- 窗口状态默认存进程内存（重启后进行中的窗口重新计时）；`rules_state.type: redis` 让多实例共享状态（key 形如 `rule:{id}:state:{group}`，带 TTL 自动回收）
-- 状态存储故障时规则按「求值失败」处理（跳过该规则），路由不受影响
+- A rule may carry `for: <duration>` (e.g. `for: 3m`, Go duration syntax, capped at 24h): it only truly fires once the condition of the same logical alert has **held for that duration**, filtering single-blip noise
+- Grouping granularity: by default the notification's full content (type/level/title/body/params) must be identical to count as the same group, and each group is timed independently; with `group_by` configured, grouping goes by field values instead (see the next section); the window starts at the group's first hit, and each later hit checks "has it been the full duration since the first one"; notifications whose caller explicitly specified `channels` are not held by for (explicit intent wins)
+- After firing once the group goes silent (no repeated delivery); the state expires (`for` + 1 hour) or the rule being modified/deleted restarts the clock; note that event-driven evaluation cannot perceive a blip that has "no recovery event"; with `group_by` configured, later hits inside the silence period flow into the group fold count and the summary still holds
+- While an active rule's window has not filled, the event is held (not enqueued, not delivered, similar to a dedup hit), and each hold is recorded into the delivery log per rule sampling (status `pending`); shadow rules only record hits whose "window has filled", so what you see during the shadow period is the real firing cadence
+- Window state is kept in process memory by default (in-flight windows restart counting after a restart); `rules_state.type: redis` lets multiple instances share state (keys like `rule:{id}:state:{group}`, auto-reclaimed by TTL)
+- On a state-store failure the rule is treated as "evaluation failed" (the rule is skipped) and routing is unaffected
 
-### group_by 聚合通知（P2）
+### group_by notification aggregation (P2)
 
-- 规则可带 `group_by: [env, service]`（字段取 `params` 里的值，1-8 个，用于归组的字段值相同即同一组；省略 group_by 退回完整内容哈希归组）：**同组的新事件不再逐条投递**，而是折叠计数进当前轮
-- 首条事件照常投递并开新一轮；`group_interval`（默认 5m，上限 24h）静默期内的后续事件全部折叠（不入队、不投递，按规则采样记入投递日志，状态 `folded`）
-- 静默期结束后**下一事件到来时**结算上一轮：该事件照常投递，同时附带一条合成摘要通知（标题含组标签与折叠总数，正文含起止时间），摘要与事件走相同的渠道路径；纯事件驱动、无后台定时器。若之后再无事件，最后一轮的摘要会在下次事件到来时补上
-- 摘要是规则引擎自己产出的合成通知：不再过规则求值（避免宽匹配规则把摘要折回组里）也不过去重
-- 调用方显式指定 `channels` 的通知不折叠（显式意图优先）；shadow 规则不模拟折叠（影子只观察条件命中）
-- 与 `for` 组合时 for 判定在前：窗口未满事件被拦且不开组轮；触发一次后进入静默的事件转入组折叠计数，摘要计数包含触发首条
-- 组状态与 for 窗口同库存放（key 形如 `rule:{id}:group:{group}`，带 TTL 自动回收），存储故障同样按「求值失败」fail-open
+- A rule may carry `group_by: [env, service]` (field values are taken from `params`, 1-8 fields; identical values for the grouping fields mean the same group; omitting group_by falls back to full-content-hash grouping): **new events in the same group are no longer delivered one by one**, but folded into a count for the current round
+- The first event delivers as usual and opens a new round; subsequent events inside the `group_interval` (default 5m, capped at 24h) silence period are all folded (not enqueued, not delivered, recorded into the delivery log per rule sampling, status `folded`)
+- When the silence period ends, the previous round is settled **when the next event arrives**: that event delivers as usual and is accompanied by a synthetic summary notification (the title carries the group labels and the folded total, the body carries the start and end times); the summary takes the same channel path as the event; purely event-driven, with no background timer. If no further event ever arrives, the last round's summary is made up when the next event does
+- The summary is a synthetic notification the rule engine produces itself: it does not go through rule evaluation again (so a broad-matching rule cannot fold the summary back into the group) nor through dedup
+- Notifications whose caller explicitly specified `channels` are not folded (explicit intent wins); shadow rules do not simulate folding (the shadow only observes condition hits)
+- Combined with `for`, the for check comes first: while the window is unfilled the event is held and no group round opens; events that go silent after firing once flow into the group fold count, and the summary count includes the triggering first event
+- Group state lives in the same store as for windows (keys like `rule:{id}:group:{group}`, auto-reclaimed by TTL), and a store failure likewise fails open as "evaluation failed"
 
-### inhibit 抑制（P2）
+### inhibit (P2)
 
-- 集群挂了会带出几十条「服务不可达」子告警，都是真的，但根因在场时没有行动价值。被抑制规则配置 `inhibit: {source: <根因规则id>, equal: [字段...]}`：**source 规则真实投递时**，把该通知的 equal 字段值组合记为「在场」（key 形如 `rule:{id}:inhibit:{值哈希}`，存 `rules_state`），本规则后续命中且 equal 字段值相同的事件被拦下（不入队，按规则采样记入投递日志，状态 `inhibited`）
-- 在场条目按 `ttl`（默认 30m，上限 24h）过期，source 每次投递都续期。事件驱动无定时器：根因停止投递后条目自然过期、抑制解除；「根因恢复后补发摘要」依赖 P3 的恢复感知，本批次不包含
-- 判定顺序在 for / group_by 之前：被抑制事件不开组轮、不计时，根因在场时子告警的持续判定与折叠没有意义
-- 归组粒度：equal 字段值组合精确匹配（缺字段视为空值）；不同字段值组合互不影响
-- source 允许前向引用（先建被抑制规则、后建根因规则，索引自动接上）；禁止自己抑制自己
-- 显式 `channels` 的通知不受抑制（显式意图优先）；shadow 规则不检查抑制（影子只观察条件命中）
-- 在场读取故障按「求值失败」fail-open（跳过该规则）；写入故障不阻断 source 自己的投递（宁可多投不漏投，错误计入观测）
+- A cluster going down drags out dozens of "service unreachable" child alerts — all real, but with no action value while the root cause is present. The suppressed rule configures `inhibit: {source: <root-cause rule id>, equal: [fields...]}`: **when the source rule actually delivers**, the notification's combination of equal-field values is recorded as "present" (key like `rule:{id}:inhibit:{value hash}`, stored in `rules_state`), and later hits of this rule whose equal-field values match are held (not enqueued, recorded into the delivery log per rule sampling, status `inhibited`)
+- Presence entries expire per `ttl` (default 30m, capped at 24h), and every delivery of the source renews them. Event-driven with no timers: once the root cause stops delivering, entries expire naturally and suppression lifts; "re-send a summary after the root cause recovers" depends on P3 recovery awareness and is not part of this batch
+- The check order is before for / group_by: a suppressed event opens no group round and starts no timer — sustained-condition and folding of child alerts are meaningless while the root cause is present
+- Grouping granularity: exact match on the combination of equal-field values (a missing field counts as empty); different value combinations do not affect each other
+- source may be forward-referenced (create the suppressed rule first and the root-cause rule later; the index wires up automatically); a rule suppressing itself is forbidden
+- Notifications with explicit `channels` are not suppressed (explicit intent wins); shadow rules do not check inhibition (the shadow only observes condition hits)
+- A presence-read failure fails open as "evaluation failed" (the rule is skipped); a write failure does not block the source's own delivery (better to over-deliver than to miss; errors feed observability)
 
-### silence 静默（P2：静默窗与值班表）
+### silence (P2: silence windows and rosters)
 
-- 规则可带 `silence: {start: "22:00", end: "06:00"}`（HH:MM；可选 `tz` 指定窗口所按时区，缺省进程本地时区）：窗口内该规则**整体冻结**：事件被拦（不入队，按规则采样记入投递日志，状态 `silenced`），for 窗口不计时、组轮不开
-- `end` 独占（22:00-06:00 静默到 06:00 整）；`start < end` 为当日窗口，`start > end` 自动理解为跨午夜窗口；零长度窗口（start == end）会被校验拒绝
-- 可选 `tz` 为 IANA 时区名（如 `silence: {start: "22:00", end: "06:00", tz: "Asia/Shanghai"}`），窗口按该时区换算，部署在 UTC 容器里也能写「北京时间 22 点后静默」，不必再靠容器 `TZ` 兜底；时区名无法解析（`time.LoadLocation` 不认识）在规则保存时即拒绝。发行镜像已带 `tzdata`（Dockerfile `apk add tzdata`），自建精简镜像时注意保留时区库
-- 可选 `match` 表达式限定静默范围，如 `silence: {start: "22:00", end: "06:00", match: 'level != "critical"'}`，窗口内只静默非 critical 事件，critical 照常投递；match 编译失败在规则校验时即拒绝
-- **排班对接占位**：静默的日程来源二选一：每日窗口（上面的 start/end/tz）或值班表（`silence: {roster: "ops-oncall"}`，不与 start/end/tz 同用，同用保存即拒绝）。值班表是外部排班系统通过 API 推进 herald 的**绝对时段表**（见下方「值班表 rosters」）；排班轮换、值班人管理都在 herald 之外，herald 只存与判定推送来的时段
-- 值班表来源 fail-open：引用的值班表从未推送（前向引用合法）、已被删除、或部署压根没配值班表时，静默门**保持打开**：缺日程数据绝不等于该静默，静默必须是运维显式做的决定，不能是推送管道坏了的副作用
-- 日程驱动、无状态：不进 `rules_state`，判定只看当前时刻，不依赖进程重启前后的一致性
-- 判定顺序在最前（先于 inhibit / for / group_by）：静默是「整段日程不吵」，与根因在场、持续判定都是不同层面的语义
-- 显式 `channels` 的通知不受静默（显式意图优先）；shadow 规则不检查静默（影子只观察条件命中）
+- A rule may carry `silence: {start: "22:00", end: "06:00"}` (HH:MM; an optional `tz` sets the timezone the window follows, defaulting to the process's local timezone): inside the window the rule is **frozen entirely**: events are held (not enqueued, recorded into the delivery log per rule sampling, status `silenced`), for windows do not tick, and group rounds do not open
+- `end` is exclusive (22:00-06:00 silences up to exactly 06:00); `start < end` is a same-day window, and `start > end` is automatically understood as a window crossing midnight; a zero-length window (start == end) is rejected by validation
+- The optional `tz` is an IANA timezone name (e.g. `silence: {start: "22:00", end: "06:00", tz: "Asia/Shanghai"}`); the window is computed in that timezone, so a deployment in a UTC container can still express "silence after 22:00 Beijing time" without leaning on the container's `TZ` as a fallback; a timezone name that cannot be parsed (`time.LoadLocation` does not know it) is rejected at rule-save time. The release image already ships `tzdata` (Dockerfile `apk add tzdata`), so keep the timezone database when building your own slim images
+- An optional `match` expression scopes the silence, e.g. `silence: {start: "22:00", end: "06:00", match: 'level != "critical"'}` — inside the window only non-critical events are silenced and critical ones deliver as usual; a match that fails to compile is rejected at rule validation
+- **Scheduling integration placeholder**: a silence's schedule source is one of two: a daily window (the start/end/tz above) or a roster (`silence: {roster: "ops-oncall"}`, not used together with start/end/tz — combining them is rejected at save). A roster is an **absolute period table** that an external scheduling system advances into herald through the API (see "rosters" below); rotation, shift changes, and who is on call all live outside herald — herald only stores and evaluates the pushed periods
+- The roster source fails open: when the referenced roster was never pushed (forward references are legal), has been deleted, or the deployment never configured rosters at all, the silence gate **stays open**: missing schedule data never means "should be silent" — silence must be an explicit operator decision, not a side effect of a broken push pipeline
+- Schedule-driven and stateless: nothing goes into `rules_state`, evaluation looks only at the current moment, and it does not depend on consistency across a process restart
+- The check order is first (before inhibit / for / group_by): silence means "a whole stretch of schedule stays quiet", a different layer of semantics from root-cause presence or sustained-condition
+- Notifications with explicit `channels` are not silenced (explicit intent wins); shadow rules do not check silence (the shadow only observes condition hits)
 
-### 规则存储与 API（热加载）
+### Rule storage and API (hot reload)
 
-- 默认规则只存在内存中（来自 `rules` 种子）；设置 `rules_store: <path>` 后，通过 API 的增删改会原子落盘到该 JSON 文件（tmp + rename），重启自动恢复
-- 规则增删改即热加载：保存时编译，编译产物即时替换进活表，下一条通知就用新规则求值，无需重启
-- 文件损坏（非法 JSON / 版本不识别）时启动失败并保留现场，不会静默丢弃规则
+- By default rules exist only in memory (from the `rules` seed); with `rules_store: <path>` set, additions/modifications/deletions made through the API are atomically persisted to that JSON file (tmp + rename) and restored on restart
+- Rule changes hot-reload immediately: compiled at save time, the compiled artifact swaps into the live table right away, and the very next notification is evaluated with the new rule — no restart needed
+- On a corrupted file (invalid JSON / unrecognized version) startup fails and the scene is preserved; rules are never silently dropped
 
-**API：**
+**API:**
 
 ```bash
-# 列出规则
+# List rules
 curl http://localhost:8080/api/v1/rules
 
-# 创建规则（重复 id 返回 409；表达式编译失败返回 400）
+# Create a rule (a duplicate id returns 409; an expression that fails to compile returns 400)
 curl -X POST http://localhost:8080/api/v1/rules \
   -H 'Content-Type: application/json' \
   -d '{"id":"p1","match":"level == \"error\"","mode":"active","route":[{"channels":["oncall"]}]}'
 
-# 查看 / 更新 / 删除（URL 中的 id 优先于 body）
+# View / update / delete (the id in the URL takes precedence over the body)
 curl http://localhost:8080/api/v1/rules/p1
 curl -X PUT http://localhost:8080/api/v1/rules/p1 -d '{...}'
 curl -X DELETE http://localhost:8080/api/v1/rules/p1
 ```
 
-**实现偏离说明**：设计文档原定持久化以 SQLite 起步；P1 实际采用 JSON 文件存储（实现同一 `Store` 接口）。理由：规则规模 <100 条、单写者进程、无查询需求，SQLite 的 15MB cgo 依赖不成比例；待 P2 ACK 状态需要真实查询能力时再引入 SQLite，届时接口不变、只换实现。
+**Implementation deviation note**: the design document originally planned to start persistence with SQLite; P1 actually uses JSON file storage (implementing the same `Store` interface). Rationale: fewer than 100 rules, a single-writer process, and no query needs make SQLite's 15MB cgo dependency disproportionate; SQLite will be introduced when P2 ACK state needs real query capability, at which point the interface stays the same and only the implementation changes.
 
-### 通知群组（`group:` 引用与受众管理）
+### Notification groups (`group:` references and audience management)
 
-- 群组是**命名受众**：`id` + 成员列表；每个成员是一个渠道（provider 实例名、`channels` 块名或静态路由渠道）加可选的 `recipients` 钉选（投给该渠道时覆盖默认目标）
-- 任何渠道位都可以写 `group:<id>`：通知的显式 `channels`、规则路由渠道、escalation 升级渠道、静态路由目标，投递计划时统一展开成成员渠道列表（见上方完整示例）
-- 展开是**单点、扁平**的：成员渠道不允许再写 `group:`（不嵌套，保存时拒绝）；去重键保留 `group:` 引用本身，花名册变更不影响进行中的去重窗口
-- 未配置群组管理器（`groups`/`groups_store` 均未设置）时引用 `group:` 即报错，宁可快速失败也不静默丢目标；引用不存在的群组按渠道级失败处理（记入本次投递的 `failed`，不阻断其他目标）
-- 群组与规则解耦：规则照常路由到 `group:ops-oncall`，值班换人只改群组花名册，规则不动
+- A group is a **named audience**: an `id` plus a member list; each member is one channel (a provider instance name, a `channels`-block name, or a static route channel) with optional `recipients` pinning (overriding the default target when delivering to that channel)
+- Any channel slot may carry `group:<id>`: a notification's explicit `channels`, rule route channels, escalation chain targets, static route targets — all expanded uniformly into the member channel list at delivery planning time (see the complete example above)
+- Expansion is **single-level and flat**: member channels may not carry `group:` again (no nesting; rejected at save); the dedup key keeps the `group:` reference itself, so roster changes do not affect in-flight dedup windows
+- When no group manager is configured (neither `groups` nor `groups_store` set), referencing `group:` is an error — fail fast rather than silently drop targets; referencing a nonexistent group is treated as a channel-level failure (recorded in this delivery's `failed`, without blocking other targets)
+- Groups are decoupled from rules: rules keep routing to `group:ops-oncall`, and changing who is on call only touches the group roster, not the rules
 
-**API：**
+**API:**
 
 ```bash
-# 列出群组
+# List groups
 curl http://localhost:8080/api/v1/groups
 
-# 创建群组（重复 id 返回 409；校验失败——空成员/嵌套引用/字段超限——返回 400）
+# Create a group (a duplicate id returns 409; validation failure — empty members / nested references / field overflow — returns 400)
 curl -X POST http://localhost:8080/api/v1/groups \
   -H 'Content-Type: application/json' \
-  -d '{"id":"ops-oncall","members":[{"channel":"feishu"}],"description":"值班花名册"}'
+  -d '{"id":"ops-oncall","members":[{"channel":"feishu"}],"description":"On-call roster"}'
 
-# 查看 / 更新（整体替换花名册）/ 删除（URL 中的 id 优先于 body）
+# View / update (whole-roster replacement) / delete (the id in the URL takes precedence over the body)
 curl http://localhost:8080/api/v1/groups/ops-oncall
 curl -X PUT http://localhost:8080/api/v1/groups/ops-oncall \
   -H 'Content-Type: application/json' \
@@ -533,152 +532,152 @@ curl -X PUT http://localhost:8080/api/v1/groups/ops-oncall \
 curl -X DELETE http://localhost:8080/api/v1/groups/ops-oncall
 ```
 
-- 增删改即时生效（活表替换），下一条通知就用新花名册；持久化与热加载语义同规则存储（`groups_store` 落盘、文件损坏启动失败）
+- Changes take effect immediately (live-table swap) and the very next notification uses the new roster; persistence and hot-reload semantics match rule storage (`groups_store` persistence, corrupted file fails startup)
 
-### 值班表 rosters（silence 排班对接占位）
+### rosters (silence scheduling integration placeholder)
 
-- 值班表是**命名时段表**：`id` + 可选描述 + 排班时段列表（`periods`，每段为绝对时间 `start`/`end`，RFC3339，`end` 独占）。规则的 `silence: {roster: <id>}` 在任一时段内生效，时段覆盖的每一刻该规则整体冻结，语义与静默窗完全一致
-- herald **不做排班**：轮换规则、换班、谁在值班都是外部排班系统的事；排班系统算出时段后整表推给 herald（PUT 全量替换），herald 只存、只判。时段乱序推送会被自动排序（Normalize），时段重叠、缺时间戳、零长度时段在保存时拒绝。两次推送抢同一时刻是排班系统的 bug，值得一次响亮的失败而不是静默合并
-- 每表至多 512 段（数年的每周维护窗按次推送也够用；超长列表几乎总意味着把历史当排班推了）；清空排班用 DELETE，不用推空表（空表保存会被拒绝）
-- 静默门读活表：推送即时生效，下一条通知就按新排班判定；删除值班表后引用它的静默立即失效（fail-open，见上），不会丢告警，只会恢复投递
+- A roster is a **named period table**: an `id`, an optional description, and a list of on-call periods (`periods`, each an absolute-time `start`/`end` in RFC3339, `end` exclusive). A rule's `silence: {roster: <id>}` is in effect during any of the periods; at every moment a period covers, the rule is frozen entirely, with semantics identical to a silence window
+- herald **does not do scheduling**: rotation rules, shift changes, and who is on call are the external scheduling system's business; once that system computes the periods it pushes the whole table to herald (PUT, full replacement), and herald only stores and evaluates. Periods pushed out of order are sorted automatically (Normalize); overlapping periods, missing timestamps, and zero-length periods are rejected at save. Two pushes fighting over the same moment is the scheduling system's bug and deserves a loud failure, not a silent merge
+- At most 512 periods per table (years of weekly maintenance windows pushed occurrence by occurrence still fit; an over-long list almost always means history was pushed as a schedule); clearing a schedule uses DELETE rather than pushing an empty table (saving an empty table is rejected)
+- The silence gate reads the live table: pushes take effect immediately and the very next notification is evaluated against the new schedule; after a roster is deleted, silences referencing it fail open immediately (see above) — no alert is lost, delivery just resumes
 
-**API：**
+**API:**
 
 ```bash
-# 列出值班表
+# List rosters
 curl http://localhost:8080/api/v1/rosters
 
-# 推送 / 全量替换值班表（重复 id 返回 409；时段校验失败返回 400）
+# Push / fully replace a roster (a duplicate id returns 409; period validation failure returns 400)
 curl -X POST http://localhost:8080/api/v1/rosters \
   -H 'Content-Type: application/json' \
-  -d '{"id":"ops-oncall","description":"周末值班","periods":[
+  -d '{"id":"ops-oncall","description":"Weekend on-call","periods":[
         {"start":"2026-10-10T09:00:00+08:00","end":"2026-10-10T18:00:00+08:00"},
         {"start":"2026-10-11T09:00:00+08:00","end":"2026-10-11T18:00:00+08:00"}]}'
 
-# 查看 / 替换 / 删除（URL 中的 id 优先于 body）
+# View / replace / delete (the id in the URL takes precedence over the body)
 curl http://localhost:8080/api/v1/rosters/ops-oncall
 curl -X PUT http://localhost:8080/api/v1/rosters/ops-oncall -d '{...}'
 curl -X DELETE http://localhost:8080/api/v1/rosters/ops-oncall
 ```
 
-- 持久化与热加载语义同规则存储（`rosters_store` 落盘、文件损坏启动失败）；未配置 `rosters_store` 时仅内存保存
+- Persistence and hot-reload semantics match rule storage (`rosters_store` persistence, corrupted file fails startup); without `rosters_store` configured, rosters are kept in memory only
 
-### ACK 告警确认（P3）
+### ACK alert acknowledgment (P3)
 
-`POST /api/v1/alerts/{id}/ack` 记录告警确认（把「通知已送达」和「事故有人负责」区分开：前者是投递系统的职责，后者是告警系统的职责）：
+`POST /api/v1/alerts/{id}/ack` records an alert acknowledgment (separating "the notification was delivered" from "a human owns the incident": the former is the delivery system's job, the latter the alerting system's):
 
 ```bash
-# 确认告警（acked_by 可选，记录确认人）
+# Acknowledge an alert (acked_by optional, records who acknowledged)
 curl -X POST http://localhost:8080/api/v1/alerts/incident-123/ack \
   -H 'Content-Type: application/json' \
   -d '{"acked_by": "alice"}'
 
-# 查询确认状态
+# Query acknowledgment status
 curl http://localhost:8080/api/v1/alerts/incident-123
 ```
 
-- `{id}` 是调用方的告警身份：调用方在通知 params 里带的业务告警 id，同一告警的多次通知用同一 id 确认一次即可
-- 确认是幂等的：同一 id 重复确认保留首次记录（确认时间是事实，不是计数器）
+- `{id}` is the caller's alert identity: the business alert id the caller carries in the notification's params; several notifications of the same alert need only one ack under the same id
+- Acknowledgment is idempotent: repeated acks of the same id keep the first record (the ack time is a fact, not a counter)
 
-### 飞书卡片按钮回调（P3）
+### Feishu card button callback (P3)
 
-飞书 provider 配置 `interactive_cards: true` 后，**带告警身份的投递**改为交互卡片：级别着色标题 + 正文 + 「确认告警」按钮（按钮 payload 携带投递任务里的 alert_id）。点击按钮，飞书把动作回调到 `POST /api/v1/callbacks/feishu`：
+Once the Feishu provider is configured with `interactive_cards: true`, **deliveries carrying an alert identity** become interactive cards: a level-colored title + body + an "Acknowledge Alert" button (the button payload carries the alert_id from the delivery task). Clicking the button makes Feishu call the action back to `POST /api/v1/callbacks/feishu`:
 
-- 回调端点**不在 API token 鉴权之后**（调用方是飞书服务器，凭据是回调加密密钥）；未配置 ack store 时返回 503
-- 首次在飞书开放平台配置回调地址时的 URL 验证挑战（`url_verification`）自动应答
-- 回调体支持加密模式（`encrypt` 字段，用 `card_callback.encrypt_key` 的 SHA-256 做 AES-256-CBC 解密）与明文模式；加密回调在未配置密钥时返回 501
-- 按钮确认与 ack API 走完全相同的链路：同一条 ack 记录（幂等，首认获胜）、取消待决升级、标记事故台账；`acked_by` 记录点击人的 open_id，来源标记 `feishu_card`
-- 没有 alert_id 的投递（或交互开关关闭）保持纯文本消息不变，卡片只为确认按钮而生
+- The callback endpoint is **not behind API-token authentication** (the caller is Feishu's servers and the credential is the callback encryption key); when no ack store is configured it returns 503
+- The URL verification challenge (`url_verification`) from the first time you configure the callback URL on the Feishu open platform is answered automatically
+- The callback body supports an encrypted mode (the `encrypt` field, decrypted with AES-256-CBC using the SHA-256 of `card_callback.encrypt_key`) and a plaintext mode; an encrypted callback returns 501 when no key is configured
+- Button acknowledgments go through exactly the same path as the ack API: the same ack record (idempotent, first ack wins), cancellation of pending escalations, marking of the incident ledger; `acked_by` records the clicker's open_id, with the source marked `feishu_card`
+- Deliveries without an alert_id (or with the interactive switch off) stay plain text messages — cards exist solely for the acknowledge button
 
-### escalation 升级链（P3）
+### escalation chain (P3)
 
-规则可带 `escalation: {ack_timeout: 5m, to: [phone-bridge]}`：ack_timeout 内无人确认时把告警重投到更宽的 to 渠道（电话渠道以 webhook 桥接外部电话网关实现，herald 不内置运营商集成）。
+A rule may carry `escalation: {ack_timeout: 5m, to: [phone-bridge]}`: when nobody acknowledges within ack_timeout, the alert is re-delivered to the wider `to` channels (phone channels are implemented by bridging an external phone gateway through a webhook; herald ships no built-in carrier integration).
 
-- 告警身份取通知 `params.alert_id`（调用方的业务 id，与 ack API 同一身份空间）；未提供时退回内容指纹（同内容告警身份一致，但显式提供 alert_id 才好确认）
-- 规则路由的投递出去后开一个 ack_timeout 窗口；同一告警再次投递会重置窗口（升级看的是「最新一条也没人看」）；窗口内通过 ack API 确认则升级取消
-- 到点未确认 → 合成升级通知投递到 to 渠道（标题 `[Escalation]` + 原标题，正文含规则、告警 id 与超时时长）；升级通知不过规则求值也不过去重：升级的本意就是重复一条已发出的告警
-- **超时判定是定时器语义**（P2 全部语义都是事件驱动，唯独升级必须在没有后续事件时也能动作）：待决升级持久化到 `escalation_store`，重启时恢复：已过期的补发升级（停机期间的 ack 仍被尊重），未到期的按剩余时间重建定时器；不配置 `escalation_store` 时重启即放弃待决升级
-- 双重保险：ack 请求若与升级触发同时刻竞争，即使升级定时器已经触发，触发时的 ack 复查仍会让它放弃投递
-- 显式 `channels` 的调用不挂升级链（规则的升级只作用于规则自己的路由）；被 for/组折叠/抑制/静默拦下的事件本来就没投递，自然不挂
+- The alert identity is taken from the notification's `params.alert_id` (the caller's business id, in the same identity space as the ack API); when it is absent it falls back to a content fingerprint (same-content alerts share an identity, but only an explicit alert_id makes acknowledging work well)
+- Once a rule-routed delivery goes out, an ack_timeout window opens; re-delivering the same alert resets the window (escalation cares about "even the latest one went unseen"); an ack through the ack API within the window cancels the escalation
+- Deadline reached without an ack → a synthetic escalation notification is delivered to the `to` channels (title `[Escalation]` + the original title, body containing the rule, the alert id, and the timeout duration); the escalation notification goes through neither rule evaluation nor dedup: escalation is by design a repeat of an alert that has already been sent
+- **The timeout check is timer semantics** (every P2 semantic is event-driven; escalation alone must be able to act even when no further event arrives): pending escalations are persisted to `escalation_store` and restored on restart — expired ones re-send their escalation (acks during downtime are still honored), unexpired ones rebuild timers with the remaining time; without `escalation_store` configured, a restart abandons pending escalations
+- Double insurance: if an ack request races the escalation firing at the same instant, then even with the escalation timer already fired, the ack re-check at firing time still makes it abandon delivery
+- A call with explicit `channels` does not get an escalation chain (a rule's escalation applies only to the rule's own routing); events held back by for/group folding/inhibition/silence were never delivered and naturally get none either
 
-### 事故台账与恢复摘要（P3）
+### Incident ledger and recovery summary (P3)
 
-规则路由的每笔投递都会在内存台账里开一个事故（incident）：`GET /api/v1/incidents` 列出全部事故（新→旧），`GET /api/v1/incidents/{id}` 返回单条完整时间线。
+Every rule-routed delivery opens an incident in the in-memory ledger: `GET /api/v1/incidents` lists all incidents (new→old), and `GET /api/v1/incidents/{id}` returns a single full timeline.
 
 ```bash
-# 全部事故（可过滤 status=open|acked|resolved、rule_id、alert_id，limit 1-1000 默认 100）
+# All incidents (filterable by status=open|acked|resolved, rule_id, alert_id; limit 1-1000, default 100)
 curl 'http://localhost:8080/api/v1/incidents?status=open&limit=50'
 
-# 单条事故（含 ack、升级、恢复时间线）
+# A single incident (including the ack, escalation, and recovery timeline)
 curl http://localhost:8080/api/v1/incidents/6f1c...
 ```
 
-- **身份**：台账同时记 `rule_id` + 组键（引擎定位事故组）与 `alert_id`（业务告警 id，与 ack API 同一身份空间）；`alert_id` 未提供时退回内容指纹
-- **生命周期**：规则路由投递时开（同告警重复投递刷新上下文不重开；恢复后复发是**新事故**）→ ack API 确认时标记（首认获胜）→ 组恢复时关闭（记录事件数与持续时长）。open 状态的事故不参与容量淘汰；容量上限 `incident_limit`（默认 1000，0=默认）只淘汰已关闭的旧事故
-- **恢复是事件驱动的**：对 group_by 规则，同一组的后续事件级别回落到不再匹配规则（如 prod 从 error 变 info）时，引擎视为该组恢复。组键按 group_by 字段值计算，资源还在上报就有恢复信号；**无 group_by 的规则组键是内容指纹，恢复事件永远组不上，其 for 窗口到期后靠 TTL 静默回收、不发恢复摘要**
-- 恢复摘要投递到事故原渠道（标题 `[Resolved]` + 原标题，正文含告警 id、期间事件数与持续时长）；摘要投递失败记入时间线（`resolve_delivery_failed`）但不影响事故关闭
-- **恢复事件本身仍是普通通知**：不匹配规则的事件走静态路由投递，调用方需为该类型配好路由；升级触发与投递失败也记入时间线（`escalation_fired` / `escalation_failed`）
-- 与 dedup 的次序：规则求值（含恢复观测）在前、dedup 在投递前最后把关。重复投递被去重，但告警的 for 窗口、组计数与恢复信号不会被 dedup 中断
+- **Identity**: the ledger records both `rule_id` + the group key (how the engine locates the incident group) and `alert_id` (the business alert id, in the same identity space as the ack API); when `alert_id` is absent it falls back to a content fingerprint
+- **Lifecycle**: opened on rule-routed delivery (repeat deliveries of the same alert refresh the context without reopening; a recurrence after recovery is a **new incident**) → marked when the ack API acknowledges it (first ack wins) → closed when the group recovers (recording the event count and duration). Incidents in the open state never take part in capacity eviction; the capacity cap `incident_limit` (default 1000, 0=default) evicts only closed old incidents
+- **Recovery is event-driven**: for group_by rules, when a later event of the same group falls to a level that no longer matches the rule (e.g. prod going from error to info), the engine treats the group as recovered. The group key is computed from the group_by field values, so as long as the resource keeps reporting there is a recovery signal; **for a rule without group_by the group key is a content fingerprint, recovery events can never group up, and after its for window expires the group is silently reclaimed by TTL with no recovery summary**
+- The recovery summary is delivered to the incident's original channels (title `[Resolved]` + the original title, body containing the alert id, the event count over the period, and the duration); a failed summary delivery is recorded in the timeline (`resolve_delivery_failed`) but does not prevent the incident from closing
+- **The recovery event itself is still an ordinary notification**: an event that matches no rule goes through static routing, so the caller must have routes configured for that type; escalation firing and delivery failures are also recorded in the timeline (`escalation_fired` / `escalation_failed`)
+- Ordering versus dedup: rule evaluation (including recovery observation) comes first, and dedup is the last gate before delivery. Repeat deliveries are deduped, but an alert's for window, group counts, and recovery signal are never interrupted by dedup
 
 
-### 投递限流与重试
+### Delivery rate limiting and retry
 
-**限流**（`providers.<name>.rate_limit`，可选）：投递前按 provider 取令牌（token bucket），等待发生在实际调用之前；等待被取消（关停）时该次投递记为失败。限流是规则扇出的最后一道闸：一条错误规则不该演变成渠道风暴。
+**Rate limiting** (`providers.<name>.rate_limit`, optional): before delivery a token is taken per provider (token bucket), and the wait happens before the actual call; if the wait is cancelled (shutdown), that delivery is marked failed. Rate limiting is the last gate on rule fan-out: one bad rule must not turn into a channel storm.
 
-**重试**：投递失败是否重试由错误类型决定：
+**Retry**: whether a failed delivery is retried depends on the error type:
 
-| 错误类型 | 可重试 | 说明 |
+| Error type | Retryable | Notes |
 |----------|--------|------|
-| 网络传输失败（连接拒绝、超时） | ✅ | HTTP 客户端统一标记 |
-| HTTP 408 / 429 / 5xx | ✅ | 上游过载或临时故障 |
-| HTTP 其它 4xx（400/401/403/404） | ❌ | 确定性客户端错误，重试无意义 |
-| 渠道业务失败（如短信 body 错误码） | 视 provider | 各渠道自行标记 |
+| Network transport failure (connection refused, timeout) | ✅ | Marked uniformly by the HTTP client |
+| HTTP 408 / 429 / 5xx | ✅ | Upstream overload or transient fault |
+| Other HTTP 4xx (400/401/403/404) | ❌ | Deterministic client error; retrying is pointless |
+| Channel business failure (e.g. an SMS body error code) | provider-dependent | Each channel marks its own |
 
-重试按 `retry` 配置退避（默认指数退避，最多 3 次）；429 附带 `Retry-After` 时按其等待、封顶 `max_delay`。退避等待发生在队列侧——任务带 `next_retry_at` 重新入队，到点再投，期间 worker 不被占住。注意：短信类渠道「HTTP 200 但业务码失败」的错误由 provider 判定 body 后返回，部分渠道标记为可重试（如腾讯云 API 错误），部分不重试（如发送状态中运营商拒收）。
+Retries back off per the `retry` configuration (exponential backoff by default, at most 3 attempts); a 429 carrying `Retry-After` is honored for its wait, capped at `max_delay`. The backoff wait happens on the queue side — the task is re-enqueued with `next_retry_at` and delivered when due, with no worker held in the meantime. Note: for SMS-type channels the "HTTP 200 but business code failed" error is returned by the provider after it inspects the body; some channels mark it retryable (e.g. Tencent Cloud API errors) and some do not (e.g. a carrier rejection in the send status).
 
-## 动态配置
+## Dynamic configuration
 
-### 启用/禁用 Provider
+### Enable/disable a provider
 
-**通过 API：**
+**Via the API:**
 
 ```bash
-# 启用
+# Enable
 curl -X POST http://localhost:8080/api/v1/providers/telegram/enable
 
-# 禁用
+# Disable
 curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 ```
 
-**通过 Dashboard：**
+**Via the Dashboard:**
 
-在 Dashboard 的 Providers 页面中，点击每个 Provider 卡片的启用/禁用按钮。
+On the Dashboard's Providers page, click the enable/disable button on each provider card.
 
-### 配置优先级
+### Configuration precedence
 
-1. API 调用（运行时修改）
-2. 配置文件（启动时加载）
-3. 默认配置
+1. API calls (runtime modification)
+2. Configuration file (loaded at startup)
+3. Defaults
 
-### 领域模型与配置块
+### Domain model and configuration blocks
 
-配置与领域模型一一对应（关系与边界见 [受众领域模型总纲](/design-audience-model)）：
+Configuration maps one-to-one onto the domain model (for the relations and boundaries see the [Audience Domain Model](/design-audience-model)):
 
-| 配置块 | 领域角色 | 状态 |
+| Configuration block | Domain role | Status |
 |--------|---------|------|
-| `server` / `queue` / `retry` / `dedup` | 平台底座 | ✅ 已实现 |
-| `providers` | Channel 的投递实现（Provider） | ✅ 已实现 |
-| `routes` / `level_routes` | Channel → Provider 的路由映射 | ✅ 已实现 |
-| `groups` | Audience 的 `group:` 形态（命名受众） | ✅ 已实现 |
-| `channels` | Channel 独立配置块（`channels: {ci: {providers: [...]}}`） | ✅ 已实现 |
-| `audiences` / `recipients` | `user:` 级受众与多 Endpoint（`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`） | ✅ 已实现 |
-| `digest` | Digest 时间窗聚合（窗口/时区/可选 redis 租约选主），旁路于主投递管道 | ✅ 已实现 |
-| `feeds` | RSS 拉式渠道（§9）：`/feeds/<品类>.xml` 公共 feed 与 `/feeds/private/<token>.xml` 私密 feed，投递记录拉式投影，可见性读取时判定 | ✅ 已实现 |
-| `sources` | 来源适配器（关系详设 §8）：bot/公众号/应用内三个订阅入口 + 外部状态定期对账，凭据即分入口开关 | ✅ 已实现 |
-| `delivery` | 投递策略件（§6）：品类默认紧急度/渠道强度/品类模式三张覆盖表 + 电话门配置侧同意；app 覆盖叠加其上 | ✅ 已实现 |
-| `apps` | 集成方命名空间（§13.1）：app 名 → 启动 token 种子（secret + scopes），无运行时铸造 API | ✅ 已实现 |
+| `server` / `queue` / `retry` / `dedup` | Platform foundation | ✅ implemented |
+| `providers` | Channel delivery implementations (Providers) | ✅ implemented |
+| `routes` / `level_routes` | Channel → Provider routing map | ✅ implemented |
+| `groups` | The `group:` form of an Audience (named audience) | ✅ implemented |
+| `channels` | Standalone Channel configuration block (`channels: {ci: {providers: [...]}}`) | ✅ implemented |
+| `audiences` / `recipients` | `user:`-level audiences and multiple Endpoints (`audiences: {ops: {recipients: [alice]}}` + `recipients: {alice: {endpoints: [...]}}`) | ✅ implemented |
+| `digest` | Digest time-window aggregation (window/timezone/optional redis-lease leader election), bypassing the main delivery pipeline | ✅ implemented |
+| `feeds` | RSS pull channel (§9): the `/feeds/<category>.xml` public feed and the `/feeds/private/<token>.xml` private feed, a pull-style projection of delivery records with visibility decided at read time | ✅ implemented |
+| `sources` | Source adapters (relation detail design §8): three subscription entry points — bot / official account / in-app — plus periodic reconciliation against external state; the credentials double as per-entry switches | ✅ implemented |
+| `delivery` | Delivery policy component (§6): the three override tables — category default urgency / channel intensity / category mode — plus phone-gate config-side consent; app overrides stack on top | ✅ implemented |
+| `apps` | Integrator namespaces (§13.1): app name → startup token seed (secret + scopes), with no runtime minting API | ✅ implemented |
 
-`audiences` / `recipients` 与 `groups` 一样是受众的本地配置形态（`user:` 一级；audiences 有运行时写口，接收人/端点表仍无——改 recipients = 改 YAML + 重启）：任何渠道位上的 `user:<id>` 引用优先在 `audiences` 表解析，未命中再回落到 `recipients` 表；展开出的端点**按 provider 合并**：同一 provider 的多个端点捆绑进一个投递任务（例如两个接收人都配了飞书，只产生一个带两个目标的飞书任务）。配置非法（audience 引用未知接收人、接收人没有端点、端点 type/target 为空）会在**启动时报错拒起**，而不是投递时才炸。这张静态表同时是运行时**联系面**（`ContactSurface`）的静态种子——绑定、换绑、失效等运行时动作走受众层注册表，静态表语义不变，见[受众领域模型总纲 §5](/design-audience-model#_5-受众层)。
+`audiences` / `recipients`, like `groups`, are the local configuration form of audiences (the `user:` tier; audiences has a runtime write surface, the recipient/endpoint tables still do not — changing recipients = editing YAML + restarting): a `user:<id>` reference in any channel slot resolves against the `audiences` table first and falls back to the `recipients` table on a miss; the expanded endpoints are **merged per provider**: multiple endpoints of the same provider are bundled into one delivery task (if, for example, two recipients both have Feishu configured, only one Feishu task with two targets is produced). Invalid configuration (an audience referencing an unknown recipient, a recipient with no endpoints, an endpoint with an empty type/target) makes startup **fail and refuse to boot**, rather than blowing up at delivery time. This static table is also the static seed of the runtime **ContactSurface** — binding, rebinding, invalidation, and other runtime actions go through the audience-layer registry, and the static table's semantics are unchanged; see the [Audience Domain Model §5](/design-audience-model).
 
 ```yaml
 recipients:
@@ -699,20 +698,20 @@ audiences:
     recipients: [alice, bob]
 ```
 
-例如 `channels: ["user:ops"]` 展开为 3 个投递任务：feishu（@alice 与 @bob 捆绑）、email、sms-duty。
+For example, `channels: ["user:ops"]` expands into 3 delivery tasks: feishu (@alice and @bob bundled), email, and sms-duty.
 
-audiences 支持**运行时写口**（语义同群组：`audiences:` YAML 是引导种子，启动时灌入后与存储并存，同 id 时配置种子覆盖存储条目）：
+audiences supports a **runtime write surface** (semantics like groups: the `audiences:` YAML is a bootstrap seed, loaded at startup and coexisting with the store; on an id collision the configuration seed overrides the stored entry):
 
 ```bash
-# 列出受众（含存储与种子合并后的活表）
+# List audiences (the live table after merging store and seed)
 curl http://localhost:8080/api/v1/audiences
 
-# 创建受众（重复 id 返回 409；校验失败——非法 id/空接收人/引用未知接收人——返回 400）
+# Create an audience (a duplicate id returns 409; validation failure — invalid id / empty recipients / unknown recipient reference — returns 400)
 curl -X POST http://localhost:8080/api/v1/audiences \
   -H 'Content-Type: application/json' \
   -d '{"id":"ops","recipients":["alice","bob"]}'
 
-# 查看 / 整体替换 / 删除（URL 中的 id 优先于 body）
+# View / wholesale replace / delete (the id in the URL takes precedence over the body)
 curl http://localhost:8080/api/v1/audiences/ops
 curl -X PUT http://localhost:8080/api/v1/audiences/ops \
   -H 'Content-Type: application/json' \
@@ -720,202 +719,202 @@ curl -X PUT http://localhost:8080/api/v1/audiences/ops \
 curl -X DELETE http://localhost:8080/api/v1/audiences/ops
 ```
 
-- 增删改即时生效（活表替换），下一条通知就用新受众；持久化与热加载语义同规则/群组存储（`audiences_store` 落盘、文件损坏启动失败）
-- 写口只覆盖 audiences 实体；recipients（接收人/端点表）与 channels 块仍是纯配置，写口留批
-- 被删除受众的 `user:<id>` 引用在展开时显式失败（unknown），不会静默解析为空
+- Changes take effect immediately (live-table swap) and the very next notification uses the new audience; persistence and hot-reload semantics match the rule/group stores (`audiences_store` persistence, corrupted file fails startup)
+- The write surface covers only the audiences entity; recipients (the recipient/endpoint tables) and the channels block remain pure configuration, with the write surface deferred
+- A `user:<id>` reference to a deleted audience fails explicitly (unknown) at expansion time and never silently resolves to empty
 
-`channels` 块为命名渠道声明其投递 providers（设计 §27）。渠道位上的**裸名称按优先级解析**：显式 provider 实例 > `channels` 块 > `routes` 表（`routes` 只在通知未指定任何渠道时按 type/level 路由）。名字既不是 provider 实例、也不在任何配置块中时，保持原有的「投递时按 provider 缺失失败」语义。群组成员的渠道名走同一条解析链——成员写块名即扇出到块的 providers：
+The `channels` block declares the delivery providers of a named channel (design §27). A **bare name in a channel slot resolves by precedence**: an explicit provider instance > the `channels` block > the `routes` table (`routes` routes by type/level only when the notification specified no channel at all). When a name is neither a provider instance nor present in any configuration block, the original "fails at delivery time as a missing provider" semantics is kept. Group member channel names go through the same resolution chain — a member naming a block fans out to the block's providers:
 
 ```yaml
 channels:
   ci:
-    providers: [telegram, feishu]   # channels: [ci] → 两个投递任务
+    providers: [telegram, feishu]   # channels: [ci] → two delivery tasks
 
 groups:
   - id: ops
     members:
-      - channel: ci                # 成员渠道为块名 → 同样两个投递任务
+      - channel: ci                # member channel as a block name → likewise two delivery tasks
 ```
 
-配置非法（渠道没有 providers、引用了未配置的 provider 名）会在**启动时报错拒起**。`channels` 块只展开一层，其条目必须是 provider 实例而非其他渠道。
+Invalid configuration (a channel without providers, a reference to an unconfigured provider name) makes startup **fail and refuse to boot**. The `channels` block expands one level only, and its entries must be provider instances rather than other channels.
 
-配置解析为宽松模式：未知键被静默忽略、不会报错，配置键拼写错误不会在启动时暴露（上表已落地各块的**内部**结构错误会在启动校验时报错拒起）。
+Configuration parsing is lenient: unknown keys are silently ignored without error, so a typo in a configuration key is not surfaced at startup (structural errors **inside** the blocks already landed in the table above are caught by startup validation, which refuses to boot).
 
-## 来源适配器配置（sources）
+## Source adapter configuration (sources)
 
-订阅入口（[关系详设 §8](/design-audience-relations#_8-订阅入口-来源适配器)）：bot webhook、公众号服务器回调、应用内勾选把平台侧动作收敛为注册表变更。`enabled` 是总开关，**凭据即分入口开关**——secret/token 为空时对应端点 404，即使 `enabled: true`：
+Subscription entry points ([relation detail design §8](/design-audience-relations)): the bot webhook, the official-account server callback, and the in-app checkbox converge platform-side actions into registry changes. `enabled` is the master switch, and **the credentials double as per-entry switches** — when a secret/token is empty the corresponding endpoint returns 404 even with `enabled: true`:
 
 ```yaml
 sources:
   enabled: true
   bot:
-    secret: "$TELEGRAM_WEBHOOK_SECRET"   # Telegram webhook secret 头比对值；空 = 该端点 404
-    default_categories: ["notices"]      # /start 换绑成功后的默认订阅组；空 = 只绑联系面
+    secret: "$TELEGRAM_WEBHOOK_SECRET"   # comparison value for the Telegram webhook secret header; empty = that endpoint 404s
+    default_categories: ["notices"]      # the default subscription group after a successful /start rebind; empty = bind the ContactSurface only
   wechat_mp:
-    token: "$WECHAT_MP_VERIFY_TOKEN"     # 签名与控制台验证用 token；空 = 该端点 404
-    default_categories: ["notices"]      # 关注事件落的默认订阅组；空 = 只注册联系面
+    token: "$WECHAT_MP_VERIFY_TOKEN"     # token for signature and console verification; empty = that endpoint 404s
+    default_categories: ["notices"]      # the default subscription group the follow event lands in; empty = register the ContactSurface only
   reconcile:
-    enabled: true                        # 外部状态定期对账（rule 3：只信自己登记的关系）
-    interval: 1h                         # 扫描间隔，零值默认 1h
-    lease_ttl: 1m                        # redis 领导租约 TTL，零值默认 1m；连接参数复用 digest 的
-                                         # redis_addr / redis_password / redis_db，不配 redis 则单实例运行
+    enabled: true                        # periodic reconciliation against external state (rule 3: trust only the relations we registered ourselves)
+    interval: 1h                         # scan interval; a zero value defaults to 1h
+    lease_ttl: 1m                        # redis leader-lease TTL; a zero value defaults to 1m; connection parameters reuse digest's
+                                         # redis_addr / redis_password / redis_db; without redis configured it runs single-instance
 ```
 
-| 端点 | 门禁 | 作用 |
+| Endpoint | Gate | Purpose |
 |------|------|------|
-| `POST /api/v1/callbacks/bot` | webhook secret 头（常量时间比对） | `/start <token>` 一次性换绑、`/stop` 取关回流全停 |
-| `POST /api/v1/callbacks/wechat-mp` | sha1 签名；GET 带 `echostr` 为控制台验证挑战 | `subscribe` / `unsubscribe` 关注事件收敛 |
-| `POST` / `DELETE /api/v1/audiences/{id}/subscriptions` | API token（与操作面同级） | 应用内勾选开/关；关掉 must-deliver 报 409 |
+| `POST /api/v1/callbacks/bot` | webhook secret header (constant-time comparison) | one-shot `/start <token>` rebind; `/stop` unsubscribes and stops all flow-back |
+| `POST /api/v1/callbacks/wechat-mp` | sha1 signature; a GET with `echostr` is the console verification challenge | converge `subscribe` / `unsubscribe` follow events |
+| `POST` / `DELETE /api/v1/audiences/{id}/subscriptions` | API token (the same tier as the operations surface) | in-app checkbox on/off; turning off must-deliver returns 409 |
 
-对账的 probe 从 `providers:` 块按 `type: telegram|wechatmp` 构建：`enabled: false` 的 provider 不探，缺凭据（配置残缺）**启动即拒**；probe 报错的目标准确跳过——对账不猜平台状态。多实例经 redis 租约每轮只扫一次。
+The reconciliation probes are built from the `providers:` block by `type: telegram|wechatmp`: providers with `enabled: false` are not probed, and missing credentials (an incomplete configuration) **refuse to boot**; targets whose probe errors are skipped precisely — reconciliation does not guess platform state. Across multiple instances, a redis lease makes each round scan only once.
 
-## 投递策略配置（delivery）
+## Delivery policy configuration (delivery)
 
-运营方的全局投递策略表（[事件与告警模型](/guide/events) 的强度与模式词汇表）。三张表都是可选覆盖——缺表回落到品类默认档（system=once 频控、alerts=throttle、其余窗口节流）；**不可解析的值启动即拒起**：
+The operator's global delivery policy tables (the intensity and mode vocabulary of the [Events and Alerts model](/guide/events)). All three tables are optional overrides — a missing table falls back to the category default tier (system=once frequency control, alerts=throttle, the rest window-throttled); **unparseable values refuse to boot**:
 
 ```yaml
 delivery:
   category_urgency:
-    incidents: critical        # 品类 → routine/normal/urgent/critical
+    incidents: critical        # category → routine/normal/urgent/critical
   channel_intensity:
-    sms: L4                    # 渠道名 → L0..L5
+    sms: L4                    # channel name → L0..L5
   category_mode:
-    incidents: escalation      # 品类 → fixed/escalation/parallel
-  allow_phone: true            # 电话门配置侧同意（受众侧同意 = 绑定电话联系面）
+    incidents: escalation      # category → fixed/escalation/parallel
+  allow_phone: true            # phone-gate config-side consent (audience-side consent = a bound phone ContactSurface)
 ```
 
-| 字段 | 类型 | 默认 | 说明 |
+| Field | Type | Default | Notes |
 |------|------|------|------|
-| `category_urgency` | map | 空 | 品类 → 紧急度档，决定未带 `urgency` 的触发按哪档强度窗口匹配 |
-| `channel_intensity` | map | 空 | 渠道名 → 强度档 L0–L5（渠道默认值见事件模型页） |
-| `category_mode` | map | 空 | 品类 → 投递模式 fixed/escalation/parallel |
-| `allow_phone` | bool | false | 电话默认禁用的配置侧开关：开了之后 L5 渠道仍要求受众侧已绑定电话联系面（双重同意缺一不可） |
+| `category_urgency` | map | empty | category → urgency tier; decides which intensity window a trigger without `urgency` matches |
+| `channel_intensity` | map | empty | channel name → intensity tier L0–L5 (channel defaults are on the events model page) |
+| `category_mode` | map | empty | category → delivery mode fixed/escalation/parallel |
+| `allow_phone` | bool | false | the config-side switch for phones being disabled by default: once on, an L5 channel still requires the audience to have bound a phone ContactSurface (double consent, neither is optional) |
 
-app 命名空间的策略覆盖（`/api/v1/apps/{app}/policies/*`）叠加在这三张表之上；**手机闸门不可被 app 覆盖**，渠道×关系矩阵是安全底线。
+The app namespace's policy overrides (`/api/v1/apps/{app}/policies/*`) stack on top of these three tables; **the phone gate cannot be overridden by an app**, and the channel × relation matrix is the safety floor.
 
-## Digest 聚合配置（digest）
+## Digest aggregation configuration (digest)
 
-时间窗聚合（[受众领域模型总纲 §10](/design-audience-model)）：窗口内事件不直投，开窗时合并成一条摘要走全投递链。`enabled` 关掉则聚合器不运行：
+Time-window aggregation ([Audience Domain Model §10](/design-audience-model)): events inside the window are not delivered directly; when the window opens they are merged into one summary that goes through the full delivery chain. Turning `enabled` off stops the aggregator from running:
 
 ```yaml
 digest:
   enabled: true
-  interval: 1m                  # flip-loop tick（到期窗口检查频率），零值默认 1m
-  daily: "09:00"                # 日聚合开窗时刻，零值默认 "09:00"
-  weekly: "Mon 09:00"           # 周聚合开窗时刻，零值默认 "Mon 09:00"
-  location: Asia/Shanghai       # IANA 时区，零值默认 Asia/Shanghai
-  redis_addr: ""                # 非空则经 redis 租约选主（多实例每轮只 flush 一次）
+  interval: 1m                  # flip-loop tick (how often due windows are checked); a zero value defaults to 1m
+  daily: "09:00"                # daily digest window-open time; a zero value defaults to "09:00"
+  weekly: "Mon 09:00"           # weekly digest window-open time; a zero value defaults to "Mon 09:00"
+  location: Asia/Shanghai       # IANA timezone; a zero value defaults to Asia/Shanghai
+  redis_addr: ""                # when non-empty, leader election via a redis lease (multiple instances flush only once per round)
   redis_password: ""
   redis_db: 0
-  lease_ttl: 1m                 # 领导租约 TTL，零值默认 60s；持有期间每 tick 续约
+  lease_ttl: 1m                 # leader lease TTL; a zero value defaults to 60s; renewed on every tick while held
 ```
 
-| 字段 | 类型 | 默认 | 说明 |
+| Field | Type | Default | Notes |
 |------|------|------|------|
-| `enabled` | bool | false | 总开关 |
+| `enabled` | bool | false | master switch |
 | `interval` | duration | 1m | flip-loop tick |
-| `daily` / `weekly` | string | `09:00` / `Mon 09:00` | 开窗时刻，`daily` 为 `HH:MM`、`weekly` 为 `Weekday HH:MM` |
-| `location` | string | `Asia/Shanghai` | IANA 时区名；非法时区**启动即拒** |
-| `redis_addr` / `redis_password` / `redis_db` | | 空 | 领导租约选主；空 redis_addr = 单实例无锁直跑 |
-| `lease_ttl` | duration | 60s | 租约 TTL |
+| `daily` / `weekly` | string | `09:00` / `Mon 09:00` | window-open time; `daily` is `HH:MM` and `weekly` is `Weekday HH:MM` |
+| `location` | string | `Asia/Shanghai` | IANA timezone name; an invalid timezone **refuses to boot** |
+| `redis_addr` / `redis_password` / `redis_db` | | empty | leader-lease election; an empty redis_addr = a single instance running lock-free |
+| `lease_ttl` | duration | 60s | lease TTL |
 
-开窗时刻或时区非法、redis 连不上，一律**启动即拒起**（`cmd/heraldd/main.go` digest 接线），不带病运行。
+An invalid window-open time or timezone, or an unreachable redis, all **refuse to boot** (`cmd/heraldd/main.go` digest wiring) — no running while sick.
 
-## RSS 拉式配置（feeds）
+## RSS pull configuration (feeds)
 
-拉式投影（[受众领域模型总纲 §9](/design-audience-model)）：投递到 rss 类渠道时就地投影成 feed 条目，读者按品类/按受众自己来拉。`enabled` 关掉则 feed 端点关闭、rss 渠道按未知 provider 处理（投递报 provider 缺失失败）：
+Pull projection ([Audience Domain Model §9](/design-audience-model)): delivering to an rss-type channel projects the delivery in place into a feed entry that readers pull by category or by audience. Turning `enabled` off closes the feed endpoints and treats rss channels as unknown providers (delivery fails as a missing provider):
 
 ```yaml
 feeds:
   enabled: true
-  title: "Herald 通知"          # 频道标题，零值默认 "Herald 通知"（渲染器拒绝空标题）
-  link: "https://example.com"   # 首页链接，空则省略 <link> 元素
-  description: ""               # 频道描述，空则省略
-  max_items: 500                 # 每品类条目 FIFO 上限，零值默认 500
+  title: "Herald Notifications" # channel title; a zero value defaults to "Herald Notifications" (the renderer rejects an empty title)
+  link: "https://example.com"   # homepage link; when empty the <link> element is omitted
+  description: ""               # channel description; when empty it is omitted
+  max_items: 500                 # per-category FIFO cap on entries; a zero value defaults to 500
 ```
 
-| 字段 | 类型 | 默认 | 说明 |
+| Field | Type | Default | Notes |
 |------|------|------|------|
-| `enabled` | bool | false | 总开关；关 = 端点关闭 + rss 渠道按未知 provider |
-| `title` | string | `Herald 通知` | 频道标题 |
-| `link` / `description` | string | 空 | 空则省略对应 RSS 元素 |
-| `max_items` | int | 500 | 每品类条目 FIFO 上限，最旧的先丢 |
+| `enabled` | bool | false | master switch; off = the endpoints close + rss channels count as unknown providers |
+| `title` | string | `Herald Notifications` | channel title |
+| `link` / `description` | string | empty | when empty the corresponding RSS element is omitted |
+| `max_items` | int | 500 | per-category FIFO cap on entries, oldest dropped first |
 
-公共 feed 地址 `/feeds/<品类>.xml`（品类名须匹配 `^[a-zA-Z0-9._-]{1,64}$`，否则 404）；私密 feed `/feeds/private/<rss_token>.xml`，token 随受众稳定签发，取关即从下一次拉取起消失。端点语义详见 [REST API](/api/rest#feeds-public)。
+The public feed URL is `/feeds/<category>.xml` (the category name must match `^[a-zA-Z0-9._-]{1,64}$`, otherwise 404); the private feed is `/feeds/private/<rss_token>.xml`, with the token issued stably per audience and disappearing from the next pull after unsubscription. For the endpoint semantics see the [REST API](/api/rest#feeds-public).
 
-## 集成方命名空间配置（apps）
+## Integrator namespace configuration (apps)
 
-集成方接入的种子（[接入指南](/guide/integration) 有完整播种走查）。**没有运行时铸造 token 的 API**——app 与 token 只能在这里种子，heraldd 启动时校验（scope 拼写超出三级词汇、app 名非法、secret 重复或为空均**拒起**）：
+The seed for integrator onboarding (the [Integration Guide](/guide/integration) has a full seeding walkthrough). **There is no API to mint tokens at runtime** — apps and tokens can only be seeded here, and heraldd validates them at startup (a scope spelling outside the three-tier vocabulary, an invalid app name, or a duplicate or empty secret all **refuse to boot**):
 
 ```yaml
 apps:
   demo-app:
     tokens:
       - secret: "demo-config-token-0123456789abcdef"
-        scopes: [config]          # config 改配置 / trigger 触发投递 / query 读状态与审计
+        scopes: [config]          # config changes configuration / trigger triggers delivery / query reads state and audit
 ```
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Notes |
 |------|------|------|------|
-| `tokens` | list | 至少一枚 | 每个元素一个 token |
-| `tokens[].secret` | string | 是 | 全局不可重复，非空即可（无长度下限） |
-| `tokens[].scopes` | list | 是 | `config` / `trigger` / `query` 三档，互不继承 |
+| `tokens` | list | at least one | one token per element |
+| `tokens[].secret` | string | yes | globally unique, merely non-empty (no length floor) |
+| `tokens[].scopes` | list | yes | the three tiers `config` / `trigger` / `query`, with no inheritance |
 
-## Provider 类型
+## Provider types
 
-| 类型 | 说明 | 配置示例 |
+| Type | Notes | Configuration example |
 |------|------|---------|
-| `log` | 日志输出 | `type: log` |
+| `log` | Log output | `type: log` |
 | `telegram` | Telegram Bot | `type: telegram` |
-| `feishu` | 飞书机器人 | `type: feishu` |
-| `wecom` | 企业微信机器人 | `type: wecom` |
-| `dingtalk` | 钉钉机器人 | `type: dingtalk` |
+| `feishu` | Feishu bot | `type: feishu` |
+| `wecom` | WeCom bot | `type: wecom` |
+| `dingtalk` | DingTalk bot | `type: dingtalk` |
 | `slack` | Slack | `type: slack` |
 | `discord` | Discord | `type: discord` |
-| `email` | SMTP 邮件 | `type: email` |
-| `webhook` | 通用 Webhook | `type: webhook` |
-| `aliyunsms` | 阿里云短信 | `type: aliyunsms` |
-| `tencentsms` | 腾讯云短信 | `type: tencentsms` |
-| `neteasesms` | 网易云信短信 | `type: neteasesms` |
-| `fcm` | Firebase 推送（Android/Web） | `type: fcm` |
-| `apns` | Apple 推送（iOS/macOS） | `type: apns` |
-| `jpush` | 极光推送（Android/iOS/鸿蒙） | `type: jpush` |
-| `getui` | 个推（Android/iOS/鸿蒙） | `type: getui` |
-| `wechat` | 微信个人推送 | `type: wechat` |
-| `wechatmp` | 微信公众号模板消息 | `type: wechatmp` |
-| `worker` | 远程 Worker 本地占位（转发到 Worker 节点） | `type: worker` |
+| `email` | SMTP email | `type: email` |
+| `webhook` | Generic webhook | `type: webhook` |
+| `aliyunsms` | Aliyun SMS | `type: aliyunsms` |
+| `tencentsms` | Tencent Cloud SMS | `type: tencentsms` |
+| `neteasesms` | NetEase Yunxin SMS | `type: neteasesms` |
+| `fcm` | Firebase push (Android/Web) | `type: fcm` |
+| `apns` | Apple push (iOS/macOS) | `type: apns` |
+| `jpush` | JPush (Android/iOS/HarmonyOS) | `type: jpush` |
+| `getui` | Getui (Android/iOS/HarmonyOS) | `type: getui` |
+| `wechat` | WeChat personal push | `type: wechat` |
+| `wechatmp` | WeChat official account template message | `type: wechatmp` |
+| `worker` | Remote worker local placeholder (forwards to a worker node) | `type: worker` |
 
-各渠道的凭据申请与 config 明细见 [Provider 手册](/providers/overview)。
+For per-channel credential applications and config details see the [Provider handbook](/providers/overview).
 
-## 认证配置（auth）
+## Authentication configuration (auth)
 
-API 认证开启后除登录/刷新与飞书卡片回调外，所有受保护端点需要凭据（Bearer
-token 或 API Key）。`enabled: true` 时 `api_keys` 必须至少配置一条，否则启动拒绝。
-监听公网地址（如 `:8080`、`0.0.0.0:8080`）时必须启用认证并配置至少一枚 API key；
-认证关闭只允许绑定 `127.0.0.1`、`[::1]` 或 `localhost`，否则服务拒绝启动。公网部署请设置：
+Once API authentication is enabled, every endpoint except login/refresh and the Feishu card callback requires credentials (a Bearer
+token or an API Key). With `enabled: true`, `api_keys` must have at least one entry configured, otherwise startup is refused:
+listening on a public address (e.g. `:8080`, `0.0.0.0:8080`) requires authentication to be enabled with at least one API key;
+with authentication disabled, only `127.0.0.1`, `[::1]` or `localhost` binds are allowed, otherwise the service refuses to start. For public deployments set:
 
 ```yaml
 auth:
   enabled: true
-  api_keys:                 # key -> 描述（Dashboard/API 调用方使用）
-    "hk-xxxxxxxx": "CI 管道"
-  secret_key: "$HERALD_JWT_SECRET"   # 可选：JWT 签名密钥（不配则使用内置默认密钥，生产环境必须显式配置）
-  admin_user:               # 可选：Dashboard 登录账号（用户名 -> 密码）
+  api_keys:                 # key -> description (used by Dashboard/API callers)
+    "hk-xxxxxxxx": "CI pipeline"
+  secret_key: "$HERALD_JWT_SECRET"   # optional: JWT signing key (a built-in default key is used when unset; production must configure it explicitly)
+  admin_user:               # optional: Dashboard login account (username -> password)
     admin: "$HERALD_ADMIN_PASSWORD"
 ```
 
-## Worker 配置（worker）
+## Worker configuration (worker)
 
-远程 Worker 节点（`heraldd worker`）通过 WebSocket 连到调度器的管理通道：
+Remote worker nodes (`heraldd worker`) connect to the scheduler's management channel over WebSocket:
 
-| 字段 | 默认值 | 说明 |
+| Field | Default | Notes |
 |------|--------|------|
-| `id` | 自动生成 | Worker 标识（`/api/v1/workers` 里的 `worker_id`） |
-| `server_url` | — | 调度器管理通道地址，形如 `ws://host:8081/worker`；不配时回退 `websocket.addr`（自动补 `/worker` 路径），两者皆无则不上报控制面 |
-| `heartbeat_interval` | `20s` | 心跳间隔 |
-| `reconnect_delay` | `5s` | 断线重连间隔 |
-| `capabilities` | `["*"]` | 能力标签，调度器据此选择 Worker |
+| `id` | auto-generated | Worker identity (the `worker_id` in `/api/v1/workers`) |
+| `server_url` | — | Scheduler management channel address, shaped like `ws://host:8081/worker`; when unset it falls back to `websocket.addr` (with the `/worker` path appended automatically), and with neither it does not report to the control plane |
+| `heartbeat_interval` | `20s` | Heartbeat interval |
+| `reconnect_delay` | `5s` | Reconnect interval after a disconnect |
+| `capabilities` | `["*"]` | Capability tags, by which the scheduler selects workers |
 
-### 模板配置
+### Template configuration
 
-详见 [模板系统](/guide/templates)。
+See the [template system](/guide/templates).

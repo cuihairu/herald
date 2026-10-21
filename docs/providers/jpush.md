@@ -1,41 +1,39 @@
-> 中文 · [English](./jpush.en.md)
+# JPush (JiGuang Push)
 
-# JPush (极光推送)
+Send push notifications to Android / iOS / HarmonyOS devices, with delivery-rate optimization for domestic vendor channels.
 
-向 Android / iOS / 鸿蒙设备发送推送通知，国内厂商通道到达率优化。
+## What It Does
 
-## 作用
+The `jpush` Builtin Provider calls the JPush REST API v3 directly (`POST https://api.jpush.cn/v3/push`, see the [official documentation](https://docs.jiguang.cn/jpush/server/push/rest_api_v3_push)). Authentication is HTTP Basic: `base64(app_key:master_secret)`.
 
-`jpush` Builtin Provider 直接调用极光推送 REST API v3（`POST https://api.jpush.cn/v3/push`，见[官方文档](https://docs.jiguang.cn/jpush/server/push/rest_api_v3_push)），鉴权为 HTTP Basic：`base64(app_key:master_secret)`。
+Each delivery target is a **registration_id** (the unique identifier the JPush SDK generates per device). Sending happens device by device, and one message has two carriers:
 
-每个投递目标是一个 **registration_id**（极光 SDK 为每台设备生成的唯一标识），按设备逐次发送，一条消息两种承载：
+- Content (title/body) → the `notification` segment, which enters the system notification center (with a title line on Android, a default sound on iOS)
+- Raw payload → the `message` passthrough segment, which does not enter the notification center and is handled by the JPush SDK callback integrated in the app
+- `options.apns_production` controls whether iOS goes through the production or development APNs environment
 
-- Content（title/body）→ `notification` 通知段，进系统通知栏（Android 带标题行，iOS 默认响铃）
-- Raw 载荷 → `message` 透传段，不上通知栏，由 App 内集成的极光 SDK 回调处理
-- `options.apns_production` 控制 iOS 走生产还是开发 APNs 环境
+## Obtaining Credentials
 
-## 申请凭据
+Prerequisite: a [JiGuang account](https://www.jiguang.cn/) (registration is free).
 
-前提：一个[极光账号](https://www.jiguang.cn/)（注册免费）。
+1. **Create the app**: the [JiGuang console](https://www.jiguang.cn/) → create the app (enter the package name for Android, the Bundle ID for iOS)
+2. **Note the AppKey**: enter the app from the app list → the **AppKey** on the **App Settings** page (like `7d431e42dfa6a6d693ac2d04`)
+3. **Note the Master Secret**: the **Master Secret** on the same page (used on the server side only, equivalent to full push credentials, resettable in the console)
+4. **Device registration_id**: after the app integrates the [JPush SDK](https://docs.jiguang.cn/jpush/client/Android/android_guide), obtained via the SDK's RegistrationID interface. Your business service stores it in a roster/user table and passes it in as the recipient at delivery time; Herald does not fetch registration_ids from JPush.
 
-1. **创建应用**：[极光控制台](https://www.jiguang.cn/) → 创建应用（Android 填包名，iOS 填 Bundle ID）
-2. **记下 AppKey**：应用列表进入该应用 → **应用设置** 页的 **AppKey**（形如 `7d431e42dfa6a6d693ac2d04`）
-3. **记下 Master Secret**：同页的 **Master Secret**（只在服务端使用，等同推送全权凭据，可在控制台重置）
-4. **设备 registration_id**：App 集成 [JPush SDK](https://docs.jiguang.cn/jpush/client/Android/android_guide) 后，通过 SDK 的 RegistrationID 接口拿到，由你的业务服务端存进花名册/用户表，投递时作为收件人传入。Herald 不负责从极光获取 registration_id。
+## Sending Your First Message
 
-## 发第一条消息
-
-按下面配好并 `heraldd serve --config config.yaml` 启动后（**必须带 registration_id 收件人**）：
+Configure as below and start with `heraldd serve --config config.yaml` (**a registration_id recipient is required**):
 
 ```yaml
-# config.yaml 追加（AppKey/Master Secret 从上面的申请步骤取）
+# config.yaml append (AppKey/Master Secret come from the application steps above)
 providers:
   jpush:
     type: jpush
     enabled: true
     config:
       app_key: "7d431e42dfa6a6d693ac2d04"
-      master_secret: "$JPUSH_MASTER_SECRET"   # 见环境变量
+      master_secret: "$JPUSH_MASTER_SECRET"   # see Environment Variables
 ```
 
 ```bash
@@ -44,29 +42,29 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "order.notice",
     "level": "info",
-    "title": "订单已发货",
-    "body": "您的订单 SF123456 已发出",
+    "title": "Order shipped",
+    "body": "Your order SF123456 has shipped",
     "channels": ["jpush"],
-    "recipients": {"jpush": ["registration-id-字符串"]}
+    "recipients": {"jpush": ["registration-id-string"]}
   }'
 ```
 
-手机通知栏收到「订单已发货」。没收到？检查 registration_id 是否正确、App 是否集成极光 SDK 且处于可推送状态，查[排错指南](/guide/troubleshooting)与下面的[常见错误](#常见错误)。
+The phone's notification center shows "Order shipped". Didn't arrive? Check that the registration_id is correct and that the app has integrated the JPush SDK and is in a pushable state; see the [Troubleshooting Guide](/guide/troubleshooting) and [Common Errors](#common-errors) below.
 
-## 配置项
+## Configuration
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `app_key` | ✅ | 应用 AppKey（控制台应用设置页） | 无 |
-| `master_secret` | ✅ | 应用 Master Secret（控制台应用设置页） | 无 |
-| `platform` | ❌ | 推送平台：`all`、单个（`android`）、逗号分隔（`android,ios`），也可写 YAML 列表；官方取值 `android`/`ios`/`quickapp`/`hmos` | `all` |
-| `apns_production` | ❌ | iOS 目标走生产（`true`）还是开发（`false`）APNs 环境；调试包装调试包时设 `false` | `true`（极光不指定即生产） |
-| `time_to_live` | ❌ | 离线消息保留时长（秒），`0` 表示不保留离线消息 | 极光默认 `86400`（1 天；普通用户最长 3 天、VIP 最长 10 天） |
-| `endpoint` | ❌ | API 端点（测试/代理场景覆盖） | `https://api.jpush.cn` |
+| `app_key` | ✅ | The app AppKey (console app settings page) | None |
+| `master_secret` | ✅ | The app Master Secret (console app settings page) | None |
+| `platform` | ❌ | Push platforms: `all`, a single one (`android`), comma-separated (`android,ios`), or a YAML list; official values `android`/`ios`/`quickapp`/`hmos` | `all` |
+| `apns_production` | ❌ | Whether iOS targets go through the production (`true`) or development (`false`) APNs environment; set `false` when building a debug package for development | `true` (JPush defaults to production when unspecified) |
+| `time_to_live` | ❌ | Offline message retention in seconds; `0` means no offline retention | JPush's default `86400` (1 day; up to 3 days for regular users, 10 days for VIP) |
+| `endpoint` | ❌ | API endpoint (override for testing/proxy scenarios) | `https://api.jpush.cn` |
 
-缺 `app_key`/`master_secret` 时 Provider 创建即失败（`jpush: app_key is required` 等），启动日志可见。
+Missing `app_key` / `master_secret` makes Provider creation fail immediately (`jpush: app_key is required`, etc.); this is visible in the startup logs.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -77,77 +75,77 @@ providers:
       app_key: "7d431e42dfa6a6d693ac2d04"
       master_secret: "$JPUSH_MASTER_SECRET"
       platform: "android,ios"
-      apns_production: false   # 开发包装调试包时
+      apns_production: false   # when building a debug package for development
 ```
 
-## 环境变量
+## Environment Variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment Variable | Config Key | Description |
 |----------|-----------|------|
-| `JPUSH_APP_KEY` | `app_key` | 应用 AppKey（`.env.example` 惯用名） |
-| `JPUSH_MASTER_SECRET` | `master_secret` | 应用 Master Secret |
+| `JPUSH_APP_KEY` | `app_key` | The app AppKey (conventional name in `.env.example`) |
+| `JPUSH_MASTER_SECRET` | `master_secret` | The app Master Secret |
 
-## 消息模板与限制
+## Message Templates and Limits
 
-### 内容映射
+### Content Mapping
 
-| 场景 | body 结构 |
+| Scenario | body structure |
 |------|-----------|
-| 带 title/body 的通知 | `notification.alert`（共享）+ `android{title,alert}` + `ios{alert,sound:default}` |
-| 纯 Raw 载荷 | `message{msg_content,extras}`——透传给 App，不上通知栏；`msg_content` 为 Raw 的 JSON |
-| Content + Raw 同时有 | `notification` 与 `message` 同发，`msg_content` 取可读正文 |
+| Notification with title/body | `notification.alert` (shared) + `android{title,alert}` + `ios{alert,sound:default}` |
+| Pure Raw payload | `message{msg_content,extras}` — passed through to the app, not shown in the notification center; `msg_content` is the Raw JSON |
+| Both Content and Raw | `notification` and `message` are sent together, with `msg_content` taking the readable body |
 
-- `body` 为空时 `alert` 取 `title`（title-only 也能推）
-- 只有 `title` 非空才带 `android` 段（JPush 要求 `android.alert` 必填，共享 `alert` 已覆盖所有平台）；`ios` 段固定带 `sound: default`
-- Raw 的键进 `extras`，值统一转字符串；`message.msg_content` 是极光必填项，无正文时用 Raw 的 JSON 兜底
-- Content 与 Raw 至少其一，否则报 `jpush: payload needs content or raw data`
+- When `body` is empty, `alert` takes the value of `title` (a title-only message still sends)
+- The `android` segment is included only when `title` is non-empty (JPush requires `android.alert`; the shared `alert` already covers all platforms); the `ios` segment always carries `sound: default`
+- Raw keys go into `extras`, with values stringified uniformly; `message.msg_content` is required by JPush, so the Raw JSON is the fallback when there is no body
+- Content and Raw — at least one is required, otherwise you get `jpush: payload needs content or raw data`
 
-### 发送语义
+### Delivery Semantics
 
-- 收件人逐 registration_id 发送；部分失败聚合为 `jpush: N/M succeeded - failed: ...`（与 FCM/APNs 一致），死设备（错误 1011）只算它自己失败
-- 极光按 API 调用次数做频控（按 AppKey、分钟级窗口），触发返回 429 走统一重试；相同内容大量投递时注意压低并发
+- Recipients are sent to one registration_id at a time; partial failure is aggregated into `jpush: N/M succeeded - failed: ...` (consistent with FCM/APNs), and a dead device (error 1011) only counts as its own failure
+- JPush rate-limits by API call count (per AppKey, minute-level window); triggering it returns 429 and goes through unified retry — keep concurrency low when delivering large volumes of identical content
 
-### 能力声明
+### Capability Declaration
 
-- `PayloadKinds`: `Content`、`Raw`
+- `PayloadKinds`: `Content`, `Raw`
 - `ContentFormats`: `plain`
 
-### 重试语义
+### Retry Semantics
 
-- 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
-- 400（1011 无目标、1003 参数非法等）、401（1004 验证失败）、403（受限/白名单）为确定性错误，不重试
+- Request timeouts, 408/429/5xx are wrapped by `httpclient` as retryable errors and go through unified retry
+- 400 (1011 no target, 1003 invalid parameter, etc.), 401 (1004 authentication failure), 403 (restricted/allowlist) are deterministic errors and are not retried
 
-## 常见错误
+## Common Errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `jpush: app_key is required` | 没配 AppKey |
-| `jpush: master_secret is required` | 没配 Master Secret |
-| `jpush: time_to_live must be >= 0` | 离线保留时长配成了负数 |
-| `jpush: payload needs content or raw data` | Content 和 Raw 都为空 |
-| `{"error":{"code":1004,...}}`（401） | 验证失败：AppKey 与 Master Secret 不匹配（对照控制台，注意别多空格） |
-| `{"error":{"code":1011,...}}`（400） | 没有满足条件的推送目标：registration_id 无效，或设备超 255 天不活跃被排除 |
-| `{"error":{"code":1003,...}}`（400） | 参数值不合法：registration_id 有空值或格式错误 |
-| `{"error":{"code":1005,...}}`（400） | 消息体太大：Android Notification+Message 合计 4000 字节、iOS `notification.ios{}` 段 3584 字节上限 |
-| `{"error":{"code":2002,...}}`（429） | API 调用频率超限，走统一重试（把请求摊匀到时间窗口） |
-| `{"error":{"code":2003,...}}`（403） | appKey 被限制调用 API，联系极光技术支持 |
-| `{"error":{"code":2004,...}}`（403） | 源 IP 不在应用的 IP 白名单 |
-| `{"error":{"code":2010,...}}`（400） | 内容含黑词或推送总量超限 |
+| `jpush: app_key is required` | AppKey not configured |
+| `jpush: master_secret is required` | Master Secret not configured |
+| `jpush: time_to_live must be >= 0` | The offline retention was configured as a negative number |
+| `jpush: payload needs content or raw data` | Both Content and Raw are empty |
+| `{"error":{"code":1004,...}}` (401) | Authentication failure: the AppKey and Master Secret do not match (compare against the console; watch for stray spaces) |
+| `{"error":{"code":1011,...}}` (400) | No push target satisfies the conditions: the registration_id is invalid, or the device was excluded for being inactive for over 255 days |
+| `{"error":{"code":1003,...}}` (400) | Invalid parameter value: a registration_id is empty or malformed |
+| `{"error":{"code":1005,...}}` (400) | Message body too large: Android Notification+Message combined is limited to 4000 bytes, the iOS `notification.ios{}` segment to 3584 bytes |
+| `{"error":{"code":2002,...}}` (429) | API call rate limit exceeded; goes through unified retry (spread the requests over the time window) |
+| `{"error":{"code":2003,...}}` (403) | The appKey is restricted from calling the API; contact JPush technical support |
+| `{"error":{"code":2004,...}}` (403) | The source IP is not in the app's IP allowlist |
+| `{"error":{"code":2010,...}}` (400) | The content contains sensitive words, or the push volume limit was exceeded |
 
-错误格式：HTTP 非 2xx 返回 `unexpected status code: {code}, body: {"error":{"code":..,"message":..}}`。整体排错见[排错指南](/guide/troubleshooting)。
+Error format: non-2xx HTTP responses return `unexpected status code: {code}, body: {"error":{"code":..,"message":..}}`. For overall troubleshooting, see the [Troubleshooting Guide](/guide/troubleshooting).
 
-## 安全建议
+## Security Recommendations
 
-1. **Master Secret 等同推送全权凭据**：只放服务端环境变量/密管系统，不进客户端与代码仓库；怀疑泄露立即在控制台重置
-2. **registration_id 是设备标识**：按个人数据对待，落库、传输注意合规
-3. **开发/生产区分**：开发包装调试包用 `apns_production: false`，上线改回 `true`（默认）
+1. **The Master Secret is equivalent to full push credentials**: keep it only in server-side environment variables / a secrets-management system, never in clients or code repositories; if you suspect a leak, reset it immediately in the console
+2. **The registration_id is a device identifier**: treat it as personal data and mind compliance when storing and transmitting it
+3. **Separate development from production**: use `apns_production: false` for debug packages during development, and switch back to `true` (the default) for release
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [FCM](./fcm.md) - Android/Web 推送通道
-- [APNs](./apns.md) - iOS/macOS 推送通道
-- [Getui](./getui.md) - 另一家国内厂商推送通道
-- [排错指南](/guide/troubleshooting) - 启动失败、消息没到、重试不生效
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [FCM](./fcm.md) - Android/Web push channel
+- [APNs](./apns.md) - iOS/macOS push channel
+- [Getui](./getui.md) - another domestic vendor push channel
+- [Troubleshooting Guide](/guide/troubleshooting) - startup failure, message not delivered, retries not taking effect

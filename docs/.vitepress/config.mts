@@ -2,23 +2,29 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Herald',
-  description: '统一订阅与投递中枢',
-  lang: 'zh-CN',
+  description: 'Unified subscription and delivery hub',
   base: '/herald/',
 
   head: [
-    // head 里的资源不会自动附加 base，需与下方 base 保持一致
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/herald/logo.svg' }],
   ],
+
+  transformHtml: (html, id) => {
+    if (!id.includes('/zh/')) return html
+    return html.replace(
+      /href="\/herald\/审计-深度审核-2026-10-19\.html"/g,
+      'href="/herald/zh/"',
+    )
+  },
 
   themeConfig: {
     logo: '/logo.svg',
     nav: [
-      { text: '快速开始', link: '/guide/getting-started' },
-      { text: '使用场景', link: '/guide/use-cases' },
+      { text: 'Quick Start', link: '/guide/getting-started' },
+      { text: 'Use Cases', link: '/guide/use-cases' },
       { text: 'Providers', link: '/providers/overview' },
-      { text: '指南', link: '/guide/introduction' },
-      { text: '架构', link: '/architecture/overview' },
+      { text: 'Guide', link: '/guide/introduction' },
+      { text: 'Architecture', link: '/architecture/overview' },
       { text: 'Runtime', link: '/runtime/overview' },
       { text: 'API', link: '/api/overview' },
     ],
@@ -26,139 +32,160 @@ export default defineConfig({
     sidebar: {
       '/guide/': [
         {
-          text: '开始',
+          text: 'Get Started',
           items: [
-            { text: '简介', link: '/guide/introduction' },
-            { text: '快速开始', link: '/guide/getting-started' },
-            { text: '使用场景与接入', link: '/guide/use-cases' },
-            { text: '接入指南（外部项目自助接入）', link: '/guide/integration' },
-            { text: '事件与告警模型', link: '/guide/events' },
-          ]
+            { text: 'Introduction', link: '/guide/introduction' },
+            { text: 'Quick Start', link: '/guide/getting-started' },
+            { text: 'Use Cases and Integration', link: '/guide/use-cases' },
+            { text: 'Integration Guide (For External Projects)', link: '/guide/integration' },
+            { text: 'Events and Alert Model', link: '/guide/events' },
+          ],
         },
         {
-          text: '配置',
+          text: 'Configuration',
           items: [
-            { text: '配置参考', link: '/guide/configuration' },
-            { text: '模板系统', link: '/guide/templates' },
-          ]
+            { text: 'Configuration Reference', link: '/guide/configuration' },
+            { text: 'Template System', link: '/guide/templates' },
+          ],
         },
         {
-          text: '运维',
+          text: 'Operations',
           items: [
-            { text: '部署', link: '/guide/deployment' },
-            { text: '排错指南', link: '/guide/troubleshooting' },
-          ]
-        }
+            { text: 'Deployment', link: '/guide/deployment' },
+            { text: 'Troubleshooting Guide', link: '/guide/troubleshooting' },
+          ],
+        },
       ],
       '/architecture/': [
         {
-          text: '架构设计',
+          text: 'Architecture',
           items: [
-            { text: '概述', link: '/architecture/overview' },
-            { text: '核心设计', link: '/architecture/core-design' },
-            { text: '模块设计', link: '/architecture/modules' },
-            { text: '协议设计', link: '/architecture/protocols' },
-            { text: '模板系统', link: '/architecture/templates' },
-            { text: '目录结构', link: '/architecture/directory' },
-            { text: '测试覆盖率口径', link: '/architecture/coverage' },
-            { text: '覆盖率收官报告', link: '/coverage-final-report-2026-09' },
-            { text: '覆盖率攻坚总结（2026-09）', link: '/coverage-initiative-2026-09' },
-          ]
-        }
+            { text: 'Overview', link: '/architecture/overview' },
+            { text: 'Core Design', link: '/architecture/core-design' },
+            { text: 'Module Design', link: '/architecture/modules' },
+            { text: 'Protocol Design', link: '/architecture/protocols' },
+            { text: 'Template System', link: '/architecture/templates' },
+            { text: 'Directory Structure', link: '/architecture/directory' },
+            { text: 'Test Coverage Standards', link: '/architecture/coverage' },
+            { text: 'Coverage Completion Report', link: '/coverage-final-report-2026-09' },
+            { text: 'Coverage Initiative Summary (2026-09)', link: '/coverage-initiative-2026-09' },
+          ],
+        },
       ],
       '/runtime/': [
         {
           text: 'Runtime',
           items: [
-            { text: '概述', link: '/runtime/overview' },
+            { text: 'Overview', link: '/runtime/overview' },
             { text: 'Builtin Runtime', link: '/runtime/builtin' },
             { text: 'Worker Runtime', link: '/runtime/worker' },
-            { text: 'Provider 分类', link: '/runtime/providers' },
+            { text: 'Provider Categories', link: '/runtime/providers' },
             { text: 'Worker SDK', link: '/runtime/sdk' },
-          ]
-        }
+          ],
+        },
       ],
       '/api/': [
         {
           text: 'API',
           items: [
-            { text: '概述', link: '/api/overview' },
+            { text: 'Overview', link: '/api/overview' },
             { text: 'REST API', link: '/api/rest' },
-            { text: '应用接入 API', link: '/api/apps' },
-            { text: 'OpenAPI 规范', link: '/api/apps#openapi-规范' },
-          ]
-        }
+            { text: 'Application API', link: '/api/apps' },
+            { text: 'OpenAPI Specification', link: '/api/apps#openapi-specification' },
+          ],
+        },
       ],
       '/': [
         {
-          text: 'Provider 手册',
+          text: 'Provider Guides',
           items: [
-            { text: '总览与选型', link: '/providers/overview' },
-            { text: '三家短信对比', link: '/providers/sms' },
-          ]
+            { text: 'Overview and Selection', link: '/providers/overview' },
+            { text: 'SMS Provider Comparison', link: '/providers/sms' },
+          ],
         },
         {
-          text: '即时通讯',
+          text: 'Messaging',
           items: [
             { text: 'Telegram', link: '/providers/telegram' },
-            { text: '飞书', link: '/providers/feishu' },
-            { text: '企业微信', link: '/providers/wecom' },
-            { text: '钉钉', link: '/providers/dingtalk' },
+            { text: 'Feishu', link: '/providers/feishu' },
+            { text: 'WeCom', link: '/providers/wecom' },
+            { text: 'DingTalk', link: '/providers/dingtalk' },
             { text: 'Slack', link: '/providers/slack' },
             { text: 'Discord', link: '/providers/discord' },
-            { text: '微信个人推送', link: '/providers/wechat' },
-            { text: '微信公众号指南', link: '/providers/wechat-official' },
-            { text: '微信公众号模板消息', link: '/providers/wechatmp' },
-          ]
+            { text: 'WeChat Personal Push', link: '/providers/wechat' },
+            { text: 'WeChat Official Account Guide', link: '/providers/wechat-official' },
+            { text: 'WeChat Official Account Template Messages', link: '/providers/wechatmp' },
+          ],
         },
         {
-          text: '短信与邮件',
+          text: 'SMS and Email',
           items: [
-            { text: '阿里云短信', link: '/providers/aliyunsms' },
-            { text: '腾讯云短信', link: '/providers/tencentsms' },
-            { text: '网易云信短信', link: '/providers/neteasesms' },
+            { text: 'Alibaba Cloud SMS', link: '/providers/aliyunsms' },
+            { text: 'Tencent Cloud SMS', link: '/providers/tencentsms' },
+            { text: 'NetEase SMS', link: '/providers/neteasesms' },
             { text: 'Email', link: '/providers/email' },
-          ]
+          ],
         },
         {
-          text: 'App 推送',
+          text: 'App Push',
           items: [
             { text: 'FCM', link: '/providers/fcm' },
             { text: 'APNs', link: '/providers/apns' },
-            { text: '极光 JPush', link: '/providers/jpush' },
-            { text: '个推 Getui', link: '/providers/getui' },
-          ]
+            { text: 'JPush', link: '/providers/jpush' },
+            { text: 'Getui', link: '/providers/getui' },
+          ],
         },
         {
-          text: '对接与调试',
+          text: 'Integration and Debugging',
           items: [
             { text: 'Webhook', link: '/providers/webhook' },
             { text: 'Log', link: '/providers/log' },
-          ]
+          ],
         },
         {
-          text: '设计文档',
+          text: 'Design Documents',
           items: [
-            { text: '作为 Go 库使用', link: '/library-usage' },
-            { text: '通知规则引擎', link: '/rule-engine-design' },
-            { text: '规则引擎决策层', link: '/design-rule-engine' },
-            { text: '通知群组', link: '/design-notification-groups' },
-            { text: '受众领域模型（总纲）', link: '/design-audience-model' },
-            { text: '受众订阅与投递中枢（关系详设）', link: '/design-audience-relations' },
-            { text: '概念边界与分层审计', link: '/design-audience-boundaries' },
-            { text: 'Audience 改造审计（存档）', link: '/design-audience-audit' },
-            { text: '留批解冻预案（待拍板）', link: '/design-audience-deferrals' },
-          ]
-        }
+            { text: 'Using Herald as a Go Library', link: '/library-usage' },
+            { text: 'Notification Rule Engine', link: '/rule-engine-design' },
+            { text: 'Rule Engine Decision Layer', link: '/design-rule-engine' },
+            { text: 'Notification Groups', link: '/design-notification-groups' },
+            { text: 'Audience Domain Model (Overview)', link: '/design-audience-model' },
+            { text: 'Audience Subscription and Delivery Hub (Detailed Relationships)', link: '/design-audience-relations' },
+            { text: 'Concept Boundaries and Layering Audit', link: '/design-audience-boundaries' },
+            { text: 'Audience Refactoring Audit (Archive)', link: '/design-audience-audit' },
+            { text: 'Unfreezing Plan for Held Batches (Pending Decision)', link: '/design-audience-deferrals' },
+          ],
+        },
       ],
     },
+    socialLinks: [{ icon: 'github', link: 'https://github.com/cuihairu/herald' }],
+    search: { provider: 'local' },
+  },
 
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/cuihairu/herald' }
-    ],
-
-    search: {
-      provider: 'local'
-    }
-  }
+  locales: {
+    root: {
+      label: 'English',
+      lang: 'en',
+      themeConfig: {
+        outline: [2, 3],
+        docFooter: { prev: 'Previous', next: 'Next' },
+        lastUpdated: {
+          text: 'Last updated',
+          formatOptions: { dateStyle: 'medium', timeStyle: 'medium' },
+        },
+      },
+    },
+    zh: {
+      label: '简体中文',
+      lang: 'zh-CN',
+      themeConfig: {
+        outline: [2, 3],
+        docFooter: { prev: '上一页', next: '下一页' },
+        lastUpdated: {
+          text: '最后更新于',
+          formatOptions: { dateStyle: 'medium', timeStyle: 'medium' },
+        },
+      },
+    },
+  },
 })

@@ -1,32 +1,30 @@
-> 中文 · [English](./fcm.en.md)
-
 # FCM (Firebase Cloud Messaging)
 
-通过 Firebase Cloud Messaging HTTP v1 API 向 Android / iOS / Web 设备发送推送通知。
+Send push notifications to Android / iOS / Web devices via the Firebase Cloud Messaging HTTP v1 API.
 
-## 作用
+## What It Does
 
-`fcm` Builtin Provider 使用 Firebase **服务账号**（service account）鉴权：用 `client_email` + RSA 私钥签出 RS256 JWT，向 Google OAuth 端点换取短时效 access token（内存缓存，过期前 5 分钟自动刷新），再以 Bearer 方式调用 FCM v1 `messages:send`。每个投递目标是一个 **FCM 注册令牌（registration token）**，适合 App 推送、设备告警等场景。
+The `fcm` Builtin Provider authenticates with a Firebase **service account**: it signs an RS256 JWT with `client_email` + the RSA private key, exchanges it at the Google OAuth endpoint for a short-lived access token (cached in memory, refreshed automatically 5 minutes before expiry), and then calls FCM v1 `messages:send` with a Bearer token. Each delivery target is an **FCM registration token**, which suits app push, device alerts, and similar scenarios.
 
-## 申请凭据
+## Obtaining Credentials
 
-全程在 [Firebase 控制台](https://console.firebase.google.com/)：
+Everything is done in the [Firebase console](https://console.firebase.google.com/):
 
-1. **创建/选择项目**：项目设置里的 **项目 ID** 即 `project_id`（形如 `my-firebase-project`）
-2. **生成私钥**：**项目设置 ⚙️ → 服务账号 → 生成新的私钥**，下载 JSON 文件
-3. **取三个字段**：
-   - `project_id` → JSON 的 `project_id`
-   - `client_email` → JSON 的 `client_email`（形如 `firebase-adminsdk-xxx@<project>.iam.gserviceaccount.com`）
-   - `private_key` → JSON 的 `private_key`（PKCS#8 PEM，`-----BEGIN PRIVATE KEY-----` 开头）
+1. **Create/select the project**: the **Project ID** in project settings is your `project_id` (like `my-firebase-project`)
+2. **Generate a private key**: **Project settings ⚙️ → Service accounts → Generate new private key**, and download the JSON file
+3. **Extract three fields**:
+   - `project_id` → the JSON's `project_id`
+   - `client_email` → the JSON's `client_email` (like `firebase-adminsdk-xxx@<project>.iam.gserviceaccount.com`)
+   - `private_key` → the JSON's `private_key` (PKCS#8 PEM, starting with `-----BEGIN PRIVATE KEY-----`)
 
-> ⚠️ 服务账号需要 `firebase.messaging` 权限（Firebase 生成的默认服务账号已内置）。App 侧需集成 Firebase SDK 并把 registration token 作为收件人传给 Herald。
+> ⚠️ The service account needs the `firebase.messaging` permission (already included in Firebase's default service account). The app must integrate the Firebase SDK and pass the registration token to Herald as a recipient.
 
-## 发第一条消息
+## Sending Your First Message
 
-按下面的配置配好并 `heraldd serve --config config.yaml` 启动后（**必须带 registration token 收件人**）：
+Configure as below and start with `heraldd serve --config config.yaml` (**a registration token recipient is required**):
 
 ```yaml
-# config.yaml 追加（三字段从上面的 JSON 里取）
+# config.yaml append (the three fields come from the JSON above)
 providers:
   fcm:
     type: fcm
@@ -34,7 +32,7 @@ providers:
     config:
       project_id: "my-firebase-project"
       client_email: "firebase-adminsdk-xxx@my-firebase-project.iam.gserviceaccount.com"
-      private_key: "$FCM_PRIVATE_KEY"   # PEM 全文放环境变量，见环境变量一节
+      private_key: "$FCM_PRIVATE_KEY"   # put the full PEM content in an environment variable, see Environment Variables
 ```
 
 ```bash
@@ -43,27 +41,27 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "device.alert",
     "level": "error",
-    "title": "磁盘告警",
-    "body": "/dev/sda1 使用率 95%",
+    "title": "Disk alert",
+    "body": "/dev/sda1 usage 95%",
     "channels": ["fcm"],
     "recipients": {"fcm": ["cX618eW0VP6:APA91bH..."]}
   }'
 ```
 
-设备通知栏弹出「磁盘告警 /dev/sda1 使用率 95%」。没收到？App 是否拿到 token、token 是否传对，查 [排错指南](/guide/troubleshooting) 与下面的[常见错误](#常见错误)。
+The device notification center shows "Disk alert / /dev/sda1 usage 95%". Didn't arrive? Did the app get a token, and was the token passed correctly? See the [Troubleshooting Guide](/guide/troubleshooting) and [Common Errors](#common-errors) below.
 
-## 配置项
+## Configuration
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `project_id` | ✅ | Firebase 项目 ID | 无 |
-| `client_email` | ✅ | 服务账号邮箱（JSON 的 `client_email`） | 无 |
-| `private_key` | ✅ | 服务账号 RSA 私钥（PKCS#8 PEM 全文） | 无 |
-| `endpoint` | ❌ | FCM API 端点（测试/代理场景覆盖） | `https://fcm.googleapis.com` |
+| `project_id` | ✅ | The Firebase project ID | None |
+| `client_email` | ✅ | The service account email (the JSON's `client_email`) | None |
+| `private_key` | ✅ | The service account RSA private key (full PKCS#8 PEM content) | None |
+| `endpoint` | ❌ | The FCM API endpoint (override for testing/proxy scenarios) | `https://fcm.googleapis.com` |
 
-缺任一必填项或私钥无法解析时 Provider 创建即失败（`fcm: project_id is required` 等），启动日志可见。私钥只接受 PKCS#8（`PRIVATE KEY`）PEM——Firebase 下载的 JSON 即此格式；非 RSA 密钥会报 `fcm: private_key must be an RSA key`。
+If any required field is missing or the private key cannot be parsed, Provider creation fails immediately (`fcm: project_id is required`, etc.); this is visible in the startup logs. Only PKCS#8 (`PRIVATE KEY`) PEM private keys are accepted — the JSON downloaded from Firebase is in that format; a non-RSA key yields `fcm: private_key must be an RSA key`.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -73,64 +71,64 @@ providers:
     config:
       project_id: "my-firebase-project"
       client_email: "firebase-adminsdk-xxx@my-firebase-project.iam.gserviceaccount.com"
-      private_key: "$FCM_PRIVATE_KEY"       # 推荐：PEM 全文放环境变量
-      # endpoint: "https://fcm.googleapis.com"  # 可选，一般不用配
+      private_key: "$FCM_PRIVATE_KEY"       # recommended: put the full PEM content in an environment variable
+      # endpoint: "https://fcm.googleapis.com"  # optional, usually not needed
 ```
 
-## 环境变量
+## Environment Variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment Variable | Config Key | Description |
 |----------|-----------|------|
-| `FCM_PROJECT_ID` | `project_id` | Firebase 项目 ID |
-| `FCM_CLIENT_EMAIL` | `client_email` | 服务账号邮箱 |
-| `FCM_PRIVATE_KEY` | `private_key` | PKCS#8 PEM 全文（含真实换行） |
+| `FCM_PROJECT_ID` | `project_id` | The Firebase project ID |
+| `FCM_CLIENT_EMAIL` | `client_email` | The service account email |
+| `FCM_PRIVATE_KEY` | `private_key` | Full PKCS#8 PEM content (including real newlines) |
 
-> ⚠️ `private_key` 中的换行必须是**真实换行符**。若从 JSON 复制得到 `-----BEGIN PRIVATE KEY-----\n...`（含字面 `\n`），需先替换为换行，或整段放入环境变量后由 shell/YAML 处理。
+> ⚠️ The newlines inside `private_key` must be **real newline characters**. If copying from JSON produces `-----BEGIN PRIVATE KEY-----\n...` (with a literal `\n`), you must replace it with real newlines first, or put the whole thing into an environment variable and let shell/YAML handle it.
 
-## 消息模板与限制
+## Message Templates and Limits
 
-- `Content`（title/body，纯文本）→ FCM `notification` 段，由系统托盘渲染
-- `Raw` 载荷 → FCM `data` 段（值统一字符串化，FCM data 只支持字符串）
-- 两者都缺省时发送纯 data 消息；FCM 要求二者至少其一
-- 收件人（registration token）逐 token 发送；部分失败聚合为一个错误返回（`fcm: 1/2 succeeded - failed: ...`），与其它 provider 的部分成功语义一致
-- 单 token 消息上限 4KB（FCM 平台限制）
+- `Content` (title/body, plain text) → the FCM `notification` segment, rendered by the system notification area
+- `Raw` payload → the FCM `data` segment (values are stringified uniformly, since FCM data only supports strings)
+- When both are omitted, a pure data message is sent; FCM requires at least one of the two
+- Recipients (registration tokens) are sent to one token at a time; partial failure is aggregated into a single error (`fcm: 1/2 succeeded - failed: ...`), matching the partial-success semantics of the other Providers
+- 4KB maximum per token message (FCM platform limit)
 
-### 能力声明
+### Capability Declaration
 
-- `PayloadKinds`: `Content`、`Raw`
+- `PayloadKinds`: `Content`, `Raw`
 - `ContentFormats`: `plain`
 
-### 重试语义
+### Retry Semantics
 
-- 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
-- 其余 4xx（404 未注册 token、400 载荷非法等）为确定性错误，不重试
-- OAuth 换取 token 的网络/5xx 失败同样走可重试错误
+- Request timeouts, 408/429/5xx are wrapped by `httpclient` as retryable errors and go through unified retry
+- Other 4xx (404 for an unregistered token, 400 for an invalid payload, etc.) are deterministic errors and are not retried
+- Network/5xx failures while exchanging the OAuth token are likewise retryable errors
 
-## 常见错误
+## Common Errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `fcm: project_id/client_email/private_key is required` | 配置缺字段 |
-| `fcm: private_key is not valid PEM data` | 私钥不是 PEM（可能复制时丢了头尾行） |
-| `fcm: private_key must be an RSA key` | 私钥不是 RSA（检查是否拿错了密钥文件） |
-| `fcm: token error: invalid_grant` | JWT 换取失败：私钥与 `client_email` 不匹配、时钟偏差过大、或密钥已被吊销——重新生成服务账号密钥 |
-| `unexpected status code: 401/403` | access token 无效或项目未开通 FCM |
-| `unexpected status code: 404, body: ... NOT_FOUND` | registration token 已失效（App 卸载/token 轮换），应从收件人中剔除 |
-| `unexpected status code: 400, body: ... INVALID_ARGUMENT` | 载荷非法（超 4KB、notification 与 data 均为空等），看 body 里的 message |
+| `fcm: project_id/client_email/private_key is required` | Missing config fields |
+| `fcm: private_key is not valid PEM data` | The private key is not PEM (the header/footer lines may have been lost during copying) |
+| `fcm: private_key must be an RSA key` | The private key is not RSA (check that you did not grab the wrong key file) |
+| `fcm: token error: invalid_grant` | JWT exchange failed: the private key does not match `client_email`, the clock skew is too large, or the key has been revoked — regenerate the service account key |
+| `unexpected status code: 401/403` | The access token is invalid, or FCM is not enabled for the project |
+| `unexpected status code: 404, body: ... NOT_FOUND` | The registration token is no longer valid (app uninstalled / token rotated); remove it from the recipients |
+| `unexpected status code: 400, body: ... INVALID_ARGUMENT` | Invalid payload (over 4KB, both `notification` and `data` empty, etc.) — read the `message` in the body |
 
-错误格式说明：HTTP 非 2xx 返回 `unexpected status code: {code}, body: {response body}`，FCM 的结构化错误在 body 里的 `error.message` / `error.status`。整体排错见[排错指南](/guide/troubleshooting)。
+Error format notes: non-2xx HTTP responses return `unexpected status code: {code}, body: {response body}`; FCM's structured error is in the body's `error.message` / `error.status`. For overall troubleshooting, see the [Troubleshooting Guide](/guide/troubleshooting).
 
-## 安全建议
+## Security Recommendations
 
-1. **私钥即凭据**：服务账号私钥可代表项目发推送，务必放环境变量或密管系统，不要提交进仓库
-2. **最小授权**：为 Herald 单独生成服务账号，仅保留 messaging 权限
-3. **密钥轮换**：泄露后在 Firebase 控制台删除旧密钥并重新生成，同步更新配置
-4. **失效 token 清理**：404 `NOT_FOUND` 表示 token 已注销，持续重投无意义，应从受众中移除
+1. **The private key is a credential**: the service account private key can send pushes on behalf of the project — always keep it in an environment variable or a secrets-management system, and never commit it to the repository
+2. **Least privilege**: create a dedicated service account for Herald and keep only messaging permissions
+3. **Key rotation**: if it is leaked, delete the old key in the Firebase console and regenerate it, then update the config accordingly
+4. **Cleaning up invalid tokens**: a 404 `NOT_FOUND` means the token is deregistered; continuous re-delivery is pointless — remove it from your audience
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [Webhook](./webhook.md) - 自定义 HTTP 接收端
-- [排错指南](/guide/troubleshooting) - 启动失败、消息没到、重试不生效
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [Webhook](./webhook.md) - a custom HTTP receiver
+- [Troubleshooting Guide](/guide/troubleshooting) - startup failure, message not delivered, retries not taking effect

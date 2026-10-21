@@ -1,114 +1,112 @@
-> 中文 · [English](./coverage.en.md)
+# Test Coverage Basis
 
-# 测试覆盖率口径
+This document explains Herald's coverage statistics basis, the current measured level, the CI gate, and the site-by-site classification of the residual zero blocks. The process and methodology of the drive are in the [Coverage Drive: Wrap-Up (2026-09)](../coverage-initiative-2026-09.md); the final state of the task chain is in the [Coverage Task Final Report (2026-09)](../coverage-final-report-2026-09.md). There is only one principle: **the test tooling's measured result is authoritative, and fake coverage that pads the numbers is never written**.
 
-本文说明 Herald 的覆盖率统计口径、当前实测水位、CI 门禁，以及残余零块的逐处定性。本轮攻坚的过程与方法论见[覆盖率攻坚总结（2026-09）](../coverage-initiative-2026-09.md)，任务链最终状态见[覆盖率任务收官报告（2026-09）](../coverage-final-report-2026-09.md)。原则只有一条：**以测试工具实测为准，不写凑数字的假覆盖**。
+## Basis Definition
 
-## 口径定义
+- The statistics tool is `go test -coverprofile`, and the smallest unit is the Go coverprofile's **basic block (statement block)**, not the line.
+- The Go compiler cuts every exit of an `if`/`for`/`select` and every `case` into an independent basic block, with each block recording its execution count. **All block counts being non-zero is equivalent to full branch coverage**: as long as both sides of a conditional branch really executed, both blocks are non-zero; if either side is never reached, a block with a zero count is left behind.
+- Our acceptance standard is therefore: **every zero-count block in the profile either gets a test that deterministically triggers it, or has its reason truthfully registered through one of two channels**: an inline qualitative annotation in the source (`Defensive` / `Unreachable` / `not callable` / `Coverage note`), or the [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) registry at the repo root. There is no third handling. After excluding the registered unreachable items, statement coverage is 100%.
+- The CI basis carries `-coverpkg=./...`: the statements of every package count toward the profile, so a newly added package without tests directly drags the gate down instead of being silently excluded from the statistics.
+- Assertion-free "pass-through" tests or fabricated call paths are forbidden as a means of manufacturing coverage numbers.
+- **Subprocess basis (supplementary)**: `main()` does not execute inside a `go test` statement, so on the go-test basis it is forever zero. For these entries the package is compiled into an instrumented binary with `go build -cover`, run for real as a subprocess under `GOCOVERDIR`, and every block in the `main()` range of the `go tool covdata textfmt` dump is asserted non-zero. `os.Exit` skips the profile dump, so the success path must exit via `return` (the `main` of all four entries has been rewritten that way); the failure path `os.Exit(n)` is unmeasurable in principle at the Go toolchain level — see below.
+- **The gate profile is a merged basis**: the subprocess guard tests persist their own textfmt dumps under `HERALD_MAIN_COVERDIR`, and [`tools/covermerge.py`](https://github.com/cuihairu/herald/blob/main/tools/covermerge.py) merges these **measured counts** back into the go-test profile, upgrading the entry blocks from "registered exemption" to genuinely non-zero. The merger hard-fails on fake data: an empty dump, an entry file in the dump (identified by basename == `main.go`) with no non-zero block at all, or a block in the dump that the main profile does not have (toolchain/code drift) — any hit refuses the merge and exits.
 
-- 统计工具为 `go test -coverprofile`，以 Go coverprofile 的**基本块（statement block）**为最小单位，而不是行。
-- Go 编译器把 `if`/`for`/`select` 的每个出口、每个 `case` 都切成独立的基本块，每块记录执行次数。**所有块的计数非零等价于分支覆盖已满**：一个条件分支只要两侧都真实执行过，两个块都会非零；任一侧没走到，就会留下一个计数为零的块。
-- 因此我们的验收标准是：**profile 中每一个计数为零的块，要么补上确定性触发它的测试，要么按两条通道之一如实登记原因**：源码就地定性注释（`Defensive` / `Unreachable` / `not callable` / `Coverage note`），或仓库根 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记表。没有第三种处理。排除已登记不可达项后，语句覆盖率为 100%。
-- CI 口径带 `-coverpkg=./...`：所有包的语句都计入 profile，新增一个没有测试的包会直接拉低门禁，而不是被静默排除在统计之外。
-- 禁止用无断言的"路过式"测试或伪造调用路径制造覆盖数字。
-- **子进程口径（补充）**：`main()` 不在 `go test` 语句内执行，go-test 口径永远是零。这类入口用 `go build -cover` 把包编译成带插桩的二进制，作为子进程在 `GOCOVERDIR` 下真实运行，断言 `go tool covdata textfmt` 转储中 `main()` 区间内所有块非零。`os.Exit` 会跳过 profile 转储，因此成功路径必须经 `return` 退出（四个入口的 `main` 均已如此改写），失败路径 `os.Exit(n)` 属于 Go 工具链原理性不可测，见下文。
-- **门禁 profile 是合并口径**：子进程守卫测试在 `HERALD_MAIN_COVERDIR` 下持久化各自的 textfmt 转储，[`tools/covermerge.py`](https://github.com/cuihairu/herald/blob/main/tools/covermerge.py) 把这些**实测计数**合并回 go-test profile，入口块从"登记豁免"升级为真实非零。合并器对假数据硬失败：空 dump、dump 中入口文件（按 basename == `main.go` 识别）无任何非零块、dump 出现主 profile 没有的块（工具链/代码漂移），任一命中即拒绝合并退出。
+## Measured Level and Gate
 
-## 实测水位与门禁
-
-| 项目 | 值 |
+| Item | Value |
 | --- | --- |
-| 语句覆盖率（go-test 口径原始值） | 99.62%（8769/8802，2026-10-14 实测；2026-10-11 为 99.62%（8550/8583）；2026-10-13 复测 99.6%，同分母，digest 时钟钉测修复仅动 `core/service/digest_test.go` 测试文件、无生产代码改动；此前 2026-10-10 为 99.61%（8532/8565）） |
-| 语句覆盖率（**门禁口径**：合并四个 `main()` 子进程实测后） | **99.74%**（8779/8802，2026-10-14 实测，子进程合并救回 10 条语句；2026-10-11 为 99.73%（8560/8583）；2026-10-10 为 99.73%（8542/8565）；门禁等效口径不受影响） |
-| CI 门禁 | `tools/zero_check.py coverage.merged.out --gate 100`：排除 [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 登记块后等效语句覆盖率必须为 **100%**，且不存在未定性零块 |
-| 残余零块 | **15 块**（2026-10-14 go1.26.6 实测，**全部命中台账**；2026-10-11 同为 15 块）。2026-10-11 的 dispatch 修复批里，新增 `resolvePlain` 的 channels 块分支一度成为未定性零块，由 `TestDispatchChannelsBlockAudienceKeepsCompat` 补测覆盖而非登记——门禁计数缺陷修复后第一次当场拦下真缺口；2026-10-14 的 audiences 运行时 API 批里，新增 audiences seed persist 失败守卫由启动失败用例 `audiences store dir missing` 补测覆盖（同上述先例，未登记），`Manager.Reload` 的 nil store 短路臂由 `TestManagerReloadNilStore` 实测。台账现共登记 **16 条**：批次 8-11/阶段③ 期间新入账调度窗口与恒 nil 型 11 条（`reconcile.go:118/:127`、`sources.go:140/:150`、`handler_sources.go:237`、`handler_surfaces.go:129`、`rss.go:73`、`websocket/server.go:370`、`quickstart/main.go:23`、`client.go:275`、`example/main.go:35`）加 `main.go:439/:491` 两处构建守卫（2026-10-14 随 audiences store 接线块下移 23 行，原 416/468）与 `main.go:60` 的 `os.Exit` 失败分支，再加 apps-sdk 示例的 `example/main.go:36`（2026-10-10 随第四入口入账）；原两处 gorilla `SetWriteDeadline` 恒 nil 条目随代码改写为 `_ =` 显式忽略（无分支可测）出清；wechatmp 写锁双检（`wechatmp.go:312`）偶发走到非零，未参与豁免。历史升格记录：`writeControl` 先例带动的七处（原 `main.go:556`、`client.go:197`、`handler_groups.go:71/:88`、`main.go:130/:381`、`handler_surfaces.go` 的 RSSToken 500 守卫——熵源 seam 导出为 `audience.RandRead` 后由 `TestAudienceSurfacesReadTokenFailure` 实测）已移出台账 |
-| **前端分支覆盖（dashboard/）** | **100%**（2026-10-13 实测四项全满：statements 590/590、branches 336/336、functions 205/205、lines 551/551，16 文件 178 用例；此前语句 585/590、函数 200/205 不在门禁内的缺口全部是 `App.tsx` 里 5 个未被路由测试导航到的 lazy 加载箭头，本轮补 /groups、/logs、/send、/providers/:name/config、登录态 /workers 五个路由挂载测试后四项齐平。上一记录 2026-10-11（useWebSocket 死线摘除前）为 branches 349/349、lines 595/595）。CI 门禁阈值 `branches: 100` 与实测水位一致，**不含任何豁免** |
+| Statement coverage (raw value on the go-test basis) | 99.62% (8769/8802, measured 2026-10-14; it was 99.62% (8550/8583) on 2026-10-11; the 2026-10-13 retest read 99.6% with the same denominator, since the digest clock-pinning test fix touched only the `core/service/digest_test.go` test file with no production code change; before that it was 99.61% (8532/8565) on 2026-10-10) |
+| Statement coverage (**gate basis**: after merging the measured counts of the four `main()` subprocesses) | **99.74%** (8779/8802, measured 2026-10-14, with the subprocess merge rescuing 10 statements; it was 99.73% (8560/8583) on 2026-10-11; 99.73% (8542/8565) on 2026-10-10; the gate's equivalent basis is unaffected) |
+| CI gate | `tools/zero_check.py coverage.merged.out --gate 100`: after excluding the blocks registered in [`KNOWN_UNCOVERABLE.md`](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md), the equivalent statement coverage must be **100%**, with no unclassified zero blocks |
+| Residual zero blocks | **15 blocks** (measured 2026-10-14 with go1.26.6, **all matching the ledger**; also 15 blocks on 2026-10-11). In the 2026-10-11 dispatch fix batch, the newly added channels block branch of `resolvePlain` briefly became an unclassified zero block and was covered by the supplementary test `TestDispatchChannelsBlockAudienceKeepsCompat` instead of being registered — the first time the gate caught a real gap on the spot after the counting-defect fix; in the 2026-10-14 audiences runtime API batch, the newly added audiences seed persist failure guard was covered by the startup-failure case `audiences store dir missing` (not registered, following the precedent above), and the nil-store short-circuit arm of `Manager.Reload` was measured by `TestManagerReloadNilStore`. The ledger now holds **16 entries** in total: 11 scheduling-window and always-nil entries newly booked during batches 8-11 / phase ③ (`reconcile.go:118/:127`, `sources.go:140/:150`, `handler_sources.go:237`, `handler_surfaces.go:129`, `rss.go:73`, `websocket/server.go:370`, `quickstart/main.go:23`, `client.go:275`, `example/main.go:35`) plus two build guards at `main.go:439/:491` (shifted down 23 lines along with the audiences store wiring block on 2026-10-14, formerly 416/468) and the `os.Exit` failure branch at `main.go:60`, plus `example/main.go:36` of the apps-sdk example (booked on 2026-10-10 along with the fourth entry); the two original gorilla `SetWriteDeadline` always-nil entries were cleared when the code was rewritten to explicitly ignore the error with `_ =` (no branch left to test); the wechatmp write-lock double-check (`wechatmp.go:312`) occasionally reaches non-zero and does not participate in the exemption. Historical promotion record: the seven sites carried by the `writeControl` precedent (formerly `main.go:556`, `client.go:197`, `handler_groups.go:71/:88`, `main.go:130/:381`, and the RSSToken 500 guard in `handler_surfaces.go` — measured by `TestAudienceSurfacesReadTokenFailure` after the entropy-source seam was exported as `audience.RandRead`) have been removed from the ledger |
+| **Frontend branch coverage (dashboard/)** | **100%** (all four metrics full as measured on 2026-10-13: statements 590/590, branches 336/336, functions 205/205, lines 551/551, across 16 files with 178 test cases; the earlier gaps outside the gate — statements 585/590 and functions 200/205 — were all the 5 lazy-load arrows in `App.tsx` that no routing test had navigated to, and this round added mount tests for five routes (/groups, /logs, /send, /providers/:name/config, and /workers in the logged-in state), leveling all four metrics. The previous record, 2026-10-11 (before the useWebSocket deadline removal), was branches 349/349 and lines 595/595). The CI gate threshold `branches: 100` matches the measured level and carries **no exemption at all** |
 
-覆盖率每提高都只能通过两种方式：新增真实触发路径的测试，或删除死代码。任何"不可达"定性都必须在零块旁边就地留下注释（关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note`），说明该分支为何不会发生、保留它的价值是什么（通常是为了未来重构时大声失败，而不是静默吞掉）。
+Coverage can only rise in two ways: adding a test that really triggers the path, or deleting dead code. Any "unreachable" classification must leave an inline comment next to the zero block (keywords `Defensive` / `Unreachable` / `not callable` / `Coverage note`) explaining why the branch cannot happen and what the value of keeping it is (usually so that a future refactor fails loudly instead of silently swallowing the case).
 
-零块核对器已入库为 [`tools/zero_check.py`](https://github.com/cuihairu/herald/blob/main/tools/zero_check.py)：跑完覆盖率测试后执行 `python3 tools/zero_check.py coverage.out --gate 100`，零块按"就地注释或 KNOWN_UNCOVERABLE 登记"豁免，未定性零块以非零码退出；`--gate 100` 进一步要求"排除台账登记块后的等效语句覆盖率 ≥ 100%"：只做就地注释而不进台账的零块会拉低等效值、打红门禁，因此**每个豁免都必须走台账、留下书面原因**。
+The zero-block checker is in the repo as [`tools/zero_check.py`](https://github.com/cuihairu/herald/blob/main/tools/zero_check.py): after running the coverage tests, execute `python3 tools/zero_check.py coverage.out --gate 100`. Zero blocks are exempted via "inline comment or KNOWN_UNCOVERABLE registration", and unclassified zero blocks exit with a non-zero code; `--gate 100` further requires that "the equivalent statement coverage after excluding ledger-registered blocks is ≥ 100%": a zero block that only has an inline comment and never enters the ledger drags the equivalent value down and turns the gate red, so **every exemption must go through the ledger and leave a written reason**.
 
-## 进程入口 main()：双口径实测
+## Process Entry main(): Dual-Basis Measurement
 
-`main()` 只能由 OS 启动进程调用，`go test` 永远测不到；而 `main` 里的 `os.Exit(n)` 会跳过 GOCOVERDIR 转储。四个入口做了同样的处理：
+`main()` can only be called by the OS as it launches the process, so `go test` can never reach it; and an `os.Exit(n)` inside `main` skips the GOCOVERDIR dump. All four entries got the same treatment:
 
-1. `main` 改写为成功路径 `return`（`cmd/heraldd` 是 `if code := run(os.Args); code != 0 { os.Exit(code) }`），只有失败才退出进程；
-2. 各包 `main_cover_test.go` 用 `go build -cover -coverpkg=./...` 编译子进程，真实运行（heraldd 起 HTTP 服务后 SIGTERM 优雅退出；quickstart 同步派发后自然退出；worker-sdk 示例对 `ws://localhost:8081` 完成注册握手后 SIGTERM；apps-sdk 示例对进程内 stub 走完 §13 自检五步后自然退出）；
-3. 断言 GOCOVERDIR 转储中 `main()` 区间内除 `os.Exit` 行（`mainExitAllow`，工具链原理性不可测）之外每个块计数非零；
-4. 设了 `HERALD_MAIN_COVERDIR` 时，把 textfmt 转储持久化出来，由 `tools/covermerge.py` 合并进门禁 profile，入口块因此以**实测非零**进入门禁统计，不再依赖登记豁免。
+1. `main` was rewritten so the success path `return`s (`cmd/heraldd` is `if code := run(os.Args); code != 0 { os.Exit(code) }`), exiting the process only on failure;
+2. each package's `main_cover_test.go` compiles a subprocess with `go build -cover -coverpkg=./...` and runs it for real (heraldd starts the HTTP service and then exits gracefully on SIGTERM; quickstart dispatches synchronously and then exits naturally; the worker-sdk example completes the registration handshake against `ws://localhost:8081` and then takes a SIGTERM; the apps-sdk example walks the five §13 self-check steps against an in-process stub and then exits naturally);
+3. it asserts that in the GOCOVERDIR dump every block in the `main()` range is non-zero except the `os.Exit` line (`mainExitAllow`, unmeasurable in principle at the toolchain level);
+4. when `HERALD_MAIN_COVERDIR` is set, the textfmt dump is persisted out and merged into the gate profile by `tools/covermerge.py`; the entry blocks therefore enter the gate statistics as **measured non-zero** and no longer depend on a registered exemption.
 
-因此这四个包的 `main()` 在 go-test 口径下仍是零块，但合并口径下成功路径全部实测非零；残余是各 `main()` 的 `os.Exit` 失败分支：exit 跳过 GOCOVERDIR 转储，无法留下任何覆盖数据，已在台账登记。
+So the `main()` of these four packages is still a zero block on the go-test basis, but on the merged basis the success paths are all measured non-zero; what remains is the `os.Exit` failure branch of each `main()`: exit skips the GOCOVERDIR dump and cannot leave any coverage data, so it is registered in the ledger.
 
-## 台账登记的两条纪律
+## Two Disciplines for Ledger Registration
 
-**登记行号 = 块的起始行，且以 go1.26.6（`go.mod` 钉定的最低工具链，CI 的 `go-version: '1.26'` 浮动版本恒 ≥ 它）发出的 coverprofile 为准。** Go 把 `if` 的条件与分支体切成独立块，而块边界标注随工具链版本漂移：go1.26 对单行 `if` 把分支体块也标在 `if` 那一行起（如 `main.go:49.37,51.3`），go1.27 起才改标到分支体首行。本地默认 go1.27.1 与 CI 整体错一行：照本地 profile 抄行号登记，在 CI 的 go1.26 之下一条都匹配不上，`--gate 100` 立即变红。同时**零块按完整块区间 `(文件, 起, 止)` 聚合**（核对器与 covermerge 同口径）：若按起始行聚合取 max，单行 `if` 恒走过的条件块会把同起始行的零块 max 成非零，八处真缺口就是这样被藏出门禁的。完整纪律见[台账页首](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)。
+**A registered line number = the block's start line, and the coverprofile emitted by go1.26.6 (the minimum toolchain pinned in `go.mod`; CI's floating `go-version: '1.26'` is always ≥ it) is authoritative.** Go cuts an `if`'s condition and its branch body into independent blocks, and the block-boundary annotations drift with the toolchain version: for a single-line `if`, go1.26 also marks the branch-body block as starting on the `if` line (e.g. `main.go:49.37,51.3`), and only from go1.27 onward is it re-marked to the branch body's first line. The local default go1.27.1 is off by one line across the board against CI: copy line numbers from the local profile into the ledger and not a single entry matches under CI's go1.26, turning `--gate 100` red immediately. At the same time, **zero blocks are aggregated by the full block interval `(file, start, end)`** (the checker and covermerge use the same basis): if aggregation took the start line and the max, the always-taken condition block of a single-line `if` would max the zero block on the same start line up to non-zero, and that is exactly how eight real gaps were hidden out of the gate. The full discipline is at the [top of the ledger](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md).
 
-**登记项按 `文件:起始行` 匹配，注释一改行号就漂。** 给 `os.Exit`/deadline 块附近增删注释会把后续块的起始行顶掉几位，登记随即失配、门禁打回"未定性"。所以改过那几个文件里这类块附近的注释后要重跑门禁，不能只看测试是否通过。
+**Entries are matched by `file:start line`, so as soon as a comment changes, the line numbers drift.** Adding or removing comments near an `os.Exit`/deadline block pushes the start lines of the blocks after it over by a few positions; the registration immediately mismatches and the gate falls back to "unclassified". So after editing comments near such blocks in those files, rerun the gate — do not just look at whether the tests pass.
 
-**先查被调方实现，再判断可达性；不要按"形状像"登记。** 本轮就有一个反例：`worker-sdk/go/client.go` 里两个 `SetReadDeadline`/一个 `SetWriteDeadline` 失败分支形状完全一致，但 gorilla v1.5.3 中 `SetWriteDeadline` 是纯字段赋值恒返回 nil（不可达），而 `SetReadDeadline` 转发给 `net.Conn`、连接关闭即失败（可达，且因 `writeControl` 是包级变量而能确定性构造）。查证依据：该版本 `conn.go` 的函数体。
+**Check the callee's implementation first, then judge reachability; do not register by "it looks like".** This round has a counterexample: in `worker-sdk/go/client.go` two `SetReadDeadline` and one `SetWriteDeadline` failure branches are shaped exactly alike, but in gorilla v1.5.3 `SetWriteDeadline` is a pure field assignment that always returns nil (unreachable), while `SetReadDeadline` forwards to `net.Conn` and fails as soon as the connection is closed (reachable, and deterministically constructible because `writeControl` is a package-level variable). The evidence: the function body of that version's `conn.go`.
 
-## 原防御分支的归处
+## Where the Original Defensive Branches Ended Up
 
-早期清单里几十处"不可达/防御分支"，经三轮攻坚后只剩三种结局，profile 中已无一处防御性零块：
+Of the dozens of "unreachable/defensive branches" on the early list, only three endings remain after three rounds of the drive, and not a single defensive zero block is left in the profile:
 
-1. **直调实测**：包级函数直接调用，不走生产入口（`compileRule` 六类字段错误、`pkcs7Unpad` 非法输入、`runProgram` 超时与取消、`evalProgram` seam 打桩超时等）。
-2. **重构消灭**：分支本身是坏结构的产物，直接改代码删掉——
-   - `Manager.Deliver` 的 `IsEnabled`+`GetProvider` 双锁竞态分支 → 合并为单锁 `lookupEnabled`，错误分支可实测；
-   - `Engine.Put` 把 `compileRule` 前置到 `Validate` 之前，编译错误分支从"不可达守卫"变为可实测；
-   - `runProgram` 的非 bool 返回值分支 → 单值断言 `r.out.(bool)`（不变量破坏必须 panic）。
-3. **恒 nil 显式接受**：`x, _ := f(...)` 加注释说明为什么错误恒为 nil：gorilla 的 `SetWriteDeadline` 只记录时间戳；对可序列化结构的 `json.Marshal`；回退式限流器工厂；base64 密码摘要；SHA-256 摘要上的 `aes.NewCipher`；类型断言式 `parseConfig`。若契约变化，注释要求恢复为显式错误处理。
+1. **Direct-call measurement**: package-level functions are called directly without going through the production entry (`compileRule`'s six field error classes, `pkcs7Unpad` illegal input, `runProgram` timeout and cancellation, `evalProgram` seam-stubbed timeout, etc.).
+2. **Eliminated by refactor**: the branch itself was the product of bad structure, and the code was changed to delete it outright —
+   - `Manager.Deliver`'s `IsEnabled`+`GetProvider` double-lock race branch → merged into the single-lock `lookupEnabled`, making the error branch measurable;
+   - `Engine.Put` front-loads `compileRule` ahead of `Validate`, turning the compile-error branch from an "unreachable guard" into something measurable;
+   - `runProgram`'s non-bool return branch → the single-value assertion `r.out.(bool)` (a broken invariant must panic).
+3. **Explicit acceptance of always-nil**: `x, _ := f(...)` with a comment explaining why the error is always nil: gorilla's `SetWriteDeadline` only records a timestamp; `json.Marshal` on a serializable struct; the fallback rate-limiter factory; the base64 password digest; `aes.NewCipher` on a SHA-256 digest; the type-assertion-style `parseConfig`. If the contract changes, the comment requires restoring explicit error handling.
 
-注解关键词 `Defensive` / `Unreachable` / `not callable` / `Coverage note` 在源码中检索即可定位每一处说明。
+Searching the source for the annotation keywords `Defensive` / `Unreachable` / `not callable` / `Coverage note` locates every one of these explanations.
 
-## Dashboard 前端：vitest + RTL，行覆盖 + 分支覆盖双 100% 门禁
+## Dashboard Frontend: vitest + RTL, a Double 100% Gate on Line and Branch Coverage
 
-前端（`dashboard/`）的口径与 Go 侧平行：vitest + Testing Library，`@vitest/coverage-v8` 统计，`dashboard/vitest.config.ts` 中 `thresholds: { lines: 100, branches: 100 }` 作为 CI 门禁（`.github/workflows/ci.yml` 的 dashboard job），**行覆盖或分支覆盖低于 100% 直接失败**。测试共 16 个文件 178 个用例（2026-10-13 实测，useWebSocket 死线摘除后），覆盖 API 层（axios 实例 seam + adapter 注入走真实拦截器链）、zustand store、全部 11 个页面组件与应用入口。四项实测均 100%（statements 590/590、branches 336/336、functions 205/205、lines 551/551），**门禁阈值仍只守分支与行两项**——语句与函数缺口曾是 `App.tsx` 的 5 个 lazy 加载箭头，已由路由挂载测试补齐。为什么分支覆盖仍不等于"测到了"，见[下一节](#前端分支覆盖补齐的最后一轮-97-69-→-100)。
+The frontend (`dashboard/`) basis is parallel to the Go side: vitest + Testing Library, statistics by `@vitest/coverage-v8`, with `thresholds: { lines: 100, branches: 100 }` in `dashboard/vitest.config.ts` as the CI gate (the dashboard job in `.github/workflows/ci.yml`), where **line coverage or branch coverage below 100% fails outright**. The tests total 16 files with 178 cases (measured 2026-10-13, after the useWebSocket deadline removal), covering the API layer (the axios instance seam + adapter injection running the real interceptor chain), the zustand store, all 11 page components, and the app entry. All four measured metrics are 100% (statements 590/590, branches 336/336, functions 205/205, lines 551/551), and **the gate threshold still guards only branches and lines** — the statement and function gaps used to be the 5 lazy-load arrows in `App.tsx`, since filled in by route mount tests. For why branch coverage still does not equal "tested", see [the next section](#the-final-round-of-closing-frontend-branch-coverage-97-69-→-100).
 
-测试搭建过程中顺带修掉两个真实生产缺陷：
+Two real production defects were fixed along the way while building the tests:
 
-1. **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法依赖 `ReactDOM.render`（React 19 已移除），当时必须调用 `unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx` + `src/test/setup.ts` 双处）。**2026-10-10 antd 升 v6（`cd3af21`）后此接缝已整体拆除**——v6 静态方法原生走 `createRoot`（React 19 安全），`src/main.tsx` 仅留注释记这一段来历；测试侧随 v6 需要的是 rc-motion 链排空与确定性卸载，见下节。
-2. **SendPage 渲染期副作用死循环**：`if (providers.length === 0) fetchProviders()` 写在渲染体内，zustand 每次 `set` 都换 state 引用，形成「set → 重渲染 → 再 fetch」无限循环；已移入 `useEffect` 空依赖数组。
+1. **antd static message silently failing to pop under React 19**: antd v5's static methods depend on `ReactDOM.render` (removed in React 19), so at the time `unstableSetRender` had to be called to inject a `createRoot`-based renderer (in both `src/main.tsx` and `src/test/setup.ts`). **After antd was upgraded to v6 on 2026-10-10 (`cd3af21`) this seam was removed entirely** — v6's static methods natively go through `createRoot` (safe under React 19), and `src/main.tsx` keeps only a comment recording that history; what the test side needs with v6 is instead draining the rc-motion chain and deterministic unmounting, see the next section.
+2. **SendPage render-phase side-effect infinite loop**: `if (providers.length === 0) fetchProviders()` was written inside the render body, and since zustand swaps the state reference on every `set`, this formed a "set → re-render → fetch again" infinite loop; it was moved into a `useEffect` with an empty dependency array.
 
-`src/test/setup.ts` 的收尾纪律（v5 时代是「注入的静态渲染器必须把 `createRoot().render()` 包进 `act()`」；antd v6 拆除该接缝后，问题换成 rc-motion 退场链排空）——任何漏到用例之外的工作都由 scheduler 的 `processImmediate`（宏任务）冲刷，慢机上排在 **vitest 销毁 jsdom 之后**才触发，此时 `window` 已不存在，抛 unhandled `ReferenceError`。它发生在覆盖率统计**之后**，所以行覆盖仍是 100%、门禁照样通过，vitest 却以 exit code 1 收场。**覆盖门禁抓不到这类泄漏**，只有 unhandled-error 报告能。
+`src/test/setup.ts`'s teardown discipline (in the v5 era it was "the injected static renderer must wrap `createRoot().render()` inside `act()`"; after antd v6 removed that seam, the problem became draining the rc-motion exit chain) — any work that escapes the test case is flushed by the scheduler's `processImmediate` (a macrotask), and on a slow machine it fires only **after vitest has destroyed jsdom**, at which point `window` no longer exists and an unhandled `ReferenceError` is thrown. It happens **after** the coverage statistics, so line coverage is still 100% and the gate still passes, yet vitest ends with exit code 1. **The coverage gate cannot catch this kind of leak** — only the unhandled-error report can.
 
-修法分两层，缺一层都会漏（v5 时代的形态）：
+The fix has two layers, and missing either one lets it slip through (the v5-era shape):
 
-1. **`render`/`unmount` 都包 `act`**，否则这次 `createRoot().render()` 的调度工作从一开始就在用例作用域之外；
-2. **注入渲染器登记每个 root，`afterAll` 逐个 `root.unmount()`（同样包 `act`）**：unmount 同步冲刷并作废该 root 名下所有已排程工作，之后 scheduler 再无可为该 root 触发的回调，收尾是**确定性**的。
+1. **Wrap both `render`/`unmount` in `act`**, otherwise the scheduling work of that `createRoot().render()` is outside the test case's scope from the very start;
+2. **The injected renderer registers every root, and `afterAll` unmounts them one by one with `root.unmount()` (also wrapped in `act`)**: unmount synchronously flushes and invalidates all work already scheduled under that root, after which the scheduler has no callback left that it could fire for that root — the teardown is **deterministic**.
 
-antd v6 之后第 1 层消失，收尾换成 `afterEach` 的 `flushPendingWork`：循环 `act` + 20ms 直到文档里没有 rc-motion 活动态类名（退场链收敛，30 轮上限）；僵尸 message 弹层（v6 关闭链在 jsdom+act 下静默失效）只抹文本、不碰 React 托管节点。
+After antd v6, layer 1 disappeared and teardown became `afterEach`'s `flushPendingWork`: loop `act` + 20ms until no rc-motion active-state class names remain in the document (the exit chain has converged, with an upper bound of 30 rounds); a zombie message layer (v6's close chain silently fails under jsdom+act) has only its text wiped, without touching React-managed nodes.
 
-只做第 1 层加 `afterEach` 定时排空（两轮 `act` + `0`/`20ms` 定时器，跨 rc-motion 的 rAF 兜底窗口）是**赌帧时机**：CI 上调度慢一点，immediate 就排在 flush 之后、环境销毁之后，照样抛 `window is not defined`。`23e8dc8`/`2c9f164` 两期 CI 红（3 处 unhandled error）正是这么来的，本地三轮并行复跑全绿也没能提前发现。`afterEach` 的定时排空仍保留（按用例回收动画帧，避免跨用例残留），但**不再承担收尾职责**；收尾只认第 2 层的确定性卸载。
+Doing only layer 1 plus a timed `afterEach` drain (two rounds of `act` + `0`/`20ms` timers, a fallback window spanning rc-motion's rAF) is **gambling on frame timing**: if scheduling runs a bit slower on CI, the immediate lands after the flush and after the environment is destroyed, and it still throws `window is not defined`. The two CI red rounds `23e8dc8`/`2c9f164` (3 unhandled errors) came about exactly this way, and three parallel reruns locally, all green, failed to catch it in advance. The timed `afterEach` drain is kept (recycling animation frames per case to avoid cross-case residue) but **no longer carries the teardown responsibility**; teardown recognizes only layer 2's deterministic unmount.
 
-### 前端分支覆盖补齐的最后一轮（97.69% → 100%）
+### The final round of closing frontend branch coverage (97.69% → 100%)
 
-上一期把分支水位记为 97.69%，并把未覆盖的 6 个分支整体定性为「工具口径残余 + 契约防御」。本轮逐个重查后，**这 6 个分支全部是可测的业务路径，无一需要台账登记**，已补齐到 100%：
+The previous round recorded the branch level as 97.69% and classified the 6 uncovered branches wholesale as "tooling-basis residue + contract defense". After re-examining them one by one this round, **all 6 branches turned out to be testable business paths, none needing ledger registration**, and they have been filled in to 100%:
 
-| 位置 | 分支 | 之前的错误定性 | 实际处理 |
+| Location | Branch | Previous wrong classification | Actual handling |
 | --- | --- | --- | --- |
-| `src/pages/GroupsPage.tsx:56` | `values.members \|\| []` 右支 | 契约防御，当下限不到 | 把换算提为导出的纯函数 `toGroupPayload`，直测 `members: undefined` 把右支语义固定成可断言行为；组件内只留调用 |
-| `src/pages/LogsPage.tsx:104` | `l ? <Tag> : '-'` 的 `:` 支 | **v8 分支归属偏差**（误判） | 真凶是**用例自己没等数据**：`render()` 后同步 `querySelector`，行尚未渲染，`find` 返回 `undefined` 而 `not.toBeNull()` 对 `undefined` 也通过，用例一直是空转。改用 `waitFor` 真等出短横线。该判定已提为模块级导出的 `renderLevel`（语义不变，两支由这两条渲染用例真执行） |
-| `src/pages/ProviderConfigPage.tsx:30,33` | `schema \|\| {}` 右支 | 契约防御 | 原有用例注释写「omits the schema field」，实际传的是 `schema: {}`（有键但空，走 `||` 左支）。改为真正省略该键 |
-| `src/pages/ProviderConfigPage.tsx:71,96` | 保存/测试连接的 `token ? ... : {}` 假支 | 契约防御 | 原用例只覆盖了加载请求，没点按钮。补「无 token 时点保存 / 点测试通知」，断言请求头为空对象 |
+| `src/pages/GroupsPage.tsx:56` | the right side of `values.members \|\| []` | contract defense, unreachable under the current lower bound | the conversion was extracted into the exported pure function `toGroupPayload`, and directly testing `members: undefined` pinned the right side's semantics down as assertable behavior; the component keeps only the call |
+| `src/pages/LogsPage.tsx:104` | the `:` side of `l ? <Tag> : '-'` | **v8 branch attribution deviation** (a misjudgment) | the real culprit was **the test case not waiting for the data**: a synchronous `querySelector` right after `render()` ran before the row was rendered, so `find` returned `undefined` while `not.toBeNull()` passes for `undefined` too — the case had been idling all along. Switched to `waitFor` to actually wait for the dash. That decision has been extracted into the module-level export `renderLevel` (semantics unchanged; the two sides are genuinely executed by these two rendering cases) |
+| `src/pages/ProviderConfigPage.tsx:30,33` | the right side of `schema \|\| {}` | contract defense | the original case's comment said "omits the schema field", but what it actually passed was `schema: {}` (the key present but empty, taking the `||` left side). Changed to genuinely omit the key |
+| `src/pages/ProviderConfigPage.tsx:71,96` | the false side of `token ? ... : {}` for save/test connection | contract defense | the original case covered only the load request and never clicked the button. Added "click save / click test notification with no token", asserting that the request headers are an empty object |
 
-教训有两条，都写进维护清单：
+There are two lessons, both written into the maintenance checklist:
 
-- **不要把「用例没真跑起来」归因成工具问题。** 那条 `v8 归属偏差` 结论是错的：用例断言在 `undefined` 上也会通过，等于零断言的假覆盖，工具口径只是替它背了锅。判定分支不可达之前，先确认该路径**真的被执行过一次**。
-- **`not.toBeNull()` 断言不了「元素存在」。** 它对 `undefined` 同样通过。查 DOM 必须用 `waitFor` + `not.toBeUndefined()`，或直接 `findBy*`。
+- **Do not attribute "the test case never really ran" to a tooling problem.** That `v8 attribution deviation` conclusion was wrong: the case's assertion passes on `undefined` too, which amounts to zero-assertion fake coverage, and the tooling basis merely took the blame for it. Before declaring a branch unreachable, first confirm that the path **really executed at least once**.
+- **`not.toBeNull()` cannot assert "the element exists".** It passes for `undefined` just the same. To check the DOM you must use `waitFor` + `not.toBeUndefined()`, or `findBy*` directly.
 
-因此前端不再有残余未覆盖分支，`branches: 100` 作为门禁与实测水位一致，不含任何豁免。
+The frontend therefore no longer has residual uncovered branches, and `branches: 100` as a gate matches the measured level, carrying no exemption.
 
-顺带补掉一处**行覆盖门禁看不见的函数缺口**：`LogsPage` 的 10 秒自动刷新回调（`src/pages/LogsPage.tsx:88`）从未被任何用例执行过，报表里 `% Lines` 一栏仍显示 100%（该回调的语句不带行信息，被 v8 的 Lines 折算跳过），只有 `% Funcs` 95.45% 暴露了它。用例改为抓 `setInterval` 注册的回调直接调用并断言日志与统计双双重拉，`LogsPage` 四个指标随之全满（100/100/100/100）。
+A **function gap invisible to the line-coverage gate** was also filled in along the way: `LogsPage`'s 10-second auto-refresh callback (`src/pages/LogsPage.tsx:88`) had never been executed by any test case, yet the `% Lines` column in the report still showed 100% (the callback's statements carry no line information and are skipped by v8's Lines accounting); only `% Funcs` at 95.45% exposed it. The case was changed to grab the callback registered with `setInterval`, call it directly, and assert that both the logs and the statistics are refetched, and `LogsPage`'s four metrics then went full (100/100/100/100).
 
-教训：**阈值只能守住它自己那一列**。`lines: 100` 满不代表函数都跑到，本轮就是靠交叉看 `% Funcs` 才发现的；补分支覆盖时顺手核对 `% Funcs` / `% Stmts`，是比只盯 Lines 便宜得多的自查。
+Lesson: **a threshold only guards its own column**. A full `lines: 100` does not mean every function ran, and this round found it only by cross-checking `% Funcs`; when filling in branch coverage, checking `% Funcs` / `% Stmts` in passing is a far cheaper self-check than staring only at Lines.
 
-由于四项指标同时打满，本轮**没有任何分支或函数需要登记进台账**，前端不需要 `KNOWN_UNCOVERABLE` 式的豁免清单，这是它与 Go 侧最大的口径差异：Go 侧的零块来自工具链原理性不可测路径（`os.Exit` 跳过 GOCOVERDIR 转储、gorilla 的恒 nil setter），前端这类缺口都能用确定性用例补上。补不上时（确有条件不可达）再照 Go 侧纪律登记。
+Because all four metrics went full at the same time, this round **had no branch or function that needed to be registered in the ledger**, and the frontend needs no `KNOWN_UNCOVERABLE`-style exemption list — that is its biggest basis difference from the Go side: the Go-side zero blocks come from paths unmeasurable in principle at the toolchain level (`os.Exit` skipping the GOCOVERDIR dump, gorilla's always-nil setter), whereas gaps of this kind on the frontend can all be filled with deterministic test cases. When one cannot be filled (a condition is genuinely unreachable), register it following the Go-side discipline.
 
-## 如何维护这份水位
+## How to Maintain This Level
 
-1. 给新代码写测试时以「触发每个分支」为目标，而不是「跑过函数」。
-2. 若某分支确实不可达，先怀疑它是不是死代码，是就删掉；确需保留（API 兼容、未来重构防静默），就地写 `// Defensive: ...` 并说明原因。
-3. 断言某个元素/分支真的出现过，就用 `waitFor` + `not.toBeUndefined()` 或 `findBy*`；`not.toBeNull()` 对 `undefined` 也通过，等于没断言。**判定「不可达」前先确认路径真的被执行过**：本轮就有一处把「用例空转」误判成「v8 归属偏差」。
-4. 新增 `main()` 或常驻进程入口时，同步补 GOCOVERDIR 子进程守卫测试。
-5. 阈值只随实测水位上调，不预留缓冲；任何人引入未测代码，CI 会立即拦下。
-6. 覆盖率门禁只管「测没测到」，**不管「测干不干净」**：逃到环境销毁之后的异步工作（未被 `act` 收口的渲染、动画帧回调）会以 unhandled error 让 vitest 非零退出，但行覆盖仍显示 100%。给异步副作用补用例时，同步确认它落在 `act` 作用域内；否则以 unhandled-error 报告为准，别被绿色覆盖率骗过去。新增渲染 seam 沿用 `setup.ts` 的既有模式：**登记每个创建的 root、`afterAll` 确定性卸载**，定时排空只是辅助，别把收尾职责交还给帧时机。
+1. When writing tests for new code, aim to "trigger every branch", not to "run through the function".
+2. If a branch is genuinely unreachable, first suspect dead code and delete it if so; if it must be kept (API compatibility, guarding a future refactor against silence), write `// Defensive: ...` in place and explain why.
+3. To assert that an element/branch really appeared, use `waitFor` + `not.toBeUndefined()` or `findBy*`; `not.toBeNull()` passes for `undefined` too, which amounts to no assertion. **Before judging something "unreachable", confirm the path really executed**: this round had a case where an "idling test case" was misjudged as a "v8 attribution deviation".
+4. When adding a `main()` or a long-running process entry, add the GOCOVERDIR subprocess guard test in step.
+5. Thresholds are only ever raised to follow the measured level, with no reserved buffer; if anyone introduces untested code, CI stops it immediately.
+6. The coverage gate only governs "was it tested", **not "was it tested cleanly"**: async work that escapes past environment destruction (renders not settled by `act`, animation-frame callbacks) makes vitest exit non-zero with an unhandled error, while line coverage still shows 100%. When adding cases for async side effects, confirm in step that they land inside the `act` scope; otherwise go by the unhandled-error report and do not be fooled by green coverage. New render seams follow the existing pattern in `setup.ts`: **register every root created, unmount deterministically in `afterAll`**; the timed drain is only an aid, so do not hand the teardown responsibility back to frame timing.

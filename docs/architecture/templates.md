@@ -1,23 +1,21 @@
-> 中文 · [English](./templates.en.md)
+# Template System Architecture
 
-# 模板系统架构
+## Design Goals
 
-## 设计目标
+The core goal of Herald's template system is to **decouple message format from the sending channel**:
 
-Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
+- Define once, reuse across channels
+- Runtime management (CRUD API)
+- Automatic channel adaptation
 
-- 一次定义，多渠道复用
-- 运行时管理（CRUD API）
-- 自动渠道适配
-
-## 架构概览
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        模板系统架构                              │
+│                  Template System Architecture                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  用户请求                                                        │
+│  User request                                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │ { template, params, channels }                            │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -27,16 +25,16 @@ Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
 │  │  ┌────────────────────────────────────────────────────┐  │   │
 │  │  │ 1. Get Template by ID                              │  │   │
 │  │  │ 2. Engine.Render() → RenderedData                  │  │   │
-│  │  │    (变量替换，得到语义化数据)                         │  │   │
+│  │  │    (variable substitution, yielding semantic data)  │  │   │
 │  │  └────────────────────────────────────────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                          ↓                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │              DeliveryPlanner.buildPayload()               │   │
 │  │  ┌────────────────────────────────────────────────────┐  │   │
-│  │  │ binding 带 provider 模板且 Provider 支持 →           │  │   │
-│  │  │   PayloadProviderTemplate（服务商渲染）              │  │   │
-│  │  │ 否则 → selectFormat() 选格式再渲染：                 │  │   │
+│  │  │ binding has provider template + Provider support → │  │   │
+│  │  │  PayloadProviderTemplate (vendor-rendered)         │  │   │
+│  │  │ else → selectFormat() picks format, then renders:  │  │   │
 │  │  │   binding.format > ContentFormats[0] > plain        │  │   │
 │  │  └────────────────────────────────────────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -57,37 +55,37 @@ Herald 模板系统的核心目标是**消息格式与发送渠道解耦**：
 │  │                    Provider.Deliver()                     │   │
 │  │  ┌──────────┬──────────┬──────────┬──────────────────┐  │   │
 │  │  │  Email   │   SMS    │    IM    │   Rich Media     │  │   │
-│  │  │ RenderFmt│ template_code │Body │  Body (已渲染)    │  │   │
+│  │  │ RenderFmt│ template_code │Body │  Body (rendered)  │  │   │
 │  │  └──────────┴──────────┴──────────┴──────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 核心组件
+## Core Components
 
-### 1. Template（模板定义）
+### 1. Template (template definition)
 
 ```go
 type Template struct {
-    ID        string             // 模板唯一标识
-    Name      string             // 模板名称
-    Title     string             // 标题模板（支持变量）
-    Level     string             // 默认级别
-    Fields    []Field            // 字段列表
-    Bindings  map[string]Binding // 每渠道适配配置（format / template_code / ...）
+    ID        string             // unique template identifier
+    Name      string             // template name
+    Title     string             // title template (supports variables)
+    Level     string             // default level
+    Fields    []Field            // field list
+    Bindings  map[string]Binding // per-channel adaptation config (format / template_code / ...)
     CreatedAt time.Time
     UpdatedAt time.Time
 }
 ```
 
-**设计要点**：
+**Design points**:
 
-- `Title` 和 `Fields.Value` 支持变量替换（Go template 语法）
-- `Fields` 是语义化字段，不包含具体格式
-- `Level` 用于配合路由规则
+- `Title` and `Fields.Value` support variable substitution (Go template syntax)
+- `Fields` are semantic fields and carry no concrete format
+- `Level` is used together with routing rules
 
-### 2. Engine（模板引擎）
+### 2. Engine (template engine)
 
 ```go
 type Engine struct {
@@ -98,13 +96,13 @@ type Engine struct {
 func (e *Engine) Render(tmpl *Template, params map[string]interface{}) (*RenderedData, error)
 ```
 
-**职责**：
+**Responsibilities**:
 
-- 执行变量替换（`&#123;&#123;.Variable&#125;&#125;`）
-- 内置函数：`toUpper`、`toLower`、`trim`
-- 返回 `RenderedData`（语义化数据，与渠道无关）
+- Perform variable substitution (`&#123;&#123;.Variable&#125;&#125;`)
+- Built-in functions: `toUpper`, `toLower`, `trim`
+- Return `RenderedData` (semantic data, channel-independent)
 
-### 3. Renderer（渲染器）
+### 3. Renderer
 
 ```go
 type Renderer interface {
@@ -113,16 +111,16 @@ type Renderer interface {
 }
 ```
 
-**实现**：
+**Implementations**:
 
-| Renderer | 格式 | 输出示例 |
+| Renderer | Format | Output example |
 |----------|------|---------|
 | HTMLRenderer | HTML | `<table>...</table>` |
 | MarkdownRenderer | Markdown | `### Title\n\n**Key**: Value` |
-| PlainRenderer | 纯文本 | `Title\n\nKey: Value` |
+| PlainRenderer | plain text | `Title\n\nKey: Value` |
 | JSONRenderer | JSON | `{"card": {...}}` |
 
-### 4. Manager（模板管理器）
+### 4. Manager (template manager)
 
 ```go
 type Manager struct {
@@ -135,11 +133,11 @@ func (m *Manager) Get(id string) (*Template, error)
 func (m *Manager) Render(id string, params map[string]interface{}) (*RenderedData, error)
 ```
 
-## Provider 适配
+## Provider Adaptation
 
-### 格式选择（selectFormat）
+### Format Selection (selectFormat)
 
-Provider 通过 Capability 里的 `ContentFormats` 字段声明支持的格式，没有独立接口：
+A Provider declares the formats it supports through the `ContentFormats` field in its Capability; there is no separate interface:
 
 ```go
 // core/provider.go
@@ -149,43 +147,43 @@ type ProviderCapability struct {
 }
 ```
 
-`DeliveryPlanner.selectFormat` 的取值顺序：binding 显式写了 `format` 就用它；否则取 `ContentFormats` 的第一项；两者都没有则 `plain`。内置 Provider 的默认值：Email `["html", "plain"]`、Telegram `["markdown", "plain"]`、飞书 `["plain"]`。
+`DeliveryPlanner.selectFormat` resolves in this order: if the binding explicitly sets `format`, use it; otherwise take the first entry of `ContentFormats`; if neither exists, `plain`. Built-in Provider defaults: Email `["html", "plain"]`, Telegram `["markdown", "plain"]`, Feishu `["plain"]`.
 
-### 不同 Provider 的处理方式
+### How Different Providers Are Handled
 
-planner 按 Provider 声明的 `PayloadKinds` 生成投递载荷，三种取值（`core/types.go` 的 wire 值）：`content`（Herald 渲染的标题+正文）、`provider_template`（服务商模板）、`raw`（原始字段兜底）。
+The planner generates the delivery payload according to the `PayloadKinds` the Provider declares, with three values (the wire values in `core/types.go`): `content` (the title + body rendered by Herald), `provider_template` (a vendor template), and `raw` (raw fields as a fallback).
 
-| Provider 类型 | PayloadKind | 数据来源 |
+| Provider type | PayloadKind | Data source |
 |-------------|---------|---------|
-| **Email** | content | `task.Payload.Content`（Title/Body/Format） |
+| **Email** | content | `task.Payload.Content` (Title/Body/Format) |
 | **SMS** | provider_template | `task.Payload.ProviderTemplate.TemplateCode` |
 | **IM (Feishu/Telegram)** | content | `task.Payload.Content` |
-| **Webhook** | content，raw 兜底 | `task.Payload.Content`，无渲染数据时退 `Payload.Raw` |
+| **Webhook** | content, raw fallback | `task.Payload.Content`, falling back to `Payload.Raw` when there is no rendered data |
 
-### SMS Provider 特殊处理
+### Special Handling for SMS Providers
 
-SMS Provider 使用服务商的模板系统，不参与 Herald 模板渲染：
+SMS Providers use the vendor's template system and do not take part in Herald template rendering:
 
 ```go
 // SMS provider receives vendor template payload from DeliveryPlanner
 func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
     templateCode := task.Payload.ProviderTemplate.TemplateCode
     templateParams := task.Payload.ProviderTemplate.Params
-    // 直接发送给服务商
+    // send directly to the vendor
 }
 ```
 
-## 数据流转
+## Data Flow
 
-### 完整流程
+### Full Flow
 
 ```
-1. 用户请求
+1. User request
    { template: "alert", params: {Level: "ERROR"} }
 
 2. Manager.Render()
-   Template { Title: "【<code v-pre>{{.Level}}</code>】告警" }
-   → RenderedData { Title: "【ERROR】告警", Fields: [...] }
+   Template { Title: "[<code v-pre>{{.Level}}</code>] Alert" }
+   → RenderedData { Title: "[ERROR] Alert", Fields: [...] }
 
 3. DeliveryPlanner.selectFormat()
    Email → ContentFormats[0] = "html"
@@ -194,35 +192,35 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 4. Renderer.Render()
    HTMLRenderer.Render(RenderedData) → "<html>...</html>"
 
-5. 创建 Payload
+5. Create the Payload
    Payload.Content { Title, Body: "<html>...</html>", Format: "html" }
 
 6. Provider.Deliver()
-   Email: 按 Payload.Content.Format 发送 HTML 邮件
+   Email: send an HTML email according to Payload.Content.Format
 ```
 
-## 设计原则
+## Design Principles
 
-### 1. 渠道无关性
+### 1. Channel Independence
 
-模板定义只包含语义化数据，不包含特定渠道的格式。
+A template definition contains only semantic data, none of the format of any particular channel.
 
-### 2. 渲染分离
+### 2. Separation of Rendering
 
-变量替换在模板引擎，格式转换在渲染器，实际发送在 Provider，三层互不掺和。
+Variable substitution happens in the template engine, format conversion in the renderer, and actual sending in the Provider; the three layers do not interfere with one another.
 
-### 3. 向后兼容
+### 3. Backward Compatibility
 
 ```go
-// 直接发送（不使用模板）
+// direct send (without a template)
 POST /api/v1/notify
 {
-  "title": "直接标题",
-  "body": "直接内容",
+  "title": "Direct title",
+  "body": "Direct content",
   "channels": ["telegram"]
 }
 
-// 模板发送
+// template send
 POST /api/v1/notify
 {
   "template": "my_template",
@@ -231,9 +229,9 @@ POST /api/v1/notify
 }
 ```
 
-## 扩展性
+## Extensibility
 
-### 添加新渲染器
+### Adding a New Renderer
 
 ```go
 type CustomRenderer struct{}
@@ -243,16 +241,16 @@ func (r *CustomRenderer) Format() RenderFormat {
 }
 
 func (r *CustomRenderer) Render(ctx context.Context, data *RenderedData) (interface{}, error) {
-    // 自定义渲染逻辑
+    // custom rendering logic
 }
 
-// 注册
+// register
 template.Registry[RenderFormat("custom")] = &CustomRenderer{}
 ```
 
-### Provider 声明格式支持
+### Providers Declaring Format Support
 
-在 Factory 返回的 Capability 里声明，列表第一项是默认格式：
+Declare it in the Capability returned by the Factory; the first item in the list is the default format:
 
 ```go
 PayloadKinds:   []core.PayloadKind{core.PayloadContent},

@@ -1,56 +1,54 @@
-> 中文 · [English](./wechat.en.md)
+# WeChat Personal Push
 
-# 微信个人推送
+Deliver messages to your **personal WeChat** via third-party push services — no business qualification, no Official Account. Good for personal alerting and reminders.
 
-通过第三方推送服务把消息送到**个人微信**，无需企业资质、无需公众号，适合自用告警与个人事务提醒。
+## What it does
 
-## 作用
+The `wechat` Builtin Provider reuses the HTTP APIs of three third-party services; `service` picks the backend:
 
-`wechat` Builtin Provider 复用了三个第三方服务的 HTTP API，由 `service` 选择后端：
-
-| `service` | 服务 | 官方接口 |
+| `service` | Service | Official API |
 |-----------|------|----------|
-| `serverchan`（默认） | [Server酱](https://sct.ftqq.com/) | `POST https://sctapi.ftqq.com/{send_key}.send` |
+| `serverchan` (default) | [ServerChan](https://sct.ftqq.com/) | `POST https://sctapi.ftqq.com/{send_key}.send` |
 | `pushplus` | [PushPlus](http://www.pushplus.plus/) | `POST https://www.pushplus.plus/send` |
 | `wxpusher` | [WxPusher](https://wxpusher.zjiecode.com/) | `POST https://wxpusher.zjiecode.com/api/send/message` |
 
-三个服务都是「推到我的微信」而非「推给某个用户」，因此 `recipients`（投递目标）对本 Provider **不生效**——消息统一发给该凭据对应的账号或其全部关注者。要按人定向推送请用 [FCM](./fcm.md) / [APNs](./apns.md) / [微信公众号模板消息](./wechatmp.md)。
+All three services "push to my WeChat" rather than "push to a specific user", so `recipients` (delivery targets) has **no effect** on this Provider — messages go uniformly to the account tied to the credential or to all of its followers. To target individuals, use [FCM](./fcm.md) / [APNs](./apns.md) / [WeChat Official Account template messages](./wechatmp.md).
 
-## 申请凭据
+## Get credentials
 
-前提：任选一家第三方服务注册账号（都免费，都需微信扫码授权）。
+Prerequisite: register an account with any one of the third-party services (all free, all require WeChat QR-code authorization).
 
-### Server酱（默认）
+### ServerChan (default)
 
-1. 访问 [sct.ftqq.com](https://sct.ftqq.com/) 微信扫码登录
-2. 右上角「消息推送」→ **SendKey** 页面，复制形如 `SCT1234567890abcdef` 的 SendKey
-3. 免费额度 5 条/天，超额后需升级会员或等次日重置
+1. Visit [sct.ftqq.com](https://sct.ftqq.com/) and log in with WeChat QR code
+2. Top-right "Message Push" → the **SendKey** page; copy the SendKey (shaped like `SCT1234567890abcdef`)
+3. Free quota is 5 messages/day; beyond that you need a paid membership or wait for the next-day reset
 
 ### PushPlus
 
-1. 访问 [pushplus.plus](http://www.pushplus.plus/) 微信扫码登录
-2. 左侧「令牌」页，复制 Token（形如 `a1b2c3...`）
-3. 免费额度 200 条/天；可在「消息通道」绑定微信、邮箱、公众号等，消息会同时投递过去
+1. Visit [pushplus.plus](http://www.pushplus.plus/) and log in with WeChat QR code
+2. The "Token" page on the left; copy the Token (shaped like `a1b2c3...`)
+3. Free quota is 200 messages/day; under "Message Channels" you can bind WeChat, email, an Official Account, etc., and messages are delivered there in parallel
 
 ### WxPusher
 
-1. 访问 [wxpusher.zjiecode.com](https://wxpusher.zjiecode.com/) 微信扫码登录
-2. 左侧「应用管理」→ 新建应用，填名称与描述 → 创建后得到 **AppToken**（形如 `AT_xxxxxxxx`）
-3. 关注应用后可在「用户列表」看到自己的 **UID**；不配 UID 则推给全部关注者
-4. 免费额度 1000 条/天
+1. Visit [wxpusher.zjiecode.com](https://wxpusher.zjiecode.com/) and log in with WeChat QR code
+2. "App Management" on the left → Create App, fill in name and description → after creation you get an **AppToken** (shaped like `AT_xxxxxxxx`)
+3. After following the app, your **UID** shows under "User List"; leave the UID unset to push to all followers
+4. Free quota is 1000 messages/day
 
-## 发第一条消息
+## Send your first message
 
-按下面配好并 `heraldd serve --config config.yaml` 启动后：
+After configuring as below and starting with `heraldd serve --config config.yaml`:
 
 ```yaml
-# config.yaml 追加（Server酱；SendKey 从上面的申请步骤取）
+# append to config.yaml (ServerChan; take the SendKey from the steps above)
 providers:
   wechat:
     type: wechat
     enabled: true
     config:
-      service: serverchan        # 可省略，默认 serverchan
+      service: serverchan        # can be omitted, defaults to serverchan
       send_key: "$WECHAT_SERVERCHAN_SEND_KEY"
 ```
 
@@ -60,35 +58,35 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "alert.disk",
     "level": "warning",
-    "title": "磁盘告警",
-    "body": "/dev/sda1 已用 95%",
+    "title": "Disk alert",
+    "body": "/dev/sda1 usage 95%",
     "channels": ["wechat"]
   }'
 ```
 
-微信收到「🟡 磁盘告警 / /dev/sda1 已用 95%」，末尾附发送时间。没收到？先确认凭据对不对、服务选对没有，再查[排错指南](/guide/troubleshooting)与下面的[常见错误](#常见错误)。
+WeChat receives "🟡 Disk alert / /dev/sda1 usage 95%" with the send time appended at the end. Nothing arrived? First confirm the credentials are right and the service is the one you meant, then check the [troubleshooting guide](/guide/troubleshooting) and Common Errors below.
 
-> 注意配置键名随 `service` 而变：Server酱 用 `send_key`，PushPlus 用 `token`，WxPusher 用 `app_token`。写错键名会在启动时直接报 `... is required`，不会静默失败。
+> Note that config key names change with `service`: ServerChan uses `send_key`, PushPlus uses `token`, WxPusher uses `app_token`. A wrong key name fails at startup with `... is required` — it does not fail silently.
 
-## 配置项
+## Configuration options
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `service` | ❌ | 后端服务：`serverchan` / `pushplus` / `wxpusher` | `serverchan` |
-| `send_key` | 条件必填 | Server酱 SendKey（`service: serverchan` 时必填） | 无 |
-| `token` | 条件必填 | PushPlus Token（`service: pushplus` 时必填） | 无 |
-| `app_token` | 条件必填 | WxPusher AppToken（`service: wxpusher` 时必填） | 无 |
-| `uid` | ❌ | WxPusher 定向 UID；留空推给全部关注者，多个用英文逗号分隔 | 无 |
+| `service` | ❌ | backend service: `serverchan` / `pushplus` / `wxpusher` | `serverchan` |
+| `send_key` | conditionally required | ServerChan SendKey (required when `service: serverchan`) | none |
+| `token` | conditionally required | PushPlus Token (required when `service: pushplus`) | none |
+| `app_token` | conditionally required | WxPusher AppToken (required when `service: wxpusher`) | none |
+| `uid` | ❌ | WxPusher targeting UID; empty pushes to all followers, multiple values comma-separated | none |
 
-值里不含 `service` 时默认走 Server酱——**只填 `send_key` 之外的服务凭据而忘了写 `service`，会以 `send_key is required for serverchan` 启动失败**。
+When `service` is absent the default is ServerChan — **filling in credentials for another service while forgetting `service` fails at startup with `send_key is required for serverchan`**.
 
-## 配置示例
+## Configuration examples
 
-三个后端各一份，按需二选一：
+One block per backend; pick one as needed:
 
 ```yaml
 providers:
-  # Server酱
+  # ServerChan
   wechat:
     type: wechat
     enabled: true
@@ -110,17 +108,17 @@ providers:
 
 ```yaml
 providers:
-  # WxPusher（可选定向到自己的 UID）
+  # WxPusher (optionally target your own UID)
   wechat:
     type: wechat
     enabled: true
     config:
       service: wxpusher
       app_token: "$WECHAT_WXPUSHER_APP_TOKEN"
-      uid: "$WECHAT_WXPUSHER_UID"   # 可留空，留空则推给全部关注者
+      uid: "$WECHAT_WXPUSHER_UID"   # can be left empty; empty pushes to all followers
 ```
 
-高可用可以配多个 `wechat` 实例（不同 provider 名）指向不同服务，某家限流或宕机时换道：
+For high availability you can configure multiple `wechat` instances (different provider names) pointing at different services and switch lanes when one rate-limits or goes down:
 
 ```yaml
 providers:
@@ -138,38 +136,38 @@ providers:
       app_token: "$WECHAT_WXPUSHER_APP_TOKEN"
 ```
 
-## 环境变量
+## Environment variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When loading config, Herald replaces string values in provider config **that start with `$`** with the value of the environment variable of the same name (the `$VAR` form, looked up as `VAR`). Note: the braced form `"${VAR}"` **is not expanded** (it is looked up as `{VAR}` and kept as-is); use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment variable | Corresponding config key | Description |
 |----------|-----------|------|
-| `WECHAT_SERVERCHAN_SEND_KEY` | `send_key` | Server酱 SendKey |
+| `WECHAT_SERVERCHAN_SEND_KEY` | `send_key` | ServerChan SendKey |
 | `WECHAT_PUSHPLUS_TOKEN` | `token` | PushPlus Token |
 | `WECHAT_WXPUSHER_APP_TOKEN` | `app_token` | WxPusher AppToken |
-| `WECHAT_WXPUSHER_UID` | `uid` | WxPusher UID（可留空） |
+| `WECHAT_WXPUSHER_UID` | `uid` | WxPusher UID (can be empty) |
 
-## 消息模板与限制
+## Message template and limits
 
-### 内容映射
+### Content mapping
 
-| 字段 | Server酱 | PushPlus | WxPusher |
+| Field | ServerChan | PushPlus | WxPusher |
 |------|-----------|----------|----------|
-| 标题 | `title` | `title` | `summary`（微信通知栏标题） |
-| 正文 | `desp`（Markdown） | `content`（模板默认 HTML） | `content`，`contentType=3`（Markdown） |
-| 摘要 | `short`，取正文前 64 个字符 | — | — |
-| 定向 | — | — | `uids`，配置了 `uid` 才带 |
+| Title | `title` | `title` | `summary` (the WeChat notification-bar title) |
+| Body | `desp` (Markdown) | `content` (template defaults to HTML) | `content` with `contentType=3` (Markdown) |
+| Summary | `short`, the first 64 characters of the body | — | — |
+| Targeting | — | — | `uids`, included only when `uid` is configured |
 
-消息正文由 Provider 组装：**级别图标 + body + 发送时间**，所以 curl 里只需给 `title`/`body`：
+The Provider assembles the message body: **level icon + body + send time**, so in curl you only provide `title`/`body`:
 
-| `level` | 前置图标 |
+| `level` | Leading icon |
 |---------|----------|
 | `critical` / `error` | 🔴 |
 | `warning` | 🟡 |
 | `info` | 🟢 |
 | `debug` | ⚪ |
 
-想发富文本（加粗、列表）就直接在 `body` 里写 Markdown：
+To send rich text (bold, lists), just write Markdown in `body`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -177,54 +175,54 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "deploy.done",
     "level": "info",
-    "title": "部署成功",
-    "body": "**项目**: Herald\n**版本**: v1.0.0\n**状态**: ✅ 成功",
+    "title": "Deployment succeeded",
+    "body": "**Project**: Herald\n**Version**: v1.0.0\n**Status**: ✅ Success",
     "channels": ["wechat"]
   }'
 ```
 
-### 发送语义
+### Delivery semantics
 
-- 一次投递只发一条消息，目标固定为凭据对应账号/关注者，`recipients` 不参与
-- 正文末尾自动追加 `---\n2026-10-03 10:20:30` 形式的时间戳，方便回看
-- Server酱 `short` 摘要按 **64 个字符**截断；正文完整保留
+- One delivery sends exactly one message; the target is fixed to the credential's account/followers and `recipients` plays no part
+- A timestamp in the form `---\n2026-10-03 10:20:30` is appended to the body automatically, handy for looking back
+- The ServerChan `short` summary is truncated at **64 characters**; the body is kept in full
 
-### 能力声明
+### Capability declaration
 
-- `PayloadKinds`：`Content`（透传类载荷请改用 FCM/APNs/WxPusher 之外的方案）
-- `ContentFormats`：`plain`
+- `PayloadKinds`: `Content` (for passthrough-style payloads, use a solution other than FCM/APNs/WxPusher)
+- `ContentFormats`: `plain`
 
-### 重试语义
+### Retry semantics
 
-- 第三方返回的业务错误码（Server酱 `code != 0`、PushPlus `code != 200`、WxPusher `code` 非 `1000`/`0`）是**确定性错误**，不重试——重发只会再撞一次额度或限流
-- 请求超时、HTTP 408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试与退避
+- Business error codes returned by the third party (ServerChan `code != 0`, PushPlus `code != 200`, WxPusher `code` other than `1000`/`0`) are **deterministic errors** and are not retried — resending would just hit the quota or rate limit again
+- Request timeouts and HTTP 408/429/5xx are wrapped by `httpclient` as retryable errors and go through unified retry with backoff
 
-## 常见错误
+## Common errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and fix |
 |------|-----------|
-| `wechat: unsupported service 'xxx', use: serverchan, pushplus, or wxpusher` | `service` 拼错或留了空值以外的非法值 |
-| `wechat: send_key is required for serverchan` | 走了 Server酱 但没配 `send_key`（常见于配了 PushPlus/WxPusher 却漏写 `service`） |
-| `wechat: token is required for pushplus` | 走了 PushPlus 但没配 `token` |
-| `wechat: app_token is required for wxpusher` | 走了 WxPusher 但没配 `app_token` |
-| `wechat: serverchan error: <message>` | Server酱 侧拒绝：`SendKey` 不正确、额度用尽、消息含敏感词 |
-| `wechat: pushplus error: <msg>` | PushPlus 侧拒绝：`Token` 失效、额度用尽、`IP` 未加入白名单（控制台「账号设置」可配） |
-| `wechat: wxpusher error: <msg>` | WxPusher 侧拒绝：`AppToken` 写错、没关注应用、额度用尽 |
-| `wechat: failed to parse response: ...` | 服务返回体不是预期 JSON——通常是代理/网关返回的 HTML 错误页 |
-| `wechat: task is nil` | 内部调用传了空任务，不会出现在正常投递路径 |
+| `wechat: unsupported service 'xxx', use: serverchan, pushplus, or wxpusher` | `service` is misspelled or set to an illegal value other than empty |
+| `wechat: send_key is required for serverchan` | ServerChan was selected but `send_key` is unset (common when PushPlus/WxPusher credentials are configured yet `service` is missing) |
+| `wechat: token is required for pushplus` | PushPlus was selected but `token` is unset |
+| `wechat: app_token is required for wxpusher` | WxPusher was selected but `app_token` is unset |
+| `wechat: serverchan error: <message>` | rejected on the ServerChan side: wrong `SendKey`, quota exhausted, or the message contains sensitive words |
+| `wechat: pushplus error: <msg>` | rejected on the PushPlus side: `Token` invalid, quota exhausted, or `IP` not allowlisted (configurable in the console under "Account Settings") |
+| `wechat: wxpusher error: <msg>` | rejected on the WxPusher side: wrong `AppToken`, the app not followed, or quota exhausted |
+| `wechat: failed to parse response: ...` | the service response body is not the expected JSON — usually an HTML error page from a proxy/gateway |
+| `wechat: task is nil` | an internal call passed a nil task; does not occur on the normal delivery path |
 
-三家免费额度都很小（5 / 200 / 1000 条每天）。额度型错误**不会重试**，需要减少告警噪音或改用带免费额度的通道（[Webhook](./webhook.md) + 自建、[飞书](./feishu.md)、[企业微信](./wecom.md) 群机器人均无条数限制）。整体排错见[排错指南](/guide/troubleshooting)。
+All three have small free quotas (5 / 200 / 1000 messages per day). Quota-type errors are **not retried**; you need to reduce alert noise or switch to a channel without message-count limits ([Webhook](./webhook.md) with a self-built receiver, [Feishu](./feishu.md), and [WeCom](./wecom.md) group bots all have no message-count limit). For end-to-end troubleshooting see the [troubleshooting guide](/guide/troubleshooting).
 
-## 安全建议
+## Security recommendations
 
-1. **凭据走环境变量**：SendKey / Token / AppToken 等同账号权限，`.env` 或密管系统注入，别写进仓库的 config
-2. **Server酱 SendKey 可公开**：它出现在推送 URL 里，日志/截图外发前留意
-3. **换服务即换凭据**：三家凭据互不通用，别把 PushPlus Token 填进 `send_key`
-4. **个人通道发敏感内容前**：第三方服务内容会经过其服务器，注意合规
+1. **Credentials via environment variables**: a SendKey / Token / AppToken is equivalent to account access — inject via `.env` or a secrets manager, and don't commit it in the repo's config
+2. **A ServerChan SendKey can end up public**: it appears in the push URL — be careful before sharing logs or screenshots
+3. **Switching services means switching credentials**: the three are not interchangeable — never put a PushPlus Token into `send_key`
+4. **Before sending sensitive content on a personal channel**: content passes through the third-party service's servers; mind compliance
 
-## 下一步
+## Next steps
 
-- [微信公众号模板消息](./wechatmp.md) - 需要按用户定向时改走公众号
-- [FCM](./fcm.md) / [APNs](./apns.md) - App 定向推送
-- [Webhook](./webhook.md) - 无条数限制的自建通道
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
+- [WeChat Official Account template messages](./wechatmp.md) - switch to an Official Account when you need per-user targeting
+- [FCM](./fcm.md) / [APNs](./apns.md) - targeted app push
+- [Webhook](./webhook.md) - a self-built channel with no message-count limit
+- [Provider overview](./overview.md) - see all Providers and how to enable them

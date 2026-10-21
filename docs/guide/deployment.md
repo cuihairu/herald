@@ -1,29 +1,27 @@
-> 中文 · [English](./deployment.en.md)
+# Deployment
 
-# 部署
+## Run Modes
 
-## 运行模式
-
-Herald 使用统一二进制 `heraldd`，通过子命令区分运行模式：
+Herald uses a single binary, `heraldd`, with subcommands distinguishing the run mode:
 
 ```bash
-heraldd serve    # 调度器模式（API + Queue + 本地 Worker）
-heraldd worker   # 远程 Worker 模式（从共享 Queue 消费）
+heraldd serve    # Scheduler mode (API + Queue + local workers)
+heraldd worker   # Remote worker mode (consumes from the shared Queue)
 ```
 
-## 单机部署
+## Single-Node Deployment
 
-单机模式使用 `memory` 队列，所有 Worker 在同一进程内运行。
+Single-node mode uses the `memory` queue; all workers run inside the same process.
 
 ```bash
-# 构建
+# Build
 make build
 
-# 启动
+# Start
 ./bin/heraldd serve --config config.yaml
 ```
 
-配置示例：
+Example configuration:
 
 ```yaml
 server:
@@ -32,7 +30,7 @@ server:
 
 queue:
   type: memory
-  workers: 0    # 自动：CPU核心数*2+1
+  workers: 0    # Automatic: CPU cores * 2 + 1
 
 providers:
   telegram:
@@ -43,17 +41,17 @@ providers:
       chat_id: "$TELEGRAM_CHAT_ID"
 ```
 
-## 分布式部署
+## Distributed Deployment
 
-分布式模式使用 `redis` 队列，调度器和 Worker 可以独立部署。
+Distributed mode uses the `redis` queue; the scheduler and workers can be deployed independently.
 
-### 调度器节点
+### Scheduler Node
 
 ```bash
 ./bin/heraldd serve --config scheduler.yaml
 ```
 
-配置示例（scheduler.yaml）：
+Example configuration (scheduler.yaml):
 
 ```yaml
 server:
@@ -80,13 +78,13 @@ providers:
       chat_id: "$TELEGRAM_CHAT_ID"
 ```
 
-### Worker 节点
+### Worker Node
 
 ```bash
 ./bin/heraldd worker --config worker.yaml
 ```
 
-配置示例（worker.yaml）：
+Example configuration (worker.yaml):
 
 ```yaml
 queue:
@@ -99,7 +97,7 @@ queue:
 
 worker:
   id: "wechat-worker-01"
-  server_url: "ws://scheduler:8081/worker"   # 不写时回落到 websocket.addr 自动拼接
+  server_url: "ws://scheduler:8081/worker"   # When omitted, auto-assembled from websocket.addr
 
 providers:
   wechatmp:
@@ -110,31 +108,31 @@ providers:
       app_secret: "$WECHAT_APP_SECRET"
 ```
 
-## Docker 部署
+## Docker Deployment
 
-### 使用 Docker Compose
+### Using Docker Compose
 
-1. 复制环境变量模板：
+1. Copy the environment variable template:
 
 ```bash
 cp .env.example .env
 ```
 
-2. 编辑 `.env` 文件，填入你的配置。
+2. Edit the `.env` file and fill in your configuration.
 
-3. 启动服务：
+3. Start the services:
 
 ```bash
 docker-compose up -d
 ```
 
-### 手动构建 Docker 镜像
+### Building the Docker Image Manually
 
 ```bash
 docker build -t herald:latest .
 ```
 
-调度器：
+Scheduler:
 
 ```bash
 docker run -d \
@@ -145,7 +143,7 @@ docker run -d \
   herald:latest serve --config config.yaml
 ```
 
-远程 Worker：
+Remote worker:
 
 ```bash
 docker run -d \
@@ -154,31 +152,31 @@ docker run -d \
   herald:latest worker --config worker.yaml
 ```
 
-## 二进制部署
+## Binary Deployment
 
-### 构建
+### Build
 
 ```bash
 make build
 ```
 
-### 运行调度器
+### Run the Scheduler
 
 ```bash
 ./bin/heraldd serve --config config.yaml
 ```
 
-### 运行远程 Worker
+### Run a Remote Worker
 
 ```bash
 ./bin/heraldd worker --config worker.yaml
 ```
 
-## 系统服务 (systemd)
+## System Services (systemd)
 
-### 调度器服务
+### Scheduler Service
 
-创建 `/etc/systemd/system/herald.service`：
+Create `/etc/systemd/system/herald.service`:
 
 ```ini
 [Unit]
@@ -199,9 +197,9 @@ EnvironmentFile=/etc/herald/herald.conf
 WantedBy=multi-user.target
 ```
 
-### Worker 服务
+### Worker Service
 
-创建 `/etc/systemd/system/herald-worker.service`：
+Create `/etc/systemd/system/herald-worker.service`:
 
 ```ini
 [Unit]
@@ -222,7 +220,7 @@ EnvironmentFile=/etc/herald/worker.conf
 WantedBy=multi-user.target
 ```
 
-启动服务：
+Start the services:
 
 ```bash
 sudo systemctl daemon-reload
@@ -230,13 +228,13 @@ sudo systemctl enable herald herald-worker
 sudo systemctl start herald herald-worker
 ```
 
-## 健康检查
+## Health Check
 
 ```bash
 curl http://localhost:8080/api/v1/status
 ```
 
-返回示例：
+Example response:
 
 ```json
 {

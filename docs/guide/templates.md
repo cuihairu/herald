@@ -1,48 +1,46 @@
-> 中文 · [English](./templates.en.md)
+# Template System
 
-# 模板系统
+## Overview
 
-## 概述
+Templates are channel-agnostic: content is defined once and reused across channels, <code v-pre>{{.xxx}}</code> variables are substituted at send time, and the rendering format is chosen automatically from each channel's default.
 
-模板与渠道无关：内容定义一次、多渠道复用，<code v-pre>{{.xxx}}</code> 变量在发送时替换，渲染格式按渠道各自的默认值自动选择。
+## Basic Usage
 
-## 基本用法
+### 1. Define a Template
 
-### 1. 定义模板
-
-在 `config.yaml` 中定义模板：
+Define templates in `config.yaml`:
 
 ```yaml
 templates:
   server_alert:
-    name: "服务器告警"
-    title: "【{{.Level}}】{{.Service}} 服务异常"
+    name: "Server Alert"
+    title: "【{{.Level}}】{{.Service}} service abnormal"
     level: "error"
     fields:
-      - label: "服务器"
+      - label: "Server"
         value: "{{.Server}}"
         type: "text"
-      - label: "错误信息"
+      - label: "Error"
         value: "{{.Error}}"
         type: "text"
-      - label: "时间"
+      - label: "Time"
         value: "{{.Timestamp}}"
         type: "datetime"
 
   deploy_notify:
-    name: "部署通知"
-    title: "部署完成: {{.Env}} 环境"
+    name: "Deploy Notification"
+    title: "Deploy finished: {{.Env}} environment"
     level: "info"
     fields:
-      - label: "环境"
+      - label: "Environment"
         value: "{{.Env}}"
-      - label: "版本"
+      - label: "Version"
         value: "{{.Version}}"
-      - label: "分支"
+      - label: "Branch"
         value: "{{.Branch}}"
 ```
 
-### 2. 使用模板发送消息
+### 2. Send a Message Using a Template
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
@@ -53,113 +51,110 @@ curl -X POST http://localhost:8080/api/v1/notify \
       "Level": "CRITICAL",
       "Service": "order-service",
       "Server": "order-01",
-      "Error": "CPU 使用率 95%",
+      "Error": "CPU usage 95%",
       "Timestamp": "2026-05-27 14:30:00"
     },
     "channels": ["email", "feishu"]
   }'
 ```
 
-## 渲染格式
+## Rendering Formats
 
-| 格式 | 说明 | 适用场景 |
+| Format | Description | Suitable For |
 |------|------|---------|
-| `html` | HTML 格式 | 邮件 |
-| `markdown` | Markdown 格式 | Telegram 等 |
-| `plain` | 纯文本 | 通用文本消息 |
-| `json` | JSON 格式 | 飞书卡片、钉钉卡片 |
+| `html` | HTML format | Email |
+| `markdown` | Markdown format | Telegram, etc. |
+| `plain` | Plain text | Generic text messages |
+| `json` | JSON format | Feishu cards, DingTalk cards |
 
-选择规则（`DeliveryPlanner.selectFormat`）：binding 里显式写了 `format` 就用它；
-否则取 Provider 声明的 `ContentFormats` 第一项；什么都没有就 `plain`。各内置
-Provider 的默认格式：Email `html`、Telegram `markdown`、飞书 `plain`（飞书要出
-卡片须在 binding 写 `format: json`）。
+Selection rule (`DeliveryPlanner.selectFormat`): if the binding explicitly sets `format`, use it; otherwise take the first entry of the `ContentFormats` the Provider declares; if neither exists, `plain`. Default formats of the built-in providers: Email `html`, Telegram `markdown`, Feishu `plain` (to get a Feishu card you must set `format: json` in the binding).
 
-## 变量语法
+## Variable Syntax
 
-模板使用 Go template 语法，支持：
+Templates use Go template syntax and support:
 
-### 基本变量
+### Basic Variables
 
 ```yaml
-title: "服务告警：{{.Service}}"
+title: "Service alert: {{.Service}}"
 ```
 
-### 管道操作
+### Pipelines
 
 ```yaml
-title: "服务告警：{{.Service | toUpper}}"
+title: "Service alert: {{.Service | toUpper}}"
 ```
 
-### 条件判断
+### Conditionals
 
 ```yaml
-title: "{{if .Urgent}}【紧急】{{end}}{{.Title}}"
+title: "{{if .Urgent}}【URGENT】{{end}}{{.Title}}"
 ```
 
-### 内置函数
+### Built-in Functions
 
-| 函数 | 说明 |
+| Function | Description |
 |------|------|
-| `toUpper` | 转大写 |
-| `toLower` | 转小写 |
-| `trim` | 去除首尾空格 |
+| `toUpper` | Convert to uppercase |
+| `toLower` | Convert to lowercase |
+| `trim` | Trim leading and trailing whitespace |
 
-## API 管理
+## API Management
 
-### 创建模板
+### Create a Template
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/templates/create \
   -H "Content-Type: application/json" \
   -d '{
     "id": "custom_alert",
-    "name": "自定义告警",
-    "title": "告警：{{.Title}}",
+    "name": "Custom Alert",
+    "title": "Alert: {{.Title}}",
     "level": "warning",
     "fields": [
-      { "label": "详情", "value": "{{.Detail}}", "type": "text" }
+      { "label": "Detail", "value": "{{.Detail}}", "type": "text" }
     ]
   }'
 ```
 
-### 获取模板列表
+### List Templates
 
 ```bash
 curl http://localhost:8080/api/v1/templates
 ```
 
-### 获取单个模板
+### Get a Single Template
 
 ```bash
 curl http://localhost:8080/api/v1/templates/server_alert
 ```
 
-### 更新模板
+### Update a Template
 
 ```bash
 curl -X PUT http://localhost:8080/api/v1/templates/server_alert \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "服务器告警（已更新）",
+    "name": "Server Alert (updated)",
     "title": "【{{.Level}}】{{.Service}}"
   }'
 ```
 
-### 删除模板
+### Delete a Template
 
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/templates/server_alert
 ```
 
-## SMS Provider 特殊处理
+## SMS Provider Special Handling
 
-SMS Provider（阿里云、腾讯云等）使用**服务商提供的模板系统**，通过 Template Binding 实现一次定义多渠道适配：
+SMS providers (Aliyun, Tencent, etc.) use the **template system provided by the service provider**; Template Binding lets you define once and adapt to multiple channels:
 
 ```yaml
 templates:
   verify_code:
-    name: "验证码"
-    title: "验证码通知"
+    name: "Verification code"
+    title: "Verification code notification"
     fields:
       - label: "code"
         value: "{{.Code}}"
@@ -178,7 +173,7 @@ templates:
         param_order: ["code", "product"]
 ```
 
-发送时只需指定模板和参数，DeliveryPlanner 自动根据 Binding 生成服务商所需的 payload：
+At send time you only specify the template and the parameters; DeliveryPlanner automatically builds the payload the service provider needs from the Binding:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
@@ -196,15 +191,15 @@ curl -X POST http://localhost:8080/api/v1/notify \
   }'
 ```
 
-## 渠道差异化渲染
+## Channel-Specific Rendering
 
-同一个模板，不同渠道按各自 `ContentFormats` 默认格式渲染：
+The same template is rendered by each channel in its own default format from `ContentFormats`:
 
-| 模板数据 | Email（默认 html） | Telegram（默认 markdown） | Feishu（默认 plain） |
+| Template data | Email (default html) | Telegram (default markdown) | Feishu (default plain) |
 |---------|-------|----------|--------|
-| Title + Fields | HTML 表格 | Markdown 文本 | 纯文本 |
-| Binding format: json | 非默认，需显式指定 | 非默认，需显式指定 | 卡片消息 |
+| Title + Fields | HTML table | Markdown text | Plain text |
+| Binding format: json | Not the default; must be set explicitly | Not the default; must be set explicitly | Card message |
 
-## 最佳实践
+## Best Practices
 
-字段名用语义命名（<code v-pre>{{.ServiceName}}</code> 优于 <code v-pre>{{.s1}}</code>），模板正文里不掺特定渠道的格式；`level` 要填对，路由规则按它匹配；上线前在目标渠道各发一条，确认渲染效果。
+Use semantic field names (<code v-pre>{{.ServiceName}}</code> over <code v-pre>{{.s1}}</code>); do not mix channel-specific formatting into the template body; `level` must be set correctly because routing rules match on it; before going live, send one message through each target channel and verify how it renders.

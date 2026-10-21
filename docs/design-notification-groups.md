@@ -1,136 +1,130 @@
-> 中文 · [English](./design-notification-groups.en.md)
+# Notification Groups Design: Group and Member Model, Rule Binding, and Routing by Group
 
-# 通知群组设计：群组与成员模型、规则绑定与按组路由
+> Status: implemented. A notification group is a **named delivery audience**: a set of "channel
+> instances + optional recipients", referable as `group:name` anywhere a channel name is accepted,
+> and expanded into members at delivery time.
+> It is orthogonal to the rule engine ([design-rule-engine.md](./design-rule-engine.md)): rules decide "whether to send,
+> and which reroute path to take", while groups decide "which real channels and recipients the path resolves to".
 
-> 状态：已实施。通知群组（notification group）是**命名的投递受众**：一组"渠道实例 + 可选
-> 收件人"的集合，任何接受渠道名的地方都可以用 `group:名字` 引用它，投递时展开成成员。
-> 它与规则引擎（[design-rule-engine.md](./design-rule-engine.md)）正交：规则决定"发不发、
-> 走哪条改道路径"，群组决定"路径解析成哪些真实渠道与收件人"。
+## 1. The Problem: Audiences Have No Name in the Config
 
-## 一、问题：受众在配置里没有名字
+The only granularity herald has today for describing an audience is the **channel instance name**
+(provider instance, such as `feishu-oncall`). Two pains:
 
-herald 今天描述受众的唯一粒度是**渠道实例名**（provider 实例，如 `feishu-oncall`）。
-两种痛：
+1. **Duplication**. The "on-call echelon" is two people (channels), feishu-oncall + sms-duty, and today this list has to be copied into
+   every rule, every caller's `channels`, and every escalation's `to`. Changing who is on call (changing the channel instance config)
+   means editing N places;
+2. **Cannot express people**. A channel instance is "a Feishu bot", not "a team of people". Sending the same SMS channel to
+   two numbers, Zhang and Li, today means either creating two channel instances or relying on notification-level `recipients`,
+   and traffic routed by rules has nowhere at all to carry recipients.
 
-1. **重复**。"值班梯队"是 feishu-oncall + sms-duty 两个人（渠道），这个列表今天要抄进
-   每条规则、每个调用方的 `channels`、每段 escalation 的 `to`。值班换人（换渠道实例配置）
-   要改 N 处；
-2. **表达不了人**。渠道实例是"一个飞书机器人"，不是"一队人"。同一短信渠道发给
-   张三李四两个号码，今天要么建两个渠道实例，要么靠通知级 `recipients`，
-   而规则路由的流量根本没有地方带 recipients。
+Groups give audiences a **stable name**: behind `group:ops-oncall` is a member list; changing who is on call only changes the group,
+and all rules, callers, and escalation chains that reference it follow automatically.
 
-群组给受众一个**稳定的名字**：`group:ops-oncall` 背后是成员列表，成员值班换人只改群组，
-所有引用它的规则、调用方、升级链自动跟随。
-
-## 二、群组与成员模型
+## 2. Group and Member Model
 
 ```go
 // core/groups
 type Member struct {
-    Channel    string   `json:"channel"`              // 渠道实例名（provider 名）或 channels 块名（投递时按块展开）
-    Recipients []string `json:"recipients,omitempty"` // 该渠道的可选收件人钉死
+    Channel    string   `json:"channel"`              // channel instance name (provider name) or channels block name (expanded by block at delivery time)
+    Recipients []string `json:"recipients,omitempty"` // optional recipients pinned for this channel
 }
 
 type Group struct {
-    ID          string   `json:"id"`                  // 群组名，如 ops-oncall
+    ID          string   `json:"id"`                  // group name, such as ops-oncall
     Description string   `json:"description,omitempty"`
     Members     []Member `json:"members"`
 }
 ```
 
-设计取舍逐条：
+The design trade-offs, one by one:
 
-**成员 = 渠道 + 可选收件人，不是"用户"**。备选是引入用户实体（用户绑定多种联系方式，
-群组装用户）。放弃：用户-联系方式映射是身份系统，herald 是投递系统，多一层实体就多一套
-CRUD/审计/权限，而投递只需要"这条消息发给谁"；`Recipients` 字段已经覆盖"同一个渠道实例
-发给特定人"的全部场景（短信号码、飞书 chat_id、邮件地址）。等真的需要用户体系时，
-用户系统生成群组成员即可，模型不用改。
+**A member = channel + optional recipients, not a "user"**. The alternative was to introduce a user entity (users bound to multiple contact methods, with groups holding users). Rejected: a user-to-contact-method mapping is an identity system, whereas herald is a delivery system, and an extra layer of entity brings another whole set of CRUD/audit/permissions, while delivery only needs "who this message goes to"; the `Recipients` field already covers every scenario of "the same channel instance sending to specific people" (SMS numbers, Feishu chat_id, email addresses). When a user system really is needed, the user system can generate group members, and the model does not need to change.
 
-**群组不嵌套**。成员渠道只能是 provider 实例名或 `channels` 块名，不能是另一个 `group:`。备选：嵌套群组（组里含组）。
-放弃：需要环检测、展开深度无界、一个成员被多层覆盖时收件人语义不清；而嵌套想表达的
-"梯队包含小组"用扁平成员列表已经够写。展开是**单层、无递归**的，可审计。
+**Groups do not nest**. A member channel can only be a provider instance name or a `channels` block name, not another `group:`. Alternative: nested groups (a group containing groups).
+Rejected: it requires cycle detection, the expansion depth is unbounded, and the recipient semantics are unclear when a member is overridden at multiple layers; and the "echelon contains sub-teams" that nesting wants to express is already expressible with a flat member list. Expansion is **single-level, non-recursive**, and auditable.
 
-**成员渠道在一个群组内唯一**。同一渠道发多人，用 `Recipients` 列表表达
-（`channel: sms-duty, recipients: [138..., 139...]`），不建两个成员。
-重复渠道成员在保存时拒绝。两个同名成员各带一半收件人是配置事故的典型形态。
+**Member channels are unique within a group**. Sending to multiple people via the same channel is expressed with the `Recipients` list
+(`channel: sms-duty, recipients: [138..., 139...]`), not by creating two members.
+Duplicate channel members are rejected at save time. Two members with the same name each carrying half the recipients is the typical shape of a configuration accident.
 
-**校验**与规则一致：ID 沿用规则 id 的模式（`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`）；
-成员数 ≥1 且 ≤64（群组是"一队人"不是"通讯录"）；渠道名非空、收件人非空项；
-Recipients 不去解释内容（那是渠道的事）。
+**Validation** is consistent with rules: the ID follows the rule id pattern (`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`);
+the member count is ≥1 and ≤64 (a group is "a team of people", not "an address book"); channel names are non-empty and recipient entries are non-empty;
+Recipients does not try to interpret the contents (that is the channel's business).
 
-## 三、引用语法：`group:` 前缀
+## 3. Reference Syntax: the `group:` Prefix
 
-**任何接受渠道名的位置**都接受 `group:名字`：
+**Anywhere a channel name is accepted** also accepts `group:name`:
 
-- 规则 `route[].channels`（规则绑定群组的唯一方式）；
-- 调用方显式 `channels`（`POST /api/v1/notify` 的 `"channels": ["group:ops-oncall"]`）；
-- 静态路由表 `routes`/`level_routes` 的渠道列表；
-- `escalation.to` 升级目标。
+- Rule `route[].channels` (the only way a rule binds to a group);
+- Caller-explicit `channels` (`"channels": ["group:ops-oncall"]` in `POST /api/v1/notify`);
+- The channel list of the static route tables `routes`/`level_routes`;
+- The `escalation.to` escalation target.
 
-**备选：规则上独立的 `groups` 字段**（`route: [channels: [...], groups: [...]]`）。
-放弃：与 channels 语义重叠（两组并集？谁先谁后？），且调用方显式渠道、静态路由、
-escalation 也都想引用群组。每种位置加一个字段不如一个统一引用语法。
-**备选：`@ops-oncall` 前缀**。更短，但 `@` 在通知语境里已被用户名语义占用
-（飞书/Twitter 的 @提及、telegram 的 @username），读规则的人会误以为 @ 的是人。
-`group:` 自带类别词，一眼可判。
-**备选：群组做成虚拟 provider**（注册一个名为 ops-oncall 的合成渠道，投递时扇出）。
-放弃：虚拟 provider 混进 provider 注册表就要实现整套 Provider 接口（Send/健康检查/启停），
-而它没有独立的发送语义；且投递日志、限流、重试都会看到假渠道名，排障多一层翻译。
-前缀引用停留在**路由层**概念，投递层看到的永远是真实渠道。
+**Alternative: a separate `groups` field on rules** (`route: [channels: [...], groups: [...]]`).
+Rejected: it overlaps semantically with channels (union of the two sets? which comes first?), and caller-explicit channels, static routes,
+and escalation all want to reference groups too. Adding a field per location is worse than one unified reference syntax.
+**Alternative: an `@ops-oncall` prefix**. Shorter, but `@` is already taken by username semantics in the notification context
+(@-mentions on Feishu/Twitter, @username on telegram), and someone reading a rule would mistake the @ for a person.
+`group:` carries its own category word and is judgeable at a glance.
+**Alternative: make groups a virtual provider** (register a synthetic channel named ops-oncall that fans out at delivery time).
+Rejected: a virtual provider mixed into the provider registry would have to implement the entire Provider interface (Send/health check/start-stop),
+without having independent send semantics; and delivery logs, rate limiting, and retries would all see a fake channel name, adding a layer of
+translation to troubleshooting. A prefix reference stays a **routing-layer** concept, and the delivery layer always sees real channels.
 
-展开语义（`Member.Recipients` 与通知自带 `Recipients` 的优先级）：
-成员带 Recipients 时**成员钉死收件人**（群组的受众就是群组说了算）；
-成员没带时回落通知自带 `n.Recipients[channel]`；两者皆无则走渠道实例默认目标。
+Expansion semantics (the precedence between `Member.Recipients` and the notification's own `Recipients`):
+when a member carries Recipients, **the member pins the recipients** (the group's audience is decided by the group);
+when a member does not carry them, it falls back to the notification's own `n.Recipients[channel]`; when neither is present, it uses the channel instance's default target.
 
-## 四、按群组路由：展开发生在投递编排的单点
+## 4. Routing by Group: Expansion Happens at a Single Point in the Delivery Orchestration
 
-展开点选在 `NotificationService.enqueue`（`core/service/notification.go`），
-即"渠道引用 → 投递任务"的换算处，对每个渠道引用：
+The expansion point is chosen at `NotificationService.enqueue` (`core/service/notification.go`),
+that is, at the conversion from "channel reference → delivery task", for each channel reference:
 
 ```
-ref = "feishu-oncall"          → 自身，无收件人覆盖
-ref = "group:ops-oncall"       → 群组存在：每个成员一条 {渠道, 收件人?}
-                                → 群组不存在：该引用记为失败渠道（unknown group）
+ref = "feishu-oncall"          → itself, no recipient override
+ref = "group:ops-oncall"       → group exists: one {channel, recipients?} per member
+                                → group does not exist: the reference is recorded as a failed channel (unknown group)
 ```
 
-**为什么在 enqueue 而不是引擎求值时展开**：
+**Why expand at enqueue rather than at engine evaluation time**:
 
-1. **单点覆盖全部路径**。显式渠道、规则改道、静态路由、escalation 升级、群组摘要、
-   恢复通知最终都汇入 enqueue，一处展开全部生效；在引擎里展开只覆盖规则路径，
-   显式渠道与升级链还得再各写一遍；
-2. **Decision 保持"意图"而非"实现"**。改道决策里写 `group:ops-oncall`，
-   受众解析是投递编排的职责。两个变更频率不同的东西（规则策略 vs 值班表）不在一个对象里；
-3. **dedup 键稳定**。dedupKey 基于通知内容（含 `group:` 引用原文），不受群组成员
-   增删影响。值班换人不该让同一封告警绕过去重窗口重复炸。
+1. **A single point covers all paths**. Explicit channels, rule rerouting, static routes, escalation, group digest,
+   and recovery notifications all ultimately flow into enqueue, so expanding in one place takes effect everywhere; expanding in the engine would only cover the rule path,
+   and explicit channels and the escalation chain would each have to be written again;
+2. **The Decision keeps the "intent" rather than the "implementation"**. A reroute decision writes `group:ops-oncall`,
+   and audience resolution is the delivery orchestration's responsibility. Two things with different change frequencies (rule policy vs on-call roster) are not in the same object;
+3. **The dedup key is stable**. dedupKey is based on the notification content (including the `group:` reference text) and is unaffected by additions or
+   removals of group members. Changing who is on call should not let the same alert slip through the dedup window and fire repeatedly.
 
-**失败语义**：未知群组引用**不中断其余渠道**，与"渠道实例不存在/被停用"同一处理
-（`ProcessResult.Failed` 里逐条记账）。群组被删而规则还在引用，是配置漂移，
-表现应该是"这个引用失败且可见"，不是整条消息 500。
+**Failure semantics**: an unknown group reference **does not interrupt the other channels**, and is handled the same as
+"channel instance does not exist / is disabled" (recorded item by item in `ProcessResult.Failed`). A group being deleted while a rule still references it is configuration drift, and the behavior
+should be "this reference fails and is visible", not a 500 for the whole message.
 
-**空展开**：群组存在但成员为空被校验挡在保存时；运行中成员列表只增不减到零
-（Delete 是整组删除），所以展开结果恒非空。
+**Empty expansion**: a group that exists but has empty members is blocked by validation at save time; at runtime the member list only ever grows and never
+shrinks to zero (Delete removes the whole group), so the expansion result is always non-empty.
 
-## 五、管理与持久化
+## 5. Management and Persistence
 
-与规则引擎同构，降低第二套心智模型：
+Isomorphic with the rule engine, to reduce a second mental model:
 
-| 方法 | 路径 | 语义 |
+| Method | Path | Semantics |
 |---|---|---|
-| GET | `/api/v1/groups` | 列表 |
-| POST | `/api/v1/groups` | 新建（校验失败 400） |
-| GET | `/api/v1/groups/{id}` | 单条 |
-| PUT | `/api/v1/groups/{id}` | 整体替换（换值班 = 改成员） |
-| DELETE | `/api/v1/groups/{id}` | 删除（引用它的规则不删，投递时按 unknown group 失败） |
+| GET | `/api/v1/groups` | List |
+| POST | `/api/v1/groups` | Create (400 on validation failure) |
+| GET | `/api/v1/groups/{id}` | Single item |
+| PUT | `/api/v1/groups/{id}` | Full replacement (changing on-call = changing members) |
+| DELETE | `/api/v1/groups/{id}` | Delete (rules referencing it are not deleted; they fail at delivery time as unknown group) |
 
-持久化走 `Store` 接口 + `MemoryStore` + JSON `FileStore`（临时文件 + rename 原子写），
-配置 `groups_store: /var/lib/herald/groups.json`。`Manager` 持内存活跃表（Put/Delete
-原地刷新），投递热路径（`Resolver.Members`）只读内存快照，不走磁盘。`groups:` 种子
-列表启动灌入（与 store 并存，语义同 `rules:`）。群组没有影子模式：群组不是判断，
-是数据，数据错了改回来就是，不需要观察期。
+Persistence goes through the `Store` interface + `MemoryStore` + JSON `FileStore` (temp file + rename atomic write),
+configured with `groups_store: /var/lib/herald/groups.json`. `Manager` holds the in-memory active table (Put/Delete refresh in place),
+and the delivery hot path (`Resolver.Members`) reads only the in-memory snapshot, never touching disk. The `groups:` seed
+list is loaded at startup (coexisting with the store, semantics the same as `rules:`). Groups have no shadow mode: a group is not a judgment but
+data, and if the data is wrong you just change it back, with no observation period needed.
 
-## 六、明确的边界
+## 6. Explicit Boundaries
 
-- 群组**不参与**规则匹配（Env 里没有群组概念），匹配基于消息内容，路由目的地才用群组；
-- 群组**不带层级/角色**（无 owner、无审批流），那是权限系统的事；
-- 嵌套群组、按时间轮换的值班表（schedule）不做；值班表由外部排班系统生成群组成员
-  （PUT 群组）接入，herald 不内建排班引擎。
+- Groups **do not participate in** rule matching (there is no group concept in Env); matching is based on message content, and only the routing destination uses groups;
+- Groups **carry no hierarchy/roles** (no owner, no approval flow); that is the permission system's business;
+- Nested groups and time-rotating on-call schedules (schedule) are not done; the on-call roster is integrated by an external scheduling system
+  generating group members (PUT group), and herald does not build in a scheduling engine.

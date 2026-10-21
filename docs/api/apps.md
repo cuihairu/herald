@@ -1,23 +1,21 @@
-> 中文 · [English](./apps.en.md)
+# App Integration API
 
-# 应用接入 API
+`/api/v1/apps/{app}/**` is the integrator namespace: categories, templates, policies, triggers, and receipts are all isolated per app, and the credential is an app token seeded in the configuration file. For a walkthrough of the onboarding actions see the [Integration Guide](/guide/integration); this page is the endpoint-by-endpoint reference.
 
-`/api/v1/apps/{app}/**` 是集成者命名空间：品类、模板、策略、触发、回执全部按 app 隔离，凭证是播种在配置文件里的 app token。接入动作的引导见[接入指南](/guide/integration)，本页是逐端点参考。
+## Authentication and common conventions
 
-## 认证与通用约定
+- **Credentials**: `Authorization: Bearer <secret>` or `X-API-Key: <secret>`. Read from request headers only; there is no query-parameter fallback (URLs end up in logs).
+- **401**: an unknown app and a wrong secret both return `{"code":401,"message":"invalid app credentials"}` — the two cases are not distinguished, to prevent namespace probing (hitting the API with an app name that was never seeded gets the same response).
+- **403**: valid credentials but insufficient scope: `{"code":403,"message":"token lacks trigger scope"}`. There are three scope tiers, `config | trigger | query`, with no inheritance: config does **not** imply query.
+- **Request body limit is 1 MiB**; anything larger is treated as an invalid request.
+- **Envelope**: on success `{"code":0,"message":"...","data":{...}}`; on error `code` equals the HTTP status code and the `data` key is absent entirely. All errors on the app surface (including 405) are JSON envelopes.
+- **Rate limiting**: there is no per-client rate limiting at the HTTP layer; the delivery layer has per-channel token buckets (`providers.<name>.rate_limit`), invisible to the trigger endpoints.
 
-- **凭证**：`Authorization: Bearer <secret>` 或 `X-API-Key: <secret>`。只从请求头取，没有 query 参数回退（URL 会进日志）。
-- **401**：未知 app 与错误 secret 统一返回 `{"code":401,"message":"invalid app credentials"}`——不区分两种情况，防命名空间探测（用未播种的 app 名打过来也是这个响应）。
-- **403**：凭据有效但 scope 不够：`{"code":403,"message":"token lacks trigger scope"}`。scope 三档 `config | trigger | query`，互不继承：config **不隐含** query。
-- **请求体上限 1 MiB**，超出按非法请求处理。
-- **信封**：成功 `{"code":0,"message":"...","data":{...}}`；错误 `code` 等于 HTTP 状态码、`data` 键整体缺席。app 面的所有错误（含 405）都是 JSON 信封。
-- **限流**：HTTP 层无每客户端限流；投递层有按渠道的令牌桶（`providers.<name>.rate_limit`），对触发接口无感。
-
-响应示例里的演示凭证与[接入指南](/guide/integration#seed-app)一致。
+The demo credentials in the response examples match the [Integration Guide](/guide/integration#seed-app).
 
 ## GET /api/v1/apps/{app}
 
-自检端点：确认凭据有效并回显 token 权限集。无请求参数，只收 GET；其他方法 405。
+Self-check endpoint: confirms the credentials are valid and echoes the token's permission set. No request parameters, GET only; other methods get 405.
 
 ```bash
 curl -H "X-API-Key: demo-query-token-0123456789abcdef" \
@@ -28,32 +26,32 @@ curl -H "X-API-Key: demo-query-token-0123456789abcdef" \
 {"code":0,"message":"ok","data":{"name":"demo-app","scopes":["query"]}}
 ```
 
-`scopes` 按固定契约顺序（config, trigger, query）输出。
+`scopes` is emitted in the fixed contract order (config, trigger, query).
 
-## 品类：POST / GET /api/v1/apps/{app}/categories
+## Categories: POST / GET /api/v1/apps/{app}/categories
 
-品类是触发面的分类键。POST 需 `config`，GET 需 `query`。
+Categories are the classification key of the trigger surface. POST requires `config`, GET requires `query`.
 
-**POST 请求体**：
+**POST request body**:
 
-| 字段 | 类型 | 必填 | 取值 | 说明 |
+| Field | Type | Required | Values | Notes |
 | --- | --- | --- | --- | --- |
-| name | string | 是 | `^[a-zA-Z0-9._-]{1,64}$` | 品类名，命名空间内唯一 |
-| default_urgency | string | 是 | `routine`/`normal`/`urgent`/`critical`（含中文别名） | 未带 `urgency` 的触发按此档匹配强度窗口 |
+| name | string | yes | `^[a-zA-Z0-9._-]{1,64}$` | Category name, unique within the namespace |
+| default_urgency | string | yes | `routine`/`normal`/`urgent`/`critical` (Chinese aliases accepted) | Triggers that carry no `urgency` match the intensity window at this tier |
 
-幂等：同名同值重复注册返回 200；同名不同值返回 409 `category already registered with a different default urgency`——品类注册后默认紧急度不可漂移，要改就换品类名。
+Idempotent: registering the same name with the same value again returns 200; the same name with a different value returns 409 `category already registered with a different default urgency` — once a category is registered its default urgency cannot drift; to change it, use a new category name.
 
-**GET 响应**（按 name 排序，新命名空间为 `[]`）：
+**GET response** (sorted by name; a fresh namespace is `[]`):
 
 ```json
 {"code":0,"message":"ok","data":{"categories":[{"name":"alerts","default_urgency":"urgent"}]}}
 ```
 
-## 策略：GET /policies 与 PUT /policies/{family} {#policies}
+## Policies: GET /policies and PUT /policies/{family} {#policies}
 
-app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`，**整族替换**（body 里没出现的键被清掉），各族之间互不影响。
+The app domain's override set for delivery policies. GET requires `query`; PUT requires `config` for all four families and does a **whole-family replacement** (keys that do not appear in the body are cleared); the families do not affect one another.
 
-**GET /api/v1/apps/{app}/policies**（聚合读回，未设置的族不出现，全空时 `data` 为 `{}`）：
+**GET /api/v1/apps/{app}/policies** (aggregate read-back; families that were never set do not appear; when everything is empty `data` is `{}`):
 
 ```json
 {"code":0,"message":"ok","data":{
@@ -65,60 +63,60 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 }}
 ```
 
-**四个 PUT 子端点**：
+**The four PUT sub-endpoints**:
 
-| 端点 | 请求体形状 | 有效值 |
+| Endpoint | Request body shape | Valid values |
 | --- | --- | --- |
-| PUT /policies/intensity | `{"<channel>": "<intensity>", ...}` | `L0`–`L5`（也接受 RSS/Mail/Inbox/IM/SMS/Phone 别名） |
-| PUT /policies/delivery-mode | `{"<category>": "<mode>", ...}` | `fixed` / `escalation` / `parallel`（含中文别名） |
-| PUT /policies/escalation | `{"ack_timeout": "<duration>"}` | Go duration（`"3m"`、`"1h30m"`）；必填、非负；`"0s"` 清除覆盖 |
-| PUT /policies/dedup | `{"tiers": {"<category>": "<tier>"}, "windows": {"<category>": "<duration>"}}` | tier ∈ `once`/`throttle`/`always`；window 必须为正 duration |
+| PUT /policies/intensity | `{"<channel>": "<intensity>", ...}` | `L0`–`L5` (RSS/Mail/Inbox/IM/SMS/Phone aliases are also accepted) |
+| PUT /policies/delivery-mode | `{"<category>": "<mode>", ...}` | `fixed` / `escalation` / `parallel` (Chinese aliases accepted) |
+| PUT /policies/escalation | `{"ack_timeout": "<duration>"}` | Go duration (`"3m"`, `"1h30m"`); required, non-negative; `"0s"` clears the override |
+| PUT /policies/dedup | `{"tiers": {"<category>": "<tier>"}, "windows": {"<category>": "<duration>"}}` | tier ∈ `once`/`throttle`/`always`; window must be a positive duration |
 
-成功 200，`data` 是聚合后的完整覆盖集。坏值 422 且点名键名，如 `tiers[alerts]: dedup: unknown frequency tier "hourly" (want once|throttle|always)`。
+Success returns 200 with `data` being the complete aggregated override set. A bad value returns 422 naming the key, e.g. `tiers[alerts]: dedup: unknown frequency tier "hourly" (want once|throttle|always)`.
 
-语义边界：app 覆盖只叠加在运营方全局表上；**手机闸门（must-deliver 双重同意）不可被 app 覆盖**；渠道×关系矩阵是安全底线，没有应用级放宽端点。
+Semantic boundaries: app overrides only stack on top of the operator's global tables; **the phone gate (must-deliver double consent) cannot be overridden by an app**; the channel × relation matrix is the safety floor, and there is no application-level relaxation endpoint.
 
-## 模板：POST / GET /api/v1/apps/{app}/templates
+## Templates: POST / GET /api/v1/apps/{app}/templates
 
-命名空间内独立的模板表，渲染只在命名空间内、全局模板不可见。POST（upsert）需 `config`，GET 需 `query`。
+A template table private to the namespace: rendering happens only inside the namespace and global templates are invisible. POST (upsert) requires `config`, GET requires `query`.
 
-**POST /templates 请求体**：
+**POST /templates request body**:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| id | string | 是 | 命名空间内唯一键 |
-| name | string | 是 | 显示名 |
-| title | string | 是 | 标题模板，Go text/template 语法 <code v-pre>{{.field}}</code>；缺失 422 |
-| level | string | 否 | 惯用 `error`/`warning`/`info` |
-| fields | array | 否 | 元素 `{"label","value","type"}`，label/value 非空 |
-| bindings | object | 否 | 渠道名 → `{format, template_code, template_id, params, param_order}` |
+| id | string | yes | Unique key within the namespace |
+| name | string | yes | Display name |
+| title | string | yes | Title template, Go text/template syntax <code v-pre>{{.field}}</code>; missing → 422 |
+| level | string | no | Conventionally `error`/`warning`/`info` |
+| fields | array | no | Elements are `{"label","value","type"}`; label/value must be non-empty |
+| bindings | object | no | Channel name → `{format, template_code, template_id, params, param_order}` |
 
-幂等 upsert：重复 POST 同 id 返回 200 并整体替换。成功 200，`data` 回显模板对象（带 created_at/updated_at）。
+Idempotent upsert: POSTing the same id again returns 200 and replaces the whole record. Success returns 200 and `data` echoes the template object (with created_at/updated_at).
 
-**GET /templates**：`data` 直接是模板对象数组（不是包 map），新命名空间为 `[]`。
-**GET /templates/{id}**：未知 id 404 `template <id>: template not found: <id>`（示例 id 为 ghost 时即 `template ghost: template not found: ghost`）。
-**DELETE /templates/{id}**：成功 `{"code":0,"message":"deleted"}`；未知 id 404 `template not found: <id>`（删除未知 id 是错误，不是幂等 no-op）。
+**GET /templates**: `data` is directly an array of template objects (not a wrapper map); a fresh namespace is `[]`.
+**GET /templates/{id}**: an unknown id returns 404 `template <id>: template not found: <id>` (with the example id ghost, that is `template ghost: template not found: ghost`).
+**DELETE /templates/{id}**: success returns `{"code":0,"message":"deleted"}`; an unknown id returns 404 `template not found: <id>` (deleting an unknown id is an error, not an idempotent no-op).
 
-## 回调配置：GET / PUT / DELETE /api/v1/apps/{app}/callback
+## Callback configuration: GET / PUT / DELETE /api/v1/apps/{app}/callback
 
-登记「herald 往哪里推投递结果与退订事件」。GET 需 `query`，PUT/DELETE 需 `config`。
+Registers "where herald pushes delivery results and unsubscribe events". GET requires `query`; PUT/DELETE require `config`.
 
-**PUT 请求体**：
+**PUT request body**:
 
-| 字段 | 类型 | 必填 | 校验 |
+| Field | Type | Required | Validation |
 | --- | --- | --- | --- |
-| url | string | 是 | 绝对 http(s) URL，否则 422 |
-| secret | string | 是 | 16–128 字符，否则 422 |
+| url | string | yes | Absolute http(s) URL, otherwise 422 |
+| secret | string | yes | 16–128 characters, otherwise 422 |
 
-成功 200。整体替换语义。**GET 读口永不回显 secret**：
+Success returns 200. Whole-record replacement semantics. **The GET read path never echoes the secret**:
 
 ```json
 {"code":0,"message":"ok","data":{"url":"http://127.0.0.1:29090/callback","has_secret":true}}
 ```
 
-未配置时 `{"url":"","has_secret":false}`。DELETE 未配置也返回 200 `deleted`。
+When nothing is configured, `{"url":"","has_secret":false}`. DELETE also returns 200 `deleted` when nothing is configured.
 
-**出站回调载荷**（herald → 你的 url，POST application/json）：
+**Outbound callback payload** (herald → your url, POST application/json):
 
 ```json
 {
@@ -138,35 +136,35 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 }
 ```
 
-| 字段 | 说明 |
+| Field | Notes |
 | --- | --- |
-| event_id | 本次回调事件的 UUID，**接收方幂等键**（至少一次投递，可能重复） |
-| kind | `delivery_result`（投递落定）或 `unsubscribe`（退订回流） |
-| delivery.event_id | **回显你在 dispatch/events 里声明的 event_id**，回执按它对回原始事件；`status` ∈ success/failed |
+| event_id | UUID of this callback event, the **receiver-side idempotency key** (at-least-once delivery, duplicates possible) |
+| kind | `delivery_result` (delivery settled) or `unsubscribe` (unsubscribe flowing back) |
+| delivery.event_id | **Echoes the event_id you declared in dispatch/events**; receipts are matched back to the original event by it; `status` ∈ success/failed |
 | unsubscribe | `{audience_id, category, channel, relation_type, actor?}` |
 
-请求头：`X-Herald-Signature: sha256=<hex>`（请求体精确字节的 HMAC-SHA256，密钥即 PUT 的 secret）与 `X-Herald-Event-ID`（等于 body 的 event_id）。验签代码与重放防护见[接入指南](/guide/integration#callback)。无时间戳头，不做时间窗校验；非 2xx 走投递同一套重试管道（默认 3 次指数退避）。未配置回调的 app 静默跳过，回调失败不影响原投递。
+Request headers: `X-Herald-Signature: sha256=<hex>` (HMAC-SHA256 over the exact request body bytes, keyed by the secret from the PUT) and `X-Herald-Event-ID` (equal to the body's event_id). For signature-verification code and replay protection see the [Integration Guide](/guide/integration#callback). There is no timestamp header and no time-window check; a non-2xx response goes through the same retry pipeline as delivery (3 attempts with exponential backoff by default). An app with no callback configured is silently skipped, and a callback failure does not affect the original delivery.
 
-## 触发：POST /api/v1/apps/{app}/dispatch
+## Trigger: POST /api/v1/apps/{app}/dispatch
 
-需 `trigger`。品类语义的触发面：**品类必须已在本命名空间注册**（运营方 `delivery.categories` 配置块不算），未注册 422。
+Requires `trigger`. The category-semantics trigger surface: **the category must already be registered in this namespace** (the operator's `delivery.categories` configuration block does not count); if it is not registered, 422.
 
-**请求体**：
+**Request body**:
 
-| 字段 | 类型 | 必填 | 缺省 | 说明 |
+| Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| category | string | 是 | — | 已注册品类；未注册 422 |
-| urgency | string | 否 | 品类默认 | `routine`/`normal`/`urgent`/`critical`；非法 422，不钳制 |
-| relation_type | string | 否 | `subscription` | `subscription`（订阅型）或 `enrollment`（指派型，默认并行投递）；其他值 422 |
-| audiences | string[] | 是 | — | 受众 id、ref 形（`user:5`/`group:oncall`）或裸渠道名；空数组 422 |
-| dedup_key | string | 否 | 内容派生 | 去重键；同键窗口内重复触发返回 `suppressed:true` |
-| event_id | string | 否 | — | 你方事件身份，进去重幂等层，投递结果回调原样回带 |
-| state | string | 否 | — | 状态机维度（`down`/`ok`）；同键同态折叠，翻转重发 |
-| template | string | 否 | — | 命名空间模板 id；渲染失败/未知 422 |
-| params | object | 否 | — | 模板变量 |
-| title / body | string | 否 | — | 直投内容，与 template 二选一 |
+| category | string | yes | — | A registered category; unregistered → 422 |
+| urgency | string | no | category default | `routine`/`normal`/`urgent`/`critical`; invalid → 422, not clamped |
+| relation_type | string | no | `subscription` | `subscription` (subscription relation) or `enrollment` (enrollment relation, parallel delivery by default); other values → 422 |
+| audiences | string[] | yes | — | Audience ids, ref forms (`user:5`/`group:oncall`), or bare channel names; an empty array → 422 |
+| dedup_key | string | no | content-derived | Dedup key; repeated triggers under the same key within the window return `suppressed:true` |
+| event_id | string | no | — | Your own event identity; it enters the dedup idempotency layer and is echoed back verbatim on the delivery result callback |
+| state | string | no | — | State-machine dimension (`down`/`ok`); the same key with the same state collapses, a flip resends |
+| template | string | no | — | Namespace template id; render failure or unknown → 422 |
+| params | object | no | — | Template variables |
+| title / body | string | no | — | Direct content; use either this or template |
 
-**成功 200 响应**（受理结果，不是送达回执）：
+**Successful 200 response** (an acceptance result, not a delivery receipt):
 
 ```json
 {
@@ -185,50 +183,47 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 }
 ```
 
-| 键 | 说明 |
+| Key | Notes |
 | --- | --- |
-| plan | 升级链全链展示，首段先行投递，后续段不自动推进——ack 源未接，封存决策见设计 §6.3 落地注记；`mode` ∈ fixed/escalation/parallel |
-| dispatched | 命中并已生成投递的受众 |
-| refused | 被拒受众与原因：`filtered` / `phone_disabled` / `intensity_exceeded` / `no_channels` |
-| suppressed | 去重折叠时为 `true`，此时除 `dispatched` 恒为空数组外只有 notification_id/category/urgency/suppressed，无 task_ids |
+| plan | Shows the full escalation chain; the first stage delivers first and later stages do not advance automatically — no ack source is wired, see the design §6.3 landing note for the shelved decision; `mode` ∈ fixed/escalation/parallel |
+| dispatched | Audiences that matched and already had deliveries generated |
+| refused | Refused audiences with reasons: `filtered` / `phone_disabled` / `intensity_exceeded` / `no_channels` |
+| suppressed | `true` when dedup collapsed the trigger; in that case, apart from `dispatched` always being an empty array, only notification_id/category/urgency/suppressed are present, with no task_ids |
 
-拒绝即答案：有 refused 也是 200；全部渠道投递失败才把 body `code` 写 422。无投递策略组件的部署 404 `delivery policy not configured`。
+Refusal is the answer: a response with refused entries is still 200; only when every channel delivery fails is the body `code` written as 422. A deployment without the delivery policy component returns 404 `delivery policy not configured`.
 
-## 事件适配：POST /api/v1/apps/{app}/events
+## Event adaptation: POST /api/v1/apps/{app}/events
 
-需 `trigger`。给事件语义在自己词汇里的告警源用，映射到与 dispatch 完全相同的管线，响应同 dispatch。
+Requires `trigger`. For alerting sources whose event semantics live in their own vocabulary; it maps onto exactly the same pipeline as dispatch, and the response is identical to dispatch.
 
-**请求体**：
+**Request body**:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| kind | string | 是 | 映射为品类，须已注册；空 422 |
-| severity | string | 是 | `critical`→critical、`warning`→urgent、`info`→normal；其他值 422 |
-| target | string | 是 | 单受众；ref 形 `user:1` 映射为受众 id `user.1` |
-| id | number | 否 | 你方事件主键（如 outbox id），转成 `event_id`，回调回带 |
-| title / body | string | 否 | 直投内容 |
-| dedup_key | string | 否 | 同 dispatch |
-| meta | object | 否 | 模板参数；非 object 400 |
-| occurred_at | string | 否 | RFC3339；herald 仅解析，时间戳以 herald 侧为准 |
+| kind | string | yes | Mapped to a category, which must be registered; empty → 422 |
+| severity | string | yes | `critical`→critical, `warning`→urgent, `info`→normal; other values → 422 |
+| target | string | yes | A single audience; the ref form `user:1` maps to audience id `user.1` |
+| id | number | no | Your event primary key (e.g. an outbox id); converted to `event_id` and echoed back on callbacks |
+| title / body | string | no | Direct content |
+| dedup_key | string | no | Same as dispatch |
+| meta | object | no | Template parameters; non-object → 400 |
+| occurred_at | string | no | RFC3339; herald only parses it, the timestamp on the herald side is authoritative |
 
-不支持 dispatch 的 `relation_type`/`urgency`/`template`/`state`——固定走 subscription 关系与 severity→urgency 映射。
+dispatch's `relation_type`/`urgency`/`template`/`state` are not supported — it always uses the subscription relation and the severity→urgency mapping.
 
-## 查询：GET /deliveries 与 GET /audit
+## Queries: GET /deliveries and GET /audit
 
-都需 `query`，命名空间边界强制：只看得到 `source=app:<name>` 的行。
+Both require `query`, and the namespace boundary is enforced: only rows with `source=app:<name>` are visible.
 
-**GET /deliveries**：读投递状态机（生命周期/重试演进），不是日志事实流。`status`
-是状态机词汇 `accepted/queued/delivering/retrying/delivered/failed/dead`——
-`failed`（有错终态）与 `dead`（重试耗尽）的区分只在这里，日志面的
-`success/failed` 事件结果不经此端点。
+**GET /deliveries**: reads the delivery state machine (lifecycle/retry evolution), not a log fact stream. `status` uses the state-machine vocabulary `accepted/queued/delivering/retrying/delivered/failed/dead` — the distinction between `failed` (terminal with an error) and `dead` (retries exhausted) exists only here; the log-side `success/failed` event outcomes do not pass through this endpoint.
 
-| 参数 | 缺省 | 说明 |
+| Parameter | Default | Notes |
 | --- | --- | --- |
-| offset | 0 | 负值按 0 |
-| limit | 50 | `<=0` 归 50，`>500` 截 500 |
-| status | 全部 | 生命周期七值精确匹配 |
-| category | 全部 | 品类精确匹配 |
-| audience | 全部 | 精确匹配触发时传入的受众串（dispatch 原样落库；events 的 `target` 先经 `user:5`→`user.5` 映射再落库，按映射后的 id 查） |
+| offset | 0 | Negative values are treated as 0 |
+| limit | 50 | `<=0` becomes 50, `>500` is truncated to 500 |
+| status | all | Exact match against the seven lifecycle values |
+| category | all | Exact category match |
+| audience | all | Exact match against the audience string passed at trigger time (dispatch persists it as-is; for events, `target` goes through the `user:5`→`user.5` mapping before being persisted, so query by the mapped id) |
 
 ```json
 {"code":0,"message":"ok","data":{"total":1,"offset":0,"limit":50,"deliveries":[{
@@ -239,9 +234,9 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 }]}}
 ```
 
-行在任务真正执行后才出现；被去重折叠的触发不出现在这里（去 audit 找 `delivery.deduped`）。
+Rows appear only after the task has actually executed; triggers collapsed by dedup do not show up here (look in audit for `delivery.deduped`).
 
-**GET /audit**：审计流，时间升序。参数 `since`（可选 RFC3339，非法 400）。审计存储未配置时**先于认证**返回 404 `audit trail not configured`。
+**GET /audit**: the audit stream, ascending by time. Parameter `since` (optional RFC3339; invalid → 400). When audit storage is not configured it returns 404 `audit trail not configured` **before authentication**.
 
 ```json
 {"code":0,"message":"ok","data":{"events":[{
@@ -251,31 +246,31 @@ app 域对投递策略的覆盖集。GET 需 `query`；PUT 四族都需 `config`
 }]}}
 ```
 
-`kind` 词汇：`relation.subscribe` / `relation.enroll` / `relation.terminate` / `surface.bind` / `surface.rebind` / `surface.invalidate` / `delivery.deduped`。
+`kind` vocabulary: `relation.subscribe` / `relation.enroll` / `relation.terminate` / `surface.bind` / `surface.rebind` / `surface.invalidate` / `delivery.deduped`.
 
-## OpenAPI 规范
+## OpenAPI specification
 
-接入协议只有 REST + 签名 webhook，语言不设限。规范文件：**`docs/api/openapi.yaml`**（OpenAPI 3.1，覆盖 `/notify` 与 `/apps/{app}/**` 全部端点）。用 openapi-generator 自助生成客户端：
+The integration protocol is REST + signed webhook only, with no language restrictions. Specification file: **`docs/api/openapi.yaml`** (OpenAPI 3.1, covering all endpoints of `/notify` and `/apps/{app}/**`). Generate a client for yourself with openapi-generator:
 
 ```bash
 npx @openapitools/openapi-generator-cli generate \
   -i docs/api/openapi.yaml \
-  -g python \        # 或 typescript-axios / java / go 等
+  -g python \        # or typescript-axios / java / go, etc.
   -o ./herald-client
 ```
 
-规范里 `servers.url` 填你的部署地址；app token 对应的安全方案名 `AppToken`（apiKey，header `X-API-Key`），管理面 token 用 `BearerAuth`。Go 用户直接用官方 `apps-sdk/go`（`apps-sdk/go/example` 附带一个可运行自检，走自检/品类/事件/投递记录/审计五个面），不必生成。
+In the specification, `servers.url` holds your deployment address; the security scheme for app tokens is named `AppToken` (apiKey, header `X-API-Key`), and admin-surface tokens use `BearerAuth`. Go users can use the official `apps-sdk/go` directly (`apps-sdk/go/example` ships a runnable self-check that walks the five surfaces — self-check, categories, events, delivery records, audit) and do not need to generate anything.
 
-## 错误码总表
+## Error code summary
 
-| HTTP | 何时发生 | 消息示例 |
+| HTTP | When it happens | Example message |
 | --- | --- | --- |
-| 400 | 请求体非法 JSON / meta 非 object | `invalid JSON body`（callback PUT 例外，报 `invalid request body`） |
-| 401 | token 错、app 名错、缺凭据（含用未播种的 app 名访问） | `invalid app credentials` |
-| 403 | scope 不够 | `token lacks trigger scope` |
-| 404 | audit 存储未配置；无投递策略组件 | `audit trail not configured` / `delivery policy not configured` |
-| 405 | 端点不支持的方法（每个端点都有显式检查——四个策略族只收 PUT、dispatch/events 只收 POST、show/policies/deliveries/audit 只收 GET） | `method not allowed` |
-| 409 | 品类同名不同默认紧急度 | `category already registered with a different default urgency` |
-| 422 | 字段校验失败（品类未注册/severity 非法/urgency 非法/relation_type 非法/模板渲染失败/策略坏值） | `severity must be critical/warning/info` |
+| 400 | Invalid JSON body / meta not an object | `invalid JSON body` (callback PUT is the exception, reporting `invalid request body`) |
+| 401 | Wrong token, wrong app name, missing credentials (including accessing with an app name that was never seeded) | `invalid app credentials` |
+| 403 | Insufficient scope | `token lacks trigger scope` |
+| 404 | Audit storage not configured; no delivery policy component | `audit trail not configured` / `delivery policy not configured` |
+| 405 | Method not supported by the endpoint (every endpoint has an explicit check — the four policy families accept only PUT, dispatch/events only POST, show/policies/deliveries/audit only GET) | `method not allowed` |
+| 409 | Same category name with a different default urgency | `category already registered with a different default urgency` |
+| 422 | Field validation failure (unregistered category / invalid severity / invalid urgency / invalid relation_type / template render failure / bad policy value) | `severity must be critical/warning/info` |
 
-全部触发与查询成功路径都返回 200；`suppressed`、`refused`、`failed` 都是受理结果里的字段，不是 HTTP 错误。
+Every trigger and query success path returns 200; `suppressed`, `refused`, and `failed` are all fields of the acceptance result, not HTTP errors.

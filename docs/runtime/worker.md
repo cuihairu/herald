@@ -1,10 +1,8 @@
-> 中文 · [English](./worker.en.md)
+# Worker Architecture
 
-# Worker 架构
+## Unified Worker Model
 
-## 统一 Worker 模型
-
-Herald 中所有 Worker 都是同一种概念，通过 `local`/`remote` 区分部署方式：
+In Herald, all Workers are the same concept, distinguished by `local`/`remote` deployment:
 
 ```mermaid
 graph TB
@@ -20,54 +18,54 @@ graph TB
     end
 
     subgraph Remote["Remote Workers"]
-        RW1["独立进程"]
+        RW1["separate process"]
     end
 
     API -->|Push| Queue
     Queue -->|Pop + Ack| LW1
     Queue -->|Pop + Ack| LW2
     Queue -->|Pop + Ack| RW1
-    RW1 -.->|WebSocket<br/>注册/心跳| Scheduler
+    RW1 -.->|WebSocket<br/>registration/heartbeat| Scheduler
 ```
 
-| 属性 | Local Worker | Remote Worker |
+| Attribute | Local Worker | Remote Worker |
 |------|-------------|---------------|
-| 部署 | 进程内 goroutine | 独立进程（`heraldd worker`） |
-| 任务来源 | 从 Queue Pop | 从共享 Queue Pop（Redis） |
-| 通信 | 直接调用 Provider | WebSocket 注册 + Queue 消费 |
-| 适用 | 内置 Provider（Telegram、Email 等） | 需要特殊环境的 Provider |
+| Deployment | In-process goroutine | Separate process (`heraldd worker`) |
+| Task source | Popped from the Queue | Popped from the shared Queue (Redis) |
+| Communication | Direct Provider calls | WebSocket registration + Queue consumption |
+| Best for | Builtin Providers (Telegram, Email, etc.) | Providers that need a special environment |
 
-## 启动方式
+## Launch Modes
 
 ```bash
-# 调度器模式（自动启动 local workers）
+# Scheduler mode (starts local workers automatically)
 heraldd serve --config config.yaml
 
-# 远程 Worker 模式
+# Remote Worker mode
 heraldd worker --config worker.yaml
 ```
 
-## Worker 注册表
+## Worker Registry
 
-所有 Worker（local 和 remote）都注册到统一的 Registry：
+All Workers (local and remote) are registered in a unified Registry:
 
 ```go
 type Info struct {
     ID            string    // worker ID
-    Mode          Mode      // "local" 或 "remote"
-    Capabilities  []string  // 支持的 Provider 类型
+    Mode          Mode      // "local" or "remote"
+    Capabilities  []string  // Supported Provider types
     Status        string    // online / offline
     ConnectedAt   time.Time
     LastHeartbeat time.Time
 }
 ```
 
-- **Local Worker**：启动时自动注册，进程退出时自动注销
-- **Remote Worker**：启动时通过 WebSocket 注册，定期心跳保活，超时自动注销
+- **Local Worker**: registered automatically at startup, unregistered automatically when the process exits
+- **Remote Worker**: registers over WebSocket at startup, keeps alive with periodic heartbeats, and is unregistered automatically on timeout
 
-## Queue 接口
+## Queue Interface
 
-Queue 是唯一的任务分发通道，支持可靠消费语义：
+The Queue is the only task dispatch channel and supports reliable consumption semantics:
 
 ```go
 type Queue interface {
@@ -80,16 +78,16 @@ type Queue interface {
 }
 ```
 
-| 实现 | 适用场景 | Remote Worker 支持 |
+| Implementation | Use Case | Remote Worker Support |
 |------|---------|-------------------|
-| `memory` | 单机部署 | 不支持 |
-| `redis` | 分布式部署 | 支持 |
+| `memory` | Single-machine deployment | Not supported |
+| `redis` | Distributed deployment | Supported |
 
-## WebSocket 管理通道
+## WebSocket Management Channel
 
-WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启动时上报 ID 与能力完成注册，之后按固定间隔心跳保活、超时自动注销；Worker 状态变化（session 过期、需要扫码等）也走这条通道上报。
+WebSocket is not used for task dispatch; it serves only as the management channel for remote Workers: at startup the Worker reports its ID and capabilities to complete registration, then keeps alive with heartbeats at a fixed interval and is unregistered automatically on timeout; Worker state changes (session expired, QR scan required, etc.) are also reported over this channel.
 
-### 注册消息（Worker → Core）
+### Registration Message (Worker → Core)
 
 ```json
 {
@@ -102,7 +100,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启�
 }
 ```
 
-### 心跳消息（Worker → Core）
+### Heartbeat Message (Worker → Core)
 
 ```json
 {
@@ -112,11 +110,11 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启�
 }
 ```
 
-`status` 是协议里的可选自由映射（`map[string]interface{}`，`protocol/message.go`），当前 SDK 与内置 worker 都不填充，示例只发 `worker_id` + `timestamp`。
+`status` is an optional free-form map in the protocol (`map[string]interface{}`, `protocol/message.go`); neither the current SDK nor the builtin worker populates it, so the examples send only `worker_id` + `timestamp`.
 
-## 协议消息
+## Protocol Messages
 
-### 注册确认（Core → Worker）
+### Registration Acknowledgment (Core → Worker)
 
 ```json
 {
@@ -128,7 +126,7 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启�
 }
 ```
 
-### 事件消息（Worker → Core）
+### Event Message (Worker → Core)
 
 ```json
 {
@@ -142,12 +140,12 @@ WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：启�
 }
 ```
 
-协议共定义七类消息（`protocol/message.go`）：上文四类在用，`dispatch`/`ack`/`error` 已定义但全仓无生产调用点——任务结果走队列 Ack/Nack，不经 WebSocket。
+The protocol defines seven message types in total (`protocol/message.go`): the four above are in use, while `dispatch`/`ack`/`error` are defined but have no production call sites in the repo — task results go through queue Ack/Nack, not WebSocket.
 
-## 适用场景
+## Applicable Scenarios
 
-Remote Worker 适用于：浏览器自动化（微信公众号、网页版工具）、移动端桥接（Android 通知桥接）、需要 GUI Session 或特殊系统权限的场景，以及想把渠道崩溃隔出调度器进程的部署。
+Remote Workers fit: browser automation (WeChat Official Account, web-based tools), mobile bridging (Android notification bridge), scenarios that need a GUI session or special system permissions, and deployments that want to isolate channel crashes from the scheduler process.
 
-## 最佳实践
+## Best Practices
 
-开发和小规模部署用 `memory` 队列即可；要上分布式再切 `redis`，代码零改动。Remote Worker 独立进程运行，崩溃不牵连调度器；内置二进制 `heraldd worker` 断线后自动重连并重新注册，心跳掉线能及时暴露连接问题（`worker-sdk` 不自动重连，恢复靠重启进程）。
+For development and small-scale deployments, the `memory` queue is enough; switch to `redis` when going distributed, with zero code changes. A Remote Worker runs as a separate process, so a crash does not take down the scheduler; the builtin binary `heraldd worker` reconnects and re-registers automatically after a disconnect, and a dropped heartbeat surfaces connection problems promptly (`worker-sdk` does not reconnect automatically — recovery means restarting the process).

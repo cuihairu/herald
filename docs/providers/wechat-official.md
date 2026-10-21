@@ -1,23 +1,21 @@
-> 中文 · [English](./wechat-official.en.md)
+# WeChat Official Account Push
 
-# 微信公众号推送
+This guide covers how to push messages through your own WeChat Official Account.
 
-本指南介绍如何使用自己的微信公众号实现消息推送。
+## Two approaches
 
-## 两种方式
+Herald supports two ways to push via a WeChat Official Account:
 
-Herald 支持两种微信公众号推送方式：
-
-| 方式 | 说明 | 适用场景 |
+| Approach | Description | When to use |
 |------|------|---------|
-| **Builtin Provider** | 直接使用微信模板消息 API | 简单场景，已有公众号 |
-| **Worker Provider** | 通过 Worker 进程处理 | 复杂场景，需要额外逻辑 |
+| **Builtin Provider** | uses the WeChat template message API directly | simple scenarios; you already have an Official Account |
+| **Worker Provider** | handled by a Worker process | complex scenarios that need extra logic |
 
-## 方式一：Builtin Provider（推荐）
+## Option 1: Builtin Provider (recommended)
 
-`wechatmp` Provider 的完整配置参考（模板字段映射、Token 管理、常见错误）见 [微信公众号模板消息](./wechatmp.md)，下面快速过一遍。
+For the full `wechatmp` Provider configuration reference (template field mapping, token management, common errors) see [WeChat Official Account template messages](./wechatmp.md); here is a quick pass.
 
-### 配置
+### Configuration
 
 ```yaml
 providers:
@@ -31,81 +29,81 @@ providers:
       default_url: "https://your-domain.com"
 ```
 
-### 发送消息
+### Send a message
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{
     "type": "order",
-    "title": "订单通知",
-    "body": "您的订单已发货",
+    "title": "Order notice",
+    "body": "Your order has shipped",
     "level": "info",
     "channels": ["wechatmp"],
     "recipients": {
-      "wechatmp": ["用户OpenID"]
+      "wechatmp": ["user OpenID"]
     }
   }'
 ```
 
-### 模板数据
+### Template data
 
-Herald 会自动将内容映射到微信模板字段：
+Herald maps content to WeChat template fields automatically:
 
-| 微信字段 | Herald 内容 | 说明 |
+| WeChat field | Herald content | Notes |
 |---------|------------|------|
-| `thing1` | title | 标题（最多20字符） |
-| `thing2` | body | 内容（最多30字符） |
-| `character_string1` | level | 级别 |
-| `time3` | 当前时间 | 时间戳 |
+| `thing1` | title | title (20 characters max) |
+| `thing2` | body | content (30 characters max) |
+| `character_string1` | level | level |
+| `time3` | current time | timestamp |
 
-### 前置要求
+### Prerequisites
 
-**企业资质：**
-- 营业执照
-- 对公账户
-- 300元/年认证费
-- 审核周期：7-30个工作日
+**Business qualifications:**
+- business license
+- corporate bank account
+- CNY 300/year verification fee
+- review cycle: 7-30 business days
 
-**技术要求：**
-- 微信服务号
-- 已通过微信认证
-- 已开通模板消息功能
+**Technical requirements:**
+- a WeChat service account (an Official Account of the service type)
+- WeChat verification completed
+- template message feature enabled
 
-### 申请流程
+### Application process
 
-1. **注册服务号**：访问 https://mp.weixin.qq.com/ 注册服务号
-2. **企业认证**：提交营业执照、对公账户信息，缴纳认证费
-3. **开通模板消息**：认证后在公众号后台开通模板消息功能
-4. **创建模板**：在模板库中选择或创建模板，记录模板 ID
+1. **Register a service account**: visit https://mp.weixin.qq.com/ and register a service account
+2. **Business verification**: submit the business license and corporate account information, and pay the verification fee
+3. **Enable template messages**: after verification, enable the template message feature in the Official Account admin console
+4. **Create a template**: pick or create a template in the template library and note the template ID
 
-### 配置说明
+### Configuration notes
 
-| 参数 | 说明 | 示例 |
+| Parameter | Description | Example |
 |------|------|------|
-| `app_id` | 公众号 AppID | `wx-your-appid` |
-| `app_secret` | 公众号 AppSecret | `your-app-secret` |
-| `template_id` | 模板消息 ID | `AT0001` |
-| `default_url` | 点击模板跳转的 URL（可选） | `https://your-domain.com` |
+| `app_id` | Official Account AppID | `wx-your-appid` |
+| `app_secret` | Official Account AppSecret | `your-app-secret` |
+| `template_id` | template message ID | `AT0001` |
+| `default_url` | URL to open when the template is tapped (optional) | `https://your-domain.com` |
 
-### 限制说明
+### Limit notes
 
-| 限制项 | 说明 |
+| Limit | Notes |
 |--------|------|
-| **推送频率** | 单用户每分钟 100 条 |
-| **模板数量** | 最多 25 个模板 |
-| **模板审核** | 需要微信审核（1-7天） |
-| **行业限制** | 需要与公众号行业匹配 |
-| **关键词** | 内容不能包含敏感词 |
+| **Push frequency** | 100 messages per minute per user |
+| **Template count** | at most 25 templates |
+| **Template review** | WeChat review required (1-7 days) |
+| **Industry restriction** | must match the Official Account's industry |
+| **Keywords** | content must not contain sensitive words |
 
-## 方式二：Worker Provider
+## Option 2: Worker Provider
 
-适用需要复杂处理逻辑的场景，如：
-- 需要访问数据库获取用户信息
-- 需要调用其他服务
-- 需要自定义消息格式
+For scenarios that need complex processing logic, such as:
+- fetching user info from a database
+- calling other services
+- custom message formats
 
-### 配置
+### Configuration
 
 ```yaml
 providers:
@@ -116,9 +114,9 @@ providers:
       target: "wechat-worker-01"
 ```
 
-### Worker 开发
+### Worker development
 
-使用 Worker SDK 开发：
+Develop with the Worker SDK:
 
 ```go
 package main
@@ -141,10 +139,10 @@ func main() {
         Capabilities:      []string{"wechatmp"},
     }
 
-    client := workersdk.NewClient(config, nil) // queue 为 nil 走内置内存队列
+    client := workersdk.NewClient(config, nil) // nil queue uses the built-in in-memory queue
 
     client.OnTask(func(task *core.DeliveryTask) error {
-        // 处理任务（任务确认由 SDK/队列处理，不用手动 Ack）
+        // handle the task (acknowledgement is handled by the SDK/queue, no manual Ack needed)
         return sendWechatTemplateMessage(task)
     })
 
@@ -152,48 +150,48 @@ func main() {
 }
 ```
 
-详见 [Worker SDK](/runtime/sdk)。
+See the [Worker SDK](/runtime/sdk) documentation for details.
 
-## 获取用户 OpenID
+## Get a user's OpenID
 
-用户关注公众号后需要获取 OpenID 才能发送消息：
+After a user follows the Official Account you need their OpenID to send messages:
 
-### 方式 1: 通过用户授权
+### Method 1: user authorization (web authorization)
 
-生成授权链接让用户授权：
+Generate an authorization link and have the user authorize:
 
 ```
 https://open.weixin.qq.com/connect/oauth2/authorize?appid=APPID&redirect_uri=REDIRECT_URI&response_type=code&scope=snsapi_base#wechat_redirect
 ```
 
-### 方式 2: 通过关注事件
+### Method 2: the follow event
 
-在公众号服务器配置中处理关注事件获取 OpenID。
+Handle the subscribe event in the Official Account server configuration to obtain the OpenID.
 
-## 常见问题
+## FAQ
 
-### Q: 模板被拒怎么办？
+### Q: My template was rejected — what now?
 
-A: 根据拒绝原因修改：
-- 内容不符合行业规范
-- 包含推广信息
-- 模板格式不规范
+A: fix it based on the rejection reason:
+- content does not fit industry norms
+- contains promotional material
+- template format is not standard
 
-### Q: 用户收不到消息？
+### Q: Users don't receive messages?
 
-A: 检查：
-- 用户是否已关注公众号
-- OpenID 是否正确
-- 模板是否已通过审核
-- 是否触发了频率限制
+A: check:
+- whether the user follows the Official Account
+- whether the OpenID is correct
+- whether the template passed review
+- whether a rate limit was triggered
 
-### Q: Access Token 过期？
+### Q: Access token expired?
 
-A: Provider 会自动管理 Access Token，无需手动处理。
+A: the Provider manages the access token automatically; no manual handling needed.
 
-## 下一步
+## Next steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider
-- [微信公众号模板消息](./wechatmp.md) - wechatmp Provider 配置参考
-- [微信个人推送](./wechat.md) - 使用第三方服务的简单方案
-- [Worker SDK](/runtime/sdk) - 了解 Worker 开发
+- [Provider overview](./overview.md) - see all Providers
+- [WeChat Official Account template messages](./wechatmp.md) - wechatmp Provider configuration reference
+- [WeChat personal push](./wechat.md) - the easy way with third-party services
+- [Worker SDK](/runtime/sdk) - learn Worker development

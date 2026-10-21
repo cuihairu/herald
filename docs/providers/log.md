@@ -1,27 +1,25 @@
-> 中文 · [English](./log.en.md)
+# Log (Local Log Output)
 
-# Log (本地日志输出)
+Write notifications directly to stdout / structured logs, for development debugging, test verification, and local loopback.
 
-把通知直接写入标准输出 / 结构化日志，用于开发调试、测试验证、本地回环。
+## What It Does
 
-## 作用
+The `log` Builtin Provider sends no network requests at all — it only records the notification content as a structured entry via `logger.Info` and prints it to stdout with `fmt.Printf`. Good for:
 
-`log` Builtin Provider 不发送任何网络请求，仅将通知内容通过 `logger.Info` 结构化记录并 `fmt.Printf` 打印到 stdout。适合：
+- Local development / unit-test verification of notification flow
+- Capturing notification content in a CI pipeline for assertions
+- Acting as a "fallback Provider" together with the rule engine's `inhibit`/`silence` to observe inhibited notifications
+- Local loopback testing in Worker mode
 
-- 本地开发/单测验证通知流转
-- CI 流水线中捕获通知内容做断言
-- 作为「兜底 Provider」配合规则引擎 `inhibit`/`silence` 观察被抑制的通知
-- Worker 模式下的本地回环测试
+## Configuration
 
-## 配置项
-
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `name` | ❌ | Provider 实例名称（用于日志区分多实例） | `log` |
+| `name` | ❌ | The Provider instance name (to distinguish multiple instances in logs) | `log` |
 
-无必填项，配置为空也能创建成功。
+There are no required keys; creation succeeds even with an empty config.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -29,11 +27,11 @@ providers:
     type: log
     enabled: true
     config:
-      name: "debug-log"   # 可选：区分多个 log provider
+      name: "debug-log"   # optional: distinguish multiple log providers
 ```
 
 ```yaml
-# 最小配置
+# minimal config
 providers:
   log:
     type: log
@@ -41,22 +39,22 @@ providers:
     config: {}
 ```
 
-## 环境变量
+## Environment Variables
 
-无敏感配置项，通常直接写死。如需通过环境变量指定名称：
+There are no sensitive configuration keys, so they are usually written in place. If you want to set the name via an environment variable:
 
 ```yaml
 config:
-  name: "$LOG_PROVIDER_NAME"  # 可选
+  name: "$LOG_PROVIDER_NAME"  # optional
 ```
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-## 消息模板与限制
+## Message Templates and Limits
 
-### 输出格式
+### Output Format
 
-**结构化日志** (`logger.Info`，JSON 格式，配合 `zap`/生产日志系统)：
+**Structured log** (`logger.Info`, JSON format, pairs with `zap` / a production logging system):
 
 ```json
 {
@@ -65,42 +63,42 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
   "msg": "delivering task",
   "provider": "debug-log",
   "task_id": "uuid-xxx",
-  "title": "服务器告警",
-  "body": "CPU 使用率超过 90%",
+  "title": "Server Alert",
+  "body": "CPU usage above 90%",
   "level": "warning"
 }
 ```
 
-**控制台打印** (`fmt.Printf`，人类可读)：
+**Console print** (`fmt.Printf`, human-readable):
 
 ```
-[warning] 服务器告警: CPU 使用率超过 90%
+[warning] Server Alert: CPU usage above 90%
 ```
 
-格式：`[{task.Level}] {title}: {body}`
+Format: `[{task.Level}] {title}: {body}`
 
-### 限制
+### Limits
 
-- **不发送任何网络请求**，无网络错误、超时、重试
-- 无持久化、无去重、无限流
-- `Deliver` 永远返回 `nil`（除非 `task == nil` 返回 `task is nil`）
+- **No network requests at all** — no network errors, timeouts, or retries
+- No persistence, no dedup, no rate limiting
+- `Deliver` always returns `nil` (except when `task == nil`, which returns `task is nil`)
 
-### 能力声明
+### Capability Declaration
 
 - `PayloadKinds`: `Content`
 - `ContentFormats`: `plain`
 
-## 常见错误
+## Common Errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `task is nil` | 传入的 `DeliveryTask` 为 nil（调用方 bug） |
+| `task is nil` | The passed-in `DeliveryTask` is nil (a caller bug) |
 
-除 `task is nil` 外无其他错误返回。
+Apart from `task is nil`, no other error is returned.
 
-## 典型用法
+## Typical Usage
 
-### 1. 本地开发验证
+### 1. Local Development Verification
 
 ```yaml
 providers:
@@ -109,9 +107,9 @@ providers:
     enabled: true
 ```
 
-启动 Herald，发送通知，终端直接看到输出。
+Start Herald, send a notification, and see the output directly in the terminal.
 
-### 2. 多实例区分
+### 2. Distinguishing Multiple Instances
 
 ```yaml
 providers:
@@ -127,11 +125,11 @@ providers:
       name: "audit"
 ```
 
-日志中 `provider` 字段分别为 `debug` / `audit`，便于过滤。
+The `provider` field in the logs is `debug` / `audit` respectively, which makes filtering easy.
 
-### 3. 规则引擎观察模式
+### 3. Rule Engine Observation Mode
 
-配合 `shadow` 模式或 `inhibit` 规则，把被抑制/静默的通知也路由到 log provider，做审计留痕：
+Combined with `shadow` mode or an `inhibit` rule, route inhibited/silenced notifications to the log provider as well, as an audit trail:
 
 ```yaml
 rules:
@@ -139,32 +137,32 @@ rules:
     inhibit:
       time: "22:00-08:00"
     route:
-      - provider: "log"   # 夜间通知不发真实渠道，仅落日志
+      - provider: "log"   # night-time notifications skip real channels and only go to the log
 ```
 
-## 发第一条消息
+## Sending Your First Message
 
-`log` 是唯一零凭据的通道，也是验证 Herald 链路的标准手段（同款步骤见[快速开始](/guide/getting-started)第 1 步）：
+`log` is the only zero-credential channel and the standard way to verify the Herald delivery path (the same steps are in step 1 of the [Getting Started](/guide/getting-started) guide):
 
 ```bash
-# 启动
+# start
 ./bin/heraldd serve --config config.yaml
 
-# 发送
+# send
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
   -d '{"type":"demo","level":"error","title":"Node Offline","body":"node-17 is offline","channels":["log"]}'
 ```
 
-服务端 stdout 立即出现两行——结构化日志 + 人类可读送达行：
+The server's stdout immediately shows two lines — the structured log plus the human-readable delivery line:
 
 ```
 {"time":"...","level":"INFO","msg":"delivering task","provider":"log","task_id":"...","title":"Node Offline","body":"node-17 is offline","level":"error"}
 [error] Node Offline: node-17 is offline
 ```
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [Webhook](./webhook.md) - 自定义 HTTP 接收端
-- [Email](./email.md) - SMTP 邮件通道
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [Webhook](./webhook.md) - a custom HTTP receiver
+- [Email](./email.md) - the SMTP email channel

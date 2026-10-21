@@ -1,113 +1,111 @@
-> 中文 · [English](./troubleshooting.en.md)
+# Troubleshooting Guide
 
-# 排错指南
+Triage by "which step is stuck": check startup first, then sending, and finally delivery.
 
-按「卡在哪一步」排查：先看启动，再看发送，最后看送达。
+## Startup Fails Immediately
 
-## 启动就失败
-
-| 现象 / 日志 | 原因与处理 |
+| Symptom / log | Cause and fix |
 |-------------|-----------|
-| `Unknown command: --config` | 启动命令少了子命令。正确写法：`heraldd serve --config config.yaml`（或 `heraldd worker --config ...`），`serve` 不能省 |
-| `factory not found: builtin` | provider 的 `type` 写了 `builtin`。`type` 必须是具体类型名：`type: telegram`、`type: aliyunsms`… 完整列表见 [Provider 手册](/providers/overview) |
-| `fcm: project_id is required` / `telegram: token is required` 等 | 必填配置缺失，错误前缀就是 provider 名。对照该 provider 文档的配置项表 |
-| `unknown provider type` / `no-such` | `type` 拼写错误，对照 Provider 手册 |
-| `unknown queue type: banana` | `queue.type` 只支持 `memory`（默认）/ `redis`（远程 worker 不接受 memory） |
-| `auth enabled but no api_keys configured` | 开了 `auth.enabled` 却没配 `auth.api_keys` |
-| `address already in use` | `server.addr`（默认 `:8080`）或 `websocket.addr`（默认 `:8081`）被占用，改端口或停掉占用进程 |
-| `invalid config` | YAML 语法错误，错误信息会带行号/字段 |
+| `Unknown command: --config` | The start command is missing a subcommand. Correct form: `heraldd serve --config config.yaml` (or `heraldd worker --config ...`); `serve` cannot be omitted |
+| `factory not found: builtin` | The provider's `type` is set to `builtin`. `type` must be a concrete type name: `type: telegram`, `type: aliyunsms`… For the full list see the [Provider Manual](/providers/overview) |
+| `fcm: project_id is required` / `telegram: token is required`, etc. | Required configuration is missing; the error prefix is the provider name. Check the configuration item table in that provider's documentation |
+| `unknown provider type` / `no-such` | `type` is misspelled; check the Provider Manual |
+| `unknown queue type: banana` | `queue.type` only supports `memory` (default) / `redis` (remote workers do not accept memory) |
+| `auth enabled but no api_keys configured` | `auth.enabled` is on but `auth.api_keys` is not configured |
+| `address already in use` | `server.addr` (default `:8080`) or `websocket.addr` (default `:8081`) is already in use; change the port or stop the process holding it |
+| `invalid config` | YAML syntax error; the message includes the line number / field |
 
-启动成功的标志是日志里出现 `herald scheduler started`。
+Successful startup is indicated by `herald scheduler started` appearing in the logs.
 
-## 环境变量没生效
+## Environment Variables Not Taking Effect
 
-配置里写 `$VAR` 但 provider 收到的还是字面量：
+You wrote `$VAR` in the config but the provider still receives the literal text:
 
-- **只支持 `$VAR` 写法**（值以 `$` 开头整体替换）；`${VAR}` **不会**被展开，会原样保留
-- 环境变量必须在**启动 heraldd 的进程环境**里存在（`export` 或 `.env` 由部署方式注入），不是前端或 curl 的环境
-- 配置文件是**启动时读取**的，改完要重启服务
+- **Only the `$VAR` form is supported** (the value is replaced in whole when it starts with `$`); `${VAR}` is **not** expanded and is kept as-is
+- The environment variable must exist in the **process environment that starts heraldd** (injected via `export` or `.env` by the deployment method), not in the frontend or curl's environment
+- The config file is **read at startup**; restart the service after changing it
 
 ```yaml
-# 对
+# Correct
 token: "$TELEGRAM_BOT_TOKEN"
-# 错（不会展开）
+# Wrong (will not be expanded)
 token: "${TELEGRAM_BOT_TOKEN}"
 ```
 
-## 发送失败（notify 调用就报错）
+## Send Failure (the notify call itself errors)
 
-| 现象 | 原因与处理 |
+| Symptom | Cause and fix |
 |------|-----------|
-| `no route found for type=xxx level=xxx` | 请求没带 `channels`，且 `routes`（按 type）和 `level_routes`（按 level）都没命中。补路由表，或请求里显式带 `channels` |
-| 响应体 `data.failed` 列出通道 | 通知受理但某个通道投递失败，错误详情在 `failed[].error`（**HTTP 状态始终 200**：部分失败 body `code` 仍为 0，全部失败才把 body `code` 写成 422）；确定性错误不会重试，可重试错误会按退避策略自动重投 |
-| `provider not found` | `channels` 里写了未注册的实例名（配置里没有这个 provider 名，或它 `enabled: false`） |
-| 请求 401 | 启用了 `auth.enabled`，`notify` 接口需要带 API Key（见[配置参考](/guide/configuration)认证一节） |
+| `no route found for type=xxx level=xxx` | The request carries no `channels`, and neither `routes` (by type) nor `level_routes` (by level) matched. Add route table entries, or explicitly include `channels` in the request |
+| The response body's `data.failed` lists the channels | The notification was accepted but delivery to some channel failed; error details are in `failed[].error` (**HTTP status is always 200**: on partial failure the body `code` is still 0, and only when everything fails is the body `code` set to 422). Deterministic errors are not retried; retriable errors are automatically re-sent with the backoff strategy |
+| `provider not found` | `channels` contains an instance name that is not registered (no provider with that name in the config, or it is `enabled: false`) |
+| Request 401 | `auth.enabled` is on; the `notify` endpoint requires an API Key (see the Authentication section of [Configuration Reference](/guide/configuration)) |
 
-**判定「受理」与「送达」是两件事**：`{"code":0,...}` 只代表进入投递管线，最终每个通道的成败看 `data.accepted` / `data.failed` 和投递日志：
+**Acceptance and delivery are two different things**: `{"code":0,...}` only means the notification entered the delivery pipeline; each channel's final outcome is shown by `data.accepted` / `data.failed` and the delivery logs:
 
 ```bash
-curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status 字段：success / failed / pending / shadow
+curl "http://127.0.0.1:8080/api/v1/logs?limit=20"   # status field: success / failed / pending / shadow
 ```
 
-`pending` 还包括正在等重试的任务（`/api/v1/logs` 该任务只有一行，`pending` 直到终态才翻 `success`/`failed`）；重试进度与 `next_retry_at` 在投递状态面（`/api/v1/deliveries`，见 [REST API](/api/rest#deliveries-list)），重试耗尽（`dead`）与永久失败（`failed`）的区分也只在那边。
+`pending` also covers tasks waiting for a retry (in `/api/v1/logs` such a task has a single row, and `pending` flips to `success`/`failed` only at the terminal state); retry progress and `next_retry_at` are on the delivery status surface (`/api/v1/deliveries`, see [REST API](/api/rest#deliveries-list)), and the distinction between retry exhaustion (`dead`) and permanent failure (`failed`) is only visible there as well.
 
-## 消息没到（受理成功但没收到）
+## Message Never Arrived (accepted but not received)
 
-1. **查投递日志**：`curl "http://127.0.0.1:8080/api/v1/logs?limit=20"`，看该任务的 `status` 与错误信息
-2. **查 worker**：`queue.workers` 是否为 0、worker 是否起了（启动日志有 `worker pool started`）
-3. **查路由**：请求带的 `channels` 是否真是配置里的实例名（`curl /api/v1/providers` 可列出）
-4. **查去重**：`dedup.enabled` 窗口内重复通知会被折叠（这是预期行为），换个 `type` 或关掉 dedup 验证
-5. **查通道侧错误**：按 provider 查各自的常见错误表：
+1. **Check the delivery logs**: `curl "http://127.0.0.1:8080/api/v1/logs?limit=20"` — look at the task's `status` and error message
+2. **Check the worker**: is `queue.workers` 0, and did the worker start (the startup logs contain `worker pool started`)
+3. **Check routing**: are the `channels` in the request really the instance names in the config (`curl /api/v1/providers` lists them)
+4. **Check dedup**: duplicate notifications inside the `dedup.enabled` window are folded away (this is expected behavior); switch the `type` or disable dedup to verify
+5. **Check channel-side errors**: look up each provider's common-errors table:
 
-| 通道 | 常见错误表 |
+| Channel | Common errors table |
 |------|-----------|
-| Telegram | [telegram](/providers/telegram#常见错误) |
-| 飞书 | [feishu](/providers/feishu#常见错误) |
-| 企业微信 | [wecom](/providers/wecom#常见错误) |
-| 钉钉 | [dingtalk](/providers/dingtalk#常见错误) |
-| Slack / Discord | [slack](/providers/slack#常见错误) · [discord](/providers/discord#常见错误) |
-| 微信系 | [wechat](/providers/wechat) · [wechatmp](/providers/wechatmp) |
-| 邮件 | [email](/providers/email#常见错误) |
-| 短信 | [aliyunsms](/providers/aliyunsms) · [tencentsms](/providers/tencentsms) · [neteasesms](/providers/neteasesms) |
-| Webhook / Log | [webhook](/providers/webhook#常见错误) · [log](/providers/log) |
+| Telegram | [telegram](/providers/telegram) |
+| Feishu | [feishu](/providers/feishu) |
+| WeCom | [wecom](/providers/wecom) |
+| DingTalk | [dingtalk](/providers/dingtalk) |
+| Slack / Discord | [slack](/providers/slack) · [discord](/providers/discord) |
+| WeChat family | [wechat](/providers/wechat) · [wechatmp](/providers/wechatmp) |
+| Email | [email](/providers/email) |
+| SMS | [aliyunsms](/providers/aliyunsms) · [tencentsms](/providers/tencentsms) · [neteasesms](/providers/neteasesms) |
+| Webhook / Log | [webhook](/providers/webhook) · [log](/providers/log) |
 
-## 重试没生效
+## Retry Not Taking Effect
 
-- 只有**可重试错误**才重试：请求超时、HTTP 408/429/5xx、网络不通。凭据错误、token 无效、号码不存在这类 4xx 是确定性错误，重试不可能成功，直接记失败
-- 重试次数与间隔看 `retry` 配置（`max` / `backoff` / `initial_delay` / `max_delay`），见[配置参考](/guide/configuration)
-- 邮件（SMTP 直连）不走 HTTP 重试语义，失败即返回
+- Only **retriable errors** are retried: request timeouts, HTTP 408/429/5xx, network unreachable. Credential errors, invalid tokens, nonexistent numbers — these 4xx are deterministic errors that a retry can never fix, so they are recorded as failed directly
+- Retry count and intervals are in the `retry` configuration (`max` / `backoff` / `initial_delay` / `max_delay`); see [Configuration Reference](/guide/configuration)
+- Email (direct SMTP) does not follow HTTP retry semantics; it returns on failure
 
-## 远程 Worker 问题
+## Remote Worker Issues
 
-- `heraldd worker` 拒绝 `queue.type: memory`：远程 worker 必须用共享队列（redis）
-- worker 连不上调度中心：检查 `worker.server_url`（WebSocket 地址）与调度中心 `websocket.addr` 是否互通
-- worker 在但投递没走它：provider 是配置在**调度中心**还是 **worker 本机**，见 [Worker Runtime](/runtime/worker)
+- `heraldd worker` rejects `queue.type: memory`: a remote worker must use a shared queue (redis)
+- Worker cannot connect to the scheduler: check whether `worker.server_url` (the WebSocket address) and the scheduler's `websocket.addr` can reach each other
+- Worker is up but delivery does not go through it: is the provider configured on the **scheduler** or **on the worker itself** — see [Worker Runtime](/runtime/worker)
 
-## 还是不行
+## Still Not Working
 
-1. 旁路验证：把可疑 provider `enabled: false`，它就不会被选中；再用 `log` provider 验证链路本身（见[快速开始](/guide/getting-started)第 1 步）
-2. 查日志与运行时状态：`heraldd` 的结构化日志 + `curl /api/v1/status`
-3. 提 issue：带上 config（脱敏）、`/api/v1/logs` 的相关条目、heraldd 版本
+1. Bypass verification: set the suspicious provider to `enabled: false` and it will not be selected; then use the `log` provider to verify the link itself (see step 1 of [Quick Start](/guide/getting-started))
+2. Check logs and runtime status: `heraldd`'s structured logs + `curl /api/v1/status`
+3. File an issue: include the config (redacted), the relevant `/api/v1/logs` entries, and the heraldd version
 
-## API 报错速查
+## Quick Reference for API Errors
 
-响应形态先分清两类：**业务结果失败**（HTTP 200，错误码写在 body 的 `code` 里，notify 受理部分/全部失败、app 面 suppressed/refused 都属这类）与**传输层错误**（HTTP 状态码即 body 的 `code`）。
+First distinguish two response shapes: **business-result failure** (HTTP 200, the error code lives in the body's `code`; notify accepting with partial/total failure, and app-surface suppressed/refused, all fall in this class) and **transport-layer errors** (the HTTP status code is the body's `code`).
 
-| 现象（实测） | 原因 | 处理 |
+| Symptom (observed) | Cause | Fix |
 | --- | --- | --- |
-| HTTP 401 `{"code": 401, "message": "unauthorized"}`（注意有空格，手写信封） | 未带凭证或凭证无效 | 管理面补 `Authorization: Bearer` / `X-API-Key`；app 面核对播种 token |
-| HTTP 401 `invalid username or password` | 登录口令错 | 对照 `auth.admin_user` 配置 |
-| HTTP 401 `invalid app credentials` | app token 错、app 名错、未带头 | 用 `GET /api/v1/apps/{app}` 自检，先排除这两类 |
-| HTTP 403 `token lacks trigger scope` | token 权限集不够 | 换对应权限 token，或播种时补 scope |
-| HTTP 404 纯文本 `404 page not found`（app 面） | app 未在配置播种 | 让有配置权的人播种 app（整面关闭） |
-| HTTP 400 `invalid request` | 请求体非法 JSON | 检查 JSON 语法与 Content-Type |
-| HTTP 404 `log not found` / `provider not found: x` / `rule not found: x` | 资源不存在 | 用列表端点（`/logs`、`/providers`、`/rules`）确认名字 |
-| HTTP 405 `method not allowed`（纯文本） | 端点不支持该方法（`templates/{id}` 例外，返回 JSON） | 对照各端点允许的方法表 |
-| HTTP 422 `no route: no route found for type=... level=...` | 没带 channels 且路由表没命中 | 请求带 `channels`，或补 `routes`/`level_routes` |
-| HTTP 422（body `code:422`）`all channels failed: [...]` | 全部渠道投递失败 | 看 `data.failed[].Error` 逐渠道定位（键首字母大写） |
-| HTTP 200 `code:0` 但 `data.accepted: null` + `task_ids: null` | 通知被去重闸折叠（窗口内同内容重复） | 预期行为；换个 type 或等 5 分钟窗口 |
-| HTTP 200 `suppressed: true` | app dispatch 同 dedup_key 窗口内重复 | 预期行为；确需重发换 dedup_key |
-| HTTP 200 含 `refused` 列表 | 受众没有出路（关系/强度/联系面缺一，或受众串没有落点） | 按 `reason` 绑定：`intensity_exceeded` 换高紧急度品类，`phone_disabled` 查手机闸门，`no_channels` 查联系面（没有绑定面且受众串既非渠道实例名也非渠道块条目时，先核对 id 拼写），`filtered` 查渠道×关系矩阵 |
-| HTTP 409 `rule already exists: x` / `group already exists: x` / `category already registered with a different default urgency` | 资源已存在（规则/组/品类默认紧急度冲突） | 规则走 PUT 替换；组走 PUT；品类换名或改回原默认值 |
-| HTTP 503 `rules engine is not configured` / `ack store is not configured` / `audit trail not configured` 等 | 对应组件未在配置启用 | 补对应配置块后重启 |
-| app 回调收不到 | 回调面未配置 / 非 2xx / secret 不匹配 | `GET /apps/{app}/callback` 看 url/has_secret；签名校验用 PUT 的 secret 重算 HMAC |
+| HTTP 401 `{"code": 401, "message": "unauthorized"}` (note the space; hand-written envelope) | No credentials carried, or credentials invalid | On the management surface add `Authorization: Bearer` / `X-API-Key`; on the app surface check the seeded token |
+| HTTP 401 `invalid username or password` | Wrong login password | Check the `auth.admin_user` configuration |
+| HTTP 401 `invalid app credentials` | Wrong app token, wrong app name, or header missing | Self-check with `GET /api/v1/apps/{app}` to rule out these two first |
+| HTTP 403 `token lacks trigger scope` | The token's permission set is insufficient | Use a token with the corresponding permissions, or add the scope when seeding |
+| HTTP 404 plain text `404 page not found` (app surface) | The app was not seeded in the config | Have someone with configuration permissions seed the app (closes the whole surface) |
+| HTTP 400 `invalid request` | The request body is not valid JSON | Check the JSON syntax and Content-Type |
+| HTTP 404 `log not found` / `provider not found: x` / `rule not found: x` | The resource does not exist | Use the list endpoints (`/logs`, `/providers`, `/rules`) to confirm the name |
+| HTTP 405 `method not allowed` (plain text) | The endpoint does not support that method (`templates/{id}` is the exception and returns JSON) | Check each endpoint's allowed-methods table |
+| HTTP 422 `no route: no route found for type=... level=...` | `channels` was not carried and the route table did not match | Include `channels` in the request, or add `routes`/`level_routes` |
+| HTTP 422 (body `code:422`) `all channels failed: [...]` | All channels failed delivery | Locate it channel by channel via `data.failed[].Error` (the key starts with a capital letter) |
+| HTTP 200 `code:0` but `data.accepted: null` + `task_ids: null` | The notification was folded by the dedup gate (same content repeated within the window) | Expected behavior; switch the type or wait out the 5-minute window |
+| HTTP 200 `suppressed: true` | App dispatch repeated within the same dedup_key window | Expected behavior; if a resend is genuinely required, change the dedup_key |
+| HTTP 200 with a `refused` list | The audience has no outlet (relation / Intensity / ContactSurface is missing one, or the audience string has no landing point) | Map by `reason`: `intensity_exceeded` — switch to a category with higher Urgency; `phone_disabled` — check the phone gate; `no_channels` — check the ContactSurface (when there is no bound surface and the audience string is neither a channel instance name nor a channels block entry, first check the id spelling); `filtered` — check the channel × relation matrix |
+| HTTP 409 `rule already exists: x` / `group already exists: x` / `category already registered with a different default urgency` | The resource already exists (rule / group / category default Urgency conflict) | Rules go through PUT to replace; groups go through PUT; for a category, rename it or change back to the original default value |
+| HTTP 503 `rules engine is not configured` / `ack store is not configured` / `audit trail not configured`, etc. | The corresponding component is not enabled in the config | Add the corresponding configuration block and restart |
+| App callback not received | The callback surface is not configured / non-2xx / secret mismatch | Check url/has_secret with `GET /apps/{app}/callback`; for signature verification recompute the HMAC using the secret from PUT |

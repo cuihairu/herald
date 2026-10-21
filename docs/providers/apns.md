@@ -1,49 +1,47 @@
-> 中文 · [English](./apns.en.md)
-
 # APNs (Apple Push Notification service)
 
-向 iOS / iPadOS / macOS / watchOS 设备发送推送通知。
+Send push notifications to iOS / iPadOS / macOS / watchOS devices.
 
-## 作用
+## What It Does
 
-`apns` Builtin Provider 直接调用 APNs（`POST https://api.push.apple.com/3/device/{token}`）。支持两种认证：
+The `apns` Builtin Provider calls APNs directly (`POST https://api.push.apple.com/3/device/{token}`). It supports two authentication methods:
 
-- **Token 认证（推荐）**：用 `.p8` 私钥签 ES256 JWT（`key_id` + `team_id`），缓存一小时、过期前 5 分钟自动重签；一个密钥可同时用于开发与生产环境
-- **证书认证**：TLS 客户端证书（PEM 证书链 + 私钥），兼容老的 .p12 流程
+- **Token authentication (recommended)**: an ES256 JWT signed with your `.p8` private key (`key_id` + `team_id`), cached for one hour, re-signed automatically 5 minutes before expiry; one key can be used for both the development and production environments
+- **Certificate authentication**: a TLS client certificate (PEM certificate chain + private key), for compatibility with the old .p12 workflow
 
-每个投递目标是一个 **APNs 设备令牌（device token）**。消息分 `aps` 段（alert 通知 / data 静默推送）与自定义数据键，由通知类型自动推导 `apns-push-type` 与 `apns-priority`。
+Each delivery target is an **APNs device token**. A message splits into the `aps` segment (alert notification / background silent push) and custom data keys; `apns-push-type` and `apns-priority` are derived automatically from the notification type.
 
-## 申请凭据
+## Obtaining Credentials
 
-前提：**Apple Developer Program 付费账号**（$99/年，个人或公司均可）。
+Prerequisite: a **paid Apple Developer Program account** ($99/year, individual or organization).
 
-### Token 认证（推荐，四步）
+### Token Authentication (recommended, four steps)
 
-1. **记下 Team ID**：[Account](https://developer.apple.com/account) 页面 Membership Information 里的 **Team ID**（形如 `ABCDE12345`）
-2. **创建 APNs 密钥**：[Certificates, Identifiers & Profiles → Keys](https://developer.apple.com/account/resources/authkeys/list) → **+** → 勾选 **Apple Push Notifications service (APNs)** → 注册后**立即下载 `.p8` 文件**（形如 `AuthKey_XXXXXXXXXX.p8`）——**只能下载一次**，丢失只能重建
-3. **记下 Key ID**：下载页与密钥列表里的 10 位 **Key ID**
-4. **注册 App ID（Bundle ID）**：[Identifiers → App IDs](https://developer.apple.com/account/resources/identifiers/list/bundleId) → 新建，形如 `com.example.app`——这就是配置里的 `topic`
+1. **Note your Team ID**: the **Team ID** (like `ABCDE12345`) under Membership Information on the [Account](https://developer.apple.com/account) page
+2. **Create an APNs key**: [Certificates, Identifiers & Profiles → Keys](https://developer.apple.com/account/resources/authkeys/list) → **+** → tick **Apple Push Notifications service (APNs)** → after registering, **download the `.p8` file immediately** (like `AuthKey_XXXXXXXXXX.p8`) — it can only be downloaded once; if lost, you must recreate it
+3. **Note your Key ID**: the 10-digit **Key ID** on the download page and in the key list
+4. **Register the App ID (Bundle ID)**: [Identifiers → App IDs](https://developer.apple.com/account/resources/identifiers/list/bundleId) → create one, like `com.example.app` — this is the `topic` in your config
 
-### 证书认证（备选）
+### Certificate Authentication (alternative)
 
-1. Identifiers → App IDs → 勾选 **Push Notifications** 能力
-2. Certificates → 创建 **APNs SSL** 证书（开发/生产各一张），本地 Keychain 导出 .p12
-3. 转成 PEM（证书链 + 私钥在一个文件）：
+1. Identifiers → App IDs → tick the **Push Notifications** capability
+2. Certificates → create an **APNs SSL** certificate (one for development, one for production), export the .p12 from your local Keychain
+3. Convert it to PEM (certificate chain + private key in one file):
 
 ```bash
 openssl pkcs12 -in cert.p12 -out apns_cert.pem -nodes -legacy
 ```
 
-### 设备 token 从哪来
+### Where the device token comes from
 
-App 集成 APNs 后在 `didRegisterForRemoteNotificationsWithDeviceToken` 回调里拿到（iOS 13+ 为 64+ 位十六进制字符串），由你的业务服务端存进花名册/用户表，投递时作为收件人传入。Herald 不负责从 APNs 获取 token。
+After the app integrates APNs, the token is obtained in the `didRegisterForRemoteNotificationsWithDeviceToken` callback (a 64+ character hex string on iOS 13+). Your business service stores it in a roster/user table and passes it in as the recipient at delivery time. Herald does not fetch tokens from APNs.
 
-## 发第一条消息
+## Sending Your First Message
 
-按下面配好并 `heraldd serve --config config.yaml` 启动后（**必须带 device token 收件人**）：
+Configure as below and start with `heraldd serve --config config.yaml` (**a device token recipient is required**):
 
 ```yaml
-# config.yaml 追加（token 认证三要素从上面的申请步骤取）
+# config.yaml append (the three token-auth fields come from the application steps above)
 providers:
   apns:
     type: apns
@@ -51,7 +49,7 @@ providers:
     config:
       key_id: "ABC123DEFG"
       team_id: "ABCDE12345"
-      private_key: "$APNS_PRIVATE_KEY"   # .p8 的 PKCS#8 PEM 全文，见环境变量
+      private_key: "$APNS_PRIVATE_KEY"   # full PKCS#8 PEM content of the .p8 file, see Environment Variables
       topic: "com.example.app"
 ```
 
@@ -61,31 +59,31 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "order.notice",
     "level": "info",
-    "title": "订单已发货",
-    "body": "您的订单 SF123456 已发出",
+    "title": "Order shipped",
+    "body": "Your order SF123456 has shipped",
     "channels": ["apns"],
-    "recipients": {"apns": ["device-token-十六进制字符串"]}
+    "recipients": {"apns": ["device-token-hex-string"]}
   }'
 ```
 
-手机通知栏收到「订单已发货」。没收到？检查 token 是否有效、App 是否处于可推送状态，查[排错指南](/guide/troubleshooting)与下面的[常见错误](#常见错误)。
+The phone's notification center shows "Order shipped". Didn't arrive? Check whether the token is valid and the app is in a pushable state; see the [Troubleshooting Guide](/guide/troubleshooting) and [Common Errors](#common-errors) below.
 
-## 配置项
+## Configuration
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `topic` | ✅ | App Bundle ID（VoIP 推送加 `.voip` 后缀等场景按 APNs 规则加后缀） | 无 |
-| `key_id` | 二选一 | APNs Key ID（Token 认证） | 无 |
-| `team_id` | 二选一 | Apple Team ID（Token 认证） | 无 |
-| `private_key` | 二选一 | `.p8` 私钥，PKCS#8 PEM 全文（Token 认证） | 无 |
-| `cert_pem` | 二选一 | 证书链 + 私钥 PEM 全文（证书认证） | 无 |
-| `push_type` | ❌ | 覆盖自动推导的 `apns-push-type`（`voip`/`liveactivity`/`location` 等） | 按内容推导 |
-| `priority` | ❌ | 覆盖自动推导的 `apns-priority`（10=立即，5=省电） | 按类型推导 |
-| `endpoint` | ❌ | 端点；沙盒用 `https://api.sandbox.push.apple.com` | `https://api.push.apple.com` |
+| `topic` | ✅ | The app Bundle ID (append `.voip` for VoIP push, etc., per APNs rules) | None |
+| `key_id` | Either one | APNs Key ID (token authentication) | None |
+| `team_id` | Either one | Apple Team ID (token authentication) | None |
+| `private_key` | Either one | The `.p8` private key, full PKCS#8 PEM content (token authentication) | None |
+| `cert_pem` | Either one | The certificate chain + private key, full PEM content (certificate authentication) | None |
+| `push_type` | ❌ | Overrides the auto-derived `apns-push-type` (`voip` / `liveactivity` / `location`, etc.) | Derived from content |
+| `priority` | ❌ | Overrides the auto-derived `apns-priority` (10=immediately, 5=power saving) | Derived from type |
+| `endpoint` | ❌ | Endpoint; use `https://api.sandbox.push.apple.com` for the sandbox | `https://api.push.apple.com` |
 
-Token 认证缺 `key_id`/`team_id`/`private_key` 任一、证书缺 `cert_pem`、或缺 `topic` 时，Provider 创建即失败（`apns: key_id is required` 等），启动日志可见。私钥必须是 **P-256** 曲线（`.p8` 即此格式），错误曲线会报 `apns: private_key must be a P-256 EC key`。
+Provider creation fails if any of `key_id` / `team_id` / `private_key` is missing for token authentication, if `cert_pem` is missing for certificate authentication, or if `topic` is missing (`apns: key_id is required`, etc.); this is visible in the startup logs. The private key must be on the **P-256** curve (the `.p8` file already is); a wrong curve yields `apns: private_key must be a P-256 EC key`.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -97,88 +95,88 @@ providers:
       team_id: "ABCDE12345"
       private_key: "$APNS_PRIVATE_KEY"
       topic: "com.example.app"
-      # endpoint: "https://api.sandbox.push.apple.com"  # 开发环境沙盒
+      # endpoint: "https://api.sandbox.push.apple.com"  # development sandbox
 ```
 
-证书认证（二选一，替换 key_id/team_id/private_key）：
+Certificate authentication (either one — replace `key_id`/`team_id`/`private_key`):
 
 ```yaml
     config:
       topic: "com.example.app"
-      cert_pem: "$APNS_CERT_PEM"   # openssl 转出的证书链 + 私钥 PEM
+      cert_pem: "$APNS_CERT_PEM"   # certificate chain + private key PEM, converted with openssl
 ```
 
-## 环境变量
+## Environment Variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment Variable | Config Key | Description |
 |----------|-----------|------|
-| `APNS_KEY_ID` | `key_id` | APNs Key ID（`.env.example` 惯用名） |
+| `APNS_KEY_ID` | `key_id` | APNs Key ID (conventional name in `.env.example`) |
 | `APNS_TEAM_ID` | `team_id` | Apple Team ID |
-| `APNS_PRIVATE_KEY` | `private_key` | `.p8` 的 PKCS#8 PEM 全文（含真实换行） |
-| `APNS_CERT_PEM` | `cert_pem` | 证书链 + 私钥 PEM 全文（证书认证） |
+| `APNS_PRIVATE_KEY` | `private_key` | Full PKCS#8 PEM content of the `.p8` file (including real newlines) |
+| `APNS_CERT_PEM` | `cert_pem` | Full PEM content of the certificate chain + private key (certificate authentication) |
 
-> ⚠️ 私钥里的换行必须是**真实换行符**。从文件复制时保留 `-----BEGIN PRIVATE KEY-----` 头尾行与内部换行，或整段放入环境变量。
+> ⚠️ The newlines inside the private key must be **real newline characters**. When copying from a file, keep the `-----BEGIN PRIVATE KEY-----` header and footer lines and the internal newlines, or put the whole thing into an environment variable.
 
-## 消息模板与限制
+## Message Templates and Limits
 
-### 内容映射
+### Content Mapping
 
-| 场景 | push-type | priority | body 结构 |
+| Scenario | push-type | priority | body structure |
 |------|-----------|----------|-----------|
-| 带 title/body 的通知 | `alert` | 10（立即） | `aps.alert` + `aps.sound=default` |
-| 纯 data 载荷 | `background` | 5（省电） | `aps.content-available=1` + 顶层自定义键 |
-| 配置 `push_type`/`priority` | 显式覆盖 | 显式覆盖 | 同上 |
+| Notification with title/body | `alert` | 10 (immediately) | `aps.alert` + `aps.sound=default` |
+| Pure data payload | `background` | 5 (power saving) | `aps.content-available=1` + custom top-level keys |
+| `push_type`/`priority` configured | Explicit override | Explicit override | As above |
 
-- Raw 载荷的键放在 JSON **顶层**（`aps` 之外）；重复的 `aps` 键会被忽略，防止覆盖计算好的段
-- Content 与 Raw 至少其一，否则报 `apns: payload needs content or raw data`
+- Keys of the Raw payload go at the JSON **top level** (outside `aps`); duplicate `aps` keys are ignored so they cannot overwrite the computed segment
+- Content and Raw — at least one is required, otherwise you get `apns: payload needs content or raw data`
 
-### 发送语义
+### Delivery Semantics
 
-- 收件人逐 device token 发送；部分失败聚合为 `apns: N/M succeeded - failed: ...`（与 FCM/公众号一致）
-- Token 认证的 JWT 内存缓存，过期前 5 分钟重签
-- 单消息上限 4KB（APNs 平台限制）
+- Recipients are sent to one device token at a time; partial failure is aggregated into `apns: N/M succeeded - failed: ...` (consistent with FCM / WeChat official accounts)
+- The token-authentication JWT is cached in memory and re-signed 5 minutes before expiry
+- 4KB maximum per message (APNs platform limit)
 
-### 能力声明
+### Capability Declaration
 
-- `PayloadKinds`: `Content`、`Raw`
+- `PayloadKinds`: `Content`, `Raw`
 - `ContentFormats`: `plain`
 
-### 重试语义
+### Retry Semantics
 
-- 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
-- 400（`BadDeviceToken` 等）、410（`Unregistered`）为确定性错误，不重试
+- Request timeouts, 408/429/5xx are wrapped by `httpclient` as retryable errors and go through unified retry
+- 400 (`BadDeviceToken`, etc.) and 410 (`Unregistered`) are deterministic errors and are not retried
 
-## 常见错误
+## Common Errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `apns: topic is required` | 没配 Bundle ID |
-| `apns: key_id/team_id/private_key is required` | Token 认证缺要素（且没配 `cert_pem`） |
-| `apns: private_key is not valid PEM data` | 私钥不是 PEM（复制丢了头尾行） |
-| `apns: private_key must be an EC key` | 拿错了密钥（非 EC） |
-| `apns: private_key must be a P-256 EC key` | 非 P-256 曲线，APNs 只接受 P-256 |
-| `apns: cert_pem has no CERTIFICATE block` | 证书认证的 PEM 里没有证书段 |
-| `apns: cert_pem: ...` | 证书与私钥不匹配（X509KeyPair 校验失败） |
-| `{"reason":"BadDeviceToken"}`（400） | device token 无效/来自沙盒但打生产端点（或反之），核对 `endpoint` 与 token 来源 |
-| `{"reason":"TopicDisallowed"}`（400） | `topic` 与证书/JWT 对应的 App ID 不一致 |
-| `{"reason":"Unregistered"}`（410） | token 已失效（App 卸载/token 轮换），从收件人中剔除 |
-| `{"reason":"ExpiredProviderToken"}`（403） | 系统时钟偏差过大导致 JWT 过期——校准服务器时间 |
-| `{"reason":"InvalidProviderToken"}`（403） | `.p8` 私钥与 `key_id` 不匹配，或 Key 被撤销 |
-| `{"reason":"TooManyRequests"}`（429） | 频率超限，走统一重试 |
+| `apns: topic is required` | Bundle ID not configured |
+| `apns: key_id/team_id/private_key is required` | Missing token-auth fields (and `cert_pem` is not configured either) |
+| `apns: private_key is not valid PEM data` | The private key is not PEM (the header/footer lines were lost during copying) |
+| `apns: private_key must be an EC key` | Wrong key (not an EC key) |
+| `apns: private_key must be a P-256 EC key` | Not the P-256 curve; APNs only accepts P-256 |
+| `apns: cert_pem has no CERTIFICATE block` | The certificate-authentication PEM contains no certificate block |
+| `apns: cert_pem: ...` | Certificate and private key do not match (X509KeyPair validation failed) |
+| `{"reason":"BadDeviceToken"}` (400) | The device token is invalid, or it came from the sandbox but hit the production endpoint (or vice versa); verify `endpoint` against the token's origin |
+| `{"reason":"TopicDisallowed"}` (400) | `topic` does not match the App ID of the certificate/JWT |
+| `{"reason":"Unregistered"}` (410) | The token is no longer valid (app uninstalled / token rotated); remove it from the recipients |
+| `{"reason":"ExpiredProviderToken"}` (403) | A large clock skew made the JWT expire — calibrate the server clock |
+| `{"reason":"InvalidProviderToken"}` (403) | The `.p8` private key does not match `key_id`, or the Key has been revoked |
+| `{"reason":"TooManyRequests"}` (429) | Rate limit exceeded; goes through unified retry |
 
-错误格式：HTTP 非 2xx 返回 `unexpected status code: {code}, body: {APNs JSON}`（body 内含 `reason`）。整体排错见[排错指南](/guide/troubleshooting)。
+Error format: non-2xx HTTP responses return `unexpected status code: {code}, body: {APNs JSON}` (the body contains `reason`). For overall troubleshooting, see the [Troubleshooting Guide](/guide/troubleshooting).
 
-## 安全建议
+## Security Recommendations
 
-1. **`.p8` 只能下载一次**：存进密管系统；丢失需在 Keys 页面撤销并重建（Key ID 会变）
-2. **最小授权**：创建 Key 时只勾 APNs 一项
-3. **证书认证注意**：`.p12`/PEM 含私钥，等同凭据；开发与生产证书区分环境
-4. **失效 token 清理**：410 `Unregistered` 表示 token 已注销，持续重投无意义，应从受众中移除
+1. **The `.p8` file can only be downloaded once**: store it in a secrets-management system; if lost, you must revoke and recreate it on the Keys page (the Key ID will change)
+2. **Least privilege**: tick only APNs when creating the Key
+3. **Certificate authentication caveats**: the `.p12`/PEM contains the private key and is equivalent to a credential; keep development and production certificates in separate environments
+4. **Cleaning up invalid tokens**: a 410 `Unregistered` means the token is deregistered; continuous re-delivery is pointless — remove it from your audience
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [FCM](./fcm.md) - Android/Web 推送通道
-- [排错指南](/guide/troubleshooting) - 启动失败、消息没到、重试不生效
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [FCM](./fcm.md) - Android/Web push channel
+- [Troubleshooting Guide](/guide/troubleshooting) - startup failure, message not delivered, retries not taking effect

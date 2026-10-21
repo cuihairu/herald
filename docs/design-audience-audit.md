@@ -1,246 +1,241 @@
-> 中文 · [English](./design-audience-audit.en.md)
+# Audience Domain Model: Phase 0-9 Refactor Audit (Archive)
 
-# Audience 领域模型：Phase 0-9 改造审计（存档）
+> Status: **archive**. Continues the original "Audience Domain Model: Architecture Improvement Plan" (Phase 0-9, wrapped up; that page was rewritten on 2026-10-07 into the [audience domain model overview](./design-audience-model.md), and the original plan text is preserved in git history). Following the output requirements of Phase 0 of that plan (current implementation → target model → differences → files to change → compatibility risks), this document records the factual baseline and the per-batch execution log; every conclusion carries a file:line. Audience-layer expansion (unified subscription and delivery hub) is not tracked here — see the [relations detail design](./design-audience-relations.md) and the todo.
 
-> 状态：**存档**。承接原「Audience 领域模型：架构改进计划书」（Phase 0-9，已收官；
-> 该页 2026-10-07 已重写为[受众领域模型总纲](./design-audience-model)，计划原文由 git
-> 历史保存）。本文按计划 Phase 0 的输出要求（当前实现 → 目标模型 → 差异 → 改动文件 →
-> 兼容性风险）记录事实底稿与逐批执行记录，所有结论带 file:line。受众层扩展
-> （统一订阅与投递中枢）不在此文跟踪，见[关系详设](./design-audience-relations)与 todo。
-
-## 一、当前实现：通知的完整旅程
+## 1. Current Implementation: The Complete Journey of a Notification
 
 ```
 POST /api/v1/notify
   └─ api/handler_notify.go: handleNotify → core.Notification
       └─ core/service/notification.go: NotificationService.Process (147)
-          ├─ 规则引擎求值 (rules.Evaluate) → 可改写通道/抑制/挂起/折叠/静默
-          ├─ 无显式 channels 时静态路由 core/route/router.go: Route(type, level)
-          ├─ 模板渲染 (template.Manager.Render)
-          ├─ 去重 (dedup.Check，按内容 key)
-          ├─ enqueue (340)：按通道引用逐个展开
-          │    ├─ 普通通道 → provider 实例
-          │    └─ group:<id> → core/groups 成员 (expandRef, 367)
+          ├─ rule engine evaluation (rules.Evaluate) → may rewrite channel / inhibit / hold / fold / silence
+          ├─ static routing when no explicit channels core/route/router.go: Route(type, level)
+          ├─ template rendering (template.Manager.Render)
+          ├─ dedup (dedup.Check, keyed on content)
+          ├─ enqueue (340): expands each channel reference one by one
+          │    ├─ plain channel → provider instance
+          │    └─ group:<id> → core/groups members (expandRef, 367)
           │    └─ enqueueOne (386) → service/planner.go: DeliveryPlanner.Plan
-          │         每通道一个 core.DeliveryTask → queue.Push
-          └─ 升级/事故台账旁路 (escalation / incident)
+          │         one core.DeliveryTask per channel → queue.Push
+          └─ escalation / incident ledger bypass
       └─ core/worker/pool.go: workerLoop (63)
           Pop → core/runtime/manager.go: Manager.Deliver (399)
-              ├─ 限流等待 → 失败则 NewTaskLog+UpdateStatus("failed")
-              ├─ logstore.Add(pending)  ← 唯一状态载体
-              ├─ retry.Retryer.Execute（同步重试，max 3/指数退避）
-              ├─ 失败 → UpdateStatus("failed", err)；成功 → UpdateStatus("success")
+              ├─ rate-limit wait → on failure NewTaskLog+UpdateStatus("failed")
+              ├─ logstore.Add(pending)  ← the only status carrier
+              ├─ retry.Retryer.Execute (synchronous retry, max 3 / exponential backoff)
+              ├─ failure → UpdateStatus("failed", err); success → UpdateStatus("success")
           → queue.Ack / queue.Nack
 ```
 
-### 事实清单
+### Fact list
 
-| # | 环节 | 现状 | 证据 |
+| # | Stage | Current state | Evidence |
 |---|------|------|------|
-| 1 | Notification | `core.Notification`：ID/Type/Level/**Channels[]**/**Recipients map[key][]target**/TemplateRef/Params/Content{Title,Body}/CreatedAt。API 请求 `NotifyRequest` 同名同构（+title/body） | core/types.go:18-28；api/handler_notify.go:11-22 |
-| 2 | Delivery Task | `core.DeliveryTask`：ID/**Provider**/Targets[]/Payload{Kind,Content,ProviderTemplate,Raw}/Level/AlertID/**RetryCount**/CreatedAt。一次 notify 每通道一个 task（group 成员逐通道展开），`ProcessResult.TaskIDs/Accepted/Failed` 汇总 | core/types.go:37-49；service/notification.go:340-418 |
-| 3 | 状态模型 | **无 Delivery 显式状态机**。状态=`logstore.TaskLog.Status` 字符串：`pending / success / failed / shadow`（shadow 为规则观察条目）。写入点仅 runtime.Manager.Deliver 与规则观察路径；无枚举、无 attempts/next_retry_at | core/logstore/logstore.go:19-30,192；runtime/manager.go:423,444,448 |
-| 4 | 重试 | `retry.Retryer.Execute`：默认 max=3、exponential、initial 1s、max_delay 1m；**同步循环**（一次 Deliver 调用内重试），task.RetryCount 累加；失败最终 Nack 后**不重新入队** | core/retry/retryer.go:51-97；worker/pool.go:90-101 |
-| 5 | Queue | 接口 Push/Pop/Ack/Nack/Size/Close；实现 memory/redis | core/types.go:84-91；core/queue/memory.go, redis.go |
-| 6 | Worker | local workerPool：Pop→Deliver→Ack/Nack；remote worker 同 interface；Registry 管心跳/过期 | core/worker/pool.go；core/worker/registry.go |
-| 7 | Logs | **TaskLog 即投递状态与日志（同一份数据）**，日志不保存历史事件流；stats 按 level/provider/status 聚合；API：/logs、/logs/stats、/logs/{id} | logstore.go:169-211（Stats）；api/server.go:144-146 |
-| 8 | 群组（Audience group: 形态） | `groups.Group{ID,Description,Members[{Channel,Recipients}]}`，**单层展开不嵌套**；Manager 实现 `GroupResolver.ExpandGroup`；"group:id" 在 expandRef 展开为逐成员通道引用；**引用不存在 group → 该通道显式失败，其余照发**；API：/groups CRUD + groups_store 持久化 | core/groups/groups.go:32-46；service/notification.go:367-383,142-144；api/handler_groups.go |
-| 9 | user:/Recipient/Endpoint | **不存在**。`Recipients` 字段语义是按渠道 pin 目标列表（provider 期望的地址），非受众模型 | grep 全库无 user: 级概念；types.go:23 |
-| 10 | Channel | 无独立配置块。静态路由 = `routes`（按 type）+ `level_routes`（按级别），`Route(type,level)` type 优先再 level；notify 显式 `channels` 覆盖两张表 | core/route/router.go；config/config.go:24 |
-| 11 | Config | 顶层键：server/websocket/worker/auth/providers/routes/queue/retry/dedup/templates/rules(+store/policy/state)/groups(+store)/rosters_store/escalation_store/incident_limit/card_callback。**宽松 yaml 解析**（未知键静默忽略）；`ExpandEnv()` 支持 `$VAR` | config/config.go:18-60,181,299-317 |
-| 12 | 渠道语义混乱残留 | 与目标模型的词汇混用点：`channels` 在 notify/规则/路由里都指"provider 实例引用"；Template Binding 按 channel 选格式（与渠道解耦部分存在）；ProviderCapability 已存在（format 选择用） | service/planner.go:57-76,247 |
-| 13 | 测试底稿 | handler_*_test.go 齐全（notify/groups/rules/rosters/logs/worker）；service/planner/retryer/pool/logstore 均有测试；覆盖率门禁 100%（zero_check） | api/、core/ 各 *_test.go |
+| 1 | Notification | `core.Notification`: ID/Type/Level/**Channels[]**/**Recipients map[key][]target**/TemplateRef/Params/Content{Title,Body}/CreatedAt. The API request `NotifyRequest` is identical name-for-name and shape-for-shape (+title/body) | core/types.go:18-28; api/handler_notify.go:11-22 |
+| 2 | Delivery Task | `core.DeliveryTask`: ID/**Provider**/Targets[]/Payload{Kind,Content,ProviderTemplate,Raw}/Level/AlertID/**RetryCount**/CreatedAt. One task per channel per notify (group members expand per channel), `ProcessResult.TaskIDs/Accepted/Failed` aggregate them | core/types.go:37-49; service/notification.go:340-418 |
+| 3 | Status model | **No explicit delivery state machine**. Status = the `logstore.TaskLog.Status` string: `pending / success / failed / shadow` (shadow is a rule-observation entry). Written only by runtime.Manager.Deliver and the rule-observation path; no enum, no attempts/next_retry_at | core/logstore/logstore.go:19-30,192; runtime/manager.go:423,444,448 |
+| 4 | Retry | `retry.Retryer.Execute`: default max=3, exponential, initial 1s, max_delay 1m; **synchronous loop** (retries inside a single Deliver call), task.RetryCount accumulates; after the final Nack on failure it is **not re-enqueued** | core/retry/retryer.go:51-97; worker/pool.go:90-101 |
+| 5 | Queue | Interface Push/Pop/Ack/Nack/Size/Close; implementations memory/redis | core/types.go:84-91; core/queue/memory.go, redis.go |
+| 6 | Worker | local workerPool: Pop→Deliver→Ack/Nack; remote worker same interface; Registry manages heartbeat/expiry | core/worker/pool.go; core/worker/registry.go |
+| 7 | Logs | **TaskLog is both the delivery status and the log (one set of data)**; logs keep no historical event stream; stats aggregate by level/provider/status; API: /logs, /logs/stats, /logs/{id} | logstore.go:169-211 (Stats); api/server.go:144-146 |
+| 8 | Groups (audience `group:` form) | `groups.Group{ID,Description,Members[{Channel,Recipients}]}`, **single-level expansion, no nesting**; Manager implements `GroupResolver.ExpandGroup`; "group:id" expands in expandRef into per-member channel references; **a reference to a nonexistent group → that channel fails explicitly, the rest still go out**; API: /groups CRUD + groups_store persistence | core/groups/groups.go:32-46; service/notification.go:367-383,142-144; api/handler_groups.go |
+| 9 | user:/Recipient/Endpoint | **Does not exist**. The `Recipients` field semantically holds a per-channel pinned target list (the address a provider expects), not an audience model | grep across the whole repo finds no `user:` level concept; types.go:23 |
+| 10 | Channel | No standalone config block. Static routing = `routes` (by type) + `level_routes` (by level), `Route(type,level)` prefers type over level; an explicit `channels` in notify overrides both tables | core/route/router.go; config/config.go:24 |
+| 11 | Config | Top-level keys: server/websocket/worker/auth/providers/routes/queue/retry/dedup/templates/rules(+store/policy/state)/groups(+store)/rosters_store/escalation_store/incident_limit/card_callback. **Lenient yaml parsing** (unknown keys silently ignored); `ExpandEnv()` supports `$VAR` | config/config.go:18-60,181,299-317 |
+| 12 | Residual channel-semantics confusion | The points where vocabulary is shared with the target model: `channels` means "provider instance reference" in notify, rules and routing alike; Template Binding picks a format per channel (a partially decoupled-from-channel part does exist); ProviderCapability already exists (used for format selection) | service/planner.go:57-76,247 |
+| 13 | Test baseline | handler_*_test.go complete (notify/groups/rules/rosters/logs/worker); service/planner/retryer/pool/logstore all have tests; coverage gate 100% (zero_check) | api/, core/ *_test.go |
 
-## 二、目标模型 → 现状差异总表
+## 2. Target Model vs Current State: Full Difference Table
 
-| 目标（原计划书） | 现状 | 差距 |
+| Target (from the original plan) | Current state | Gap |
 |----------------------------------|------|------|
-| Notification ≠ Delivery Task | 已分离（core.Notification / core.DeliveryTask） | ✅ 语义成立；TaskLog 把状态挂到 task 上 ✓ |
-| Delivery 独立状态机（accepted/queued/delivering/delivered/failed/retrying/dead）+ attempts/max_attempts/last_error/next_retry_at | Status 字符串 4 值（pending/success/failed/shadow）；RetryCount 已存在；重试同步不排队 | ❌ 状态机枚举化 + 状态挂 Delivery（或等价物）→ 另需 next_retry_at 才能支撑「Nack 重新入队」式异步重试 |
-| Retry 属 Delivery、错误统一分类（Temporary/Permanent/RateLimited/Auth/InvalidRequest/Timeout） | 错误为裸 error；retryer 对所有错误一视同仁 | ❌ Provider 错误分类接口缺失 |
-| Audience = group + user 两级 | 只有 group: 形态 | ❌ user:/Recipient/Endpoint 需新增（MVP：本地配置模型） |
-| Channel 独立配置块（channels: {ci: {providers: [...]}}） | routes/level_routes map 承担静态映射 | ◑ 能力等价但模型不同；可选择性演进 |
-| Logs 与 Delivery 状态分离（日志=历史事件流） | 日志即状态（一份数据） | ❌ 按「日志与状态分离」演进的成本最高点（需引入事件流或拆分存储） |
-| Idempotency（idempotency_key） | dedup 按内容 key 窗口去重（非显式幂等键） | ◑ 语义不同：dedup 防重复投递，幂等键防重复创建 |
-| Provider Capability | 已有 format 选择能力（selectFormat/getCapability） | ✅ 部分满足计划建议的 Provider Capability |
-| 配置块：audiences/recipients/endpoints | 不存在（宽松解析静默忽略） | ❌ 新增 |
+| Notification ≠ Delivery Task | Already separated (core.Notification / core.DeliveryTask) | ✅ semantically sound; TaskLog hangs the status off the task ✓ |
+| Standalone Delivery state machine (accepted/queued/delivering/delivered/failed/retrying/dead) + attempts/max_attempts/last_error/next_retry_at | 4-value Status string (pending/success/failed/shadow); RetryCount already exists; retry is synchronous, nothing is queued | ❌ enum-ize the state machine + hang the status off Delivery (or an equivalent); next_retry_at additionally required to support "Nack then re-enqueue"-style asynchronous retry |
+| Retry belongs to Delivery, errors uniformly classified (Temporary/Permanent/RateLimited/Auth/InvalidRequest/Timeout) | Errors are bare error; the retryer treats every error alike | ❌ provider error-classification interface missing |
+| Audience = two levels, group + user | only the `group:` form | ❌ `user:`/Recipient/Endpoint must be added (MVP: local config model) |
+| Standalone Channel config block (channels: {ci: {providers: [...]}}) | routes/level_routes maps carry the static mapping | ◑ capability-equivalent but a different model; can evolve selectively |
+| Logs separated from Delivery status (log = historical event stream) | The log is the status (one set of data) | ❌ the highest-cost point of evolving "log/status separation" (requires introducing an event stream or splitting storage) |
+| Idempotency (idempotency_key) | dedup is content-key window dedup (not an explicit idempotency key) | ◑ different semantics: dedup prevents duplicate delivery, an idempotency key prevents duplicate creation |
+| Provider Capability | format-selection capability already exists (selectFormat/getCapability) | ✅ partially satisfies the Provider Capability recommendation in the plan |
+| Config blocks: audiences/recipients/endpoints | do not exist (silently ignored by lenient parsing) | ❌ to be added |
 
-## 三、改动文件清单（Phase 1+ 参考，勿视为已承诺）
+## 3. Changed-File List (Phase 1+ reference, not a commitment)
 
-| 文件 | 改动方向 |
+| File | Direction of change |
 |------|---------|
-| core/types.go | Delivery 状态枚举常量、TaskLog 字段扩展（attempts/next_retry_at）、Audience 引用类型（group:/user: 前缀统一） |
-| core/logstore/logstore.go | 状态值枚举化（保持 JSON 序列化兼容）；如做「日志与状态分离」则拆事件流存储 |
-| core/runtime/manager.go | 状态写入点对齐新枚举；错误分类转换（Temporary/Permanent/...） |
-| core/retry/retryer.go | 按错误分类决定重试/放弃（RateLimited 退避、Permanent 直接 dead）；可选：异步重新入队 |
-| core/service/notification.go、planner.go | expandRef 增加 user: 解析；Channel 解析层（显式 channels → Channel 块 → routes 兼容） |
-| core/groups/ → core/audience/（新建） | 承载 recipients/endpoints 一级（group 保留为 audience 聚合） |
-| config/config.go | channels/audiences/recipients 配置块（宽松解析现存语义：未落地前静默忽略） |
-| api/handler_notify.go | **本次不强制改**（notify 的 channel/audience/idempotency_key 字段全部可选新增，向后兼容） |
-| api/server.go、handler_groups.go | 如新增 audience/recipient 端点（第一期可只做配置化，不做 API） |
+| core/types.go | Delivery status enum constants, TaskLog field extensions (attempts/next_retry_at), Audience reference types (unified group:/user: prefixes) |
+| core/logstore/logstore.go | Enum-ize the status values (preserving JSON serialization compatibility); if "log/status separation" is done, split out an event-stream store |
+| core/runtime/manager.go | Align the status write points with the new enum; error classification conversion (Temporary/Permanent/...) |
+| core/retry/retryer.go | Decide retry/give-up per error class (backoff on RateLimited, straight to dead on Permanent); optional: asynchronous re-enqueue |
+| core/service/notification.go, planner.go | expandRef gains `user:` resolution; Channel resolution layer (explicit channels → Channel block → routes compatibility) |
+| core/groups/ → core/audience/ (new) | Carries the recipients/endpoints first level (group is retained as an audience aggregate) |
+| config/config.go | channels/audiences/recipients config blocks (the lenient-parsing semantics that exist today: silently ignored until they land) |
+| api/handler_notify.go | **Not forced to change this round** (notify's channel/audience/idempotency_key fields are all optional additions, backward compatible) |
+| api/server.go, handler_groups.go | If audience/recipient endpoints are added (phase one can stay config-only, no API) |
 
-## 四、兼容性风险与护栏
+## 4. Compatibility Risks and Guardrails
 
-1. **notify 请求/响应保持兼容**：新增字段全部可选；`channels` 显式语义、`code/message/data` 响应壳、`notification_id/task_ids/accepted/failed` 不变。Breaking Change 需按原计划的破坏性变更规程走（说明+迁移+文档+测试）。
-2. **TaskLog Status 字符串**：从 4 值向枚举扩展时**只增不删不改名**（`pending/success/failed/shadow` 全保留，新增状态为补充），保证既有 dashboard 与 API 消费者不破。
-3. **groups API 与 group: 引用**保持现状（`group:` 不改语义；`user:` 为全新前缀，各走各的解析路径）。
-4. **routes/level_routes** 保留为静态路由的等价物，引入 channels 块时以「channel 显式 > channels 块 > routes 表」的优先级叠加，不删除既有键。
-5. **重试语义**：当前同步重试对调用方可观测（一次 Deliver 阻塞完整个策略）；改为异步重新入队会改变端到端耗时与日志时序——需在 Phase 3 单独设计，不能顺手改。
-6. **宽松 yaml 解析**是把双刃剑：新配置键落地前的静默忽略已在文档（configuration.md「领域模型与配置块」）注明，避免用户误以为已生效。
-7. 每 Phase 完成必须过全量门禁（Go race + covermerge gate 100 + golangci-lint + dashboard 测试/构建 + docs 构建），与仓库既有纪律一致。
-## 五、执行记录（2026-10-04：Phase 0-9 全批落地，计划收官）
+1. **The notify request/response stays compatible**: all new fields are optional; `channels` explicit semantics, the `code/message/data` response envelope, and `notification_id/task_ids/accepted/failed` are unchanged. A breaking change must follow the original plan's breaking-change procedure (explanation + migration + docs + tests).
+2. **TaskLog Status string**: when extending from 4 values to an enum, **add only, never delete and never rename** (keep all of `pending/success/failed/shadow`; new statuses are additions), so existing dashboard and API consumers do not break.
+3. The **groups API and `group:` references** stay as they are (`group:` semantics unchanged; `user:` is a brand-new prefix, each with its own resolution path).
+4. **routes/level_routes** are retained as the equivalent of static routing; when the channels block is introduced, the "explicit channel > channels block > routes table" priority is layered on top — no existing key is deleted.
+5. **Retry semantics**: the current synchronous retry is observable by the caller (one Deliver call blocks through the whole policy); switching to asynchronous re-enqueue changes end-to-end latency and log ordering — that needs its own design in Phase 3 and must not be changed in passing.
+6. **Lenient yaml parsing** is a double-edged sword: the silent ignoring of new config keys before they land is already noted in the docs (configuration.md "domain model and config blocks"), so users are not left thinking they already take effect.
+7. Every phase must pass the full gate before completion (Go race + covermerge gate 100 + golangci-lint + dashboard tests/build + docs build), consistent with the repo's existing discipline.
 
-前两批改动已交付并过全量门禁（race 全绿 / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build 过）；第三批（Phase 6）同样过关。按上表差异逐项回填：
+## 5. Execution Record (2026-10-04: all of Phase 0-9 landed, plan wrapped up)
 
-### Phase 1 MVP：`user:` 级受众（配置化）
+The first two batches were delivered and passed the full gate (race all green / covermerge gate 100 GREEN / golangci-lint 0 issues / dashboard 100% / docs build passing); the third batch (Phase 6) cleared the same bar. Filling in the differences above item by item:
 
-- `core/audience/`（新包）：`Endpoint{Type,Target}` / `Recipient{Endpoints}` / `Audience{Recipients}`；`Manager.ExpandUser` 解析——**audiences 表优先**，未命中回落 recipients 表；`NewManager` 启动校验（非法 id、audience 引用未知接收人、接收人零端点、端点 type/target 空或超长 → 报错拒起）：`user:` 引用绝不静默落到空。
-- `config` 新增 `audiences` / `recipients` 顶层块（宽松解析由此落地生效；见 [configuration.md「领域模型与配置块」](/guide/configuration#领域模型与配置块)）。
-- `core/service/notification.go`：`expandRef` 新增 `user:` 分支（`UserResolver` 接口 + `SetUserResolver`，与 GroupResolver 同构）；`mergeUserEndpoints` **按 provider 合并端点**——同一 provider 的所有目标捆绑进一次投递，provider 顺序排序保证任务/日志跨运行稳定。未知 user / 无 resolver → 该通道显式失败，其余照发（与 group: 行为一致）。
-- `cmd/heraldd/main.go` 装配 `audience.NewManager`（非法表退出码 1）；`api.Config.Users` 透传。
-- 按轻量原则**未做**：channels 独立配置块、audiences/recipients 运行时 API（idempotency 请求字段已由第三批 Phase 6 补齐，见下）。
+### Phase 1 MVP: `user:`-level audience (config-driven)
 
-### Phase 3 MVP：Delivery 状态机（枚举化 + 同步重试）
+- `core/audience/` (new package): `Endpoint{Type,Target}` / `Recipient{Endpoints}` / `Audience{Recipients}`; `Manager.ExpandUser` resolution — **the audiences table takes priority**, falling back to the recipients table on a miss; `NewManager` startup validation (illegal id, an audience referencing an unknown recipient, a recipient with zero endpoints, an endpoint type/target that is empty or too long → error and refuse to start): a `user:` reference never silently falls through to nothing.
+- `config` gains top-level `audiences` / `recipients` blocks (lenient parsing makes them take effect from here on; see configuration.md "domain model and config blocks").
+- `core/service/notification.go`: `expandRef` gains a `user:` branch (a `UserResolver` interface plus `SetUserResolver`, structurally identical to GroupResolver); `mergeUserEndpoints` **merges endpoints per provider** — all targets on the same provider are bundled into one delivery, and provider order sorting keeps tasks/logs stable across runs. Unknown user / no resolver → that channel fails explicitly, the rest still go out (identical behavior to `group:`).
+- `cmd/heraldd/main.go` wires up `audience.NewManager` (illegal table → exit code 1); `api.Config.Users` is passed through.
+- Deliberately **not done** under the lightness principle: a standalone channels config block, the audiences/recipients runtime API (the idempotency request field was completed by the third batch, Phase 6 — see below).
 
-- `core.DeliveryStatus` 枚举（accepted/queued/delivering/retrying/delivered/failed/dead）+ `DeliveryTask.Status` 字段；planner 创建任务即置 `queued`。
-- `core/retry/retryer.go`：新增 `ErrMaxRetries` sentinel 供 errors.Is 判定 **dead**——重试轮数耗尽的 retryable 失败返回 `max retries exceeded: <last>`（消息文本与历史一致，仅升级为可解包标记）；重试轮驱动 `RetryCount`（已完成的重试数）与 `Status=retrying`。
-- `core/runtime/manager.go`：每次尝试前置 `delivering`；终态按 **delivered / failed（永久失败与限流中止）/ dead（可重试错误耗尽）** 写入：`errors.Is(deliverErr, retry.ErrMaxRetries)` 区分 dead 与 failed。
-- **TaskLog wire 不变**：`pending/success/failed/shadow` 原样保留——dead/retrying 只体现在 DeliveryTask 状态，dashboard 与 logs API 无感知（护栏 2 就地兑现）。
-- 错误分类按护栏 5 保持现状：`RetryableError` / `httpclient.RetryableError` 二元标记（HTTP 408/429/5xx、网络错误）→ 可重试；其余立即 failed（此前审计稿中"401 也会重试 3 次"的表述有误，已按上述事实修正理解）。异步重新入队与 `next_retry_at` 留后续 Phase（会改变端到端耗时与日志时序，需单独设计）。
+### Phase 3 MVP: Delivery state machine (enum-ization + synchronous retry)
 
-### Phase 6 MVP：notify API 领域字段（channel / audience / data / idempotency_key）
+- The `core.DeliveryStatus` enum (accepted/queued/delivering/retrying/delivered/failed/dead) plus a `DeliveryTask.Status` field; the planner sets `queued` as soon as it creates a task.
+- `core/retry/retryer.go`: a new `ErrMaxRetries` sentinel for an **errors.Is** determination of **dead** — a retryable failure whose retry rounds are exhausted returns `max retries exceeded: <last>` (message text unchanged from history, upgraded only to an unpackable marker); the retry rounds drive `RetryCount` (the number of completed retries) and `Status=retrying`.
+- `core/runtime/manager.go`: sets `delivering` before each attempt; the terminal state is written per **delivered / failed (permanent failure and rate-limit abort) / dead (retryable error exhausted)**: `errors.Is(deliverErr, retry.ErrMaxRetries)` distinguishes dead from failed.
+- **The TaskLog wire stays unchanged**: `pending/success/failed/shadow` are preserved verbatim — dead/retrying show up only in the DeliveryTask status, invisible to the dashboard and the logs API (guardrail 2 discharged in place).
+- Error classification stays as it is per guardrail 5: the binary `RetryableError` / `httpclient.RetryableError` markers (HTTP 408/429/5xx, network errors) → retryable; everything else fails immediately (the earlier draft of this audit wrongly said "a 401 also retries 3 times" — the understanding has been corrected per the facts above). Asynchronous re-enqueue and `next_retry_at` are left to a later phase (they change end-to-end latency and log ordering and need their own design).
 
-按原计划的 notify 字段设计与幂等设计、护栏 1（新增字段全部可选）落地，全部向后兼容：
+### Phase 6 MVP: notify API domain fields (channel / audience / data / idempotency_key)
 
-- `api/handler_notify.go`：`NotifyRequest` 新增 `channel`（单数写法，与 `channels` 并集）、`audience`（受众引用数组，逐项走既有 `expandRef` 链——`group:` / `user:` / 裸渠道名）、`data`（模板数据，与 `params` 合并、`params` 重名优先）、`idempotency_key`；合并逻辑抽为 `notifyChannels` / `notifyParams` 两个纯函数，成功响应抽 `notifyData` 复用（首次投递与幂等 replay 同一构造）。
-- `api/idempotency.go`（新）：`notifyIdempotency` 内存表——mutex + map + FIFO 队列，容量 1000（`defaultNotifyIdempotencyCap`，按需逐出最旧）；`get` / `put`，重复 put 保留首条记录。`NewHandler` 即挂载，零配置。
-- 幂等语义：仅记录**成功受理**（`code 0`）的结果；命中 → 直接返回首次的 `notification_id` / `task_ids`，**不触碰投递管线**（队列零增长）；失败请求（422）不记录、同键可修正重试。进程生命周期内有效，重启即清空（MVP 无持久化，已在文档明示）。
-- 覆盖：`handler_notify_test.go` 新增 7 个子测试（channels+channel 并集、channel 单用、audience 展开 `user:` 引用、data 并入 params、params 重名优先、data 独用、幂等 replay/键独立/失败不记录）+ `idempotency_test.go` 表驱动直测（miss/roundtrip/重复 put 保首条/FIFO 逐出/容量回退/自定义容量）。
-- 设计取舍：幂等放 handler 层而非 service 层——键是请求字段、命中路径短路在 Process 之前（dedup 是内容指纹去重、幂等是请求键回放，两者语义不同、互不替代）；表内不存请求原文，只存 `service.ProcessResult`。
+Landed per the original plan's notify field design and idempotency design, with guardrail 1 (all new fields optional) satisfied — fully backward compatible:
 
-### Phase 2 MVP：Routing 边界显式化（决策与执行分离）
+- `api/handler_notify.go`: `NotifyRequest` gains `channel` (singular, unioned with `channels`), `audience` (an array of audience references, each item going through the existing `expandRef` chain — `group:` / `user:` / bare channel name), `data` (template data, merged with `params`, with `params` winning on a name collision), and `idempotency_key`; the merge logic is extracted into two pure functions `notifyChannels` / `notifyParams`, and the success response reuses an extracted `notifyData` (first delivery and idempotent replay share one construction).
+- `api/idempotency.go` (new): a `notifyIdempotency` in-memory table — mutex + map + FIFO queue, capacity 1000 (`defaultNotifyIdempotencyCap`, evicting the oldest on demand); `get` / `put`, with a repeated put keeping the first record. Mounted by `NewHandler`, zero configuration.
+- Idempotency semantics: only **successfully accepted** (`code 0`) results are recorded; on a hit → return the first `notification_id` / `task_ids` directly, **without touching the delivery pipeline** (the queue grows by zero); failed requests (422) are not recorded, so the same key can be corrected and retried. Valid for the process lifetime, cleared on restart (no persistence in the MVP, explicitly stated in the docs).
+- Coverage: `handler_notify_test.go` gains 7 subtests (channels+channel union, channel alone, audience expansion of `user:` references, data merged into params, params winning on a name collision, data alone, idempotent replay/key independence/failures not recorded) + a table-driven `idempotency_test.go` (miss/roundtrip/repeated put keeps the first/FIFO eviction/capacity fallback/custom capacity).
+- Design trade-off: idempotency lives in the handler layer rather than the service layer — the key is a request field and the hit path short-circuits before Process (dedup is content-fingerprint dedup, idempotency is request-key replay; the two have different semantics and neither replaces the other); the table stores no raw request text, only `service.ProcessResult`.
 
-计划 Phase 2 的链路（Notification → Audience resolution → Channel routing → Delivery Task）在上一批已具备能力（`expandRef` 的 group:/user: 展开 + Router/rules 的渠道路由），本批补齐的是**边界本身**：
+### Phase 2 MVP: Making the Routing boundary explicit (separating decision from execution)
 
-- `core/service/notification.go`：新增 `expandRefs(refs)` —— 引用集合 → 投递目标的**纯决策**步骤（不触碰队列）；单条引用解析失败记录为该引用的 `ChannelError`、其余照常展开。`enqueue` 改为先取决策、后执行入队（`enqueueOne`），Routing（决定谁收到什么）与 Delivery（Plan/Push/重试）在代码上有明确分割点。行为零变化。
-- `core/service/routing_test.go`（新）：`expandRefs` 决策层直接单测——空引用集、裸渠道透传、group:+user: 混合展开（`user:alice` 按 provider 合并端点）、失败引用不阻断批量、无 resolver 时显式失败；`ctx`/queue 零接触（纯函数可测性即边界证明）。
+The Phase 2 chain of the plan (Notification → Audience resolution → Channel routing → Delivery Task) was already covered by the previous batch (`group:`/`user:` expansion in `expandRef` + channel routing by Router/rules); what this batch completes is **the boundary itself**:
 
-### Phase 4 MVP：Queue / Worker 五项核对 + 投递字段回填
+- `core/service/notification.go`: a new `expandRefs(refs)` — a **pure decision** step turning a reference set into delivery targets (it never touches the queue); a single reference that fails to resolve is recorded as that reference's `ChannelError` and the rest expand normally. `enqueue` now takes the decision first and performs the enqueue afterwards (`enqueueOne`), giving Routing (who receives what) and Delivery (Plan/Push/retry) an explicit seam in code. Zero behavior change.
+- `core/service/routing_test.go` (new): `expandRefs` decision layer unit-tested directly — empty reference set, bare channel pass-through, mixed `group:`+`user:` expansion (`user:alice` merges endpoints per provider), a failing reference not blocking the batch, explicit failure when there is no resolver; zero contact with `ctx`/queue (pure-function testability is itself the proof that the boundary holds).
 
-按原计划逐项核对（enqueue/dequeue/ack/worker/retry）：
+### Phase 4 MVP: Five-point Queue / Worker audit + delivery field backfill
 
-- **enqueue / dequeue / ack**：`core.Queue` 接口（Push/Pop/Ack/Nack/Size/Close）与 memory 队列实现齐全（buffered chan、closed 守卫、ctx 取消；内存队列 ack 语义 = Pop 即出队，Ack/Nack 按设计为 no-op）；worker 成功→Ack、失败→Nack 已接线。**无缺口**。
-- **worker**：Pool.workerLoop 只做「取任务 → 调 Provider → Ack/Nack」，不携带路由/模板/接收人知识（worker 边界成立，路由决策在 Phase 2 已独立）。**无缺口**。
-- **retry**：同步重试在 runtime.Deliver 内（Phase 3），一次 Pop 覆盖整个重试周期，耗尽→dead。**无缺口**。
-- **投递字段核对回填**：计划建议 Delivery 保存 `attempts` / `max_attempts` / `last_error` / `next_retry_at`。检查发现 `last_error` 与 `max_attempts` 只存在于重试策略/任务日志、不在任务对象上。本批补齐：
-  - `core.DeliveryTask` 新增 `MaxAttempts int`（投递预算快照：retry 策略轮数 + 首试；无 retryer 时为 1，由 runtime 在首次尝试前钉入）与 `LastError string`（终态错误：failed/dead 写最终错误、delivered 清空、限流中止同样记录；与任务日志的完整历史并存，即计划所言「Delivery 自带 last_error」）；
-  - `core/retry.Retryer.MaxAttempts()`（= MaxRetries()+1）暴露预算；
-  - `next_retry_at` 依旧不做：同步重试在单次 Deliver 内完成、无排队语义（Phase 3 执行记录已声明，留异步批次）。
-- **核对测试**：`core/worker/pool_phase4_test.go`（新）——真 runtime + 真 worker loop 的投递五项全链路核对（成功→delivered+ack、失败→failed+nack+last_error、retryable 耗尽→dead+预算/重试数/错误残留断言；经队列 mutex 观察点同步、race 干净）；`manager_status_test.go` 四个终态测试补 MaxAttempts/LastError 断言；`retryer_test.go` 补 MaxAttempts 预算测试。
-- 外部依赖零新增（原计划：维持 MemoryQueue 为第一队列，Redis 队列不动、不引新后端）。
+Audited point by point against the original plan (enqueue/dequeue/ack/worker/retry):
 
-### Phase 5 MVP：Provider 错误分类（六类词汇接入 retrying/dead 判定）
+- **enqueue / dequeue / ack**: the `core.Queue` interface (Push/Pop/Ack/Nack/Size/Close) and the memory queue implementation are complete (buffered chan, closed guard, ctx cancellation; in the memory queue the ack semantics = Pop dequeues, and Ack/Nack are no-ops by design); worker success→Ack and failure→Nack are already wired. **No gap**.
+- **worker**: `Pool.workerLoop` only does "take a task → call the Provider → Ack/Nack", carrying no routing/template/recipient knowledge (the worker boundary holds; routing decisions were separated in Phase 2). **No gap**.
+- **retry**: synchronous retry lives inside runtime.Deliver (Phase 3), one Pop covers the whole retry cycle, exhaustion → dead. **No gap**.
+- **Delivery field audit backfill**: the plan recommended Delivery store `attempts` / `max_attempts` / `last_error` / `next_retry_at`. The check found `last_error` and `max_attempts` exist only in the retry policy / task logs, not on the task object. This batch completes it:
+  - `core.DeliveryTask` gains `MaxAttempts int` (a delivery-budget snapshot: retry-policy rounds plus the first attempt; 1 when there is no retryer, pinned by runtime before the first attempt) and `LastError string` (the terminal error: the final error is written on failed/dead, cleared on delivered, likewise recorded on a rate-limit abort; coexisting with the task log's full history — this is exactly the plan's "Delivery carries its own last_error");
+  - `core/retry.Retryer.MaxAttempts()` (= MaxRetries()+1) exposes the budget;
+  - `next_retry_at` still not done: synchronous retry completes within a single Deliver and has no queueing semantics (declared in the Phase 3 execution record; held for the asynchronous batch).
+- **Audit tests**: `core/worker/pool_phase4_test.go` (new) — a five-point end-to-end delivery audit through a real runtime + a real worker loop (success→delivered+ack, failure→failed+nack+last_error, retryable exhaustion→dead with assertions on budget/retry count/residual error; synchronized through a mutex observation point on the queue, race-clean); the four terminal-state tests in `manager_status_test.go` gain MaxAttempts/LastError assertions; `retryer_test.go` gains a MaxAttempts budget test.
+- Zero new external dependencies (original plan: keep MemoryQueue as the first queue, leave the Redis queue alone, introduce no new backend).
 
-落点：共享错误词汇 **core/errclass** + httpclient / retry 两处**单点接入**——所有走 httpclient 的 provider（aliyunsms/neteasesms/tencentsms）零改动获得分类。
+### Phase 5 MVP: Provider error classification (six-class vocabulary feeding the retrying/dead decision)
 
-- `core/errclass`（新包）：`Class` 六类常量（temporary / permanent / rate_limited / authentication / invalid_request / timeout）+ `Error{Class, Err}` 包装。**分类骑错误链、不骑马甲**：`Error()` 原样返回被包装文本（任务日志与 API 响应保持历史形状），`Of()` 经 errors.As 穿透多层 `%w` 包装，`Retryable()` 判定——前三类可重试、后三类立即失败。
-- `core/httpclient` 单点接入：非 2xx → `classifyStatus`（408→timeout、429→rate_limited、≥500→temporary；其余 4xx 保持**不分类**——坏请求/坏凭据重试不可能成功，语义未变只是显式化）；传输层错误 → `sendError`（net.Error 超时→timeout、其余→temporary）；错误文本不变。
-- `core/retry` 判定接入：`isRetryable` 改为 **errclass 优先**（有分类看分类、无分类回落），`RetryableError` / `httpclient.RetryableError` 旧标记保留兼容（既有测试原样通过）。
-- 测试：errclass 单元（nil 透传 / 文本保真 / 穿透包装 / 8 例分类表）；`TestClassifiedStatusErrors`（7 状态码→类 + IsRetryable 与类一致性）；`TestRetryerClassifiedErrors`（生产形状策略：temporary/rate_limited/timeout 耗尽→ErrMaxRetries 共 3 次调用；permanent/authentication/invalid_request→1 次即败、非 dead）；`TestDeliverClassifiedErrorTerminals`（端到端：authentication→failed 不重试、rate_limited→重试耗尽→dead）。
-- 未做（护栏 5 留批）：401 等 4xx 依旧不重试（语义与历史一致）；RateLimited 尚无 per-class 退避（Retry-After 未用，沿用统一退避策略）。
-  - **后批补齐（2026-10-05）**：Retry-After 已接入——`errclass.Error` 增 `RetryAfter` 提示，`httpclient.statusError` 在 429 时解析 `Retry-After`（delay-seconds / HTTP-date，非正值与过去时点不算建议），retry 侧提示优先于退避曲线、`retry.max_delay` 封顶（MaxDelay 为 0 不封顶）；`NewWithRetryAfter` / `RetryAfterOf` / `parseRetryAfter` 各分支单测 + retryer 提示路径 seam 测试。
+Landing point: the shared error vocabulary **core/errclass** plus two **single-point** integrations in httpclient and retry — every provider that goes through httpclient (aliyunsms/neteasesms/tencentsms) gets classification with zero changes.
 
-### 后批：异步重新入队（2026-10-05）
+- `core/errclass` (new package): six `Class` constants (temporary / permanent / rate_limited / authentication / invalid_request / timeout) plus an `Error{Class, Err}` wrapper. **Classification rides the error chain, not the error's clothing**: `Error()` returns the wrapped text verbatim (task logs and API responses keep their historical shape), `Of()` sees through multiple layers of `%w` wrapping via errors.As, `Retryable()` decides — the first three classes are retryable, the last three fail immediately.
+- `core/httpclient` single-point integration: non-2xx → `classifyStatus` (408→timeout, 429→rate_limited, ≥500→temporary; other 4xx stay **unclassified** — retrying a bad request or bad credentials can never succeed; the semantics are unchanged, merely made explicit); transport-layer errors → `sendError` (net.Error timeout→timeout, the rest→temporary); error text unchanged.
+- `core/retry` integration: `isRetryable` becomes **errclass-first** (with a classification use it, without one fall back); the legacy `RetryableError` / `httpclient.RetryableError` markers are kept for compatibility (existing tests pass unchanged).
+- Tests: errclass unit tests (nil passthrough / text fidelity / seeing through wrapping / an 8-case classification table); `TestClassifiedStatusErrors` (7 status codes→class + IsRetryable consistent with the class); `TestRetryerClassifiedErrors` (production-shaped policy: temporary/rate_limited/timeout exhausting→ErrMaxRetries over 3 calls total; permanent/authentication/invalid_request→one call and done, not dead); `TestDeliverClassifiedErrorTerminals` (end-to-end: authentication→failed with no retry, rate_limited→retries exhausted→dead).
+- Not done (held per guardrail 5): 4xx such as 401 still do not retry (semantics identical to history); RateLimited still has no per-class backoff (Retry-After unused, the uniform backoff policy stands).
+  - **Later-batch completion (2026-10-05)**: Retry-After is now integrated — `errclass.Error` gains a `RetryAfter` hint, `httpclient.statusError` parses `Retry-After` on a 429 (delay-seconds / HTTP-date; non-positive values and past instants are not counted as a suggestion), and on the retry side the hint takes priority over the backoff curve, capped by `retry.max_delay` (no cap when MaxDelay is 0); `NewWithRetryAfter` / `RetryAfterOf` / `parseRetryAfter` have a unit test per branch + a seam test for the retryer's hint path.
 
-留批第 1 项按护栏 5 独立设计后落地：可重试失败不再占住 worker 睡完退避曲线，任务带 `next_retry_at` 回到队列，到点由队列放行、worker 立即去取下一个任务。
+### Later batch: Asynchronous re-enqueue (2026-10-05)
 
-- `core/types.go`：`DeliveryTask` 增 `NextRetryAt *time.Time`（defer 时戳、下次尝试开始即清空，wire 字段 `next_retry_at` omitempty，worker 协议向后兼容）；新增 `Scheduler` 可选能力接口（`Schedule(task, delay)`），不进 `Queue` 主接口——没有延迟持留能力的自定义队列原样保留同步语义。
-- `core/retry`：`Defer(task, err)` 单发决策——retryable 且预算未尽 → `RetryCount++`、`Status=retrying`、`NextRetryAt=now+delay`、返回 `*Deferred{Delay, Err}`；预算尽 → `ErrMaxRetries` 包装（dead）；不可重试 → 原样返回（failed）。`waitFor` 抽出共享：Retry-After 提示与 `max_delay` 封顶规则同步/异步两路一致。预算（`RetryCount`）随任务走，跨重新入队累计，跨 redis 序列化存活。
-- `core/queue`：memory 实现延迟持留（最小堆；Pop 先放行到期项再看就绪 channel，退避任务不被新流量饿死；延迟堆独立互斥锁——Push 持 RLock 阻塞在满 channel 上，Pop 热路径拿写锁会自我死锁）；redis 实现有序集 `<stream>:delayed`（score=到期 UnixNano；ZREM 先行仲裁多进程，输家不动条目；不可解码成员丢弃防读循环；ZRANGEBYSCORE 失败上抛为 Pop 错误）。两实现非正延迟直落就绪队列；Close 均不排空未到期任务。
-- `core/logstore.AddIfAbsent`：同一任务只开一行日志——重试期间停在 `pending`，终态才翻 success/failed。日志 wire 词汇（success/failed/pending/shadow）零变化，落实「不要把日志直接当状态」原则。
-- `core/runtime`：`Deliver` 的 provider 查找/预算快照/限流等待抽为 `deliverPrologue`、终态映射抽为 `settle`，共享骨架上新增 `DeliverOnce`（恰一次尝试；Deferred 不结算，日志行 AddIfAbsent）。
-- `core/worker`：`NewPool` 探测队列能力——有 `Scheduler` 走 `DeliverOnce` + `Schedule`（无 Nack：延迟重试不是失败）；Schedule 被拒 → Nack 兜底结算，任务不进 limbo。无能力回落 `Deliver`（同步退避，历史行为原样）。`herald.go` 的 `awaitingQueue` 装饰器转发 `Schedule`，库模式不因包装误判降级。
-- 语义变化（护栏 5 点名的时序变化，如实记录）：重试等待不再占 worker；`DispatchSync` 的 wait 跨 defer 挂起、终态 Ack/Nack 才解析（阻塞总时长不变）；redis 队列的等待跨进程重启存活（memory 队列随进程消亡，与原语义同）。
-- 测试：Defer 表（提示/封顶/不封顶/终态两路/跨调用预算耗尽）、memory Schedule（时钟 seam：到期先后/到期项优先于就绪/取消/关闭拒绝）、redis Schedule（持留/到期搬运/抢输仲裁/毒成员/读失败）、manager `DeliverOnce`（defer→恢复同日志行结算/终态表/无 retryer 即败）、pool 异步全链路（重入队/拒绝 Nack/同步回落/能力探测）、logstore `AddIfAbsent`、awaitingQueue 转发。
+Deferred item 1 landed after its own design under guardrail 5: a retryable failure no longer pins a worker through the whole backoff curve — the task returns to the queue carrying `next_retry_at`, the queue releases it when due, and the worker immediately picks up the next task.
 
-### Phase 7 MVP：Configuration（`channels` 独立配置块 + 三优先级叠加）
+- `core/types.go`: `DeliveryTask` gains `NextRetryAt *time.Time` (stamped when deferring, cleared as soon as the next attempt starts; wire field `next_retry_at` omitempty, so the worker protocol stays backward compatible); a new optional-capability `Scheduler` interface (`Schedule(task, delay)`) that does not enter the main `Queue` interface — a custom queue with no delay-holding capability keeps the synchronous semantics verbatim.
+- `core/retry`: `Defer(task, err)` makes a single decision — retryable with budget remaining → `RetryCount++`, `Status=retrying`, `NextRetryAt=now+delay`, return `*Deferred{Delay, Err}`; budget exhausted → `ErrMaxRetries` wrapping (dead); non-retryable → returned as-is (failed). `waitFor` is extracted as shared code: the Retry-After hint and the `max_delay` cap rules are identical on the synchronous and asynchronous paths. The budget (`RetryCount`) travels with the task, accumulates across re-enqueues, and survives redis serialization.
+- `core/queue`: the memory implementation holds delays (a min-heap; Pop releases due items before looking at the ready channel, so backoff tasks are not starved by new traffic; the delay heap has its own mutex — Push holding RLock while blocked on a full channel would self-deadlock if Pop's hot path took the write lock); the redis implementation uses the sorted set `<stream>:delayed` (score = due UnixNano; ZREM arbitrates across processes first, the loser does not touch the entry; undecodable members are discarded to protect the read loop; a ZRANGEBYSCORE failure is raised as a Pop error). Both implementations drop non-positive delays straight into the ready queue; Close on either does not drain undelivered tasks.
+- `core/logstore.AddIfAbsent`: one log line per task — it stays at `pending` during retries and only flips to success/failed at the terminal state. The log wire vocabulary (success/failed/pending/shadow) changes by zero, honoring the principle "do not treat the log directly as the status".
+- `core/runtime`: provider lookup / budget snapshot / rate-limit wait are extracted from `Deliver` into `deliverPrologue`, terminal-state mapping into `settle`, and a new `DeliverOnce` is added on the shared skeleton (exactly one attempt; a Deferred is not settled, and the log line goes through AddIfAbsent).
+- `core/worker`: `NewPool` probes the queue's capabilities — with a `Scheduler` it uses `DeliverOnce` + `Schedule` (no Nack: a delayed retry is not a failure); if Schedule is rejected → fall back to Nack to settle, and the task does not fall into limbo. Without the capability it falls back to `Deliver` (synchronous backoff, historical behavior verbatim). The `awaitingQueue` decorator in `herald.go` forwards `Schedule`, so library mode does not misjudge the capability through the wrapper and degrade.
+- Semantic changes (the timing changes guardrail 5 names, recorded faithfully): the retry wait no longer occupies a worker; `DispatchSync`'s wait suspends across a defer and only resolves at the terminal Ack/Nack (total blocking duration unchanged); the redis queue's wait survives a process restart (the memory queue dies with the process, same as the original semantics).
+- Tests: the Defer table (hint/cap/no-cap/both terminal paths/budget exhaustion across calls), memory Schedule (clock seam: ordering by due time / due items before ready / cancellation / close rejection), redis Schedule (hold/due transfer/loss-race arbitration/poison member/read failure), manager `DeliverOnce` (defer→resumed settling on the same log line / terminal table / immediate failure without a retryer), the pool asynchronous end-to-end path (re-enqueue / rejected→Nack / synchronous fallback / capability probing), logstore `AddIfAbsent`, and awaitingQueue forwarding.
 
-落点：`channels` 独立配置块（`channels: {ci: {providers: [...]}}`）落地，护栏 4 的「channel 显式 > channels 块 > routes 表」优先级显式化，routes/level_routes 键原样保留。
+### Phase 7 MVP: Configuration (standalone `channels` block + the three-level priority stack)
 
-- `config.ChannelConfig`（新）：`channels` 顶层块——命名渠道 → providers 列表；`Validate()` 启动校验：渠道零 providers、引用未配置的 provider → **拒起**（与 Phase 1 受众表同纪律）；`ChannelRoutes()` 展平为 router 形状。
-- `core/route.Router.ExpandChannel`（新）：渠道块查找（configured 顺序返回；空条目按未命中处理——回落裸 provider 目标与其「provider not found」熟悉失败，绝不停静默投空）。
-- `core/service` 解析链（`expandRef`）：裸渠道名按优先级——**显式 provider 实例 > channels 块**；都不中维持字面 provider 目标（投递时失败，语义不变）。`routes` 表在其下：只路由未命名任何渠道的通知（既有行为）。`group:`/`user:` 引用与合成投递（概括/升级/恢复）全走同一解析链，零特判。
-- 装配：`cmd/heraldd` 建 router 时注入展平块 + `channels loaded` 日志；`api/server.go` 挂 `SetChannelResolver(config.Router)`。
-- 测试：router 展开（命中顺序/未知/空条目回 false）；config 校验（无 providers/未知 provider/合法）+ yaml 解析 + 展平；service 决策层（块展开有序、provider 压过块、双不中回落字面）+ 全链路（`channels: [ci]` → 每 provider 一任务）；heraldd 拒起两例 + FullFeaturedLifecycle 带 channels 块。
-- 未做（护栏 5 留批/超纲）：channels 运行时 API（配置化即 MVP，与 audiences 一期口径一致）；group 成员渠道名不走块展开（成员语义是 provider 实例名，保持原样）。
+Landing point: the standalone `channels` config block (`channels: {ci: {providers: [...]}}`) lands, guardrail 4's "explicit channel > channels block > routes table" priority is made explicit, and the routes/level_routes keys are preserved verbatim.
 
-### Phase 8 MVP：测试补全（七个测试块逐块核对 + Multi Provider 隔离）
+- `config.ChannelConfig` (new): a top-level `channels` block — named channel → providers list; `Validate()` startup validation: a channel with zero providers, or a reference to an unconfigured provider → **refuse to start** (same discipline as the Phase 1 audience tables); `ChannelRoutes()` flattens into the router's shape.
+- `core/route.Router.ExpandChannel` (new): channel block lookup (returned in configured order; an empty entry counts as a miss — falling back to the bare provider target with its familiar "provider not found" failure, never silently sending nothing).
+- `core/service` resolution chain (`expandRef`): a bare channel name resolves by priority — **explicit provider instance > channels block**; when neither matches it stays a literal provider target (failing at delivery time, semantics unchanged). The `routes` table sits below that: it only routes notifications that name no channel (existing behavior). `group:`/`user:` references and synthesized deliveries (summarize/escalate/recover) all go through the same resolution chain, with zero special cases.
+- Wiring: `cmd/heraldd` injects the flattened block when building the router and logs `channels loaded`; `api/server.go` mounts `SetChannelResolver(config.Router)`.
+- Tests: router expansion (hit order/unknown/empty entry returns false); config validation (no providers/unknown provider/valid) + yaml parsing + flattening; the service decision layer (ordered block expansion, provider beating the block, falling back to literal when neither matches) + end-to-end (`channels: [ci]` → one task per provider); two heraldd refuse-to-start cases + FullFeaturedLifecycle with a channels block.
+- Not done (held per guardrail 5 / out of scope): the channels runtime API (config-only is the MVP, consistent with the phase-one position on audiences); group member channel names do not go through block expansion (the member semantics is a provider instance name, kept as-is).
 
-按原计划的七个测试块逐一核对既有测试底稿，**六块已有**、一块真缺口：
+### Phase 8 MVP: Test completion (seven test blocks audited one by one + Multi Provider isolation)
 
-| 测试块 | 要求 | 底稿（核对证据） |
+Audited the existing test baseline block by block against the seven test blocks in the original plan — **six already existed**, one was a genuine gap:
+
+| Test block | Requirement | Baseline (audit evidence) |
 |--------|------|-----------------|
-| Notification | 创建 + 参数验证 | `TestNotificationService_Process`；handler_notify_test 的 invalid body / 422 / 未知渠道与模板 |
-| Audience | group→recipients、user→recipient、recipient→endpoints | `TestProcessGroupReferences`（成员+recipient 钉选）；`TestExpandUser`/`TestExpandUserAudiencePrecedence`；`TestProcessUserReferences`/`TestMergeUserEndpoints`（端点按 provider 合并） |
-| Routing | Notification+Audience+Channel → Delivery Tasks | `TestExpandRefs` 5 场景 + `TestExpandRefsChannelsBlock` + `TestProcessChannelBlockReference` + group:/user: 全链路 |
-| **Multi Provider** | telegram success 不重复 / feishu failure 可 retry | **缺口 → 本批补** `TestPoolMultiProviderFanOutIsolation`（core/worker/pool_phase8_test.go） |
-| Retry | Temporary→retry / Permanent→立即败 | Phase 5：`TestRetryerClassifiedErrors` + `TestDeliverClassifiedErrorTerminals` |
-| State | queued→delivering→delivered；failed→retrying→delivered | Phase 3/4：`TestDeliverMarksStatusDelivered` + `TestDeliverMarksEveryAttemptDelivering` + pool_phase4 |
-| Idempotency | 相同 idempotency_key → 不重复创建 Delivery | Phase 6：handler replay（队列零增长）+ `idempotency_test` 表驱动 |
+| Notification | creation + parameter validation | `TestNotificationService_Process`; handler_notify_test's invalid body / 422 / unknown channel and template |
+| Audience | group→recipients, user→recipient, recipient→endpoints | `TestProcessGroupReferences` (members + recipient pinning); `TestExpandUser`/`TestExpandUserAudiencePrecedence`; `TestProcessUserReferences`/`TestMergeUserEndpoints` (endpoints merged per provider) |
+| Routing | Notification+Audience+Channel → Delivery Tasks | `TestExpandRefs` 5 scenarios + `TestExpandRefsChannelsBlock` + `TestProcessChannelBlockReference` + the full group:/user: chain |
+| **Multi Provider** | telegram success does not duplicate / feishu failure can retry | **gap → filled in this batch**: `TestPoolMultiProviderFanOutIsolation` (core/worker/pool_phase8_test.go) |
+| Retry | Temporary→retry / Permanent→immediate failure | Phase 5: `TestRetryerClassifiedErrors` + `TestDeliverClassifiedErrorTerminals` |
+| State | queued→delivering→delivered; failed→retrying→delivered | Phase 3/4: `TestDeliverMarksStatusDelivered` + `TestDeliverMarksEveryAttemptDelivering` + pool_phase4 |
+| Idempotency | the same idempotency_key → no duplicate Delivery created | Phase 6: handler replay (the queue grows by zero) + the table-driven `idempotency_test` |
 
-补的测试走**全真链路**（service 路由 → planner 计划 → 队列 → worker → provider）：一次 fan-out 两个 provider 各自独立终态——telegram 首试即成且恰投一次（兄弟任务的失败不复制它），feishu 首试可重试失败、次试落地（delivered 而非 dead，RetryCount 1，LastError 交付时清空），两任务日志各自 success。计数断言钉住原计划的「不重复 / 可以 retry」语义。
+The added tests run the **full real chain** (service routing → planner planning → queue → worker → provider): one fan-out sends to two providers with independent terminal states — telegram succeeds on the first attempt and is delivered exactly once (a sibling task's failure does not duplicate it), feishu fails retryably on the first attempt and lands on the second (delivered rather than dead, RetryCount 1, LastError cleared on delivery), and each task logs success on its own line. The count assertions pin down the original plan's "no duplicate / retryable" semantics.
 
-### 差异总表回填（本批后）
+### Difference table backfill (after this batch)
 
-| 目标（design-audience-model.md） | 落地后状态 |
+| Target (design-audience-model.md) | Status after landing |
 |----------------------------------|-----------|
-| Delivery 独立状态机 + attempts | ✅ 枚举化 + `RetryCount` 实测驱动；`next_retry_at` + 异步重新入队已落地（2026-10-05 后批：`Scheduler` 能力队列持留重试等待，worker 不再睡退避） |
-| user:/Recipient/Endpoint | ✅ 配置化 MVP（audiences/recipients YAML + user: 引用展开合并） |
-| 配置块 audiences/recipients | ✅ 已生效 + 启动校验（宽松解析"落地即生效"先例） |
-| notify 领域字段 channel/audience/data/idempotency_key | ✅ 全部可选字段兼容上线（Phase 6：并集展开 + data/params 合并 + 内存幂等表） |
-| Provider 错误分类接口 | ✅ core/errclass 六类词汇接入 httpclient 分类与 retry 判定（Phase 5：408/429/5xx/传输错误显式分类，其余 4xx 不分类不重试，wire 文本不变） |
-| Logs 与 Delivery 状态分离 | 未动（成本最高项，「日志与状态分离」需独立 Phase 设计事件流） |
-| Channel 独立配置块 | ✅ `channels: {name: {providers: [...]}}` 落地（Phase 7：启动校验拒起、provider 显式 > channels 块 > routes 表优先级、routes 键未删） |
+| Standalone Delivery state machine + attempts | ✅ enum-ized + driven by measured `RetryCount`; `next_retry_at` + asynchronous re-enqueue have landed (2026-10-05 later batch: `Scheduler`-capable queues hold the retry wait, and the worker no longer sleeps through the backoff) |
+| user:/Recipient/Endpoint | ✅ config-driven MVP (audiences/recipients YAML + `user:` reference expansion and merge) |
+| Config blocks audiences/recipients | ✅ in effect + startup validation (a first precedent for "lenient parsing takes effect on landing") |
+| notify domain fields channel/audience/data/idempotency_key | ✅ all optional fields shipped backward compatible (Phase 6: union expansion + data/params merge + in-memory idempotency table) |
+| Provider error classification interface | ✅ the six-class vocabulary in core/errclass feeds httpclient classification and the retry decision (Phase 5: 408/429/5xx/transport errors explicitly classified, other 4xx unclassified and not retried, wire text unchanged) |
+| Logs separated from Delivery status | untouched (the highest-cost item; "log/status separation" needs an independent phase to design an event stream) |
+| Standalone Channel config block | ✅ `channels: {name: {providers: [...]}}` landed (Phase 7: startup validation refuses to start, explicit provider > channels block > routes table priority, routes keys not deleted) |
 
-### Phase 9 MVP：Documentation（全站对齐 + 差异总表收官）
+### Phase 9 MVP: Documentation (site-wide alignment + difference table wrap-up)
 
-按计划 Phase 9 的七个文档面逐一核对，代码改动为零、纯文档批：
+Audited the seven documentation surfaces of the plan's Phase 9 one by one. Zero code changes, a pure documentation batch:
 
-- **Getting Started**（getting-started.md）：实现现状段改写为「Phase 0-9 全批落地」终态（channels 块、六类错误分类、MaxAttempts/LastError 并入），留批项点名并指到审计；第 3 步接入清单补 `user:` 受众、`channels` 命名渠道、`idempotency_key` 幂等重发三个指针。
-- **Architecture**（architecture/overview.md）：边界现状段从「执行中 + 三项后续规划」改写为落地终态——Channel 独立配置块与错误分类接口**已落地**（此前是过时表述），仅异步重新入队与 Logs 事件流分离留批。
-- **Configuration**：Phase 7 批已同步（领域模型与配置块表全 ✅ + channels 节 + 宽松解析警示改写），本批复核无新增。
-- **Provider**（providers/overview.md）：新增「错误分类与重试」节——六类词汇表（触发/是否重试）、httpclient 自动分类口径（408/429/5xx/传输错误 vs 其余 4xx）、短信业务码差异指到各渠道页、dead/last_error 与日志 wire 词汇的分离说明。
-- **Audience**（introduction.md）：「`user:` 级细分属于规划中」的过时表述改为已配置化落地。
-- **Delivery**：状态机文档随 Getting Started/Architecture 终态更新；API 不暴露任务对象（queue 端点只报 size），无 API 文档改动；troubleshooting.md 修正一处**文档错误**——`/api/v1/logs` 的 `status` 字段实际是 `success/failed/pending/shadow`（wire 词汇），原文误写为 `delivered/failed/retrying`。
-- **API**（api/rest.md）：Phase 6 批已同步（notify 领域字段 + 幂等节），本批复核无新增。
+- **Getting Started** (getting-started.md): the current-implementation section was rewritten into the terminal "all of Phase 0-9 landed" state (the channels block, the six error classes, MaxAttempts/LastError folded in); the deferred items are named and point at the audit; step 3's integration checklist gains three pointers — `user:` audiences, `channels` named channels, and `idempotency_key` idempotent resend.
+- **Architecture** (architecture/overview.md): the boundary/current-state section was rewritten from "in progress + three follow-up plans" into the landed terminal state — the standalone Channel config block and the error classification interface **have landed** (previously stale wording); only asynchronous re-enqueue and the Logs event-stream separation remain deferred.
+- **Configuration**: synced in the Phase 7 batch (the domain model and config blocks table all ✅ + a channels section + a rewritten lenient-parsing warning); this batch's re-check found nothing new.
+- **Provider** (providers/overview.md): a new "error classification and retry" section — the six-class vocabulary table (trigger / whether it retries), the httpclient auto-classification criteria (408/429/5xx/transport errors vs. other 4xx), SMS business-code differences pointed at each channel's page, and an explanation of the separation between dead/last_error and the log wire vocabulary.
+- **Audience** (introduction.md): the stale wording "`user:`-level segmentation is planned" was corrected to landed-and-config-driven.
+- **Delivery**: the state machine doc was updated alongside the Getting Started / Architecture terminal state; the API does not expose the task object (the queue endpoints only report size), so there is no API documentation change; troubleshooting.md fixes one **documentation error** — the `status` field of `/api/v1/logs` is actually `success/failed/pending/shadow` (the wire vocabulary), and the original text wrongly wrote `delivered/failed/retrying`.
+- **API** (api/rest.md): synced in the Phase 6 batch (notify domain fields + the idempotency section); this batch's re-check found nothing new.
 
-**差异总表收官**：全部行收敛为「✅ 已落地」或「留批 + 理由」，无未定性缺口。留批清单（均为显式设计决策，非遗漏）：
-1. Logs 与 Delivery 状态分离——「日志与状态分离」的最高成本项（事件流或存储拆分），当前一份数据两种读法已满足需求。
-2. audiences/recipients/channels 的运行时 API——一期口径为纯配置化（Phase 1/7 记录在案）。
-3. group 成员渠道名不走 channels 块展开——成员语义即 provider 实例名（Phase 7 留批）。
+**Difference table wrap-up**: every row converges to either "✅ landed" or "deferred + reason", with no undecided gaps. The deferred list (all explicit design decisions, not omissions):
+1. Logs separated from Delivery status — the highest-cost item of "log/status separation" (an event stream or a storage split); one set of data read two ways already satisfies the need today.
+2. The audiences/recipients/channels runtime API — the phase-one position is config-only (recorded in the Phase 1/7 records).
+3. Group member channel names do not go through channels block expansion — the member semantics is a provider instance name (deferred in Phase 7).
 
-> 2026-10-05 更新：原清单中的「RateLimited per-class 退避（Retry-After）」与「`next_retry_at` / 异步重新入队」均已落地（分别见 Phase 5 记录的后批补齐与本日新增的后批节），清单余 3 项。
+> 2026-10-05 update: "RateLimited per-class backoff (Retry-After)" and "`next_retry_at` / asynchronous re-enqueue" from the original list have both landed (see respectively the later-batch completion in the Phase 5 record and the new later-batch section added today); 3 items remain on the list.
 >
-> 2026-10-05 拍板：余 3 项确认维持现状——「Logs 与 Delivery 状态分离」与「audiences/recipients/channels 运行时 API」继续留批不做，「group 成员渠道块展开」维持既定不做；队列至此清零，后续新方向另行指派。
+> 2026-10-05 decision: the remaining 3 items are confirmed to stay as they are — "Logs separated from Delivery status" and "the audiences/recipients/channels runtime API" remain deferred and unimplemented, and "group member channel block expansion" stays decided as not-done; the queue is thereby emptied, and new directions are assigned separately.
 >
-> 2026-10-05 显式决策记录：经用户拍板，**① Logs 与 Delivery 状态分离**（清单第 1 项）与 **② audiences/recipients/channels 运行时 API**（清单第 2 项）明确 **不实施**；第 3 项 **group 成员渠道块展开** 既定不做（Phase 7 记录在案）。三项均为显式设计决策，非遗漏；本审计文档与 todo.md 已同步收口，队列清零。
+> 2026-10-05 explicit decision record: by user decision, **① Logs separated from Delivery status** (item 1 of the list) and **② the audiences/recipients/channels runtime API** (item 2 of the list) are explicitly **not implemented**; item 3 **group member channel block expansion** was already decided as not-done (recorded in Phase 7). All three are explicit design decisions, not omissions; this audit document and todo.md have been closed out in sync, and the queue is emptied.
 
-> 2026-10-13 解冻：第 3 项（group 成员渠道块展开）经巡检指派开工，成员渠道接入既有解析链（[解冻预案](./design-audience-deferrals) ③，选项 B）；① ② 维持不实施。
+> 2026-10-13 unfreeze: item 3 (group member channel block expansion) was assigned to be built by the patrol, and member channels were wired into the existing resolution chain ([unfreeze plan](./design-audience-deferrals.md) ③, option B); ① and ② remain unimplemented.
 
-## 六、对照新模型的状态行（2026-10-07）
+## 6. Status Lines Against the New Model (2026-10-07)
 
-上表针对 Phase 0-9 管道改造，全部行仍成立。2026-10-05 起定位升级为「统一订阅与投递中枢」，受众层按[关系详设](./design-audience-relations) §15 的 11 个原子批次继续扩展，术语以[总纲](./design-audience-model#_2-术语契约-唯一口径) §2 为口径。新维度状态行：
+The table above covers the Phase 0-9 pipeline refactor, and every row still holds. From 2026-10-05 the positioning was upgraded to "unified subscription and delivery hub", and the audience layer keeps expanding along the 11 atomic batches of [relations detail design](./design-audience-relations.md) §15, with terminology governed by §2 of the [overview](./design-audience-model.md). Status lines for the new dimensions:
 
-| 新模型能力 | 状态 | 证据 |
+| New model capability | Status | Evidence |
 | --- | --- | --- |
-| 关系模型与受众注册表（subscription/enrollment、策略位、Subscribe/Enroll 分名） | ✅ 落地（批次 1） | `core/audience.Registry`，提交 `3fc1a82` |
-| 联系面与绑定（ContactSurface 三态、一次性 token、换绑旧渠道确认、RSS 私密 token） | ✅ 落地（批次 2） | `core/audience.SurfaceRegistry`，提交 `19cf16c`；队列到期等待同批改注入时钟（`342caa1`） |
-| 偏好中心（Frequency/Preference/DefaultPolicy、默认策略表、读写 API） | ✅ 落地（批次 3） | `core/audience` 偏好模型，提交 `4df837a` |
-| 渠道×关系矩阵与投递过滤（四族分类、Enroll 门强制、发送前复核、Filter.Allow 交集） | ✅ 落地（批次 4） | `core/audience.Filter`/`MatrixAllows`，提交 `4b18b4a`；expandRef 挂接随批次 11 触发面 |
-| 投递审计补齐（关系/联系面变更流水、去重折叠明细、关系快照进任务与日志） | ✅ 落地（批次 5） | `core/audit`，`SetRecorder`/`SetFoldAudit`，提交 `de05e94`；发送侧关系上下文随批次 8/11 |
-| Digest 时间窗聚合（窗口翻转、豁免裁决、摘要模板、翻转循环与可选 redis 租约） | ✅ 落地（批次 6） | `core/digest`，`SetDigest`/`FlushDigest`，提交 `3204e90` |
-| RSS 拉式（批次 7）/ 来源适配器（批次 8） | ✅ 落地 | `core/feeds`+`/feeds/**`（提交 `a96e1a1`）、`core/audience.SourceAdapter`/`Reconciler`+回调端点（批次 8，提交哈希记于 todo） |
-| 强度与投递模式 / 去重频控（三档）/ 集成者 API 与 Go SDK | ◑ 在途（批次 9-11） | 关系详设 §15 |
-| 去重（既有部分） | ◑ 内容指纹去重与请求幂等键已上线 | 审计 §一#13、Phase 6 记录 |
+| Relation model and audience registry (subscription/enrollment, Policy slots, Subscribe/Enroll under distinct names) | ✅ landed (batch 1) | `core/audience.Registry`, commit `3fc1a82` |
+| Contact surfaces and binding (three-state ContactSurface, one-time token, old-channel confirmation on rebind, private RSS token) | ✅ landed (batch 2) | `core/audience.SurfaceRegistry`, commit `19cf16c`; the queue's due-wait got an injected clock in the same batch (`342caa1`) |
+| Preference center (Frequency/Preference/DefaultPolicy, default policy table, read/write API) | ✅ landed (batch 3) | the preference model in `core/audience`, commit `4df837a` |
+| Channel×relation matrix and delivery filtering (four families, mandatory Enroll gate, re-check before sending, Filter.Allow intersection) | ✅ landed (batch 4) | `core/audience.Filter`/`MatrixAllows`, commit `4b18b4a`; the expandRef hookup is triggered by the batch 11 send surface |
+| Delivery audit completion (relation/contact-surface change trail, dedup folding detail, relation snapshot into task and log) | ✅ landed (batch 5) | `core/audit`, `SetRecorder`/`SetFoldAudit`, commit `de05e94`; the send-side relation context follows batches 8/11 |
+| Digest time-window aggregation (window flip, exemption arbitration, digest template, flip loop and optional redis lease) | ✅ landed (batch 6) | `core/digest`, `SetDigest`/`FlushDigest`, commit `3204e90` |
+| RSS pull (batch 7) / source adapters (batch 8) | ✅ landed | `core/feeds`+`/feeds/**` (commit `a96e1a1`), `core/audience.SourceAdapter`/`Reconciler`+ callback endpoints (batch 8, commit hash recorded in the todo) |
+| Intensity and delivery modes / dedup frequency control (three tiers) / integrator API and Go SDK | ◑ in flight (batches 9-11) | relations detail design §15 |
+| Dedup (the pre-existing part) | ◑ content-fingerprint dedup and the request idempotency key have shipped | audit §1 #13, the Phase 6 record |
 
-本文至此封存为管道改造存档；新批次的执行记录记入 todo 与关系详设对应节，不再回写本表。
+This document is sealed here as the pipeline-refactor archive; execution records for the new batches go into the todo and the corresponding sections of the relations detail design, and are not written back into this table.

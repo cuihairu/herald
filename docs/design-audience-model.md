@@ -1,208 +1,205 @@
-> 中文 · [English](./design-audience-model.en.md)
+# Audience Domain Model (General Model)
 
-# 受众领域模型（总纲）
+> Status: **current model** (rewritten 2026-10-07). This document is the single general model of the Herald domain model: terminology, boundaries, and the full picture of the audience-layer extension. The item-by-item detailed design of relations (flow diagrams / matrix / parameter tables) lives in
+> [Audience Subscription and Delivery Hub](./design-audience-relations.md) (hereafter "relation detail design");
+> the rulings on conceptual layering and responsibility boundaries live in [Conceptual Boundaries and Layering Audit](./design-audience-boundaries.md);
+> the execution history of the Phase 0-9 pipeline rework lives in [Status Audit](./design-audience-audit.md) (archived).
+> Iron rule: if the plan changes, change this document first — when code and this document disagree, this document is the authority for filing a batch of corrections.
 
-> 状态：**现行模型**（2026-10-07 重写）。本文是 Herald 领域模型的唯一总纲：术语、边界、
-> 受众层扩展全貌。关系的逐项详设（流程图 / 矩阵 / 参数表）在
-> [受众订阅与投递中枢](./design-audience-relations)（下称「关系详设」）；
-> 概念分层与职责边界的裁决在[概念边界与分层审计](./design-audience-boundaries)；
-> Phase 0-9 管道改造的执行历史在[现状审计](./design-audience-audit)（存档）。
-> 铁律：方案变了先改本文——代码与本文不一致时，以本文为口径提批修正。
+## 1. Positioning
 
-## 1. 定位
+Herald is **lightweight notification orchestration and delivery infrastructure**. It decides more than just "send it out": who, when, through which channel, at what intensity, whether to digest, whether to filter, whether to escalate, whether to dedup — these orchestration decisions are consolidated by Herald, and the delivery pipeline (Phase 0-9, already landed) is the foundation of this facet (see [Status Audit](./design-audience-audit.md)).
 
-Herald 是**轻量的通知编排与投递基础设施**。它决定的不只是「发出去」：谁、什么时候、通过什么渠道、以什么强度、是否聚合、是否过滤、是否升级、是否去重——这些编排决策由 Herald 收口，投递管道（Phase 0-9 已落地）是这一面的地基（见[现状审计](./design-audience-audit)）。
-
-在此之上，Herald 的定位是**统一订阅与投递中枢**：从「应用主动推送」补全为「**被通知者做主**」。应用（业务系统集成方）只持有受众 ID；谁在什么渠道、以什么频率收到什么品类，由受众自己的关系决定，而不是由调用方写死。
+On top of this, Herald's positioning is a **unified subscription and delivery hub**: completing the shift from "the application actively pushes" to "**the notified party decides**". The application (the business-system integrator) only holds an audience ID; who receives which category, on which channel, at what frequency, is decided by the audience's own relations, not hardcoded by the caller.
 
 ```text
-旧：应用 ──「发到 telegram:123456」──> Herald ──> 渠道
-新：应用 ──「告警品类，通知 user:alice」──> Herald ──> 关系过滤 ──> 联系面 ──> 渠道
-                                                        ▲
-                              受众自己的订阅/偏好/退订决定这里放行什么
+Old: application ──"send to telegram:123456"──> Herald ──> channel
+New: application ──"alert category, notify user:alice"──> Herald ──> relation filter ──> ContactSurface ──> channel
+                                                                    ▲
+                              the audience's own subscription/preference/unsubscribe decides what is allowed through here
 ```
 
-## 2. 术语契约（唯一口径）
+## 2. Terminology Contract (single authority)
 
-文档与代码术语一一对应，一个词只有一个含义。全站文档（指南 / 架构 / API / 设计）一律按本表用词：
+Documentation and code terminology correspond one-to-one; a word has only one meaning. Site-wide documentation (guide / architecture / API / design) uses the terms of this table uniformly:
 
-| 术语 | 代码标识 | 含义 |
+| Term | Code identifier | Meaning |
 | --- | --- | --- |
-| 受众 | `audience`（引用 `group:<id>` / `user:<id>`） | 身份主体，全系统唯一；应用只持受众 ID，不碰渠道凭据 |
-| 接收人 | `recipient` | 受众成员的具名个人（`recipients` 静态配置实体）。注意与指派关系里的「接收者**角色**」区分——接收人是身份，接收者是关系角色 |
-| 端点 | `Endpoint` | 接收人的静态投递地址（type + target） |
-| 联系面 | `ContactSurface` | 受众在运行时绑定的可达渠道凭据（TG chat_id、邮箱、公众号 openid、RSS 私密 token），带 pending/active/invalid 状态 |
-| 订阅关系 | `RelationSubscription` / `Subscribe()` | 受众**主动**勾选的关系：品类×渠道×频率，完全自主可退订；关系中的受众角色叫**订阅者**（subscriber） |
-| 指派关系 | `RelationEnrollment` / `Enroll()` | **被动**纳入的关系：管理员分组广播、运营触达、系统通知；关系中的受众角色叫**接收者**（recipient role） |
-| 策略位 | `Policy`（`AllowUnsubscribe` / `MustDeliver`） | 挂在关系上的权利位：退订权、必达标记 |
-| 入口来源 | `Source`（`bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`） | 关系与绑定经由哪个入口适配器进来，审计按此记 |
-| 品类 | category | 业务通知的分类维度（告警 / 账单 / 域名 / 公告 / 系统 / 营销），关系的分类轴 |
-| 渠道 | channel | 触达手段（telegram / email / 站内信 / RSS / 短信 / 电话），带侵扰度、实时性、投递方向（push/pull）三个属性。渠道≠provider：渠道经渠道块展开为 provider 实例，同一渠道可换实现（email→smtp 或 resend） |
-| 渠道块 | `channels` 配置块 | 命名渠道 → provider 实例集合的静态展开（既有投递配置；与品类维度正交，见 §6） |
-| 偏好 | `Preference` | 订阅关系上的品类×渠道×频率三元组选择 |
-| 聚合 | `Digest` | 按受众+品类+时间窗把多条事件收成一条摘要 |
-| 紧急度 | `Urgency`（routine / normal / urgent / critical） | 消息的紧急级别，决定允许的渠道强度区间 |
-| 侵扰度 | `Intensity`（L0–L5） | 渠道的打扰强度阶梯：拉式 < 邮件 < 站内信 < IM < 短信 < 电话 |
-| 投递模式 | escalation / fixed / parallel | 升级链 / 固定单渠道 / 多渠道并行，三选一可配 |
-| 频控 | once / throttle / always | 去重频控三档：仅一次 / 窗口节流 / 允许重复 |
+| audience | `audience` (references `group:<id>` / `user:<id>`) | The identity subject, unique across the whole system; the application only holds the audience ID and never touches channel credentials |
+| recipient | `recipient` | A named individual who is a member of an audience (the `recipients` static config entity). Note the distinction from the "recipient **role**" in an enrollment relation — a recipient is an identity, a recipient role is a relation role |
+| Endpoint | `Endpoint` | A recipient's static delivery address (type + target) |
+| ContactSurface | `ContactSurface` | The reachable channel credential an audience binds at runtime (TG chat_id, email, WeChat official-account openid, RSS private token), with pending/active/invalid states |
+| subscription relation | `RelationSubscription` / `Subscribe()` | A relation the audience **actively** checks: category × channel × frequency, fully autonomous and unsubscribable; the audience role in the relation is called a **subscriber** |
+| enrollment relation | `RelationEnrollment` / `Enroll()` | A relation that is **passively** included: admin group broadcast, operations outreach, system notification; the audience role in the relation is called a **recipient** (recipient role) |
+| Policy | `Policy` (`AllowUnsubscribe` / `MustDeliver`) | The right bits hung on a relation: unsubscribe right, must-deliver marker |
+| Source | `Source` (`bot` / `wechat_mp` / `preference_center` / `admin` / `app:<name>`) | Which entry-point adapter the relation and binding came in through; the audit records by this |
+| category | category | The classification dimension of business notifications (alert / billing / domain / announcement / system / marketing), the classification axis of a relation |
+| channel | channel | A means of reach (telegram / email / in-app message / RSS / SMS / phone), with three attributes: intensity, real-time-ness, and delivery direction (push/pull). channel ≠ provider: a channel is expanded through the channels block into provider instances, and the same channel can swap implementations (email→smtp or resend) |
+| channels block | `channels` config block | The static expansion of named channel → set of provider instances (the existing delivery config; orthogonal to the category dimension, see §6) |
+| Preference | `Preference` | The category × channel × frequency triple selection on a subscription relation |
+| Digest | `Digest` | Collecting multiple events into one summary by audience + category + time window |
+| Urgency | `Urgency` (routine / normal / urgent / critical) | The urgency level of a message, which decides the allowed channel intensity range |
+| Intensity | `Intensity` (L0–L5) | The channel's disruption-intensity ladder: pull < email < in-app message < IM < SMS < phone |
+| delivery mode | escalation / fixed / parallel | escalation chain / fixed single channel / multi-channel parallel, pick one of three, configurable |
+| frequency control | once / throttle / always | Three dedup/frequency-control tiers: once only / window throttle / allow repeats |
 
-受众是**身份**；订阅者/接收者是受众在某条**关系**里的角色。不存在平行的「订阅者」身份实体——应用侧只对接一套受众 ID。
+An audience is an **identity**; a subscriber/recipient is the audience's role in some **relation**. There is no parallel "subscriber" identity entity — the application side only integrates with a single set of audience IDs.
 
-## 3. 核心链路
+## 3. Core Chain
 
 ```text
-Event ──> Rule ──> Notification ──┬──> Audience（受众引用）
-                                  └──> Template（渲染）
+Event ──> Rule ──> Notification ──┬──> Audience (audience reference)
+                                  └──> Template (render)
                                         │
-                 受众层（§5）：关系过滤（订阅/指派 × 渠道矩阵）
-                              └──> 联系面（可达凭据，§5.2）
+                 audience layer (§5): relation filter (subscription/enrollment × channel matrix)
+                              └──> ContactSurface (reachable credential, §5.2)
                                         │
                                         ▼
-                    Routing（展开成投递任务）──> 去重/频控（§8）──> 投递模式（§7）
+                    Routing (expand into delivery tasks)──> dedup/frequency control (§8)──> delivery mode (§7)
                                         │
                                         ▼
                     Delivery Task ──> Queue ──> Worker ──> Provider
                                         │
-                    旁路：Digest 时间窗聚合（§10）／RSS 拉式出口（§10）
+                    bypass: Digest time-window aggregation (§10)／RSS pull-mode exit (§10)
 ```
 
-## 4. 概念边界
+## 4. Conceptual Boundaries
 
 ```text
-Notification ≠ Delivery Task        一次通知 ≠ 一次渠道投递
-Audience ≠ Channel ≠ Provider       通知谁 / 触达手段 / 怎么发送，三件事
-接收人 ≠ 端点                        具名个人 ≠ 一条静态投递地址
-端点 ≠ 联系面                        Endpoint 是静态配置地址；ContactSurface 是
-                                    运行时绑定、带状态、可失效重绑的凭据
-订阅 ≠ 指派                          主动勾选与被动纳入同表不同义：退订权、
-                                    渠道矩阵、审计全部分开（关系详设 §4）
-关系 ≠ 联系面                        意愿/义务（能不能收）≠ 可达性（收得到吗）
-Routing ≠ Delivery                  决策（谁收到什么）≠ 执行（投出去、重试）
-规则升级 ≠ 强度升级                  规则引擎升级回答「叫谁」；强度升级链回答
-                                    「怎么叫得更响」，两者正交可叠加
+Notification ≠ Delivery Task        one notification ≠ one channel delivery
+Audience ≠ Channel ≠ Provider       notify whom / means of reach / how to send, three things
+recipient ≠ Endpoint                a named individual ≠ a static delivery address
+Endpoint ≠ ContactSurface           Endpoint is a static config address; ContactSurface is a
+                                    runtime-bound, stateful credential that can be invalidated and rebound
+subscription ≠ enrollment           active checking and passive inclusion are the same table but different meanings: unsubscribe right,
+                                    channel matrix, audit are all separate (relation detail design §4)
+relation ≠ ContactSurface           willingness/obligation (can you receive) ≠ reachability (can it be reached)
+Routing ≠ Delivery                  decision (who receives what) ≠ execution (send it out, retry)
+rule escalation ≠ intensity escalation  rule-engine escalation answers "who to call"; intensity escalation chain answers
+                                    "how to call louder", the two are orthogonal and stackable
 ```
 
-## 5. 受众层
+## 5. Audience Layer
 
-### 5.1 身份：受众 → 接收人 → 端点
+### 5.1 Identity: audience → recipient → Endpoint
 
-受众有两级引用形态：`group:<id>`（群组，成员解析见[通知群组设计](./design-notification-groups)）与 `user:<id>`（具名个人）。静态配置模型：
+An audience has two forms of reference: `group:<id>` (group, member expansion see [Notification Group Design](./design-notification-groups.md)) and `user:<id>` (a named individual). Static config model:
 
 ```yaml
-audiences:            # 受众 → 接收人
+audiences:            # audience → recipient
   ops:
     recipients: [alice, bob]
-recipients:           # 接收人 → 端点
+recipients:           # recipient → Endpoint
   alice:
     endpoints:
       - { type: telegram, target: "123456" }
       - { type: email, target: "alice@example.com" }
 ```
 
-配置在启动时校验，非法即拒起（`user:` 引用绝不静默落空）。这张静态表是联系面的**种子**（见下节）；无联系面扩展的既有用法行为完全不变。
+The config is validated at startup, and invalid input means refuse to start (a `user:` reference never silently falls through). This static table is the **seed** of ContactSurface (see next section); existing usage without the ContactSurface extension behaves completely unchanged.
 
-### 5.2 联系面（ContactSurface）
+### 5.2 ContactSurface
 
-渠道凭据的运行时挂点。应用侧只经手受众 ID 与一次性绑定 token，**永不接触凭据明文**；换绑需旧渠道确认，防止一条深链抢走别人的通知渠道。
+The runtime attachment point for channel credentials. The application side only handles audience IDs and one-time binding tokens and **never touches credential plaintext**; rebinding requires confirmation from the old channel, preventing one deep link from snatching someone else's notification channel.
 
-| 状态 | 含义 | 投递行为 |
+| State | Meaning | Delivery behavior |
 | --- | --- | --- |
-| `pending` | 绑定发起未核销 / 换绑待旧渠道确认 | 不投 |
-| `active` | 已核销可用 | 按关系投递 |
-| `invalid` | 外部平台判定失效（对账 / chat 不可达 / 取关回流） | 不投，等待重新绑定 |
+| `pending` | Binding issued but not redeemed / rebind awaiting old-channel confirmation | do not deliver |
+| `active` | Redeemed and usable | deliver per relation |
+| `invalid` | External platform judged it invalid (reconciliation / chat unreachable / unfollow backflow) | do not deliver, awaiting rebind |
 
-绑定走 bot deep-link 一次性 token（15 分钟过期、单次有效）；每个受众随注册自动持有一份 RSS 私密 token（零绑定成本）。流程图与规则细节见关系详设 §3。**已落地**：`core/audience.SurfaceRegistry`（批次 2）。
+Binding goes through a bot deep-link one-time token (expires in 15 minutes, valid once); each audience automatically holds an RSS private token with its registration (zero binding cost). Flow diagrams and rule details are in relation detail design §3. **Landed**: `core/audience.SurfaceRegistry` (batch 2).
 
-### 5.3 关系（Relation）
+### 5.3 Relation
 
-投递的唯一合法依据：发送时校验「**关系允许 × 联系面绑定**」的交集，交集为空不投并审计。两种关系即使实现同表，语义、退订策略、审计也必须分开：
+The only legitimate basis for delivery: at send time, validate the intersection of "**relation allows × ContactSurface bound**"; if the intersection is empty, do not deliver and audit. Even though the two kinds of relation share an implementation table, semantics, unsubscribe policy, and audit must be kept separate:
 
-| | 订阅 subscription | 指派 enrollment |
+| | subscription | enrollment |
 | --- | --- | --- |
-| 发起方 | 受众自己勾选 | 管理员 / 运营 / 系统 |
-| 退订权 | 完全自主 | 底线保留（见下） |
-| 接口 | `Subscribe()` | `Enroll()` |
+| Initiator | the audience checks it themselves | admin / operations / system |
+| Unsubscribe right | fully autonomous | bottom line preserved (see below) |
+| Interface | `Subscribe()` | `Enroll()` |
 
-指派关系的底线：营销/运营类必须可退订；系统必达类明示标记且仅限法定/合同/安全义务内容；渠道与频率上限用户始终可管。关系行带 `type` + `source` + `policy`，查询与审计按类型分，不做万能关系接口。**已落地**：`core/audience.Registry`（批次 1）。数据模型与流程图见关系详设 §4。
+The bottom line of an enrollment relation: marketing/operations types must be unsubscribable; system must-deliver types are explicitly marked and limited to legal/contractual/security-obligation content; the channel and frequency caps are always manageable by the user. A relation row carries `type` + `source` + `policy`, queries and audits are split by type, and there is no universal relation interface. **Landed**: `core/audience.Registry` (batch 1). Data model and flow diagrams are in relation detail design §4.
 
-## 6. 渠道与渠道×关系矩阵
+## 6. Channels and the channel × relation Matrix
 
-渠道（触达手段）与 provider（发送实现）分开：渠道是受众视角的词，provider 是集成视角的词；既有 `channels` 配置块承担「命名渠道 → provider 集合」的静态展开，品类维度（告警/账单/…）随集成者 API 落地注册（关系详设 §13.2）。
+channel (means of reach) and provider (sending implementation) are kept separate: channel is a word from the audience's perspective, provider is a word from the integration's perspective; the existing `channels` config block handles the static expansion of "named channel → set of providers", and the category dimension (alert/billing/…) is registered as the integrator API lands (relation detail design §13.2).
 
-可用渠道随关系类型走，不是一套。发送时校验三方交集：
+The available channels follow the relation type, and are not one set. At send time, validate the three-way intersection:
 
 ```text
-投递目标 = 受众绑定的联系面 ∩ 关系类型允许的渠道 ∩ 紧急度允许的强度区间
+delivery target = ContactSurfaces the audience bound ∩ channels the relation type allows ∩ intensity range the Urgency allows
 ```
 
-| 渠道类 | 订阅型 | 指派·系统必达 | 指派·营销/运营 |
+| Channel class | subscription | enrollment·system must-deliver | enrollment·marketing/operations |
 | --- | --- | --- | --- |
-| 即时类（IM/短信/推送） | ✅ 用户自选 | ✅ 多渠道并行保必达 | ❌ 禁用 |
-| 邮件 | ✅ 用户自选 | ✅ 兜底并行 | ✅ 默认渠道，低频可退订 |
-| 应用侧（webhook→站内信） | ✅ 用户自选 | ✅ | ✅ 默认渠道，低频可退订 |
-| 拉式（RSS） | ✅ 仅订阅型 | ❌ | ❌ |
+| Real-time (IM/SMS/push) | ✅ user's own choice | ✅ multi-channel parallel to guarantee must-deliver | ❌ disabled |
+| email | ✅ user's own choice | ✅ fallback parallel | ✅ default channel, low-frequency and unsubscribable |
+| application side (webhook→in-app message) | ✅ user's own choice | ✅ | ✅ default channel, low-frequency and unsubscribable |
+| pull (RSS) | ✅ subscription type only | ❌ | ❌ |
 
-每格默认策略、校验时机与违规报错见关系详设 §5。矩阵与过滤**已落地**（批次 4：矩阵入 Enroll 门 + `Filter.Allow` 发送前复核；expandRef 管道挂接随批次 11 触发面——现 /notify 无品类维度可过滤）。
+The per-cell default policy, validation timing, and violation errors are in relation detail design §5. The matrix and filter **are landed** (batch 4: matrix into the Enroll gate + `Filter.Allow` re-check before sending; the expandRef pipeline hookup follows the batch 11 trigger surface — the current /notify has no category dimension to filter).
 
-## 7. 强度×紧急度与投递模式
+## 7. Intensity × Urgency and Delivery Mode
 
-渠道不是平的。侵扰度 L0–L5 阶梯（RSS 拉取 → 邮件 → 站内信 → IM → 短信 → 电话）配消息紧急度四级（例行/一般/紧急/关键），紧急度决定允许的强度区间；匹配规则独立成策略件，不散落在 provider 里。
+Channels are not flat. The Intensity ladder L0–L5 (RSS pull → email → in-app message → IM → SMS → phone) pairs with four message Urgency levels (routine/normal/urgent/critical); Urgency decides the allowed intensity range; the matching rule is its own policy component, not scattered inside providers.
 
-用户偏好**可降不可升**：可以在紧急度区间内往下关渠道，不能往上开；关键级有保底渠道（配置指定、偏好中心明示）。三种投递模式按品类/关系类型/单次触发可配，策略件同一入口不同执行器：
+User Preference **can go down but not up**: you can turn channels off downward within the urgency range, but not turn them on upward; critical level has a guaranteed channel (specified by config, made explicit in the preference center). Three delivery modes are configurable per category/relation type/single trigger, the same entry point for policy components but different executors:
 
-| 模式 | 行为 | 默认 |
+| Mode | Behavior | Default |
 | --- | --- | --- |
-| 升级链 escalation | 未应答逐级升强度，应答即停 | 紧急/关键 |
-| 固定单渠道 fixed | 只走指定的一种渠道 | 例行/一般 |
-| 多渠道并行 parallel | 一次全发保必达 | 系统必达类强制 |
+| escalation chain | on no answer, escalate intensity level by level; stop as soon as answered | urgent/critical |
+| fixed single channel | only go through one specified channel | routine/normal |
+| multi-channel parallel | send all at once to guarantee must-deliver | forced for system must-deliver types |
 
-阶梯图、匹配矩阵、升级链参数与去重折叠的先后关系见关系详设 §6。**已落地**（批次 9，`core/audience.DeliveryPolicy` 策略件 + `BuildPlan`/`RunPlan` 执行器；触发面接线随批次 11）。
+The ladder diagram, matching matrix, escalation-chain parameters, and the ordering of dedup folding are in relation detail design §6. **Landed** (batch 9, `core/audience.DeliveryPolicy` policy component + `BuildPlan`/`RunPlan` executors; trigger-surface wiring follows batch 11).
 
-## 8. 去重与频控
+## 8. Dedup and Frequency Control
 
-与聚合分工：**Digest = 时间窗聚合不同消息；去重 = 相同消息折叠**。去重发生在投递管道之前、升级链之前——10 条重复告警先折叠成 1 条再计应答与升级。
+Division of labor with aggregation: **Digest = time-window aggregation of different messages; dedup = folding of identical messages**. Dedup happens before the delivery pipeline and before the escalation chain — 10 duplicate alerts are folded into 1 first, then answered and escalated.
 
-三层：事件幂等（`event_id` 重复触发只投一次）、内容折叠（同品类同内容窗口内折叠带计数「×10」，原始事件列表保留可审计）、状态机去重（状态型告警按翻转发，挂→恢复→再挂才再发）。频控三档可配（once / throttle / always，按品类/关系类型），用户偏好**可收窄不可放宽**。
+Three layers: event idempotency (`event_id` duplicate trigger delivers only once), content folding (same category and same content folded within a window with a "×10" count, the original event list retained for audit), state-machine dedup (state-type alerts fire by flip message, down→recover→down again before re-sending). Three frequency-control tiers are configurable (once / throttle / always, per category/relation type), and user Preference **can narrow but not widen**.
 
-既有能力：内容指纹去重与请求幂等键已上线；事件幂等/折叠/状态机/三档频控**已落地**（批次 10，`core/dedup.Gate` 闸序 + `config.DedupConfig` 品类档位与窗口覆盖表）。用户偏好收窄的 Narrow 格已备，端点随批次 11 偏好面接线。细节见关系详设 §11。
+Existing capabilities: content-fingerprint dedup and request idempotency key are already live; event idempotency/folding/state machine/three-tier frequency control **are landed** (batch 10, `core/dedup.Gate` gate sequence + `config.DedupConfig` category tiers and window override table). The Narrow cell for user-preference narrowing is ready, and the endpoint is wired with the batch 11 preference surface. Details are in relation detail design §11.
 
-## 9. 偏好与入口
+## 9. Preferences and Entry Points
 
-订阅者在偏好中心自助勾选「什么品类 → 什么渠道 → 什么频率」，默认策略随品类给（系统必收、营销默认每周汇总、告警可降频不可静默）。偏好修改入口不唯一——bot 命令、公众号关注事件、应用内勾选、偏好中心都是**来源适配器**；Herald 是关系的**权威登记处**，所有入口收敛为注册表里的关系变更，取关必须回流（停止一切投递），外部平台状态定期对账。默认策略表与适配器规则见关系详设 §7-8。偏好模型**已落地**（批次 3，`core/audience` 的 Frequency/Preference/DefaultPolicy 与读写 API）；来源适配器**已落地**（批次 8，`SourceAdapter` + bot/公众号/应用内三个入口端点 + 外部状态对账）。
+The subscriber self-serves in the preference center, checking "what category → what channel → what frequency"; the default policy is given with the category (system must-receive, marketing defaults to weekly digest, alerts can be down-rated but not silenced). The preference-modification entry point is not unique — bot commands, official-account follow events, in-app checking, and the preference center are all **source adapters**; Herald is the **authoritative registry** of relations, all entry points converge into relation changes in the registry, unfollow must backflow (stopping all delivery), and external platform state is periodically reconciled. The default-policy table and adapter rules are in relation detail design §7-8. The preference model **is landed** (batch 3, `core/audience`'s Frequency/Preference/DefaultPolicy and read/write API); source adapters **are landed** (batch 8, `SourceAdapter` + the three entry-point endpoints for bot/official-account/in-app + external-state reconciliation).
 
-## 10. 触达形态：Digest 与 RSS
+## 10. Reach Forms: Digest and RSS
 
-**Digest**（批次 6）：按受众×品类×时间窗（每日/每周）把零散事件收成一条摘要，走既有投递管道（摘要也享受重试/审计）；实时类豁免直投，系统必达永不聚合。**已落地**（`core/digest`：窗口翻转严格晚到语义、Resolve 豁免裁决、`digest:<品类>` 模板换皮、FlipLoop 定时器 + 可选 redis 租约选主——无 redis_addr 单机直跑）。
+**Digest** (batch 6): by audience × category × time window (daily/weekly), collect scattered events into one summary and go through the existing delivery pipeline (the summary also enjoys retry/audit); real-time types are exempt and delivered directly, system must-deliver never aggregates. **Landed** (`core/digest`: strict late-arrival semantics for window flip, Resolve exemption ruling, `digest:<category>` template reskinning, FlipLoop timer + optional redis lease leader election — runs standalone without redis_addr).
 
-**RSS 拉式**（批次 7）：零绑定零推送的天然偏好通道。公共 feed 每品类一个（`/feeds/<品类>.xml`，只含无受众引用的公开内容）；私密 feed 带受众的 `rss_token`（`/feeds/private/<rss_token>.xml`，批次 2 的重置即旧地址失效语义直接生效），账单等个人内容走这里；频率=阅读器轮询，Herald 不推，天然无骚扰；仅订阅型关系可用——指派内容不进 feed。**已落地**（`core/feeds` 拉式投影存储 + RSS 2.0 渲染，`/feeds/**` 端点，投递管道对 rss 类渠道就地投影不产生 provider 任务；可见性在读取时判定——token 归属 + 关系注册表×渠道矩阵复核，取关即从下一次拉取起消失；多地址容灾按边界审计 §4 归阅读器侧）。
+**RSS pull-mode** (batch 7): the natural preference channel with zero binding and zero push. Public feeds, one per category (`/feeds/<category>.xml`, containing only public content with no audience reference); private feeds carry the audience's `rss_token` (`/feeds/private/<rss_token>.xml`, batch 2's reset-as-old-address-invalidation semantics take effect directly), personal content such as billing goes here; frequency = reader polling, Herald does not push, naturally no harassment; available only to subscription-type relations — enrolled content does not enter the feed. **Landed** (`core/feeds` pull-mode projection storage + RSS 2.0 rendering, `/feeds/**` endpoints, the delivery pipeline projects in place for rss-class channels without producing provider tasks; visibility is decided at read time — token ownership + relation registry × channel matrix re-check, unfollow makes it disappear from the next pull onward; multi-address disaster recovery is assigned to the reader side per boundary audit §4).
 
-## 11. 投递与审计
+## 11. Delivery and Audit
 
-投递侧已经落地的形状：任务状态枚举（delivered / failed / dead，重试中 retrying）、错误六类词汇（temporary / permanent / rate_limited / authentication / invalid_request / timeout）决定重试与终态、429 带 Retry-After 退避、可重试失败异步重新入队（`next_retry_at` 队列侧持留，worker 不睡退避）。审计侧已按关系详设 §12 补齐：关系类型与入口来源快照进通知→任务→投递日志全链、关系/联系面变更流水（`core/audit`，订阅/指派/退订与绑定/换绑/失效六类事件，按类型与受众分读）、去重折叠明细（`delivery.deduped`，带内容指纹）——审计回答「这条订阅从哪个入口来、这次投递依据哪条关系、为什么失败、谁在何时改了什么」。**审计补齐已落地**（批次 5）；发送侧关系上下文随批次 8/11 触发面填充。
+The shape the delivery side has already landed: task state enumeration (delivered / failed / dead, retrying), six-class error vocabulary (temporary / permanent / rate_limited / authentication / invalid_request / timeout) deciding retry and terminal state, 429 with Retry-After backoff, retryable failures asynchronously re-enqueued (`next_retry_at` retained on the queue side, workers do not sleep for backoff). The audit side has been completed per relation detail design §12: relation type and Source snapshotted into the notification→task→delivery-log full chain, relation/ContactSurface change streams (`core/audit`, six event types: subscribe/enroll/unsubscribe and bind/rebind/invalidate, read split by type and audience), dedup-folding detail (`delivery.deduped`, with content fingerprint) — audit answers "which entry point this subscription came from, which relation this delivery was based on, why it failed, who changed what and when". **Audit completion is landed** (batch 5); the send-side relation context is filled with the batch 8/11 trigger surface.
 
-## 12. 集成者 API
+## 12. Integrator API
 
-全部模型能力配可编程配置 API：每个集成应用一个 app 命名空间（品类/模板/策略互相隔离），app token 按权限分级（config / trigger / query）；配置、触发、查询三组端点与升级链、去重、渠道矩阵等策略件同口径；Go SDK 首发，webhook 回调带回投递结果与退订事件。契约草案见关系详设 §13，集成指南随批次 11 落地 `docs/guide/integration.md`。**已落地**（批次 11 增量一~八；2026-10-08 阶段③集成方对接验证收官——事件接入适配面与回调回带 `event_id` 已贯通）。
+All model capabilities come with a programmable config API: each integrated application has one app namespace (categories/templates/policies isolated from each other), app tokens are tiered by permission (config / trigger / query); the three endpoint groups — config, trigger, query — share the same vocabulary as policy components such as escalation chain, dedup, and channel matrix; the Go SDK is first out, and webhook callbacks bring back delivery results and unsubscribe events. The contract draft is in relation detail design §13, and the integration guide lands with batch 11 at `docs/guide/integration.md`. **Landed** (batch 11 increments one through eight; 2026-10-08 stage ③ integrator onboarding validation wrapped up — the event-ingestion adaptation surface and callback returning `event_id` are through).
 
-## 13. 落地状态（诚实口径）
+## 13. Landing Status (honest accounting)
 
-| 能力 | 状态 | 证据 |
+| Capability | Status | Evidence |
 | --- | --- | --- |
-| 通知管道（路由/队列/worker/重试/错误分类/请求幂等） | ✅ 落地 | [现状审计](./design-audience-audit) Phase 0-9 |
-| 关系模型与受众注册表 | ✅ 落地 | 批次 1（`3fc1a82`），`core/audience.Registry` |
-| 联系面与绑定（token/换绑/RSS token） | ✅ 落地 | 批次 2（`19cf16c`），`core/audience.SurfaceRegistry` |
-| 偏好中心（品类×渠道×频率、默认策略表） | ✅ 落地 | 批次 3（`4df837a`），`core/audience.PreferenceRegistry` |
-| 渠道×关系矩阵与投递过滤（四族分类、Enroll 门强制、发送前复核） | ✅ 落地 | 批次 4（`4b18b4a`），`core/audience.Filter`；expandRef 挂接已随批次 11 贯通 |
-| 投递审计补齐（变更流水、去重折叠明细、关系快照进任务与日志） | ✅ 落地 | 批次 5（`de05e94`），`core/audit` + `SetRecorder`/`SetFoldAudit` |
-| Digest 时间窗聚合（窗口翻转、豁免裁决、摘要模板、翻转循环与可选租约） | ✅ 落地 | 批次 6（`3204e90`），`core/digest` + `SetDigest`/`FlushDigest` |
-| RSS 拉式渠道（公共/私密 feed、读取时可见性、拉式投影） | ✅ 落地 | 批次 7，`core/feeds` + `/feeds/**` 端点 + `SetFeeds` 投影；token/关系注册表随批次 8 已共享接线 |
-| 来源适配器（bot /start /stop、公众号关注事件、应用内勾选、取关回流全停、外部状态对账） | ✅ 落地 | 批次 8，`core/audience.SourceAdapter`/`Reconciler` + `api` 三个入口端点 + `telegram`/`wechatmp` probe |
-| 去重与频控（事件幂等、折叠账本、状态机、三档频控与品类默认/覆盖表） | ✅ 落地 | 批次 10（`3c6c395`+`ca6ee39`），`core/dedup.Gate` + `config.DedupConfig` 覆盖表 |
-| 强度与模式（强度阶梯、紧急度区间、电话双重同意门、三模式执行器） | ✅ 落地 | 批次 9（`0c20459`），`core/audience.DeliveryPolicy`/`BuildPlan`/`RunPlan`；触发面接线已随批次 11 贯通 |
-| 集成者 API 与 Go SDK | ✅ 落地 | 批次 11 增量一~八，`api/handler_apps.go`（config/trigger/query 三面 + events 适配面 + callback）+ `apps-sdk/go` + `docs/guide/integration.md`；阶段③集成方对接验证（`0096be4`）闭环 |
+| notification pipeline (route/queue/worker/retry/error classification/request idempotency) | ✅ landed | [Status Audit](./design-audience-audit.md) Phase 0-9 |
+| relation model and audience registry | ✅ landed | batch 1 (`3fc1a82`), `core/audience.Registry` |
+| ContactSurface and binding (token/rebind/RSS token) | ✅ landed | batch 2 (`19cf16c`), `core/audience.SurfaceRegistry` |
+| preference center (category×channel×frequency, default-policy table) | ✅ landed | batch 3 (`4df837a`), `core/audience.PreferenceRegistry` |
+| channel×relation matrix and delivery filter (four-family classification, Enroll gate enforcement, pre-send re-check) | ✅ landed | batch 4 (`4b18b4a`), `core/audience.Filter`; expandRef hookup is through with batch 11 |
+| delivery audit completion (change stream, dedup-folding detail, relation snapshot into tasks and logs) | ✅ landed | batch 5 (`de05e94`), `core/audit` + `SetRecorder`/`SetFoldAudit` |
+| Digest time-window aggregation (window flip, exemption ruling, summary template, flip loop and optional lease) | ✅ landed | batch 6 (`3204e90`), `core/digest` + `SetDigest`/`FlushDigest` |
+| RSS pull-mode channel (public/private feed, read-time visibility, pull-mode projection) | ✅ landed | batch 7, `core/feeds` + `/feeds/**` endpoints + `SetFeeds` projection; token/relation registry wired in shared with batch 8 |
+| source adapters (bot /start /stop, official-account follow events, in-app checking, unfollow backflow full-stop, external-state reconciliation) | ✅ landed | batch 8, `core/audience.SourceAdapter`/`Reconciler` + three entry-point endpoints in `api` + `telegram`/`wechatmp` probe |
+| dedup and frequency control (event idempotency, folding ledger, state machine, three-tier frequency control with category default/override table) | ✅ landed | batch 10 (`3c6c395`+`ca6ee39`), `core/dedup.Gate` + `config.DedupConfig` override table |
+| intensity and mode (intensity ladder, urgency range, phone double-consent gate, three-mode executors) | ✅ landed | batch 9 (`0c20459`), `core/audience.DeliveryPolicy`/`BuildPlan`/`RunPlan`; trigger-surface wiring is through with batch 11 |
+| integrator API and Go SDK | ✅ landed | batch 11 increments one through eight, `api/handler_apps.go` (config/trigger/query three faces + events adaptation surface + callback) + `apps-sdk/go` + `docs/guide/integration.md`; stage ③ integrator onboarding validation (`0096be4`) closed the loop |
 
-在途能力的配置项与端点尚不存在，勿据本文档配置生产；落地一批，本文状态表与对应详设同步更新一批。（截至 2026-10-08，§15 批次 1-11 与三阶段验证已全部落地，本表无在途行。）
+The config items and endpoints of in-flight capabilities do not yet exist — do not configure production based on this document; as a batch lands, this status table and the corresponding detail design are updated together. (As of 2026-10-08, §15 batches 1-11 and the three-stage validation have all landed, and this table has no in-flight rows.)
 
-## 14. 沿革
+## 14. History
 
-Phase 0-9 管道改造的原计划书（「Audience 领域模型：架构改进计划书」）已收官，执行记录与留批拍板在[现状审计](./design-audience-audit)存档，计划原文由 git 历史保存。2026-10-05 立项受众层扩展（统一订阅与投递中枢），2026-10-07 本页由计划书重写为现行模型总纲；关系详设承接全部新增能力的逐项设计。
+The original plan document of the Phase 0-9 pipeline rework ("Audience Domain Model: Architecture Improvement Plan") has wrapped up; the execution record and deferred-item rulings are archived in [Status Audit](./design-audience-audit.md), and the original plan text is preserved by git history. On 2026-10-05 the audience-layer extension (unified subscription and delivery hub) was initiated, and on 2026-10-07 this page was rewritten from the plan document into the current general model; the relation detail design carries the item-by-item design of all new capabilities.

@@ -1,49 +1,47 @@
-> 中文 · [English](./introduction.en.md)
+# Introduction
 
-# 简介
+## When you need Herald
 
-## 什么时候需要 Herald
+When you find yourself **writing "send a notification" code all over the place** — assembling DingTalk payloads in the alert system, wiring up an SMS SDK in the operations backend, stuffing curl into CI — it's time to consider Herald. It is an event-driven **message notification distribution platform**: the business side just hands "something happened" to Herald, and it takes care of rendering the format, picking the right channel, and delivering reliably.
 
-当你发现自己在**到处写「发通知」的代码**——告警系统里拼钉钉报文、运营后台里接短信 SDK、CI 里塞 curl——就该考虑 Herald 了。它是一个事件驱动的**消息通知分发平台**：业务方只管把「发生了一件事」交给 Herald，由它负责渲染格式、选对渠道、可靠送达。
+Typical scenarios:
 
-典型场景：
+- **System alert push**: monitoring events are routed by level; error goes to the on-call group, warning stays as a group message, and unacknowledged timeouts escalate automatically
+- **Operational message outreach**: an announcement template is defined once and distributed to Feishu / WeCom / email at multiple points, with audiences managed as named groups
+- **Verification codes and transactional SMS**: integrate Alibaba Cloud / Tencent Cloud / NetEase Yunxin, with rate limiting for anti-abuse + automatic retry on failure
+- **Multi-channel fallback**: one alert fans out to multiple channels at the same time, and a single-channel failure is covered by retries and delivery logs
 
-- **系统告警推送**：监控事件按级别路由，error 进值班群、warning 留群消息，超时未确认自动升级
-- **运营消息触达**：公告模板一次定义，飞书 / 企微 / 邮件多点分发，受众用命名分组管理
-- **验证码与事务短信**：对接阿里云 / 腾讯云 / 网易云信，限流防刷 + 失败自动重试
-- **多通道兜底**：一条告警同时扇出多个通道，单通道故障有重试与投递日志兜底
+For the full "how to configure, how to send, what it looks like when running" of each scenario, see [Use Cases and Integration](/guide/use-cases).
 
-每个场景的完整「怎么配、怎么发、跑起来什么样」见[场景与接入](/guide/use-cases)。
+## What it looks like
 
-## 它长什么样
-
-Herald 是单个二进制（或 Docker 容器），**轻量、Provider 无关**的统一订阅与投递中枢：业务方描述「发生了什么、通知什么、通知谁」，渠道细节（Telegram / 飞书 / 邮件 / 短信… 具体是哪个、怎么送达、失败怎么重试）全部交给 Herald；谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系决定。核心是一条通知流水线：
+Herald is a single binary (or Docker container), a **lightweight, Provider-agnostic** unified subscription and delivery hub: the business side describes "what happened, what to notify about, and whom to notify", and all channel details (Telegram / Feishu / email / SMS … which one exactly, how to deliver, how to retry on failure) are handed to Herald; who receives which category on which channel and at what frequency is decided by the audience's own subscription relations. The core is a single notification pipeline:
 
 ```
-Notification → 受众解析(通知谁) → 路由(走哪条通道) → Delivery Task → Queue → Worker → Provider
-                 ↑ 模板(内容怎么生) · 规则引擎(放行/抑制/改道) · 去重 · 重试 · 限流
+Notification → audience resolution (whom to notify) → routing (which channel to take) → Delivery Task → Queue → Worker → Provider
+                 ↑ template (how content is generated) · rule engine (allow/suppress/reroute) · dedup · retry · rate limiting
 ```
 
-- **Notification ≠ Delivery**：一条通知可展开成多条投递（多渠道扇出），每条 Delivery 独立状态、独立重试
-- **Audience ≠ Channel ≠ Provider**：「通知谁」「哪类通知」「怎么发送」三个维度解耦——受众的 `group:` 形态即[通知群组](/design-notification-groups)，`user:` 级细分（接收人/端点，配置化）与 `channels` 渠道块见 [受众领域模型总纲](/design-audience-model)与[配置参考](/guide/configuration)；运行时的联系面绑定与订阅/指派关系同见总纲
+- **Notification ≠ Delivery**: one notification can expand into multiple deliveries (multi-channel fan-out), and each Delivery has its own state and retries
+- **Audience ≠ Channel ≠ Provider**: the three dimensions "whom to notify", "which kind of notification", and "how to send" are decoupled — the audience's `group:` form is the [Notification Group](/design-notification-groups), and the `user:`-level subdivision (Recipient/Endpoint, configuration-driven) and the `channels` block are in the [Audience Domain Model Overview](/design-audience-model) and the [Configuration Reference](/guide/configuration); runtime ContactSurface binding and subscription/enrollment relations are likewise in the overview
 
-- **HTTP First**：`POST /api/v1/notify` 一条 curl 即可发通知，curl 友好；官方 Go 客户端随仓提供（`apps-sdk/go`），任何 HTTP 客户端都能直接接
-- **多渠道 Provider**：内置即时通讯（飞书、企微、钉钉、Slack、Discord、Telegram、微信）、邮件、短信（阿里云、腾讯云、网易云信）、Webhook 等十余个通道，统一接口面，见 [Provider 手册](/providers/overview)
-- **Runtime First**：Provider 可以内置在核心进程（Builtin），也可以跑在独立的 [Worker 节点](/runtime/worker)上——承认浏览器自动化这类场景的运行环境差异
-- **Event First**：处理的是事件而非裸消息——路由（按 type/level）、去重窗口、指数退避重试、按 Provider 限流、规则引擎决策（优先级、默认策略、shadow 观察、for/group_by/inhibit/silence/escalation）
+- **HTTP First**: `POST /api/v1/notify` sends a notification with a single curl, curl-friendly; an official Go client ships with the repo (`apps-sdk/go`), and any HTTP client can connect directly
+- **Multi-channel Providers**: a dozen-plus channels built in — instant messaging (Feishu, WeCom, DingTalk, Slack, Discord, Telegram, WeChat), email, SMS (Alibaba Cloud, Tencent Cloud, NetEase Yunxin), Webhook, etc. — behind a unified interface; see the [Provider Handbook](/providers/overview)
+- **Runtime First**: a Provider can be built into the core process (Builtin) or run on a separate [Worker node](/runtime/worker) — acknowledging the differences in runtime environments for scenarios like browser automation
+- **Event First**: it handles events rather than bare messages — routing (by type/level), dedup windows, exponential-backoff retry, per-Provider rate limiting, and rule-engine decisions (priority, default policies, shadow observation, for/group_by/inhibit/silence/escalation)
 
-## 两种跑法
+## Two ways to run it
 
-**独立服务**：`heraldd serve` 起一个 API + 队列 + worker 池的调度中心，任何语言的业务往它发 HTTP 即可。按[快速开始](/guide/getting-started)跑通第一条通知约 1 分钟。
+**Standalone service**: `heraldd serve` starts a scheduling center of API + queue + worker pool, and business code in any language sends HTTP to it. Getting your first notification working takes about 1 minute following [Getting Started](/guide/getting-started).
 
-**Go 库内嵌**：也可以把 Herald 的投递核心当作库引到自己程序里，见[作为 Go 库使用](/library-usage)。
+**Embedded as a Go library**: you can also pull Herald's delivery core into your own program as a library; see [Using as a Go Library](/library-usage).
 
-## 与其他方案的区别
+## How it differs from other approaches
 
-Webhook 通知工具解决的是「把消息发到一个地址」，模板、去重、重试、规则路由都得调用方自己写；各家厂商的消息推送 SDK 绑定单一渠道，换渠道就要换库。Herald 把聚合、模板、路由与可靠性做成独立一层，业务代码不随渠道变化。
+Webhook notification tools solve "send a message to an address"; templates, dedup, retry, and rule routing all have to be written by the caller, and each vendor's message-push SDK is bound to a single channel, so switching channels means switching libraries. Herald makes aggregation, templates, routing, and reliability an independent layer, so business code does not change with the channel.
 
-## 下一步
+## Next Steps
 
-- [快速开始](/guide/getting-started) - 1 分钟跑通全链路
-- [场景与接入](/guide/use-cases) - 四个典型场景的完整接入
-- [Provider 手册](/providers/overview) - 渠道凭据申请与配置
+- [Getting Started](/guide/getting-started) - run the full pipeline in 1 minute
+- [Use Cases and Integration](/guide/use-cases) - complete integration for four typical scenarios
+- [Provider Handbook](/providers/overview) - channel credential application and configuration

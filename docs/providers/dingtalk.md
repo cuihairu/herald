@@ -1,24 +1,22 @@
-> 中文 · [English](./dingtalk.en.md)
+# DingTalk
 
-# 钉钉
+Push notifications into DingTalk groups via a custom-robot webhook.
 
-通过钉钉自定义机器人 Webhook 将通知推送到钉钉群。
+## What It Does
 
-## 作用
+The `dingtalk` Builtin Provider calls the custom-robot webhook interface and sends Herald's notifications to a group chat as markdown messages.
 
-`dingtalk` Builtin Provider 调用钉钉自定义机器人的 Webhook 接口，以 markdown 消息把 Herald 的通知发送到群聊。
+## Obtaining Credentials
 
-## 申请凭据
+No approval needed — get a webhook in one minute:
 
-无需审批，一分钟拿到 Webhook：
+1. Open the target DingTalk group → **Group Settings** → **Robots** → **Add Robot** → choose **Custom — connect your own service via Webhook**
+2. Choose one of three security settings: **Custom keyword** (the message must contain that word — recommended), **Signature** (⚠️ not supported by the current implementation — **do not pick this**), **IP allowlist, ranges**
+3. After creation, **copy the webhook URL** (like `https://oapi.dingtalk.com/robot/send?access_token=xxxx`; filling in just the `access_token` parameter also works)
 
-1. 打开目标钉钉群 → **群设置** → **机器人** → **添加机器人** → 选 **自定义（通过 Webhook 接入自定义服务）**
-2. 安全设置三选一：**自定义关键词**（消息须含该词，推荐）、**加签**（⚠️ 当前实现不支持，**不要选**）、IP 白名单（段）
-3. 创建完成，**复制 Webhook 地址**（形如 `https://oapi.dingtalk.com/robot/send?access_token=xxxx`，只填 `access_token` 参数也行）
+## Sending Your First Message
 
-## 发第一条消息
-
-配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+Configure it (see below) and start with `heraldd serve --config config.yaml`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -26,29 +24,29 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "demo",
     "level": "error",
-    "title": "Herald 第一条推送",
+    "title": "Herald first push",
     "body": "from curl",
     "channels": ["dingtalk"]
   }'
 ```
 
-API 返回 `"accepted":["dingtalk"]`，群里收到红色标题的 markdown 消息。若设了自定义关键词，把关键词放进标题（例如标题就叫 `XX告警`）。没收到？查[排错指南](/guide/troubleshooting)。
+The API returns `"accepted":["dingtalk"]` and the group receives a markdown message with a red title. If you set a custom keyword, put the keyword in the title (e.g. name the title `XX Alert`). Didn't arrive? See the [Troubleshooting Guide](/guide/troubleshooting).
 
-## 配置项
+## Configuration
 
-`webhook_url` 与 `access_token` 二选一（都配置时 `webhook_url` 优先）：
+`webhook_url` and `access_token` are mutually exclusive — one is required (`webhook_url` takes precedence when both are configured):
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `webhook_url` | 二选一 | 完整机器人 Webhook 地址 | 无 |
-| `access_token` | 二选一 | 机器人 Webhook 地址里的 `access_token` 参数，Herald 自动拼 `https://oapi.dingtalk.com/robot/send?access_token={access_token}` | 无 |
-| `secret` | ❌ | 机器人「加签」密钥（SEC 开头）。**注意：当前实现仅解析保存，发送时未参与加签计算**（预留字段） | 空 |
+| `webhook_url` | Either one | The full robot webhook URL | None |
+| `access_token` | Either one | The `access_token` parameter from the robot webhook URL; Herald auto-composes `https://oapi.dingtalk.com/robot/send?access_token={access_token}` | None |
+| `secret` | ❌ | The robot's Signature secret (starts with SEC). **Note: the current implementation only parses and stores it — it is not used in signing at send time** (reserved field) | Empty |
 
-两者都缺时 Provider 创建即失败（`dingtalk: webhook_url or access_token is required`）。
+If neither is present, Provider creation fails immediately (`dingtalk: webhook_url or access_token is required`).
 
-> **⚠️ 加签**：若机器人在钉钉侧安全设置选择了「加签」，当前实现不会计算签名，钉钉会拒绝请求（`sign not match`）。请改用「自定义关键词」或「IP 白名单（段）」安全设置。代码里同样预留了 @成员（`at`）字段，当前未使用。
+> **⚠️ Signature verification**: If the robot has Signature selected in its DingTalk-side security settings, the current implementation does not compute a signature, so DingTalk rejects the request (`sign not match`). Please switch to the Custom keyword or IP allowlist security settings instead. The code likewise reserves an @-mention (`at`) field that is currently unused.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -56,34 +54,34 @@ providers:
     type: dingtalk
     enabled: true
     config:
-      # 方式一：完整 Webhook 地址
+      # Option 1: full webhook URL
       webhook_url: "$DINGTALK_WEBHOOK_URL"
-      # 方式二：只填 access_token，由 Herald 拼地址
+      # Option 2: only fill in access_token, Herald composes the URL
       # access_token: "$DINGTALK_ACCESS_TOKEN"
-      # secret: "$DINGTALK_SECRET"   # 预留，当前未参与加签
+      # secret: "$DINGTALK_SECRET"   # reserved, not used in signing yet
 ```
 
-## 环境变量
+## Environment Variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment Variable | Config Key | Description |
 |----------|-----------|------|
-| `DINGTALK_WEBHOOK_URL` | `webhook_url` | 机器人 Webhook 地址（惯用名） |
-| `DINGTALK_ACCESS_TOKEN` | `access_token` | Webhook 地址中的 `access_token`（`.env.example` 惯用名） |
-| `DINGTALK_SECRET` | `secret` | 加签密钥（预留，当前未参与加签） |
+| `DINGTALK_WEBHOOK_URL` | `webhook_url` | The robot webhook URL (conventional name) |
+| `DINGTALK_ACCESS_TOKEN` | `access_token` | The `access_token` in the webhook URL (conventional name in `.env.example`) |
+| `DINGTALK_SECRET` | `secret` | The Signature secret (reserved, not used in signing yet) |
 
-## 消息模板与限制
+## Message Templates and Limits
 
-所有消息固定使用钉钉 `markdown` 类型。标题为 `### ` 三级标题，按级别着色：
+All messages always use the DingTalk `markdown` type. The title is a level-3 heading rendered in a color by level:
 
-| 级别 | 标题渲染 |
+| Level | Title rendering |
 |------|---------|
-| `error` | `### <font color='#ff0000'>{title}</font>`（红色） |
-| `warning` | `### <font color='#ff9900'>{title}</font>`（橙色） |
-| `info` 及其他 | `### {title}`（默认色） |
+| `error` | `### <font color='#ff0000'>{title}</font>` (red) |
+| `warning` | `### <font color='#ff9900'>{title}</font>` (orange) |
+| `info` and others | `### {title}` (default color) |
 
-正文后追加分隔线与发送时间戳：
+A separator line and a send timestamp are appended after the body:
 
 ```
 ### {title}
@@ -95,24 +93,24 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 > 2026-09-28 10:00:00
 ```
 
-- Provider 能力声明支持 `markdown` / `plain` 两种内容格式，但发送恒为 markdown 类型
-- 请求超时 30s；HTTP 408/429/5xx 会被包装为可重试错误，走统一重试
-- 钉钉侧限制：每个机器人每分钟最多 20 条，超限返回 `errcode: 130101`（限流）；markdown 消息最长 5000 字节
+- The Provider capability declaration supports both `markdown` and `plain` content formats, but sends always use the markdown type
+- Request timeout 30s; HTTP 408/429/5xx are wrapped as retryable errors and go through unified retry
+- DingTalk-side limits: at most 20 messages per minute per robot; exceeding the limit returns `errcode: 130101` (rate limiting); markdown messages are limited to 5000 bytes
 
-## 常见错误
+## Common Errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `dingtalk: webhook_url or access_token is required` | `webhook_url` / `access_token` 都未配置 |
-| `dingtalk API error: sign not match` | 机器人安全设置为「加签」而当前实现不加签，改用「自定义关键词」或 IP 白名单 |
-| `dingtalk API error: keywords not in content` | 安全设置为「自定义关键词」但消息里不含该关键词（把关键词设为标题中的一个词即可） |
-| `dingtalk API error: ip is not in white list` | 服务器出口 IP 不在机器人「IP 白名单（段）」内，后台补录 |
-| `errcode: 130101` | 触发限流（每分钟 20 条），降低发送频率 |
+| `dingtalk: webhook_url or access_token is required` | Neither `webhook_url` nor `access_token` is configured |
+| `dingtalk API error: sign not match` | The robot's security setting is Signature while the current implementation does not sign — switch to Custom keyword or the IP allowlist |
+| `dingtalk API error: keywords not in content` | The security setting is Custom keyword but the message does not contain that keyword (simply include the keyword as one word in the title) |
+| `dingtalk API error: ip is not in white list` | The server's egress IP is not in the robot's IP allowlist; add it in the DingTalk console |
+| `errcode: 130101` | Rate limit triggered (20 per minute); reduce the send frequency |
 
-错误格式说明：钉钉返回 `errcode != 0` 时报 `dingtalk API error: {errmsg}`；HTTP 非 2xx 时报 `unexpected status code: {code}, body: …`。
+Error format notes: when DingTalk returns `errcode != 0` the error is `dingtalk API error: {errmsg}`; for non-2xx HTTP responses it is `unexpected status code: {code}, body: …`.
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [企业微信](./wecom.md) - 企业微信群机器人推送
-- [飞书](./feishu.md) - 飞书机器人推送
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [WeCom](./wecom.md) - WeCom group-robot push
+- [Feishu](./feishu.md) - Feishu robot push

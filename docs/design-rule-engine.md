@@ -1,215 +1,182 @@
-> 中文 · [English](./design-rule-engine.en.md)
+# Rule Engine Design: Condition and Action Model (allow / inhibit / reroute)
 
-# 规则引擎设计：条件与动作模型（放行 / 抑制 / 改道）
+> Status: implemented. This document is the finalized design of the rule engine's "decision layer": how a rule is expressed, what fields it matches, in what order it is evaluated, what it does to a message once hit (allow/inhibit/reroute), and the default policy when no rule hits.
+> For the alert platform's long-term evolution (the ins and outs of for/group_by/inhibit/silence/escalation), see
+> [rule-engine-design.md](./rule-engine-design.md); this document focuses only on "a message comes in, how does the rule judge and act",
+> and is in a layered relationship with that document: that one manages "the historical dimension of judgment", this one manages "the split-second decision of judgment".
 
-> 状态：已实施。本文是规则引擎"决策层"的设计定稿：规则如何表达、匹配什么字段、按什么顺序求值、
-> 命中后对消息做什么（放行/抑制/改道）、以及无规则命中时的默认策略。
-> 面向告警平台的长线演进（for/group_by/inhibit/silence/escalation 的来龙去脉）见
-> [rule-engine-design.md](./rule-engine-design.md)；本文只聚焦"一条消息进来，规则怎么判、怎么动"，
-> 与该文档是分层关系：那份管"判断的历史维度"，这份管"判断的当机立断"。
+## 1. The Problem: Decision Authority Has Not Returned Home
 
-## 一、问题：判断权没有归位
+Without a rule engine, everything in herald is "what to do when an event arrives" (`api/handler_notify.go` →
+`Process` in `core/service/notification.go`):
 
-没有规则引擎时，herald 的每一件事都是"事件来了做什么"（`api/handler_notify.go` →
-`core/service/notification.go` 的 `Process`）：
+- Whether to send: decided by dedup (content duplicates are not sent), everything else is sent;
+- Where to send: the caller's explicit `channels` take priority, otherwise the static route table (`routes`/`level_routes` in `core/route/router.go`, type equal → level equal).
 
-- 发不发：由 dedup 决定（内容重复就不发），其余全发；
-- 发到哪：调用方显式 `channels` 优先，否则静态路由表（`core/route/router.go` 的
-  `routes`/`level_routes`，type 相等 → level 相等）。
+Both decision dimensions are un-operable:
 
-两个判断维度都不可运营：
+1. **"Whether to send" has no rule.** "No sound for info outside working hours", "alerts in the canary environment are always held back".
+   Today such policies can only be written into each caller, or the code is changed;
+2. **"Where to send" is a config file.** Changing one static route requires restarting the process, and it can only match by type/level equality,
+   so it cannot express "title containing 'drill' goes to the drill group".
 
-1. **"发不发"没有规则**。"非工作时间的 info 不许出声"、"灰度环境的告警一律拦下"。
-   这类策略今天只能写进每个调用方，或者改代码；
-2. **"发到哪"是配置文件**。静态路由改一条要重启进程，且只能按 type/level 相等匹配，
-   表达不了"标题包含『演练』的走演练群"。
+The rule engine pulls these two decision authorities into the herald backend: **condition (match expression) + action (allow/inhibit/reroute)**,
+rules are stored in a store, CRUD from the backend, hot-effective, and on no hit fall back to static routing, with zero change to existing behavior.
 
-规则引擎把这两个判断权收进 herald 后台：**条件（match 表达式）+ 动作（放行/抑制/改道）**，
-规则存 store、后台 CRUD、热生效，未命中回落静态路由，存量行为零变化。
+## 2. How a Rule Is Expressed
 
-## 二、规则的表达方式
-
-一条规则的存储模型（`core/rules/rule.go` 的 `Rule`）：
+The storage model of a rule (the `Rule` in `core/rules/rule.go`):
 
 ```yaml
 id: prod-payment-failure
 priority: 100
-action: route            # allow | suppress | route（默认）
-mode: active             # shadow | active | off（默认 shadow）
+action: route            # allow | suppress | route (default)
+mode: active             # shadow | active | off (default shadow)
 match: 'params.fail_rate > 0.05 && env == "prod"'
-route:                   # action == route 时必填
+route:                   # required when action == route
   - match: 'level == "critical"'
     channels: [wecom-boss, aliyunsms-duty]
   - channels: [feishu-oncall]
-for: 3m                  # 以下为进阶语义，见 rule-engine-design.md
+for: 3m                  # the following are advanced semantics, see rule-engine-design.md
 group_by: [env, service]
-# inhibit / silence / escalation 同理
+# inhibit / silence / escalation are analogous
 ```
 
-### 2.1 条件模型：可匹配字段
+### 2.1 Condition Model: Matchable Fields
 
-匹配的输入是通知的**渠道无关结构化视图**（`rules.Env`）：
+The match input is the notification's **channel-agnostic structured view** (`rules.Env`):
 
-| 字段 | 来源 | 说明 |
+| Field | Source | Notes |
 |---|---|---|
-| `type` | `Notification.Type` | 业务类型（deploy、alert…） |
+| `type` | `Notification.Type` | business type (deploy, alert…) |
 | `level` | `Notification.Level` | info / warning / error / critical |
-| `title` | 内联 `Content.Title` | 仅直发内容；模板渲染后的文本**不进**匹配 |
-| `body` | 内联 `Content.Body` | 同上 |
-| `params` | `Notification.Params` | 调用方自定义结构化字段，规则匹配的主力 |
+| `title` | inline `Content.Title` | direct-send content only; text after template rendering does **not** enter matching |
+| `body` | inline `Content.Body` | same as above |
+| `params` | `Notification.Params` | caller-defined structured fields, the workhorse of rule matching |
 
-**为什么匹配的是 Env 而不是渲染后的文本**：对文本做正则匹配是脆弱的，模板一改规则全哑；
-且模板渲染发生在规则求值之后（改道决定渠道，渠道才影响渲染），时序上也拿不到。
-`params.fail_rate > 0.05` 让判断落在数据的结构上，模板怎么改版都不影响规则。
+**Why the match is against Env and not the rendered text**: regex-matching text is fragile — one template change and all rules go mute; and template rendering happens after rule evaluation (rerouting decides the channel, and only the channel affects rendering), so at that timing it is unavailable anyway.
+`params.fail_rate > 0.05` lands the judgment on the structure of the data, and no template revision affects the rule.
 
-**为什么字段是封闭集合**：Env 是 Go struct，`expr.Compile` 带 `expr.Env(Env{})`
-在**保存时**做类型检查，`params.fail_ate`（拼错）直接编译失败被拒，而不是运行时静默 false。
-开放字段集合（比如把整个通知 JSON 摊开）换不来更多表达力，只换来更多拼错不被发现的机会。
+**Why the fields are a closed set**: Env is a Go struct, and `expr.Compile` with `expr.Env(Env{})` does type checking **at save time**, so `params.fail_ate` (misspelled) fails to compile and is rejected outright, rather than being a silent false at runtime.
+An open field set (say, spreading out the entire notification JSON) buys no more expressiveness, only more chances for a misspelling to go unnoticed.
 
-### 2.2 条件模型：表达式语义与安全
+### 2.2 Condition Model: Expression Semantics and Safety
 
-表达式引擎用 [expr-lang/expr](https://github.com/expr-lang/expr)，**绝不手写解析**。
-手写解析器的要害是安全边界画不出来：注入、资源耗尽、深递归。
-现有约束（`core/rules/engine.go`）：
+The expression engine uses [expr-lang/expr](https://github.com/expr-lang/expr), and **never hand-writes a parser**.
+The crux of a hand-written parser is that the safety boundary cannot be drawn: injection, resource exhaustion, deep recursion.
+Existing constraints (`core/rules/engine.go`):
 
-- 保存时编译一次，运行期只执行编译产物。语法错误拦在配置时刻，不是凌晨三点的告警时刻；
-- `expr.Env(Env{})` 类型检查 + `AsBool()` 强制布尔结果；
-- `MaxNodes(256)` 限 AST 复杂度，`MaxExpressionLen(2048)` 限源文本长度；
-- `DisableAllBuiltins()` 关掉全部内置函数。表达式是纯比较/逻辑，不能调用任何东西；
-- AST 检查拒绝 `..` range 操作符（`1..1e9` 能在节点限额内分配巨量内存）；
-- 求值带 500ms 超时兜底（`runProgram`）。
+- compiled once at save time, and only the compiled artifact is executed at runtime. Syntax errors are caught at config time, not at the 3 a.m. alert;
+- `expr.Env(Env{})` type checking + `AsBool()` forcing a boolean result;
+- `MaxNodes(256)` caps AST complexity, `MaxExpressionLen(2048)` caps source-text length;
+- `DisableAllBuiltins()` turns off all built-in functions. Expressions are pure comparison/logic and cannot call anything;
+- the AST check rejects the `..` range operator (`1..1e9` can allocate huge memory within the node limit);
+- evaluation has a 500ms timeout fallback (`runProgram`).
 
-**备选：cel-go**。成本模型（编译期估算最坏执行开销）更强，但引入 protobuf 依赖、
-API 面积大一个量级；herald 的表达式是短比较式，expr + 静态限制已封死资源面。放弃。
-**备选：手写 DSL（字段-操作符-值的结构化 JSON）**。表达不了 `a && (b || c)` 之外的任意组合，
-要么长出一门残缺的查询语言，要么限制表达力；且同样要自己处理类型与注入。放弃。
+**Alternative: cel-go**. Its cost model (estimating worst-case execution cost at compile time) is stronger, but it introduces a protobuf dependency and an API surface an order of magnitude larger; herald's expressions are short comparisons, and expr + static limits already seal off the resource surface. Rejected.
+**Alternative: a hand-written DSL (structured JSON of field-operator-value)**. It cannot express any combination beyond `a && (b || c)`, so either it grows into a crippled query language or it limits expressiveness; and it still has to handle types and injection itself. Rejected.
 
-### 2.3 动作模型：放行 / 抑制 / 改道（本次新增的 `action` 字段）
+### 2.3 Action Model: allow / inhibit / reroute (the newly added `action` field)
 
-动作回答"命中之后对这条消息做什么"。三个值，对应三种意图：
+The action answers "what to do to this message once hit". Three values, for three intents:
 
-| action | 语义 | 消息去向 | route 字段 |
+| action | Semantics | Message destination | route field |
 |---|---|---|---|
-| `route`（默认） | **改道**：规则决定渠道 | 规则 `route` 步骤解析出的渠道 | 必填（≥1 步） |
-| `suppress` | **抑制**：把消息拦下 | 不投递，观察记录留档 | 必须为空 |
-| `allow` | **放行**：按没有规则处理 | 调用方显式渠道，否则静态路由 | 必须为空 |
+| `route` (default) | **reroute**: the rule decides the channel | the channel resolved by the rule's `route` steps | required (≥1 step) |
+| `suppress` | **inhibit**: hold the message back | not delivered, an observation record is kept | must be empty |
+| `allow` | **allow**: process as if there were no rule | the caller's explicit channel, otherwise static routing | must be empty |
 
-三点设计取舍：
+Three design trade-offs:
 
-**为什么 action 默认 `route`**：向后兼容。action 字段落地前的一切存量规则都是"命中即改道"，
-空 action 按 route 解读，存量 store 文件一行不用改。`route` 同时要求 route 步骤非空、
-`allow`/`suppress` 要求 route 必须为空。动作与路由表是互斥意图，混写要么是笔误要么是误解，
-保存时直接拒绝，不留"静默忽略"的口子。
+**Why action defaults to `route`**: backward compatibility. Every existing rule before the action field landed is "hit means reroute", an empty action is read as route, and not a single line of existing store files needs changing. `route` also requires non-empty route steps, while `allow`/`suppress` require route to be empty. Action and route table are mutually exclusive intents; mixing them is either a typo or a misunderstanding, rejected outright at save time, leaving no opening for "silently ignore".
 
-**为什么需要显式 `suppress`**：抑制此前只有四条专用通道（silence/for/folded/inhibit），
-它们都绑在告警语义上；而"灰度环境的任何告警都不要发"这种**无条件过滤**要造一条
-零语义的规则才能表达。`action: suppress` 就是这个过滤器：一行规则，不占任何状态机。
-它和 silence 的区别：suppress 是**身份驱动**（这个流量就是不该发），silence 是**日程驱动**
-（这个时段不该发）；一个 suppress 规则不随时间变化，一个 silence 窗口到点自动解除。
+**Why an explicit `suppress` is needed**: previously inhibition had only four dedicated channels (silence/for/folded/inhibit), all bound to alert semantics; whereas an **unconditional filter** like "any alert in the canary environment must not be sent" required constructing a zero-semantics rule to express. `action: suppress` is that filter: one line of rule, occupying no state machine.
+Its difference from silence: suppress is **identity-driven** (this traffic just should not be sent), silence is **schedule-driven** (this time slot should not send); a suppress rule does not change with time, a silence window lifts automatically when its time arrives.
 
-**为什么需要显式 `allow`**：放行是优先级模型的另一半。规则按优先级首中即停（§3.1），
-没有 allow 时"exemption"（豁免）表达不出来：`priority: 1000, match: env == "canary",
-action: allow` 的意思是"灰度流量到此为止，后面所有改道/抑制规则都别碰它，按原路走"。
-它等价于防火墙规则里的 ACCEPT-and-stop，是策略表的标配原语。
+**Why an explicit `allow` is needed**: allow is the other half of the priority model. Rules are evaluated by priority with first-hit-stop (§3.1); without allow, "exemption" cannot be expressed: `priority: 1000, match: env == "canary", action: allow` means "canary traffic stops here, all later reroute/inhibit rules leave it alone, it goes the original way".
+It is equivalent to ACCEPT-and-stop in firewall rules, a standard primitive of a policy table.
 
-**抑制的边界：显式渠道不受抑制**。与既有语义一致（silence/for/inhibit 均如此）：
-调用方显式指定 `channels` 的通知是明确的投递意图，规则的抑制动作只作用于
-"本来要靠规则/静态路由决定去向"的流量。这条边界写在 §3.4 的默认策略同一段代码里，
-不给两条抑制路径各搞一套例外。
+**The boundary of inhibition: explicit channels are not inhibited**. Consistent with existing semantics (silence/for/inhibit all are): a notification whose `channels` the caller explicitly specifies is an unambiguous delivery intent, and the rule's inhibit action only acts on traffic that "would otherwise rely on rules/static routing to decide the destination". This boundary is written in the same code as the default policy of §3.4, and does not set up a separate exception for each of the two inhibit paths.
 
-## 三、匹配语义
+## 3. Match Semantics
 
-### 3.1 求值顺序：显式优先级（本次新增的 `priority` 字段）
+### 3.1 Evaluation Order: Explicit Priority (the newly added `priority` field)
 
-规则表按 **priority 降序**求值，同 priority 按**写入顺序**（稳定排序）。
-`priority` 是 int32，默认 0，越大越先被求值；首条命中的 **active** 规则即"管辖规则"
-（governing rule），求值停止，首中即停。
+The rule table is evaluated in **descending priority**, ties by **write order** (stable sort).
+`priority` is an int32, default 0, larger evaluated first; the first hit **active** rule is the "governing rule" (governing rule), evaluation stops, first-hit-stop.
 
-**备选：纯列表顺序（现状）**。List 顺序即优先级，问题是重排等于全量重写：
-把一条规则提到最前，得 PUT 整张表。且顺序是隐式契约，API 使用者看不见"为什么这条先于那条"。
-**备选：iptables 式插入位置（before/after 锚点）**。表达力最强，但 CRUD 复杂度暴涨
-（锚点失效、环检测），herald 的规则量级（几十条）用不上。
-**选定：数值优先级 + 稳定并列**。调优先级 = PUT 一个数字；并列时行为确定（写入序）；
-首中即停让"高优先级豁免/拦截"天然可组合。规则量级到需要锚点插入时再谈。
+**Alternative: pure list order (the status quo)**. List order is priority, and the problem is that reordering equals a full rewrite: to bring one rule to the front, you must PUT the entire table. And the order is an implicit contract — API users cannot see "why this one precedes that one".
+**Alternative: iptables-style insertion position (before/after anchors)**. The strongest expressiveness, but CRUD complexity explodes (anchor invalidation, cycle detection), and herald's rule scale (a few dozen) does not need it.
+**Chosen: numeric priority + stable tie-break**. Adjusting priority = PUT one number; ties behave deterministically (write order); first-hit-stop makes "high-priority exemption/block" naturally composable. We will talk about anchor insertion when the rule scale demands it.
 
-实现上排序发生在引擎装载表的时刻（`Put`/`Reload`），对 `Evaluate` 透明。
-求值循环只是遍历一个已排好的切片，热路径零额外开销。`List` 返回**求值序**（活跃表顺序），
-所见即所判。
+In implementation, sorting happens at the moment the engine loads the table (`Put`/`Reload`), transparent to `Evaluate`.
+The evaluation loop merely traverses an already-sorted slice, zero extra overhead on the hot path. `List` returns the **evaluation order** (active-table order), what you see is what is judged.
 
-### 3.2 三种模式：active / shadow / off
+### 3.2 Three Modes: active / shadow / off
 
-- `active`：规则生效，动作按 §2.3 执行；
-- `shadow`（默认）：只记录不动作，每次求值照常计算命中，命中写入观察记录
-  （`Decision.Shadow` → `RuleObserver.RecordShadow` → 投递日志），投递行为不变；
-- `off`：规则存储但跳过求值，等价"停用"。
+- `active`: the rule takes effect, actions execute per §2.3;
+- `shadow` (default): record only, no action; each evaluation computes the hit as usual, and a hit is written to the observation record
+  (`Decision.Shadow` → `RuleObserver.RecordShadow` → delivery log), delivery behavior unchanged;
+- `off`: the rule is stored but skipped in evaluation, equivalent to "disabled".
 
-新规则默认 shadow 是安全网：规则是运维写的程序，第一次上线就全量生效等于拿生产环境当测试；
-影子期看真实命中量，再切 active。API 层 PUT 改 mode 即启停，一键回滚。
+A new rule defaulting to shadow is a safety net: rules are programs written by operators, and going fully live on first launch is treating production as a test; during the shadow period you watch the real hit volume, then switch to active. At the API layer, PUT changing mode is start/stop, one-click rollback.
 
-**备选：独立 enabled 布尔字段**。和 `mode: off` 语义重复，两个字段表达一个开关，
-还会出现 `enabled: true, mode: off` 这种需要仲裁的组合。放弃。mode 三值就是
-"生效/观察/停用"的完整状态机。
+**Alternative: a separate enabled boolean field**. It duplicates the semantics of `mode: off`, two fields expressing one switch, and it would also produce combinations like `enabled: true, mode: off` that need arbitration. Rejected. The three-valued mode is the complete state machine of "live/observe/disabled".
 
-### 3.3 求值失败：坏规则不连累路由
+### 3.3 Evaluation Failure: a Bad Rule Does Not Drag Down Routing
 
-某条规则的表达式求值失败（如引用了本条通知没有的 params 键）：跳过该规则继续求值，
-失败记入 `Decision.EvalErrors` 并作为 error 返回给调用方观察。一条坏规则最坏只影响它自己，
-不允许它让整张表瘫痪。状态后端（for/group/inhibit 状态）故障同样 fail-open 跳过。
+If one rule's expression evaluation fails (say it references a params key this notification does not have): skip that rule and continue evaluating, record the failure in `Decision.EvalErrors` and return it as an error to the caller for observation. A bad rule at worst affects only itself, and is not allowed to paralyze the whole table. A state-backend (for/group/inhibit state) failure likewise fails open and is skipped.
 
-### 3.4 默认策略：无规则命中时怎么办（本次新增）
+### 3.4 Default Policy: What to Do When No Rule Hits (newly added)
 
-`rules_default_policy` 配置引擎级默认策略，两个值：
+`rules_default_policy` configures the engine-level default policy, two values:
 
-- `allow`（默认）：未命中任何规则 → 回落**静态路由**（`core/route`），行为与没有规则引擎时逐字节一致；
-- `deny`：未命中 → **消息被拦下**（`Decision{Action: suppress, Defaulted: true}`），观察记录 RuleID 为空串。
+- `allow` (default): no rule hit → fall back to **static routing** (`core/route`), behavior byte-for-byte identical to having no rule engine;
+- `deny`: no hit → **the message is held back** (`Decision{Action: suppress, Defaulted: true}`), the observation record's RuleID is an empty string.
 
-allow 是渐进迁移的安全网：规则表为空时系统行为与主干完全一致。
-deny 是"白名单模式"：herald 从"默认都发、规则拦"翻转为"默认不发、规则放"。
-告警收敛的最后一步是只让明确配置过的流量出去。两种策略同一行代码切换，
-且 deny 下 shadow 命中仍然记录（观察不因收紧而失明）。
+allow is the safety net of incremental migration: when the rule table is empty, system behavior is fully identical to trunk.
+deny is "whitelist mode": herald flips from "send everything by default, rules block" to "send nothing by default, rules allow". The final step of alert convergence is letting out only traffic that has been explicitly configured. The two policies switch on the same line of code, and under deny a shadow hit is still recorded (observation does not go blind because of tightening).
 
-**备选：每规则 default 字段**。"默认策略"描述的是无规则命中的情况，是表级属性而非规则属性，
-放规则上语义错位（哪条规则的 default 算数？先执行的？）。放弃。
-**备选：deny 时返回错误给调用方**。把策略当故障暴露给调用方不合适：拦下是正常决策不是错误，
-HTTP 仍 200，去向进观察记录。放弃。
+**Alternative: a per-rule default field**. "Default policy" describes the no-rule-hit case, a table-level property rather than a rule property, and placing it on a rule is semantically misaligned (whose default counts? the one that runs first?). Rejected.
+**Alternative: returning an error to the caller under deny**. Exposing the policy as a fault to the caller is inappropriate: holding back is a normal decision, not an error, HTTP is still 200, and the destination goes into the observation record. Rejected.
 
-### 3.5 决策的统一表达
+### 3.5 Unified Expression of the Decision
 
-`Evaluate` 返回 `Decision`，本次起带 `Action` 字段，把"管辖规则想干什么"一次说清：
+`Evaluate` returns a `Decision`, which from this round carries an `Action` field, stating "what the governing rule wants to do" in one go:
 
 ```go
 Decision{
-    RuleID, Mode,           // 管辖规则（默认策略生效时 RuleID 为空）
-    Action,                 // allow | suppress | route —— 本次新增
-    Channels,               // action == route 时的目标渠道
-    Defaulted,              // true = 默认策略生效（无规则命中）—— 本次新增
-    Silenced/ForPending/Folded/Inhibited,  // 既有专用抑制语义（rule-engine-design.md）
-    Shadow, EvalErrors, ... // 观察记录
+    RuleID, Mode,           // governing rule (RuleID is empty when the default policy takes effect)
+    Action,                 // allow | suppress | route —— newly added this round
+    Channels,               // target channels when action == route
+    Defaulted,              // true = default policy took effect (no rule hit) —— newly added this round
+    Silenced/ForPending/Folded/Inhibited,  // existing dedicated inhibit semantics (rule-engine-design.md)
+    Shadow, EvalErrors, ... // observation record
 }
 ```
 
-调用方（`service.Process`）只认 Action 与专用抑制标志，不重复实现策略。
+The caller (`service.Process`) only recognizes Action and the dedicated inhibit flags, and does not re-implement the policy.
 
-## 四、管理面：增删改查与启停
+## 4. Management Plane: CRUD and Start/Stop
 
-REST API（挂在既有 Handler 模式下，`api/handler_rules.go`）：
+REST API (mounted under the existing Handler pattern, `api/handler_rules.go`):
 
-| 方法 | 路径 | 语义 |
+| Method | Path | Semantics |
 |---|---|---|
-| GET | `/api/v1/rules` | 列表（求值序） |
-| POST | `/api/v1/rules` | 新建（表达式编译失败 → 400，保存即拒） |
-| GET | `/api/v1/rules/{id}` | 单条 |
-| PUT | `/api/v1/rules/{id}` | 整体替换（改 mode=启停、改 priority=调序） |
-| DELETE | `/api/v1/rules/{id}` | 删除 |
+| GET | `/api/v1/rules` | list (evaluation order) |
+| POST | `/api/v1/rules` | create (expression compile failure → 400, rejected on save) |
+| GET | `/api/v1/rules/{id}` | single rule |
+| PUT | `/api/v1/rules/{id}` | full replace (changing mode=start/stop, changing priority=reorder) |
+| DELETE | `/api/v1/rules/{id}` | delete |
 
-所有写操作走 `Engine.Put/Delete`：校验 + 编译 + 落 store + **原地刷新活跃表**，热生效无需重启。
-持久化后端可换（`Store` 接口：`MemoryStore` / JSON `FileStore`，原子写：临时文件 + rename）。
-配置文件 `rules:` 种子列表在启动时灌入（与 store 并存，种子永远 Put 进 store）。
+All write operations go through `Engine.Put/Delete`: validate + compile + write to store + **refresh the active table in place**, hot-effective without restart.
+The persistence backend is swappable (the `Store` interface: `MemoryStore` / JSON `FileStore`, atomic write: temp file + rename).
+The config file `rules:` seed list is loaded at startup (coexisting with the store, seeds are always Put into the store).
 
-## 五、实施边界
+## 5. Implementation Boundaries
 
-- 求值位置：`Process` 内、路由之前、模板渲染之前（见 `core/service/notification.go` 注释）；
-  被拦下的消息不进队列不耗 worker。
-- 投递链路零改动：queue/worker/provider 协议不动，规则引擎全部活在入队之前与管理面。
-- 通知群组（规则/调用方引用 `group:xxx` 渠道组）见
-  [design-notification-groups.md](./design-notification-groups.md)，与本设计正交。
+- Evaluation location: inside `Process`, before routing, before template rendering (see the comment in `core/service/notification.go`);
+  a held-back message does not enter the queue and does not consume a worker.
+- Zero change to the delivery chain: the queue/worker/provider protocols are untouched, and the rule engine lives entirely before enqueueing and in the management plane.
+- For notification groups (rules/callers referencing a `group:xxx` channel group), see
+  [design-notification-groups.md](./design-notification-groups.md), orthogonal to this design.

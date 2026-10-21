@@ -1,50 +1,48 @@
-> 中文 · [English](./providers.en.md)
+# Provider Classification
 
-# Provider 分类
+## Provider Categories
 
-## Provider 类别
-
-| 类型 | 说明 | 示例 |
+| Type | Description | Examples |
 |------|------|------|
-| Bot API | 官方 Bot API | Telegram / Discord |
-| Webhook | Webhook 接口 | 飞书 / 企业微信 / 钉钉 / Slack |
-| SMTP | 邮件协议 | Email |
-| SMS | 短信服务 | 阿里云 / 腾讯云 / 网易云信 |
-| 移动推送 | APNs / FCM 等 | FCM / APNs / 极光 / 个推 |
-| Third-party Push | 第三方推送 | Server酱 / PushPlus / WxPusher |
-| Worker Proxy | Worker 代理 | type: worker 的转发渠道 |
+| Bot API | Official Bot API | Telegram / Discord |
+| Webhook | Webhook interface | Feishu / WeCom / DingTalk / Slack |
+| SMTP | Email protocol | Email |
+| SMS | SMS service | Aliyun / Tencent Cloud / NetEase Yunxin |
+| Mobile push | APNs / FCM, etc. | FCM / APNs / JPush / Getui |
+| Third-party push | Third-party push | ServerChan / PushPlus / WxPusher |
+| Worker Proxy | Worker proxy | Forwarding channel with `type: worker` |
 
 ## Builtin Providers
 
-19 个 Factory 全部注册在 `providers/builtin/registry/registry.go`：
+All 19 factories are registered in `providers/builtin/registry/registry.go`:
 
-| Provider | 类型 | 描述 |
+| Provider | Type | Description |
 |----------|------|------|
-| Log | 内置 | 日志输出，用于测试 |
+| Log | Builtin | Log output, for testing |
 | Telegram | Bot API | Telegram Bot API |
-| Discord | Webhook/Bot | Discord Webhook 或 Bot API |
-| Feishu | Webhook | 飞书机器人 |
-| WeCom | Webhook | 企业微信机器人 |
-| DingTalk | Webhook | 钉钉机器人 |
+| Discord | Webhook/Bot | Discord Webhook or Bot API |
+| Feishu | Webhook | Feishu bot |
+| WeCom | Webhook | WeCom bot |
+| DingTalk | Webhook | DingTalk bot |
 | Slack | Webhook | Slack Webhook |
-| Email | SMTP | 邮件发送 |
-| Webhook | 通用 | 通用 HTTP Webhook |
-| AliyunSMS | SMS | 阿里云短信 |
-| TencentSMS | SMS | 腾讯云短信 |
-| NetEaseSMS | SMS | 网易云信短信 |
-| WeChat | Third-party | 微信个人推送（Server酱 / PushPlus / WxPusher） |
-| WeChatMP | Third-party | 微信公众号（模板消息/客服消息） |
-| FCM | 移动推送 | Firebase Cloud Messaging |
-| APNs | 移动推送 | Apple Push Notification service |
-| JPush | 移动推送 | 极光推送 |
-| Getui | 移动推送 | 个推 |
-| Worker | 代理 | 转发给远程 Worker 进程执行 |
+| Email | SMTP | Email sending |
+| Webhook | Generic | Generic HTTP Webhook |
+| AliyunSMS | SMS | Aliyun SMS |
+| TencentSMS | SMS | Tencent Cloud SMS |
+| NetEaseSMS | SMS | NetEase Yunxin SMS |
+| WeChat | Third-party | WeChat personal push (ServerChan / PushPlus / WxPusher) |
+| WeChatMP | Third-party | WeChat Official Account (template messages / customer-service messages) |
+| FCM | Mobile push | Firebase Cloud Messaging |
+| APNs | Mobile push | Apple Push Notification service |
+| JPush | Mobile push | JPush (Aurora Push) |
+| Getui | Mobile push | Getui |
+| Worker | Proxy | Forwards to a remote Worker process for execution |
 
 ## Worker Provider
 
-Worker Provider 是一个代理类型（`type: worker`），本身不实现任何渠道：把任务按 `target`（等价 `name`）转发给匹配的远程 Worker，发送动作在 Worker 进程里完成。业务渠道（含微信公众号）跑在哪个 Runtime 由部署决定：内置渠道默认走 Builtin Runtime；同一个渠道也可以交由远程 Worker 承接，配置里换 `type: worker` 即可。
+The Worker Provider is a proxy type (`type: worker`) that implements no channel of its own: it forwards tasks by `target` (equivalent to `name`) to the matching remote Worker, and the send action happens inside the Worker process. Which Runtime a business channel (including the WeChat Official Account) runs on is a deployment decision: builtin channels use the Builtin Runtime by default; the same channel can also be handed to a remote Worker — just switch to `type: worker` in the configuration.
 
-## 配置格式
+## Configuration Format
 
 ### Builtin Provider
 
@@ -66,12 +64,12 @@ providers:
     type: worker
     enabled: true
     config:
-      target: "wechat-worker-01"   # 也支持 name 键，二者等价
+      target: "wechat-worker-01"   # The name key is also supported; the two are equivalent
 ```
 
-## Provider 工厂
+## Provider Factories
 
-每个 Provider 都有一个对应的工厂类：
+Every Provider has a corresponding factory class:
 
 ```go
 type Factory interface {
@@ -81,7 +79,7 @@ type Factory interface {
 }
 ```
 
-工厂注册（`providers/builtin/registry`）：
+Factory registration (`providers/builtin/registry`):
 
 ```go
 manager.RegisterFactory(&telegram.Factory{})

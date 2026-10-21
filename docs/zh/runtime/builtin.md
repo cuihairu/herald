@@ -1,0 +1,368 @@
+# Builtin Runtime
+
+Builtin Runtime 直接运行在 Core 内，适合简单的 HTTP API 类 Provider。
+
+## 适合场景
+
+Telegram Bot API、Discord Webhook、飞书/企业微信机器人、Email SMTP、通用 Webhook、SMS（阿里云、腾讯云、网易云信）——一个 HTTP 调用能发出去的渠道都适合。
+
+## 特点
+
+投递是进程内一次函数调用，没有 IPC 和额外进程；接一个新渠道就是一段 `providers:` 配置。
+
+## 接口
+
+```go
+type Provider interface {
+    Deliver(ctx context.Context, task *DeliveryTask) error
+    Name() string
+    Type() string
+    Status() *ProviderStatus
+}
+```
+
+## 已实现 Providers
+
+### Log Provider
+
+用于测试和调试的日志 Provider。
+
+**配置：**
+
+```yaml
+providers:
+  log:
+    type: log
+    enabled: true
+    config:
+      name: "log"
+```
+
+### Telegram Provider
+
+通过 Telegram Bot API 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  telegram:
+    type: telegram
+    enabled: true
+    config:
+      token: "$TELEGRAM_BOT_TOKEN"
+      chat_id: "$TELEGRAM_CHAT_ID"
+      parse_mode: "markdown"  # 可选: markdown, html
+```
+
+**环境变量：**
+
+- `TELEGRAM_BOT_TOKEN` - Bot Token
+- `TELEGRAM_CHAT_ID` - Chat ID 或 Channel 用户名
+
+### Feishu Provider
+
+通过飞书 Webhook 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  feishu:
+    type: feishu
+    enabled: false
+    config:
+      webhook_url: "$FEISHU_WEBHOOK_URL"
+      sign_secret: "$FEISHU_SIGN_SECRET"  # 可选
+```
+
+**环境变量：**
+
+- `FEISHU_WEBHOOK_URL` - Webhook URL
+- `FEISHU_SIGN_SECRET` - 签名密钥（可选）
+
+### WeCom Provider
+
+通过企业微信 Webhook 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  wecom:
+    type: wecom
+    enabled: false
+    config:
+      webhook_url: "$WECOM_WEBHOOK_URL"
+      # 或使用 key
+      key: "$WECOM_KEY"
+```
+
+**环境变量：**
+
+- `WECOM_WEBHOOK_URL` - 完整 Webhook URL
+- `WECOM_KEY` - Webhook Key
+
+### DingTalk Provider
+
+通过钉钉 Webhook 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  dingtalk:
+    type: dingtalk
+    enabled: false
+    config:
+      access_token: "$DINGTALK_ACCESS_TOKEN"
+      secret: "$DINGTALK_SECRET"
+```
+
+### Slack Provider
+
+通过 Slack Webhook 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  slack:
+    type: slack
+    enabled: false
+    config:
+      webhook_url: "$SLACK_WEBHOOK_URL"
+```
+
+### Discord Provider
+
+通过 Discord Webhook 或 Bot API 发送消息。
+
+**配置：**
+
+```yaml
+providers:
+  discord:
+    type: discord
+    enabled: false
+    config:
+      webhook_url: "$DISCORD_WEBHOOK_URL"
+      # 或使用 bot API
+      bot_token: "$DISCORD_BOT_TOKEN"
+      channel_id: "$DISCORD_CHANNEL_ID"
+```
+
+### Email Provider
+
+通过 SMTP 发送邮件。
+
+**配置：**
+
+```yaml
+providers:
+  email:
+    type: email
+    enabled: false
+    config:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "$EMAIL_USERNAME"
+      password: "$EMAIL_PASSWORD"
+      from: "$EMAIL_FROM"
+      from_name: "Herald"
+```
+
+**使用示例：**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "alert",
+    "title": "Test Alert",
+    "body": "This is a test email",
+    "level": "error",
+    "channels": ["email"]
+  }'
+```
+
+**指定收件人：**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "alert",
+    "title": "Test Alert",
+    "body": "This is a test email",
+    "level": "error",
+    "channels": ["email"],
+    "recipients": {
+      "email": ["user1@example.com", "user2@example.com"]
+    }
+  }'
+```
+
+### Webhook Provider
+
+通用 Webhook Provider，可向任意 URL 发送 POST 请求。
+
+**配置：**
+
+```yaml
+providers:
+  webhook:
+    type: webhook
+    enabled: false
+    config:
+      url: "$WEBHOOK_URL"
+      method: "POST"
+      headers:
+        Authorization: "Bearer your_webhook_token"
+```
+
+**发送格式：**
+
+```json
+{
+  "id": "task-id",
+  "provider": "webhook",
+  "level": "error",
+  "targets": ["group:ops"],
+  "timestamp": "2026-05-18T12:00:00Z",
+  "title": "Test Alert",
+  "body": "This is a test",
+  "raw": {"custom": "field"}
+}
+```
+
+### SMS Providers
+
+#### 阿里云短信
+
+```yaml
+providers:
+  aliyunsms:
+    type: aliyunsms
+    enabled: false
+    config:
+      access_key_id: "$ALIYUN_ACCESS_KEY_ID"
+      access_key_secret: "$ALIYUN_ACCESS_KEY_SECRET"
+      sign_name: "$ALIYUN_SMS_SIGN_NAME"
+      region: "cn-hangzhou"
+```
+
+#### 腾讯云短信
+
+```yaml
+providers:
+  tencentsms:
+    type: tencentsms
+    enabled: false
+    config:
+      secret_id: "$TENCENT_SECRET_ID"
+      secret_key: "$TENCENT_SECRET_KEY"
+      app_id: "$TENCENT_SMS_APP_ID"
+      region: "ap-guangzhou"
+```
+
+#### 网易云信短信
+
+```yaml
+providers:
+  neteasesms:
+    type: neteasesms
+    enabled: false
+    config:
+      app_key: "$NETEASE_APP_KEY"
+      app_secret: "$NETEASE_APP_SECRET"
+```
+
+### WeChat Provider
+
+微信个人推送，三选一后端：Server酱（默认）/ PushPlus / WxPusher，由 `service` 键选择（见 [Provider 手册](/providers/wechat)）。
+
+```yaml
+providers:
+  wechat:
+    type: wechat
+    enabled: false
+    config:
+      send_key: "$WECHAT_SERVERCHAN_SEND_KEY"
+```
+
+### 其余内置 Provider
+
+移动端推送四件套与公众号的完整配置见 [Provider 手册](/providers/overview)，这里只列类型名：
+
+| type | 渠道 |
+|------|------|
+| `fcm` | Firebase Cloud Messaging |
+| `apns` | Apple Push Notification service |
+| `jpush` | 极光推送 |
+| `getui` | 个推 |
+| `wechatmp` | 微信公众号（模板消息/客服消息） |
+| `worker` | 远程 Worker 代理（不是真实渠道，转发给 Worker 进程执行） |
+
+## 自定义 Builtin Provider
+
+创建自定义 Provider：
+
+```go
+package myprovider
+
+import (
+    "context"
+    "github.com/cuihairu/herald/core"
+)
+
+type Provider struct {
+    name string
+}
+
+func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
+    // 实现发送逻辑
+    return nil
+}
+
+func (p *Provider) Name() string {
+    return p.name
+}
+
+func (p *Provider) Type() string {
+    return "myprovider"
+}
+
+func (p *Provider) Status() *core.ProviderStatus {
+    return &core.ProviderStatus{
+        Name:   p.name,
+        Type:   "myprovider",
+        Status: "available",
+    }
+}
+
+type Factory struct{}
+
+func (f *Factory) Create(config map[string]interface{}) (core.Provider, error) {
+    return &Provider{name: "myprovider"}, nil
+}
+
+func (f *Factory) Name() string {
+    return "myprovider"
+}
+
+func (f *Factory) Type() string {
+    return "myprovider"
+}
+```
+
+在 `providers/builtin/registry/registry.go` 中注册：
+
+```go
+import "github.com/cuihairu/herald/providers/builtin/myprovider"
+
+func RegisterBuiltinProviders(manager *runtime.Manager) {
+    // ...
+    manager.RegisterFactory(&myprovider.Factory{})
+}
+```

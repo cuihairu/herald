@@ -1,23 +1,21 @@
-> 中文 · [English](./library-usage.en.md)
+# Using Herald as a Go Library
 
-# 作为 Go 库使用
+Herald has two usage forms, both sharing the same core pipeline (queue, routing, dedup, templates, Providers):
 
-Herald 有两种使用形态，二者共享同一套核心管道（队列、路由、去重、模板、Provider）：
+- **CLI gateway** (`cmd/heraldd`): a standalone process with a REST API and Dashboard, suitable for deployment as an organization-wide notification gateway; see [Getting Started](/guide/getting-started).
+- **Go library** (this page): `import "github.com/cuihairu/herald"` in your own process and use a single `App` instance for enqueuing and delivery — suitable for embedding notification capabilities directly into your own services.
 
-- **CLI 网关**（`cmd/heraldd`）：独立进程，REST API + Dashboard，适合作为组织级通知网关部署，见[快速开始](/guide/getting-started)。
-- **Go 库**（本篇）：在你的进程里 `import "github.com/cuihairu/herald"`，用一个 `App` 实例完成入队与投递，适合把通知能力直接嵌进自己的服务。
+By default, the library form depends on no external services: an in-memory queue plus a local worker pool, drained gracefully when the process exits.
 
-库形态默认不依赖任何外部服务：内存队列加本地 worker 池，进程退出时优雅排空。
+## Installation
 
-## 安装
-
-Herald 是单一 Go module（single module），一个依赖即可获得 facade 与全部内置渠道：
+Herald is a single Go module; one dependency gives you the facade and all built-in channels:
 
 ```bash
 go get github.com/cuihairu/herald
 ```
 
-## 60 秒上手
+## 60-Second Quickstart
 
 ```go
 package main
@@ -54,91 +52,91 @@ func main() {
 }
 ```
 
-可运行的最小工程见仓库目录 `examples/quickstart`；标准库 Example 形式的示例见根包的 `ExampleNew`。
+A runnable minimal project lives in the repository at `examples/quickstart`; an example in the standard library's Example form is provided as `ExampleNew` in the root package.
 
 ## Facade API
 
-`github.com/cuihairu/herald`（根包）是库用户的推荐入口，暴露一个构造函数与 App 上的 11 个方法：
+`github.com/cuihairu/herald` (the root package) is the recommended entry point for library users, exposing one constructor and 11 methods on `App`:
 
-| API | 语义 |
+| API | Semantics |
 | --- | --- |
-| `New(cfg *config.Config) (*App, error)` | 构建 App 并在后台启动投递池。`cfg` 为 `nil` 时全部走默认值；`cfg.Providers` 中声明的渠道会在返回前创建并注册，任一失败则中止构建（已创建的资源会被回收）。`audiences`/`recipients` 表非法同样中止构建 |
-| `(*App).Dispatch(ctx, n *core.Notification) (*service.ProcessResult, error)` | 异步投递：渠道解析、模板渲染、去重在调用内同步完成并在此报错，实际发送由后台池执行 |
-| `(*App).DispatchSync(ctx, n) (*service.ProcessResult, error)` | 同步投递：在 `Dispatch` 语义之上，阻塞直到该通知产生的每个任务都被 Ack（成功）或 Nack（失败），或 `ctx` 结束 |
-| `(*App).Runtime() *core/runtime.Manager` | Provider 管理器，用于注册自定义渠道、启停渠道、查询投递日志 |
-| `(*App).Queue() core.Queue` | 底层队列，一般仅在需要旁路观测（如积压深度）时使用 |
-| `(*App).Groups() *core/groups.Manager` | 通知群组管理器：`group:` 引用的运行时 CRUD 入口 |
-| `(*App).Rules() *core/rules.Engine` | 规则引擎：保存时编译表达式，`Put`/`Delete` 对下一次投递生效 |
-| `(*App).Acks() *core/ack.MemoryStore` | 告警确认存储（升级定时器查阅同一份） |
-| `(*App).AckAlert(ctx, alertID, ackedBy, source)` | 确认告警：写确认存储并在事件账本上落账，与 HTTP ack API 同一对齐 |
-| `(*App).Escalation() *core/escalation.Manager` | 未确认升级管理器 |
-| `(*App).Incidents() *core/incident.Store` | 事件账本：规则路由的投递开事件、确认与恢复关事件 |
-| `(*App).Close() error` | 优雅关闭：停止投递池并等待其排空，再关队列、关渠道。关闭后 `Dispatch` 返回错误 |
+| `New(cfg *config.Config) (*App, error)` | Builds the App and starts the delivery pool in the background. When `cfg` is `nil`, everything falls back to defaults; channels declared in `cfg.Providers` are created and registered before return, and any failure aborts construction (resources already created are reclaimed). Invalid `audiences`/`recipients` tables likewise abort construction. |
+| `(*App).Dispatch(ctx, n *core.Notification) (*service.ProcessResult, error)` | Asynchronous delivery: channel resolution, template rendering, and dedup complete synchronously within the call and errors are reported here; the actual sending is performed by the background pool. |
+| `(*App).DispatchSync(ctx, n) (*service.ProcessResult, error)` | Synchronous delivery: on top of `Dispatch` semantics, blocks until every task produced by the notification has been Acked (success) or Nack'ed (failure), or until `ctx` ends. |
+| `(*App).Runtime() *core/runtime.Manager` | Provider manager, used to register custom channels, enable/disable channels, and query delivery logs. |
+| `(*App).Queue() core.Queue` | The underlying queue; generally only used for side-channel observation (e.g. backlog depth). |
+| `(*App).Groups() *core/groups.Manager` | Notification group manager: the runtime CRUD entry for `group:` references. |
+| `(*App).Rules() *core/rules.Engine` | Rule engine: compiles expressions on save; `Put`/`Delete` take effect on the next delivery. |
+| `(*App).Acks() *core/ack.MemoryStore` | Alert acknowledgment store (the escalation timers read from the same store). |
+| `(*App).AckAlert(ctx, alertID, ackedBy, source)` | Acknowledge an alert: writes to the ack store and records an entry in the incident ledger, aligned with the HTTP ack API. |
+| `(*App).Escalation() *core/escalation.Manager` | Manager for unacknowledged escalations. |
+| `(*App).Incidents() *core/incident.Store` | Incident ledger: rule-routed deliveries open incidents; acknowledgments and recovery close them. |
+| `(*App).Close() error` | Graceful shutdown: stops the delivery pool and waits for it to drain, then closes the queue and the channels. After closing, `Dispatch` returns an error. |
 
-`App` 对并发 `Dispatch` 安全；`Close` 只应调用一次。
+`App` is safe for concurrent `Dispatch` calls; `Close` should be called only once.
 
-## 默认值
+## Defaults
 
-`New` 对零值字段填充默认（只补零值，不覆盖显式配置）：
+`New` fills in defaults for zero-value fields (only zero values are filled; explicit configuration is never overwritten):
 
-| 配置项 | 默认值 | 说明 |
+| Option | Default | Description |
 | --- | --- | --- |
-| `Queue.Type` | `memory` | 内存队列，无需外部依赖 |
-| `Queue.Size` | `10000` | 队列容量 |
-| `Queue.Workers` | `NumCPU*2+1` | 本地投递并发度 |
-| `Dedup.Window` | `5m` | 去重窗口（去重开关 `Dedup.Enabled` 取自传入配置，`config.Default()` 中为 `true`） |
-| `Retry.Max` | `3` | 重试上限 |
-| `Retry.Backoff` | `exponential` | 退避策略 |
-| `Retry.InitialDelay` / `MaxDelay` | `1s` / `1m` | 退避区间 |
+| `Queue.Type` | `memory` | In-memory queue, no external dependencies. |
+| `Queue.Size` | `10000` | Queue capacity. |
+| `Queue.Workers` | `NumCPU*2+1` | Local delivery concurrency. |
+| `Dedup.Window` | `5m` | Dedup window (the dedup switch `Dedup.Enabled` comes from the provided config; it is `true` in `config.Default()`). |
+| `Retry.Max` | `3` | Retry limit. |
+| `Retry.Backoff` | `exponential` | Backoff strategy. |
+| `Retry.InitialDelay` / `MaxDelay` | `1s` / `1m` | Backoff range. |
 
-## 配置方式
+## Configuration
 
-两种等价入口：
+Two equivalent entry points:
 
 ```go
-cfg := config.Default()   // 代码内改字段
-cfg, err := config.Load("herald.yaml") // 从 YAML 文件读取
+cfg := config.Default()   // modify fields in code
+cfg, err := config.Load("herald.yaml") // load from a YAML file
 ```
 
-`config.Config` 的字段与 CLI 形态的配置文件完全一致（`Server`、`Providers`、`Routes`、`Queue`、`Retry`、`Dedup`、`Templates` 等），因此同一份 YAML 既可用于 `cmd/heraldd` 也可用于库形态。投递相关的键（`Providers`/`Routes`/`level_routes`/`channels`/`audiences`/`recipients`/`groups`/`rules`/`templates`/`dedup`/`retry`/队列与升级、事件账本存储）在两种形态下接线一致；库形态下只有面向 HTTP 服务的字段不生效：`Server`/`WebSocket`/`Auth`/`Worker`/`card_callback`/`rosters_store`（值班表是外部排班系统推送进来的，库形态没有该入口，规则的 `silence.roster` 门一律放行）。另有 `cfg.ExpandEnv()`（展开 `$VAR` 形式的环境变量）与 `cfg.Validate()` 可按需调用。
+The fields of `config.Config` are exactly the same as the CLI form's configuration file (`Server`, `Providers`, `Routes`, `Queue`, `Retry`, `Dedup`, `Templates`, etc.), so the same YAML works both for `cmd/heraldd` and for the library form. Delivery-related keys (`Providers`/`Routes`/`level_routes`/`channels`/`audiences`/`recipients`/`groups`/`rules`/`templates`/`dedup`/`retry`, plus the queue, escalation, and incident ledger stores) are wired identically in both forms; in the library form only the HTTP-service-facing fields have no effect: `Server`/`WebSocket`/`Auth`/`Worker`/`card_callback`/`rosters_store` (the on-call roster is pushed in by an external scheduling system, for which the library form has no intake, so the rule engine's `silence.roster` gate always passes). Additionally, `cfg.ExpandEnv()` (expands `$VAR`-style environment variables) and `cfg.Validate()` can be called as needed.
 
-渠道声明示例：
+Example channel declaration:
 
 ```go
 cfg.Providers["feishu-ops"] = config.ProviderConfig{
     Type:   "feishu",
     Config: map[string]interface{}{"webhook_url": "..."},
-    // Enabled: nil 等价于启用
+    // Enabled: nil is equivalent to enabled
 }
 ```
 
-## 路由与渠道选择
+## Routing and Channel Selection
 
-一条 `core.Notification` 到达目标渠道的解析顺序：
+The resolution order by which a `core.Notification` reaches its target channels:
 
-1. `n.Channels` 非空：逐项解析列出的引用：provider 实例名（`Providers` 键或 `Runtime()` 注册名）直接使用；`group:<id>` 展开为群组成员；`user:<id>` 展开为该受众/收件人的端点；普通名字先查 `channels` 渠道块（展开成 provider 列表），都不是则按字面渠道名处理并在入队前报「provider not found」。
-2. `n.Channels` 为空：先查静态路由 `cfg.Routes[n.Type]`，未命中再查 `cfg.LevelRoutes[n.Level]`。
-3. 两者皆无：`Dispatch` 返回 `no route found` 错误。**注册了渠道不等于会被路由到**。
+1. If `n.Channels` is non-empty: each listed reference is resolved in turn — a provider instance name (a `Providers` key or a name registered via `Runtime()`) is used directly; `group:<id>` expands to the group members; `user:<id>` expands to that audience/recipient's endpoints; a plain name is first looked up in the `channels` block (expanded into a provider list); if none of these match, it is treated as a literal channel name and reported as `provider not found` before enqueueing.
+2. If `n.Channels` is empty: the static route `cfg.Routes[n.Type]` is consulted first; on a miss, `cfg.LevelRoutes[n.Level]`.
+3. If neither exists: `Dispatch` returns a `no route found` error. **Registering a channel does not mean traffic will be routed to it.**
 
-## 去重
+## Dedup
 
-`Dedup.Enabled`（`config.Default()` 中开启）时，窗口期内内容相同的重复通知会被抑制：返回的 `ProcessResult.TaskIDs` 为空、无错误，且不会产生投递。业务侧可据此区分「已接受」与「被去重」。
+When `Dedup.Enabled` is on (it is on in `config.Default()`), repeated notifications with identical content are suppressed within the window: the returned `ProcessResult.TaskIDs` is empty, there is no error, and no delivery is produced. Callers can use this to distinguish "accepted" from "deduped".
 
-## 投递语义与错误分层
+## Delivery Semantics and Error Layering
 
-`ProcessResult` 的字段把结果分为三层，理解这一点可以避免误报错误：
+The fields of `ProcessResult` divide the outcome into three layers; understanding this avoids misreported errors:
 
-| 层 | 字段 | 时机 |
+| Layer | Fields | When |
 | --- | --- | --- |
-| 接受成功 | `Accepted`、`TaskIDs` | 渠道解析通过、任务已入队（`Dispatch` 返回即入队完成） |
-| 渠道级失败 | `Failed []ChannelError` | **入队前**的失败：渠道不存在、渠道未启用等 |
-| 投递失败 | `DispatchSync` 返回的 `error` | **入队后**发送失败（Provider `Deliver` 返回错误）；此层不进 `Failed` |
+| Accepted | `Accepted`, `TaskIDs` | Channel resolution passed and tasks enqueued (by the time `Dispatch` returns, enqueueing is complete). |
+| Channel-level failure | `Failed []ChannelError` | Failures **before enqueueing**: channel does not exist, channel not enabled, etc. |
+| Delivery failure | the `error` returned by `DispatchSync` | Send failures **after enqueueing** (the Provider's `Deliver` returned an error); this layer does not go into `Failed`. |
 
-对 `Dispatch`（异步）而言，投递失败发生在后台，错误只记录在投递日志中，可通过 `app.Runtime().GetLogs(...)` 观测；需要拿到投递结果请用 `DispatchSync`。
+For `Dispatch` (asynchronous), delivery failures happen in the background; errors are only recorded in the delivery logs and can be observed via `app.Runtime().GetLogs(...)`. If you need the delivery outcome, use `DispatchSync`.
 
-## 自定义 Provider
+## Custom Providers
 
-实现 `core.Provider` 四个方法，注册即用：
+Implement the four methods of `core.Provider` and it works as soon as it is registered:
 
 ```go
 type echoProvider struct{}
@@ -151,44 +149,44 @@ func (echoProvider) Name() string                 { return "echo" }
 func (echoProvider) Type() string                 { return "echo" }
 func (echoProvider) Status() *core.ProviderStatus { return &core.ProviderStatus{Name: "echo", Type: "echo", Status: "ok"} }
 
-// 构建后注册
+// register after building
 _ = app.Runtime().RegisterProvider("echo", echoProvider{}, true)
 ```
 
-若希望自定义渠道也走 `cfg.Providers` 配置化创建，实现 `core.ProviderFactory` 并 `Runtime().RegisterFactory(...)`，随后在配置里声明 `Type` 指向它。
+If you also want a custom channel to go through config-driven creation via `cfg.Providers`, implement `core.ProviderFactory` and register it with `Runtime().RegisterFactory(...)`, then declare a `Type` pointing at it in the configuration.
 
-## 生命周期与并发
+## Lifecycle and Concurrency
 
-- `New` 返回即代表投递池已在后台运行，可直接 `Dispatch`。
-- `Close` 的顺序是先停池、等排空，再关队列、关渠道，保证不会丢失已接受的任务，也不会在关闭中的队列上取到零值任务。
-- 典型嵌入模式：`New` 一次、随服务进程存活，`http.Server` 关闭后 `defer app.Close()`。
+- Once `New` returns, the delivery pool is already running in the background and you can `Dispatch` immediately.
+- `Close` first stops the pool and waits for it to drain, then closes the queue and the channels, guaranteeing that accepted tasks are never lost and that no zero-value task is ever popped from a queue that is being closed.
+- Typical embedding pattern: call `New` once, let it live as long as the service process, and `defer app.Close()` after the `http.Server` shuts down.
 
-## 导出面清单
+## Exported Surface Inventory
 
-库形态的稳定面由以下公开包构成（`internal/` 目录不属于任何承诺）：
+The stable surface of the library form consists of the following public packages (the `internal/` directory carries no compatibility promise):
 
-| 包 | 角色 | 关键导出 |
+| Package | Role | Key exports |
 | --- | --- | --- |
-| `github.com/cuihairu/herald` | facade（推荐入口） | `App`、`New`、`Dispatch`、`DispatchSync`、`Runtime`、`Queue`、`Groups`、`Rules`、`Acks`、`AckAlert`、`Escalation`、`Incidents`、`Close` |
-| `config` | 配置模型 | `Config`、`Default`、`Load`、`Validate`、`ExpandEnv`；`ProviderConfig`、`QueueConfig`、`RetryConfig`、`DedupConfig`、`ChannelConfig` 等 |
-| `core` | 领域模型与接口 | `Notification`、`DirectContent`、`DeliveryTask`、`DeliveryPayload`、`RenderedContent`、`Provider`、`ProviderFactory`、`ProviderStatus`、`ProviderCapability`、`Queue`、`BuiltinProvider`、`CapableProvider`、`WorkerProvider`、`MaskConfig` |
-| `core/service` | 处理管道 | `NotificationService`、`ProcessResult`、`ChannelError`、`DeliveryPlanner` |
-| `core/runtime` | Provider 管理 | `Manager`（`RegisterProvider`、`RegisterFactory`、`Enable`/`Disable`、`GetLogs` 等投递日志查询） |
-| `core/queue` | 队列实现 | `NewQueue`、`NewMemoryQueue`、`NewRedisQueue`、`QueueConfig` |
-| `core/route` | 静态路由 | `Router`（type 表、`level_routes` 表、`channels` 渠道块） |
-| `core/dedup` | 内容去重 | `Dedup` |
-| `core/retry` | 重试策略 | `Config` |
-| `core/errclass` | 错误六分类 | `Of`、`Class`（temporary/permanent/rate_limited/authentication/invalid_request/timeout） |
-| `core/logstore` | 投递日志存储 | `TaskLog`、`Filter`、`Stats` |
-| `core/template` | 模板系统 | `Manager`、`TemplateConfig` |
-| `core/audience` | `user:` 受众 | `Manager`、`Audience`、`Recipient`、`Endpoint` |
-| `core/groups` | 通知群组 | `Group`、`Manager` |
-| `core/rules` | 规则引擎 | `Engine`、`Rule`、`PolicyAllow`/`PolicyDeny` |
-| `core/roster` | 值班表 | `Manager`（silence 静默日程读面） |
-| `core/ack` / `core/escalation` / `core/incident` | 告警确认与事件账本 | `Store`、`Manager`、`Store` |
-| `core/worker` | 本地投递池 | `Pool`、`Registry` |
-| `providers/builtin/registry` | 内置渠道注册 | `RegisterBuiltinProviders` |
-| `providers/builtin/*` | 内置渠道实现 | `log`、`webhook`、`email`、`slack`、`telegram`、`discord`、`feishu`、`dingtalk`、`wecom`、`wechat`、`wechatmp`、`aliyunsms`、`tencentsms`、`neteasesms`、`fcm`、`apns`、`jpush`、`getui`，以及转发远程 Worker 的 `worker` 类型 |
-| `worker-sdk/go`（包 `sdk`） | 远程 Worker 客户端 | 自定义 Runtime 侧对接 Herald 的 SDK |
+| `github.com/cuihairu/herald` | facade (recommended entry point) | `App`, `New`, `Dispatch`, `DispatchSync`, `Runtime`, `Queue`, `Groups`, `Rules`, `Acks`, `AckAlert`, `Escalation`, `Incidents`, `Close` |
+| `config` | Configuration model | `Config`, `Default`, `Load`, `Validate`, `ExpandEnv`; `ProviderConfig`, `QueueConfig`, `RetryConfig`, `DedupConfig`, `ChannelConfig`, etc. |
+| `core` | Domain models and interfaces | `Notification`, `DirectContent`, `DeliveryTask`, `DeliveryPayload`, `RenderedContent`, `Provider`, `ProviderFactory`, `ProviderStatus`, `ProviderCapability`, `Queue`, `BuiltinProvider`, `CapableProvider`, `WorkerProvider`, `MaskConfig` |
+| `core/service` | Processing pipeline | `NotificationService`, `ProcessResult`, `ChannelError`, `DeliveryPlanner` |
+| `core/runtime` | Provider management | `Manager` (`RegisterProvider`, `RegisterFactory`, `Enable`/`Disable`, `GetLogs`, and other delivery log queries) |
+| `core/queue` | Queue implementations | `NewQueue`, `NewMemoryQueue`, `NewRedisQueue`, `QueueConfig` |
+| `core/route` | Static routing | `Router` (the type table, the `level_routes` table, the `channels` block) |
+| `core/dedup` | Content dedup | `Dedup` |
+| `core/retry` | Retry policy | `Config` |
+| `core/errclass` | Six-way error classification | `Of`, `Class` (temporary/permanent/rate_limited/authentication/invalid_request/timeout) |
+| `core/logstore` | Delivery log storage | `TaskLog`, `Filter`, `Stats` |
+| `core/template` | Template system | `Manager`, `TemplateConfig` |
+| `core/audience` | `user:` audiences | `Manager`, `Audience`, `Recipient`, `Endpoint` |
+| `core/groups` | Notification groups | `Group`, `Manager` |
+| `core/rules` | Rule engine | `Engine`, `Rule`, `PolicyAllow`/`PolicyDeny` |
+| `core/roster` | On-call roster | `Manager` (the read surface for silence schedules) |
+| `core/ack` / `core/escalation` / `core/incident` | Alert acknowledgment and incident ledger | `Store`, `Manager`, `Store` |
+| `core/worker` | Local delivery pool | `Pool`, `Registry` |
+| `providers/builtin/registry` | Built-in channel registration | `RegisterBuiltinProviders` |
+| `providers/builtin/*` | Built-in channel implementations | `log`, `webhook`, `email`, `slack`, `telegram`, `discord`, `feishu`, `dingtalk`, `wecom`, `wechat`, `wechatmp`, `aliyunsms`, `tencentsms`, `neteasesms`, `fcm`, `apns`, `jpush`, `getui`, and the `worker` type that forwards to remote Workers |
+| `worker-sdk/go` (package `sdk`) | Remote Worker client | SDK for a custom Runtime side to integrate with Herald |
 
-版本兼容承诺：facade（根包）与上表公开包的导出签名遵循 Go 模块语义化版本；`internal/` 与各包未导出成员随时可能调整。
+Version compatibility promise: the exported signatures of the facade (root package) and of the public packages in the table above follow Go module semantic versioning; `internal/` and unexported members of any package may change at any time.

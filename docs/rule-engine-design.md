@@ -1,203 +1,201 @@
-> 中文 · [English](./rule-engine-design.en.md)
+# Notification Rule Engine Upgrade Design
 
-# 通知规则引擎升级设计
+> Status: **trunk capabilities implemented** (the trunk capabilities of P1–P3 are all landed, cross-checked item by item against main on 2026-09-27, receipt at the end "Implementation Receipt"). The "status quo" descriptions at the time of writing are kept as a pre-implementation snapshot; the gaps that have since closed (the orphan limiter module, retry not retryable) are explained in the receipt section. The receipt review turned up two more deviations between design and landing (shadow statistics were only an in-process cumulative count, the silence window had no timezone or on-call schedule), which have been rewritten per the facts and marked cell by cell in the table; both deviations have since been filled in (shadow window counts 2026-10-03, silence timezone 2026-10-03, on-call schedule placeholder 2026-10-04). **The "Difference" column in the receipt table is verifiable cell by cell, not a single "implemented"**.
 
-> 状态：**主干能力已实施**（P1–P3 的主干能力全部落地，2026-09-27 对照 main 逐项核对，回执见文末「实施回执」）。本文写作时的"现状"描述保留为实施前快照；其中已闭合的缺口（limiter 孤儿模块、retry 不可重试）在回执一节说明。回执复审又查出两处设计与落地的偏差（影子统计只有进程内累计计数、静默窗没有时区与值班表），已按事实改写并在表中逐格标注；两处偏差后续均已补齐（影子窗口计数 2026-10-03、静默时区 2026-10-03、值班表排班占位 2026-10-04）。**回执表里的"差异"列是逐格可核的，不是一句"已实施"**。
+## 1. Positioning: From "Event-Driven Delivery" to a "Programmable Alert Platform"
 
-## 一、定位：从"事件驱动投递"到"可编程告警平台"
+**Status quo**: herald today is roughly **ntfy + channel breadth**. The caller (CI, monitoring scripts, business code) comes with an explicit intent `POST /api/notify` (`HandleNotify` in `api/handler_notify.go`), and herald's job is to take this `Notification` (`core/types.go`) through dedup, routing, template rendering, task splitting (`Process` in `core/service/notification.go`), push it into the queue, and finally have the worker pool deliver it to 14 classes of built-in channels (`providers/builtin/`: aliyunsms, dingtalk, discord, email, feishu, log, neteasesms, slack, telegram, tencentsms, webhook, wechat, wechatmp, wecom, supporting multiple instances of the same name). In this chain **every single thing is "what to do when an event arrives"**: herald itself makes no judgment, all judgment is in the caller.
 
-**现状**：herald 今天约等于 **ntfy + 渠道广度**。调用方（CI、监控脚本、业务代码）带着一个明确意图 `POST /api/notify`（`api/handler_notify.go` 的 `HandleNotify`），herald 的职责是把这条 `Notification`（`core/types.go`）经过去重、路由、模板渲染、任务拆分（`core/service/notification.go` 的 `Process`），推入队列，最后由 worker 池投递到 14 类内置渠道（`providers/builtin/`：aliyunsms、dingtalk、discord、email、feishu、log、neteasesms、slack、telegram、tencentsms、webhook、wechat、wechatmp、wecom，支持同名多实例）。这条链路里**每一件事都是"事件来了做什么"**：herald 自己不做任何判断，判断全部在调用方。
+**Why this is a problem**: the judgment logic of alert scenarios ("failure rate over 5% and in production", "lasting 3 minutes before it counts as a real fault") is forced upstream into every caller. Ten teams onboarding means writing the same judgment ten times, and changing a threshold means shipping ten times. The callers are usually CI scripts that do not understand alert discipline, and the result is alert storms. The cost of the storm is borne by the channels (Feishu flooding, SMS burning money).
 
-**为什么这是问题**：告警场景的判断逻辑（"失败率超 5% 且在生产环境"、"持续 3 分钟才算真故障"）被迫前移到每一个调用方。十个团队接入就要把同一套判断写十遍，阈值改一次要发十次版。调用方通常是不懂告警纪律的 CI 脚本，结果就是告警风暴。风暴的代价由渠道承担（飞书刷屏、短信烧钱）。
+**Upgrade goal**: make it "**an Alertmanager whose rules can be configured from the backend, but with its own channel breadth**". Alertmanager's route-tree/inhibit/silence model has been production-validated over ten years, but its rules are hardcoded in a config file, and changing one route requires a release; herald's existing channel breadth (including domestic IM/SMS) is something Alertmanager does not have. The join point of the two is exactly: **bring Alertmanager's judgment model in, and move the configuration authority of judgment from the config file to the database backend**.
 
-**升级目标**：做成"**可以在后台配规则的 Alertmanager，但渠道广度是自己的**"。Alertmanager 的路由树/抑制/静默模型经过十年生产验证，但它的规则写死在配置文件里，改一条路由要走一次发布；herald 已有的渠道广度（含国内 IM/短信）是 Alertmanager 不具备的。两者结合点就是：**把 Alertmanager 的判断模型搬进来，把判断的配置权从配置文件搬到数据库后台**。
+**The evolution path has four layers**, each producing value independently, without a big-bang rewrite:
 
-**演进路径分四层**，每层独立产生价值，不做大爆炸式重写：
+1. **Static config routing** (status quo): `routes`/`level_routes` in yaml (`core/route/router.go`), changing config requires a restart;
+2. **Dynamic rules**: rules stored in DB, backend CRUD + hot reload, match conditions upgraded from "type equality" to "expression evaluation";
+3. **Stateful judgment**: `for` duration judgment, `group_by` aggregation, inhibit. Judgment depends on historical events, no longer a pure function;
+4. **ACK closed loop**: sending an alert is not the end point; acknowledge, timeout escalation, and incident records form a closed loop.
 
-1. **静态配置路由**（现状）：yaml 里的 `routes`/`level_routes`（`core/route/router.go`），改配置要重启；
-2. **动态规则**：规则存 DB，后台 CRUD + 热加载，匹配条件从"类型相等"升级为"表达式求值"；
-3. **有状态判断**：`for` 持续判定、`group_by` 聚合、抑制（inhibit）。判断依赖历史事件，不再是纯函数；
-4. **ACK 闭环**：告警发出去不是终点，确认（acknowledge）、超时升级、事故记录形成闭环。
+## 2. Where the Existing Modules Sit in the New Architecture
 
-## 二、现有模块在新架构中的位置
+The upgrade is not a teardown and rebuild. The five existing core modules happen to form the lower body of the new architecture; let me explain one by one where they stay and why they stay there:
 
-升级不是推倒重来。现有五个 core 模块恰好构成新架构的下半身，逐个说明它们留在哪里、为什么留在那里：
-
-| 模块 | 现状（真实代码） | 在新架构中的角色 | 为什么是它 |
+| Module | Status quo (real code) | Role in the new architecture | Why it |
 |---|---|---|---|
-| `core/route` | 静态 map：`Route(type, level)` 先按类型后按级别查渠道列表，`SetRoute` 运行时可改但仅内存态 | 保留为**兜底路由**。规则引擎命中后产生的渠道列表优先，未命中规则的流量回落到现有静态路由 | 兜底路由保证"规则引擎全挂/全不命中"时系统行为与今天完全一致，这是渐进迁移的安全网 |
-| `core/dedup` | 进程内 map + 时间窗（默认 5 分钟），key 为通知内容 sha256（`notification.go` 的 `dedupKey`） | 保留，位置**从 ingress 前移到规则求值后**；有状态规则上线后底层存储与规则状态共用 Redis 方案（见 §四.1） | 去重和持续判定都是"对同一逻辑实体的事件序列做决策"，拆在两层会各自为政；但 dedup 现有语义简单可靠，规则引擎不必重造它 |
-| `core/limiter` | TokenBucket（`limiter.go`）实现完整（Allow/Wait/Reservation），`Manager` 按 provider 维度管理；**当前没有任何调用方接线，是孤儿模块** | 正式接线到投递侧：规则引擎会放大单条事件的投递量（一条命中 N 条规则），渠道限流从"建议"变成"必须" | 规则引擎最大的运营风险就是规则写错导致渠道风暴，limiter 是最后的安全阀；模块已写好只差接线，是升级中性价比最高的一步 |
-| `core/retry` | `Retryer.Execute` + 指数/固定退避；注意现状：`ShouldRetry` 只认 `*RetryableError`，而代码库中没有任何 provider 构造该类型，**因此当前实际几乎不发生重试** | 规则引擎不改它，但 P1 顺带把"哪些错误可重试"的判定修正（provider 返回 429/5xx 时包一层 `NewRetryableError`） | 升级会提高单渠道事件密度，重试语义不修正会放大失败重试风暴；这是已知债务，趁接线一起还 |
-| `core/logstore` | 内存环形日志（默认 1000 条），`runtime.Manager.Deliver` 中记录任务成败，`GET /api/logs` 可查 | 扩展为**影子模式（shadow mode）的数据落点**：规则求值结果（命中/未命中、本应触发）作为新日志类型写入，供后台预览 | 影子模式的核心诉求就是"记下来但不发出去"，logstore 已有记录-查询-统计骨架（`Stats`/`Filter`），加字段比新造存储省事 |
+| `core/route` | static map: `Route(type, level)` looks up the channel list first by type then by level; `SetRoute` is runtime-changeable but in-memory only | kept as the **fallback route**. The channel list produced after a rule-engine hit takes priority, and traffic with no rule hit falls back to the existing static route | the fallback route guarantees that "when the rule engine is fully down / matches nothing" system behavior is fully identical to today, the safety net of incremental migration |
+| `core/dedup` | in-process map + time window (default 5 minutes), key is the sha256 of the notification content (`dedupKey` in `notification.go`) | kept, position **moved from before ingress to after rule evaluation**; once stateful rules go live the underlying storage shares the Redis scheme with rule state (see §4.1) | both dedup and duration judgment are "making a decision on the event sequence of the same logical entity", and splitting them into two layers makes each go its own way; but dedup's existing semantics are simple and reliable, and the rule engine need not rebuild it |
+| `core/limiter` | TokenBucket (`limiter.go`) fully implemented (Allow/Wait/Reservation), `Manager` manages by provider dimension; **currently no caller is wired, it is an orphan module** | formally wired to the delivery side: the rule engine amplifies the delivery volume of a single event (one event hitting N rules), and channel rate limiting goes from "advisory" to "mandatory" | the biggest operational risk of the rule engine is a miswritten rule causing a channel storm, and limiter is the last safety valve; the module is written and only lacks wiring, the highest value-for-effort step in the upgrade |
+| `core/retry` | `Retryer.Execute` + exponential/fixed backoff; note the status quo: `ShouldRetry` only recognizes `*RetryableError`, and no provider in the codebase constructs that type, **so currently retries almost never actually happen** | the rule engine does not change it, but P1 incidentally fixes the "which errors are retryable" judgment (wrap a `NewRetryableError` when a provider returns 429/5xx) | the upgrade raises per-channel event density, and an unfixed retry semantics amplifies a failure-retry storm; this is known debt, repaid along with the wiring |
+| `core/logstore` | in-memory ring log (default 1000 entries), records task success/failure in `runtime.Manager.Deliver`, queryable via `GET /api/logs` | extended into the **data sink for shadow mode**: rule-evaluation results (hit/miss, would-have-fired) written as a new log type for backend preview | the core requirement of shadow mode is exactly "record it but do not send it", and logstore already has a record-query-statistics skeleton (`Stats`/`Filter`), so adding fields saves more effort than building new storage |
 
-不直接参与但保持不变的：`core/queue`（memory/redis 双实现，Queue 接口 Push/Pop/Ack/Nack）、`core/template`（模板 + 渠道 Binding，规则引擎只决定"发不发/发到哪"，不碰渲染）、`core/runtime.Manager`（投递编排：限流未接、重试在此、日志在此，见 `manager.go` 的 `Deliver`）、`core/worker`（Pool 消费循环）。**规则引擎全部放在入队之前和后台面，队列与投递链路零改动**。为什么：投递链路是当前系统最稳定的部分，覆盖率与测试都围绕它建立，动它风险最大、收益为零。
+Not directly involved but unchanged: `core/queue` (memory/redis dual implementation, Queue interface Push/Pop/Ack/Nack), `core/template` (template + channel Binding, the rule engine only decides "whether/where to send", it does not touch rendering), `core/runtime.Manager` (delivery orchestration: rate limiting not wired, retry here, logging here, see `Deliver` in `manager.go`), `core/worker` (Pool consume loop). **The rule engine is entirely placed before enqueueing and on the backend face, with zero change to the queue and delivery chain**. Why: the delivery chain is the most stable part of the current system, coverage and tests are built around it, changing it has the highest risk and zero benefit.
 
-## 三、规则模型
+## 3. Rule Model
 
-一条规则的完整形态（YAML 表示，实际存储为 DB 行）：
+The complete shape of a rule (YAML representation, actually stored as a DB row):
 
 ```yaml
 id: prod-payment-failure
-match: payload.fail_rate > 0.05 && env == "prod"   # 表达式求值
-for: 3m                                            # 持续判定防抖
-group_by: ["env", "service"]                       # 聚合维度
-inhibit:                                           # 抑制
+match: payload.fail_rate > 0.05 && env == "prod"   # expression evaluation
+for: 3m                                            # duration judgment anti-flap
+group_by: ["env", "service"]                       # aggregation dimensions
+inhibit:                                           # inhibit
   - match: cluster_down == true
     equal: ["env", "cluster"]
-route:                                             # 渠道选择（复用现有 14 类渠道）
+route:                                             # channel selection (reuses the existing 14 channel classes)
   - channels: [feishu-oncall]
   - match: level == "critical"
     channels: [wecom-boss, aliyunsms-duty]
 escalation:
-  ack_timeout: 5m                                  # 无人确认升级
+  ack_timeout: 5m                                  # escalate if no one acknowledges
   to: [phone-bridge]
-silence:                                           # 静默窗
+silence:                                           # silence window
   - window: "00:00-06:00"
     tz: "Asia/Shanghai"
     match: level != "critical"
 ```
 
-以下逐字段写清**为什么要有它**，以及设计取舍：
+The following writes out field by field **why it must exist**, along with design trade-offs:
 
-### match —— 表达式匹配
+### match —— expression matching
 
-**为什么**：静态路由只能问"通知的类型是什么"，规则要能问"通知的内容意味着什么"。`payload.fail_rate > 0.05 && env == "prod"` 把判断权交给写规则的人，herald 只负责安全地执行表达式（执行安全见 §四.2）。匹配的输入是通知的结构化视图（`Notification.Params` + `Level` + `Type` + 渠道无关元数据），不是渲染后的文本。对文本做正则匹配是脆弱的，模板一改规则全哑。
+**Why**: static routing can only ask "what type is the notification", whereas a rule must be able to ask "what does the notification's content mean". `payload.fail_rate > 0.05 && env == "prod"` hands the decision authority to whoever writes the rule, and herald is only responsible for safely executing the expression (execution safety see §4.2). The match input is the notification's structured view (`Notification.Params` + `Level` + `Type` + channel-agnostic metadata), not the rendered text. Regex-matching text is fragile — one template change and all rules go mute.
 
-### for —— 持续判定防抖
+### for —— duration judgment anti-flap
 
-**为什么**：单点事件大多是噪声。磁盘报警闪一下就消失、Pod 重启自己恢复了。如果每次都发，人会在第 10 次之后开始无视通知，这在告警工程里叫"狼来了效应"，比不发告警更糟（用户会连真故障一起屏蔽）。`for: 3m` 表示同一逻辑告警（按 group_by 归组）的条件**持续成立 3 分钟**才真正触发。代价是告警延迟 3 分钟，收益是噪声减少一个数量级。告警的价值密度比时效更重要，误报才是时效的最大敌人。
+**Why**: single-point events are mostly noise. A disk alarm flashes once and disappears, a Pod restarts and recovers on its own. If you send every time, people start ignoring notifications after the 10th time, which in alert engineering is called the "boy who cried wolf" effect, worse than not sending alerts at all (users will shield real faults along with it). `for: 3m` means the condition of the same logical alert (grouped by group_by) **must hold continuously for 3 minutes** before it truly fires. The cost is a 3-minute alert delay, the benefit is an order-of-magnitude reduction in noise. The value density of an alert matters more than its timeliness, and false positives are the biggest enemy of timeliness.
 
-### group_by —— 聚合
+### group_by —— aggregation
 
-**为什么**：一个集群挂掉会产生 200 个 Pod 的告警，没有聚合就是 200 条飞书消息。`group_by: ["env", "service"]` 把同组事件折叠成一条组通知（组内计数递增、首条详情+后续计数更新）。分组键的选择是运维语义：太粗（只按 env）会把无关故障搅在一起，太细（按 Pod 名）失去聚合意义，所以 group_by 必须可配，Alertmanager 十年经验证明没有万能默认值。
+**Why**: one cluster going down produces alerts for 200 Pods, and without aggregation that is 200 Feishu messages. `group_by: ["env", "service"]` folds same-group events into one group notification (the in-group count increments, the first entry's detail + subsequent count updates). The choice of grouping key is operations semantics: too coarse (only by env) mixes unrelated faults together, too fine (by Pod name) loses the meaning of aggregation, so group_by must be configurable — Alertmanager's ten years of experience prove there is no universal default.
 
-### inhibit —— 抑制
+### inhibit —— inhibit
 
-**为什么**：集群挂了，随之而来的是几十条"服务不可达"子告警。它们都是真的，但都已经没有行动价值，人只需要处理根因。抑制是"高级告警在场时压住低级告警"：`cluster_down == true` 的规则触发时，所有与之 `equal` 字段相等（同 env、同 cluster）的子规则进入抑制态。**为什么不用 match 过滤掉**：子告警仍然要记录、仍然要在根因恢复后补发摘要，抑制是"延迟展示"而非"丢弃"。这也是它必须做成独立字段而不是让用户改 match 的原因。
+**Why**: when a cluster goes down, dozens of "service unreachable" sub-alerts follow. They are all true, but they all have no action value, and a person only needs to handle the root cause. Inhibition is "suppress lower-level alerts while a higher-level alert is present": when the rule with `cluster_down == true` fires, all sub-rules whose `equal` fields match (same env, same cluster) enter the inhibited state. **Why not filter them out with match**: sub-alerts still need to be recorded, and still need to be re-sent as a summary after the root cause recovers; inhibition is "delayed display" rather than "discard". This is also why it must be a separate field rather than letting the user change match.
 
-### route —— 渠道选择
+### route —— channel selection
 
-**为什么**：不同级别的告警走不同渠道是告警纪律的核心：critical 打电话、warning 进值班群、info 只进日志。`route` 数组按序求值、首个 `match` 命中生效，channels 直接复用现有 provider 实例名（`runtime.Manager` 已支持多实例，如 `feishu-oncall`/`feishu-boss` 两个飞书群）。**为什么保留静态路由**：存量调用方已经显式指定 `channels` 或依赖 `level_routes`，规则是增量能力而非强制门槛。没有规则命中的通知行为与今天逐字节一致。
+**Why**: different levels of alerts going to different channels is the core of alert discipline: critical calls a phone, warning goes to the on-call group, info only goes to the log. The `route` array is evaluated in order, and the first `match` hit takes effect; channels directly reuse the existing provider instance names (`runtime.Manager` already supports multiple instances, e.g. the two Feishu groups `feishu-oncall`/`feishu-boss`). **Why keep static routing**: existing callers already explicitly specify `channels` or rely on `level_routes`, and rules are an incremental capability rather than a mandatory gate. A notification with no rule hit behaves byte-for-byte identically to today.
 
-### escalation —— 超时升级
+### escalation —— timeout escalation
 
-**为什么**：告警发出去没人看等于没发。`ack_timeout: 5m` 表示触发后 5 分钟内无人确认，则升级到下一渠道（`to: [phone-bridge]`）。它把"通知已送达"和"事故有人负责"区分开：前者是投递系统的职责，后者是告警系统的职责，herald 要做的是后者。升级链的实现依赖 ACK 状态（P3），所以此字段 P1/P2 只建模不生效，避免给出假承诺。
+**Why**: an alert that nobody looks at is the same as not sent. `ack_timeout: 5m` means that if no one acknowledges within 5 minutes of firing, escalate to the next channel (`to: [phone-bridge]`). It separates "the notification was delivered" from "the incident has an owner": the former is the delivery system's job, the latter is the alert system's job, and herald is to do the latter. The implementation of the escalation chain depends on ACK state (P3), so this field is only modeled and not effective in P1/P2, avoiding a false promise.
 
-### silence —— 静默窗
+### silence —— silence window
 
-**为什么**：凌晨三点的例行巡检报告不该叫醒任何人，但周五下午的核心服务告警必须立刻广播。静默窗（时间段 + 匹配条件的组合）让"什么时间什么告警可以不出声"成为显式配置而非人的自觉。与 inhibit 的区别：inhibit 是事件驱动（高级告警在场才压），silence 是日程驱动（到点就压），两者不可互相替代，值班场景两个都要。
+**Why**: a routine 3 a.m. inspection report should not wake anyone, but a core-service alert on Friday afternoon must broadcast immediately. The silence window (a combination of time period + match condition) makes "at what time which alerts may stay silent" an explicit configuration rather than a person's self-discipline. Difference from inhibit: inhibit is event-driven (suppress only while a higher-level alert is present), silence is schedule-driven (suppress when the time arrives); the two cannot substitute for each other, and an on-call scenario needs both.
 
-## 四、三个架构要点
+## 4. Three Architecture Points
 
-### 4.1 求值前置到 ingress，状态外置 Redis
+### 4.1 Evaluation Moved Up to ingress, State Externalized to Redis
 
-**求值位置：入队前，不是出队后。** 规则求值放在 `NotificationService.Process` 的 dedup 检查之后、路由解析之前。为什么：被规则拦下的事件**不消耗队列与 worker**。一次误报风暴如果放到 worker 侧过滤，队列会被灌满、合法事件被排队延迟，过滤的代价转嫁给了整个系统；而在入队前拦下，代价只是几毫秒的表达式求值。另一个理由是状态判定（for/inhibit）需要"拒绝"能力：求值结果为"抑制中/持续未满足"时事件根本不该变成任务。
+**Evaluation location: before enqueueing, not after dequeueing.** Rule evaluation is placed in `NotificationService.Process` after the dedup check and before route resolution. Why: an event held back by a rule **consumes no queue or worker**. If a false-positive storm were filtered on the worker side, the queue would be flooded and legitimate events delayed in line, transferring the cost of filtering to the whole system; whereas holding it back before enqueueing costs only a few milliseconds of expression evaluation. Another reason is that state judgment (for/inhibit) needs the ability to "reject": when the evaluation result is "inhibited / duration not yet satisfied", the event should not become a task at all.
 
-**有状态规则的存储必须外置 Redis，不进进程内存。** `for` 要记"这个组第一次命中是什么时候"，inhibit 要记"哪些高级告警正在场"，escalation 要记"什么时候该升级"。这些状态如果像 `core/dedup` 一样放在进程 map 里，worker 扩容就丢状态：两个 worker 各自维护"首次命中时间"，同一组告警可能永远凑不满 3 分钟持续时间，或者各自触发导致重复告警。key 设计：
+**Stateful rule storage must be externalized to Redis, not put in process memory.** `for` must remember "when this group first hit", inhibit must remember "which higher-level alerts are present", escalation must remember "when to escalate". If this state were kept in a process map like `core/dedup`, scaling out workers would lose the state: two workers each maintaining "first-hit time", the same group of alerts might never accumulate a full 3-minute duration, or each would fire causing duplicate alerts. Key design:
 
 ```
 rule:{rule_id}:state:{group_hash}   →  {first_seen, last_seen, count, ...}
 rule:{rule_id}:ack:{group_hash}     →  {acked_by, acked_at, escalate_at}
 ```
 
-`group_hash` 是 group_by 字段值的规范化哈希。所有 key 带 TTL（对齐 `for` 时长 + 静默窗上限），保证规则删除/不再命中后状态自动回收。为什么强调 TTL：告警状态是典型的"写了就忘"数据，没有 TTL 的 Redis 迟早变成第二次事故现场。单实例部署时 Redis 状态与内存 dedup 并存（dedup 保持现状），Redis queue 未启用的部署选择 `memory` 规则状态实现（同一接口两个后端，与 `core/queue` 的做法一致）。
+`group_hash` is the canonicalized hash of the group_by field values. All keys carry a TTL (aligned to the `for` duration + silence-window upper bound), ensuring state is automatically reclaimed after a rule is deleted / no longer hits. Why emphasize TTL: alert state is typical "write and forget" data, and a Redis without TTL will sooner or later become the scene of a second incident. In single-instance deployment, Redis state coexists with in-memory dedup (dedup stays as is), and deployments without Redis queue enabled choose the `memory` rule-state implementation (one interface, two backends, consistent with the approach of `core/queue`).
 
-### 4.2 表达式引擎：expr-lang/expr 或 cel-go，绝不手写解析
+### 4.2 Expression Engine: expr-lang/expr or cel-go, never a hand-written parser
 
-**为什么不能手写**：解析器写得出来，安全边界画不出来。用户写的 `match` 会被执行百万次，一个手写解析器迟早漏掉一类注入：属性穿透（`env == "prod" || deleteAll()`）、资源耗尽（`repeat("x", 1e9) == "x"`）、深递归爆栈。现成的表达式引擎把这些问题做成了类型系统和执行预算。
+**Why it cannot be hand-written**: a parser can be written, but the safety boundary cannot be drawn. A user-written `match` will be executed millions of times, and a hand-written parser will sooner or later miss a class of injection: property traversal (`env == "prod" || deleteAll()`), resource exhaustion (`repeat("x", 1e9) == "x"`), deep recursion blowing the stack. Off-the-shelf expression engines turn these problems into a type system and an execution budget.
 
-两个候选：
+Two candidates:
 
-- **[expr-lang/expr](https://github.com/expr-lang/expr)**：纯 Go、零依赖，`expr.Compile(code, expr.Env(Env{}))` 编译期做**类型检查**（`payload.fail_rate` 不存在直接报编译错误，而不是运行时静默为 false），求值时传入强类型环境结构体。Go 生态里 Kubernetes 相关工具链大量使用。
-- **[cel-go](https://github.com/google/cel-go)**（Google CEL，Common Expression Language）：标准化语法定义 + 多语言实现，内置**成本模型（cost model）**可以在编译期估算 AST 最坏执行开销，超限拒绝编译；protobuf 类型系统亲和。
+- **[expr-lang/expr](https://github.com/expr-lang/expr)**: pure Go, zero dependencies, `expr.Compile(code, expr.Env(Env{}))` does **type checking** at compile time (a non-existent `payload.fail_rate` reports a compile error directly, rather than being a silent false at runtime), and evaluation is passed a strongly-typed environment struct. Heavily used by Kubernetes-related toolchains in the Go ecosystem.
+- **[cel-go](https://github.com/google/cel-go)** (Google CEL, Common Expression Language): standardized syntax definition + multi-language implementations, with a built-in **cost model** that can estimate the AST's worst-case execution cost at compile time and reject compilation when over the limit; friendly to the protobuf type system.
 
-选型建议：**P1 用 expr-lang/expr**：API 面积小、类型环境即 Go struct（与现有代码零粘合成本），补一层求值超时（`context.WithTimeout` 包住 `vm.Run`）+ 长度上限（表达式字符数、AST 深度）即够用；cel-go 的成本模型更强但引入 protobuf 依赖，等规则复杂度真正需要编译期开销估算时再评估迁移。**共同的红线**：表达式在规则保存时编译一次（编译失败即拒绝保存），运行期只执行编译产物。为什么：把"语法错误"拦在配置时刻而不是凌晨三点的告警时刻，这也是影子模式能给出确定性预览的前提。
+Selection recommendation: **P1 uses expr-lang/expr**: small API surface, the type environment is just a Go struct (zero glue cost with existing code), and adding an evaluation timeout (`context.WithTimeout` wrapping `vm.Run`) + length caps (expression character count, AST depth) suffices; cel-go's cost model is stronger but introduces a protobuf dependency, so evaluate migrating when rule complexity genuinely needs compile-time cost estimation. **Common red line**: an expression is compiled once when the rule is saved (a compile failure means the save is rejected), and only the compiled artifact is executed at runtime. Why: catch "syntax errors" at config time rather than at the 3 a.m. alert, which is also the premise for shadow mode to give a deterministic preview.
 
-### 4.3 影子模式：所有新规则先 dry-run
+### 4.3 Shadow Mode: All New Rules Dry-Run First
 
-**为什么**：规则是运维人员写的程序，程序第一次上线就全量生效等于把生产环境当测试环境。一条写错的规则（阈值写错、字段名拼错）最坏的结局是半夜炸醒全公司。短信渠道按条计费，10000 人误报就是一次真实的预算事故。影子模式把"规则生效"从一次性开关变成可观察的渐进过程：
+**Why**: rules are programs written by operators, and going fully live on the first launch of a program is treating production as a test environment. The worst outcome of one miswritten rule (wrong threshold, misspelled field name) is waking the whole company in the middle of the night. The SMS channel bills per message, and a false positive to 10000 people is a real budget incident. Shadow mode turns "a rule taking effect" from a one-shot switch into an observable, gradual process:
 
-1. 规则创建后默认 `mode: shadow`。每次通知求值时照常计算命中结果，但**只记录不投递**：写入 logstore 扩展字段（`rule_id`、`would_fire: true/false`、`matched_at`），日志状态标记 `shadow`；
-2. 后台规则详情页展示影子期统计：近 24h/7d 命中次数、命中样本（脱敏后的通知摘要）、若激活将走到的渠道路径；
-3. 运维看着真实命中量判断"这是不是我想要的"，确认后切 `mode: active`。API 层支持一键回滚到 shadow。
+1. A rule defaults to `mode: shadow` after creation. Each notification evaluation computes the hit result as usual, but **only records, does not deliver**: writes the extended logstore fields (`rule_id`, `would_fire: true/false`, `matched_at`), and the log state is marked `shadow`;
+2. The backend rule detail page shows shadow-period statistics: hit counts over the last 24h/7d, hit samples (desensitized notification summaries), and the channel path it would take if activated;
+3. The operator, looking at the real hit volume, judges "is this what I want", and after confirming switches `mode: active`. The API layer supports one-click rollback to shadow.
 
-**为什么 dry-run 不做成开关之外的东西**：影子求值的成本与真实求值完全相同（同一段编译产物、同一个求值器），不存在"影子模式拖慢系统"。如果连求值都嫌贵，规则本身就该重新设计。唯一要小心的是影子日志的量：高 QPS 通知下全量记录会挤爆 logstore 的环形缓冲，影子日志按 `rule_id` 做采样记录（首条 + 每 N 条计数 +1），后台预览读的是计数而非明细。
+**Why dry-run is not made into anything beyond a switch**: the cost of shadow evaluation is exactly the same as real evaluation (the same compiled artifact, the same evaluator), so there is no "shadow mode slows the system down". If even evaluation is deemed too expensive, the rule itself should be redesigned. The only thing to be careful about is the volume of shadow logs: under high-QPS notifications, full recording would blow out logstore's ring buffer, so shadow logs are sampled by `rule_id` (first entry + a +1 count every N), and the backend preview reads counts rather than details.
 
-## 五、对标
+## 5. Benchmarking
 
-| 能力 | ntfy | Alertmanager | PagerDuty / Opsgenie | herald 现状 | herald 目标 |
+| Capability | ntfy | Alertmanager | PagerDuty / Opsgenie | herald status quo | herald target |
 |---|---|---|---|---|---|
-| 多渠道投递 | 自建推送（App/Webhook） | webhook 转发（渠道靠生态） | 原生全（电话/短信/IM），SaaS 覆盖广 | **14 类内置渠道，国内 IM/短信原生** | 不变，复用 |
-| 路由模型 | topic 订阅 | 路由树（receiver 子树匹配） | 静态 routing rules | type/level 两级静态 map | 表达式规则树 + 静态兜底 |
-| 条件匹配 | 无（按 topic 分发） | 内置 matchers（标签相等/正则） | 简单字段条件 | 类型相等 | 沙箱表达式（§4.2） |
-| for 持续判定 | — | ✅ | ✅ | — | P2 |
-| group_by 聚合 | — | ✅ | ✅（事件去重规则） | — | P2 |
-| inhibit 抑制 | — | ✅（inhibit_rules） | ✅（related alerts） | — | P2 |
-| silence 静默 | — | ✅（API 建静默） | ✅（维护窗） | — | P2 |
-| ACK + 超时升级 | — | —（只管发，ack 在 oncall 工具里） | ✅（核心能力） | — | P3 |
-| 配置方式 | CLI/配置文件 | **配置文件写死，改路由要发布** | 后台 UI 但规则模型不可编程 | yaml 静态 | **DB CRUD + 热加载 + 影子模式** |
-| 部署形态 | 自托管，免费 | 自托管，免费 | SaaS，按人/按事件计费，贵 | 自托管，免费 | 不变 |
+| multi-channel delivery | self-built push (App/Webhook) | webhook forwarding (channels via ecosystem) | native full (phone/SMS/IM), broad SaaS coverage | **14 classes of built-in channels, domestic IM/SMS native** | unchanged, reused |
+| routing model | topic subscription | route tree (receiver subtree matching) | static routing rules | two-level type/level static map | expression rule tree + static fallback |
+| condition matching | none (dispatch by topic) | built-in matchers (label equality/regex) | simple field conditions | type equality | sandboxed expressions (§4.2) |
+| for duration judgment | — | ✅ | ✅ | — | P2 |
+| group_by aggregation | — | ✅ | ✅ (event dedup rules) | — | P2 |
+| inhibit | — | ✅ (inhibit_rules) | ✅ (related alerts) | — | P2 |
+| silence | — | ✅ (create silence via API) | ✅ (maintenance window) | — | P2 |
+| ACK + timeout escalation | — | — (only sends, ack is in on-call tools) | ✅ (core capability) | — | P3 |
+| configuration method | CLI/config file | **hardcoded config file, changing routes requires a release** | backend UI but the rule model is not programmable | yaml static | **DB CRUD + hot reload + shadow mode** |
+| deployment form | self-hosted, free | self-hosted, free | SaaS, billed per person/per event, expensive | self-hosted, free | unchanged |
 
-三个参照物正好是三种取舍：ntfy 把判断完全留给客户端（所以轻）；Alertmanager 有完整判断模型但配置冻结在文件里（所以运维恨发布）；PagerDuty 把判断模型与响应闭环做成 SaaS（所以全但贵）。herald 的位置：**Alertmanager 的判断深度 + 后台化配置 + 自有渠道广度 + ACK 闭环**，全部自托管。
+The three reference points are exactly three trade-offs: ntfy leaves judgment entirely to the client (hence light); Alertmanager has a complete judgment model but its config is frozen in a file (hence operators hate releases); PagerDuty turns the judgment model and response loop into a SaaS (hence complete but expensive). herald's position: **Alertmanager's judgment depth + backend-ized configuration + its own channel breadth + ACK closed loop**, all self-hosted.
 
-## 六、分阶段实施
+## 6. Phased Implementation
 
-### P1 —— 动态规则底座（求值是纯函数，无状态）
+### P1 —— Dynamic Rule Foundation (evaluation is a pure function, stateless)
 
-- 规则存储：DB（SQLite 起步，接口抽象后可换 PostgreSQL），后台 CRUD API（挂在现有 `api/` Handler 模式下）+ 热加载（watch 版本号/更新时间，参照 config 加载处做 diff 重载）；
-- 表达式求值：expr-lang/expr，保存时编译 + 类型检查，执行带超时与长度上限（§4.2）；
-- 求值位置：`NotificationService.Process` 入队前（§4.1），未命中规则回落现有静态路由；
-- **影子模式**（§4.3）与 logstore 扩展；
-- `core/limiter` 正式接线到投递侧，顺带修正 retry 的可重试判定（§二）；
-- **交付判据**：存量通知行为零变化（规则表为空时与 main 分支等价）；经影子模式上线第一条真实规则。
+- Rule storage: DB (SQLite to start, swappable to PostgreSQL after interface abstraction), backend CRUD API (mounted under the existing `api/` Handler pattern) + hot reload (watch a version number/update time, do a diff reload referring to the config loading site);
+- Expression evaluation: expr-lang/expr, compile + type check on save, execution with timeout and length caps (§4.2);
+- Evaluation location: `NotificationService.Process` before enqueueing (§4.1), no rule hit falls back to the existing static route;
+- **shadow mode** (§4.3) and logstore extension;
+- `core/limiter` formally wired to the delivery side, incidentally fixing retry's retryability judgment (§2);
+- **Delivery criteria**: zero change to existing notification behavior (equivalent to the main branch when the rule table is empty); the first real rule goes live via shadow mode.
 
-### P2 —— 有状态判断
+### P2 —— Stateful Judgment
 
-- 规则状态外置 Redis（§4.1 的 key 设计），memory 后端兜底单实例；
-- `for` 持续判定（首见时间 + 持续校验，事件驱动更新而非定时轮询。为什么：轮询引入扫描周期误差且空转，事件驱动在每次命中时判定"持续时长是否已到"，语义精确且零空转）；
-- `group_by` 聚合通知（组状态机：open → 通知 → 计数更新 → resolved 摘要）；
-- `inhibit` 抑制（高级告警在场集合 + equal 字段匹配）；
-- `silence` 静默窗（时段 + 时区 + 值班表对接的排班占位）；
-- **交付判据**：同一组事件在 worker 扩缩容前后状态连续（Redis 状态不被进程生命周期影响）。
+- Rule state externalized to Redis (the key design of §4.1), memory backend as fallback for single instance;
+- `for` duration judgment (first-seen time + duration check, event-driven update rather than timed polling. Why: polling introduces scan-period error and idles, while event-driven judgment checks "whether the duration is reached" at each hit, semantically precise and idle-free);
+- `group_by` aggregation notification (group state machine: open → notify → count update → resolved summary);
+- `inhibit` (higher-level alert present set + equal field matching);
+- `silence` window (time period + timezone + on-call-schedule-integration shift placeholder);
+- **Delivery criteria**: the state of the same group of events is continuous before and after worker scaling (Redis state is not affected by the process lifecycle).
 
-### P3 —— ACK 闭环
+### P3 —— ACK Closed Loop
 
-- ACK 回调：飞书卡片按钮回调（复用 `providers/builtin/feishu` 的应用配置，新增回调 HTTP 端点）+ 通用 `POST /api/alerts/{id}/ack`；
-- `escalation` 生效：ack_timeout 到期未确认 → 升级链投递（电话渠道以 webhook 桥接外部电话网关实现，herald 不内置电话运营商集成。为什么：电话通道的合规与运营商接入是独立业务，webhook 桥接保持渠道面可插拔）；
-- 事故记录：组告警从触发到 ack 到 resolve 的全时间线落库，logstore 从"投递日志"升级为"事故台账"的查询视图。
+- ACK callback: Feishu card button callback (reusing the app config of `providers/builtin/feishu`, adding a callback HTTP endpoint) + generic `POST /api/alerts/{id}/ack`;
+- `escalation` takes effect: ack_timeout expires unacknowledged → escalation-chain delivery (the phone channel is implemented by bridging an external phone gateway via webhook; herald does not build in phone-carrier integration. Why: phone-channel compliance and carrier access is a separate business, and webhook bridging keeps the channel face pluggable);
+- Incident records: the full timeline of a group alert from firing to ack to resolve is persisted, and logstore upgrades from "delivery log" to the query view of an "incident ledger".
 
-### 明确不做的
+### Explicitly Not Doing
 
-- 不做表达式自定义函数注册（保持求值器封闭，为什么：开放函数注册等于放弃沙箱边界）；
-- 不在 P1/P2 动投递链路（queue/worker/provider 协议不变）；
-- 不做多租户（现有单配置文件部署形态保持，规则表带 `created_by` 字段为将来留痕）。
+- No custom expression-function registration (keeping the evaluator closed; why: open function registration equals giving up the sandbox boundary);
+- No touching the delivery chain in P1/P2 (queue/worker/provider protocols unchanged);
+- No multi-tenancy (the existing single-config-file deployment form is kept, and the rule table carries a `created_by` field to leave a trace for the future).
 
-## 七、实施回执（2026-09-27 对照 main 逐项核对）
+## 7. Implementation Receipt (2026-09-27, cross-checked item by item against main)
 
-四层演进的主干能力全部落地。逐项核对结果与实际落点（2026-09-28 复审：`ef0a808` 的初版回执把 P1 影子统计与 P2 静默窗两行写成"一致"，与代码不符，已按下表改正；差异列只写代码里查得到的东西）：
+The trunk capabilities of the four-layer evolution are all landed. The item-by-item cross-check results and actual landing points (2026-09-28 review: the first version of the receipt at `ef0a808` wrote the P1 shadow-statistics and P2 silence-window rows as "consistent", which did not match the code, and has been corrected per the table below; the Difference column writes only what can be found in the code):
 
-| 阶段 | 设计项 | 实际落点 | 与设计的差异 |
+| Phase | Design item | Actual landing point | Difference from design |
 |---|---|---|---|
-| P1 | 规则存储 DB（SQLite 起步） | `core/rules/store.go` 的 `Store` 接口 + `MemoryStore`/`FileStore`（JSON 持久化，`cmd/heraldd/main.go` 启动时从 `cfg.Rules` 播种） | **SQLite 未做**，JSON 文件先行；接口已抽象，换后端不动调用方 |
-| P1 | 后台 CRUD + 热加载 | `POST/GET /api/v1/rules`、`/api/v1/rules/{id}`（`api/handler_rules.go`），CRUD 直写 `rules.Engine` 进程内即时生效，文件持久化重启恢复 | 未做"watch 版本号 diff 重载"：CRUD 即时生效使 watch 无必要，效果等价 |
-| P1 | expr 表达式 + 编译期类型检查 + 超时/长度上限 | `expr-lang/expr`（go.mod），`engine.go` 保存时编译（`compileRule`），求值带超时护栏 | 按设计选型 expr，未用 cel-go |
-| P1 | 求值位置：入队前 + 未命中回落静态路由 | `core/service/notification.go` 的 `RuleEvaluator` 接口，`Process` 内**路由前、dedup 前**求值（实际顺序：求值 `:254` → 静态路由兜底 `s.router.Route` `:339` → dedup 门 `:359` 为入队前最后一道闸）；`Rules == nil` 时保持纯静态路由（`notification.go:253` 的 `if s.rules != nil` 守卫） | **顺序与 §4.1 相反**：设计写"dedup 检查之后、路由解析之前"，实现把求值提前到 dedup **之前**、dedup 挪到路由之后。有状态规则（for 窗口、组轮次、恢复判定）要吃**每个事件**推进状态，dedup 只决定"这次投递是否重复"（源码注释 `notification.go:242-247` 与 `:269-277` 给出论证）。"入队前"与"未命中回落静态路由"两项目标与设计一致 |
-| P1 | 影子模式 + logstore 扩展 | `core/rules/shadow.go`（`ShadowSampler` 按 `(EventKind, 规则)` 分桶采样并精确计数）+ `RuleObserver` 的七个观察者方法（影子命中/求值失败/for 挂起/折叠/抑制/静默/丢弃各记一种事件）；计数经 `runtime.Manager.ShadowRuleCount` 暴露为 `GET /api/v1/rules` 与 `/api/v1/rules/{id}` 的 `shadow_hits`，控制台规则列表有一列"影子命中" | 计数之外，**24h/7d 窗口与命中样本已于 2026-10-03 补齐**：`ShadowSampler` 按整点小时桶累计窗口（`WindowCount`/`Stats`），每条影子命中另进 20 条容量的样本环（独立于投递日志的采样与环形缓冲），`GET /api/v1/rules/{id}` 以 `shadow_stats`（total/last_24h/last_7d/samples）读出，控制台规则行的「详情」抽屉渲染窗口计数与最近样本；仍为进程内状态，重启归零（窗口与样本同归零）。§4.3 步骤 3 的"一键回滚到 shadow"无专用端点，由控制台模式开关走 `PUT /api/v1/rules/{id}` 改 `mode` 兑现 |
-| P1 | limiter 接线投递侧 | `core/runtime/manager.go` 的 `Deliver` 在任何投递尝试前 `lm.Wait(ctx)`（`:513`，位于 `m.mu.RUnlock()` 取 `limiters` 之后、投递调用之前），配置 `rate_limit` 经 `SetProviderLimiter` 接线（`cmd/heraldd/main.go:168`） | **§二"孤儿模块"的现状已闭合** |
-| P1 | retry 可重试判定修正 | `core/httpclient/client.go`：`retryableStatus`（429/5xx）将传输错误包成 `RetryableError`，`ShouldRetry` 据此重试 | **§二"没有任何 provider 构造该类型"的现状已闭合**（webhook 类 provider 走 httpclient 自动获得） |
-| P2 | 状态外置 Redis + memory 兜底 | `core/rules/state.go`（memory）/`state_redis.go`（Redis），`SetStateStore` 注入（`cmd/heraldd/main.go:241`） | 一致 |
-| P2 | for / group_by / inhibit / silence | `core/rules/for.go`、`group.go`、`inhibit.go`、`silence.go` + 对应 `engine_*_test.go`；组后台在 `core/groups`；值班表在 `core/roster` | 四类判定都在。silence 的 **"值班表对接排班占位"已于 2026-10-04 兑现**：`SilenceSpec` 新增 `roster` 字段（与 `start`/`end`/`tz` 互斥，同用保存即拒），`core/roster`（`Roster`/`Period`/`Manager`，镜像 groups 的 Store+FileStore+Manager 形制）存外部排班系统经 `POST/PUT /api/v1/rosters` 推来的绝对时段表（`rosters_store` 落盘），`Engine.SetRosterSource` 把 `Manager.Covers` 接进静默门——引用未知/未推/已删的值班表或未接 Manager 时 fail-open（缺日程数据绝不等于该静默）。排班轮换与值班人管理留在 herald 之外（§五"值班表对接的排班占位"的占位语义）。`tz`（§三 YAML 的 IANA 时区名）2026-10-03 补齐：`ParseSilenceWindow` 经 `time.LoadLocation` 解析、未知名在保存时拒绝，`Contains` 把时刻换算到窗口时区再取钟点，缺省仍按事件自身时区（进程本地）。窗口字段是 `start`/`end` 两个 `HH:MM`，不是设计里的合并写法 `window: "00:00-06:00"`；跨零点窗口（22:00-06:00）与 end 开区间已支持 |
-| P3 | ACK 回调（飞书卡片 + 通用端点） | `POST /api/v1/callbacks/feishu`（`api/handler_callbacks.go`）+ `POST /api/v1/alerts/{id}/ack`（`api/handler_alerts.go`），ACK 状态在 `core/ack` | 一致 |
-| P3 | escalation 生效 | `core/escalation` + `engine_escalation_test.go`（ack_timeout 到期升级链） | P1/P2 建模、P3 兑现的承诺已兑现 |
-| P3 | 事故台账 | `core/incident` + `GET` 事故视图（`api/handler_incidents.go`） | 一致 |
+| P1 | rule storage DB (SQLite to start) | the `Store` interface in `core/rules/store.go` + `MemoryStore`/`FileStore` (JSON persistence, seeded from `cfg.Rules` at startup in `cmd/heraldd/main.go`) | **SQLite not done**, JSON file first; the interface is abstracted, so swapping the backend does not touch the caller |
+| P1 | backend CRUD + hot reload | `POST/GET /api/v1/rules`, `/api/v1/rules/{id}` (`api/handler_rules.go`), CRUD writes directly to `rules.Engine` taking effect immediately in-process, file persistence restored on restart | the "watch version number diff reload" is not done: immediate CRUD effect makes watch unnecessary, effect equivalent |
+| P1 | expr expression + compile-time type check + timeout/length caps | `expr-lang/expr` (go.mod), `engine.go` compiles on save (`compileRule`), evaluation has a timeout guardrail | expr chosen per design, cel-go not used |
+| P1 | evaluation location: before enqueueing + no hit falls back to static route | the `RuleEvaluator` interface in `core/service/notification.go`, evaluated inside `Process` **before routing, before dedup** (actual order: evaluate `:254` → static-route fallback `s.router.Route` `:339` → dedup gate `:359` as the last gate before enqueueing); when `Rules == nil` it stays pure static routing (the `if s.rules != nil` guard at `notification.go:253`) | **order is opposite to §4.1**: the design says "after the dedup check, before route resolution", the implementation moves evaluation before dedup and moves dedup after routing. Stateful rules (for window, group round, recovery judgment) need to **consume every event** to advance state, while dedup only decides "whether this delivery is a duplicate" (source comments `notification.go:242-247` and `:269-277` give the argument). The two goals "before enqueueing" and "no hit falls back to static route" are consistent with the design |
+| P1 | shadow mode + logstore extension | `core/rules/shadow.go` (`ShadowSampler` buckets and samples by `(EventKind, rule)` with exact counts) + the seven observer methods of `RuleObserver` (shadow hit/evaluation failure/for pending/folded/inhibited/silenced/dropped each record one event kind); counts are exposed via `runtime.Manager.ShadowRuleCount` as `shadow_hits` in `GET /api/v1/rules` and `/api/v1/rules/{id}`, and the console rule list has a "shadow hits" column | beyond counts, **the 24h/7d window and hit samples were filled in on 2026-10-03**: `ShadowSampler` accumulates window counts by whole-hour buckets (`WindowCount`/`Stats`), each shadow hit additionally enters a 20-capacity sample ring (sampling and ring buffer independent of the delivery log), read out via `shadow_stats` (total/last_24h/last_7d/samples) in `GET /api/v1/rules/{id}`, and the console rule row's "Detail" drawer renders the window counts and recent samples; still in-process state, reset to zero on restart (window and samples both reset). Step 3 of §4.3, "one-click rollback to shadow", has no dedicated endpoint, fulfilled by the console mode switch going through `PUT /api/v1/rules/{id}` to change `mode` |
+| P1 | limiter wired to the delivery side | `Deliver` in `core/runtime/manager.go` calls `lm.Wait(ctx)` before any delivery attempt (`:513`, after `m.mu.RUnlock()` fetches `limiters` and before the delivery call), and the `rate_limit` config is wired via `SetProviderLimiter` (`cmd/heraldd/main.go:168`) | **the §2 "orphan module" status quo is closed** |
+| P1 | retry retryability judgment fix | `core/httpclient/client.go`: `retryableStatus` (429/5xx) wraps a transport error into a `RetryableError`, and `ShouldRetry` retries accordingly | **the §2 "no provider constructs that type" status quo is closed** (webhook-class providers get it automatically via httpclient) |
+| P2 | state externalized to Redis + memory fallback | `core/rules/state.go` (memory)/`state_redis.go` (Redis), injected via `SetStateStore` (`cmd/heraldd/main.go:241`) | consistent |
+| P2 | for / group_by / inhibit / silence | `core/rules/for.go`, `group.go`, `inhibit.go`, `silence.go` + the corresponding `engine_*_test.go`; group backend in `core/groups`; on-call schedule in `core/roster` | all four judgment types are present. silence's **"on-call-schedule-integration shift placeholder" was fulfilled on 2026-10-04**: `SilenceSpec` adds a `roster` field (mutually exclusive with `start`/`end`/`tz`, using both is rejected on save), `core/roster` (`Roster`/`Period`/`Manager`, mirroring the Store+FileStore+Manager shape of groups) stores the absolute time-slot table pushed by an external scheduling system via `POST/PUT /api/v1/rosters` (`rosters_store` persisted), and `Engine.SetRosterSource` wires `Manager.Covers` into the silence gate — referencing an unknown/unpushed/deleted on-call schedule, or not wiring the Manager, fails open (missing schedule data never means it should be silenced). Shift rotation and on-call person management stay outside herald (the placeholder semantics of §5 "on-call-schedule-integration shift placeholder"). `tz` (the IANA timezone name in the §3 YAML) was filled in on 2026-10-03: `ParseSilenceWindow` resolves it via `time.LoadLocation`, an unknown name is rejected on save, and `Contains` converts the instant into the window timezone before taking the clock hour; the default remains the event's own timezone (process local). The window fields are two `HH:MM` values `start`/`end`, not the merged form `window: "00:00-06:00"` from the design; a cross-midnight window (22:00-06:00) and an end-open interval are already supported |
+| P3 | ACK callback (Feishu card + generic endpoint) | `POST /api/v1/callbacks/feishu` (`api/handler_callbacks.go`) + `POST /api/v1/alerts/{id}/ack` (`api/handler_alerts.go`), ACK state in `core/ack` | consistent |
+| P3 | escalation takes effect | `core/escalation` + `engine_escalation_test.go` (ack_timeout expiry escalation chain) | the promise of P1/P2 modeling, P3 fulfillment, is fulfilled |
+| P3 | incident ledger | `core/incident` + `GET` incident view (`api/handler_incidents.go`) | consistent |
 
-核对方法：端点与调用点以 `grep` 实证（上文标注行号），行为以各包 `*_test.go` 全绿佐证；`core/limiter`、`core/retry` 在 §二表格中的"现状"列保留为实施前快照，不逐格改写。
+Cross-check method: endpoints and call sites are evidenced by `grep` (line numbers annotated above), and behavior is corroborated by all `*_test.go` in each package being green; the "status quo" column of `core/limiter` and `core/retry` in the §2 table is kept as a pre-implementation snapshot, not rewritten cell by cell.
 
-复核补记（同日第二轮逐行 grep 复核）：修正初版回执两处与代码不符——① 求值顺序实为 dedup **前**而非"dedup 后"（上表第 4 行已改，属对 §4.1 的有意偏离，理由见源码注释）；② limiter 的 `lm.Wait` 原标 `:380`，HEAD 上实为 `:381`。其余 10 行落点全部复验属实（含飞书卡片确认按钮 `feishu.go:168` → 回调端点 → `core/ack` 的 P3 全链、`escalation.Manager` 经 `api/server.go:96` 注入通知服务）。
+Review addendum (same-day second round of line-by-line grep review): two spots in the first version of the receipt that did not match the code are corrected — ① the evaluation order is actually **before** dedup rather than "after dedup" (row 4 of the table above has been changed, an intentional deviation from §4.1, reasoning in the source comments); ② limiter's `lm.Wait` was originally marked `:380`, actually `:381` on HEAD. The remaining 10 rows' landing points are all re-verified as true (including the full P3 chain of the Feishu card confirm button `feishu.go:168` → callback endpoint → `core/ack`, and `escalation.Manager` injected into the notification service via `api/server.go:96`).
 
-> 行号漂移说明（2026-10-13 校准）：上表与本补记的行号均为 2026-09-28 核对当时的落点，随代码演进已漂移。逐项按当前 HEAD 重锚——求值 `notification.go:254`、静态路由兜底 `:339`、dedup 门 `:359`、`Rules == nil` 守卫 `:253`、`lm.Wait` `manager.go:513`、`SetProviderLimiter` `main.go:168`、`SetStateStore` `main.go:241`、飞书确认按钮 `feishu.go:169`、escalation 注入 `api/server.go:185`。行号旁保留的函数名/注释原文作稳定定位锚。
+> Line-number drift note (calibrated 2026-10-13): the line numbers in the table above and in this addendum are all the landing points at the time of the 2026-09-28 cross-check, and have drifted with code evolution. Re-anchored item by item against the current HEAD — evaluation `notification.go:254`, static-route fallback `:339`, dedup gate `:359`, `Rules == nil` guard `:253`, `lm.Wait` `manager.go:513`, `SetProviderLimiter` `main.go:168`, `SetStateStore` `main.go:241`, Feishu confirm button `feishu.go:169`, escalation injection `api/server.go:185`. The function name/comment text kept next to the line numbers serves as a stable location anchor.
 
-复核补记（2026-09-28 第三轮，带代码改动）：专查"回执写了、但生产代码里没人调"的项，揪出 `runtime.Manager.ShadowRuleCount`：它此前**零生产调用方**（`grep -rn ShadowRuleCount --include=*.go . | grep -v _test.go` 只命中定义本身），即"影子模式已落地"只落地到日志采样，统计无人可读。现已接上规则读接口的 `shadow_hits`（`api/handler_rules.go` 的 `ruleView`，list + detail 两个读面）与控制台列表的"影子命中"列，行为由 `TestHandleRulesShadowHits` 覆盖。顺带修掉一处会让该数字**说谎**的缺陷：采样器原按 `规则` 单一分桶，for 挂起/折叠/抑制/静默/丢弃与影子命中共用计数器，"影子期本会触发多少次"会被"这条规则做过什么"撑大；改为按 `(EventKind, 规则)` 分桶（`core/rules/shadow.go`）后各事件种类互不干扰，影子样本流也不再被高流量丢弃事件吃掉采样预算（`TestShadowSamplerKindsAreIndependent`）。本轮同时把 P1 影子行、P2 静默行两处"一致"按代码事实改写。
+Review addendum (2026-09-28 third round, with code changes): a targeted check for items "the receipt says are done, but nobody calls in production code" turned up `runtime.Manager.ShadowRuleCount`: it previously had **zero production callers** (`grep -rn ShadowRuleCount --include=*.go . | grep -v _test.go` hit only the definition itself), i.e. "shadow mode landed" landed only to log sampling, with no one able to read the statistics. It is now wired to the rule read interface's `shadow_hits` (`ruleView` in `api/handler_rules.go`, both list + detail read faces) and the console list's "shadow hits" column, with behavior covered by `TestHandleRulesShadowHits`. Incidentally a defect that would make that number **lie** was fixed: the sampler originally bucketed by `rule` alone, so for-pending/folded/inhibited/silenced/dropped and shadow hits shared a counter, and "how many times it would have fired during the shadow period" would be inflated by "what this rule has done"; after changing to bucketing by `(EventKind, rule)` (`core/rules/shadow.go`), the event kinds no longer interfere with each other, and the shadow sample stream is no longer eaten by high-traffic dropped events' sampling budget (`TestShadowSamplerKindsAreIndependent`). This round also rewrote the two "consistent" spots (the P1 shadow row, the P2 silence row) per the code facts.
 
-**结论：四层主干能力（静态兜底 → 动态规则 → 有状态判断 → ACK 闭环）确认全部落地；最后一条设计细节（silence 的值班表排班占位）已于 2026-10-04 补齐**（`core/roster` + `silence.roster` + `/api/v1/rosters` 推送面，fail-open 语义；时区字段 `tz` 已于 2026-10-03 补齐）。影子统计的 24h/7d 窗口计数与命中样本也已于 2026-10-03 补齐（`shadow_stats` 读面 + 控制台详情抽屉，仍为进程内状态）。设计承诺至此全部兑账，差异列只余记录在案的有意偏离（求值顺序、JSON 存储、窗口字段写法）。
+**Conclusion: the four-layer trunk capabilities (static fallback → dynamic rules → stateful judgment → ACK closed loop) are confirmed all landed; the last design detail (silence's on-call-schedule shift placeholder) was filled in on 2026-10-04** (`core/roster` + `silence.roster` + the `/api/v1/rosters` push face, fail-open semantics; the timezone field `tz` was filled in on 2026-10-03). Shadow statistics' 24h/7d window counts and hit samples were also filled in on 2026-10-03 (the `shadow_stats` read face + the console detail drawer, still in-process state). All design promises are settled as of now, and the Difference column has only the intentional deviations on record (evaluation order, JSON storage, window field notation).

@@ -1,118 +1,124 @@
-> 中文 · [English](./design-audience-boundaries.en.md)
+# Conceptual Boundaries and Layering Audit
 
-# 概念边界与分层审计
+> Status: **current ruling** (2026-10-07, adjudicated item by item against an external architecture review). This document answers one question: what each word in the audience layer governs, and who may not intrude on whom. Term meanings are defined in the [general model §2](./design-audience-model.md) (the single source of truth); this document is the **boundary ruling** — the conclusions of the overlap sweep, the layering map, and the red lines that later batches must check against before landing. Where the two documents conflict, general model §2 prevails and this document is amended to follow it.
 
-> 状态：**现行裁决**（2026-10-07，依据外部架构评审逐条核处）。本文回答一个问题：受众层的每个词管什么、谁不能入侵谁。术语的含义定义在[总纲 §2](./design-audience-model#_2-术语契约-唯一口径)（唯一口径）；本文是**边界裁决**——重叠排查的结论、分层地图、以及后续批次落地前必须对照的红线。两文冲突时以总纲 §2 为准，本文跟着改。
+## 1. Positioning statement
 
-## 1. 定位口径
+Herald is **lightweight notification orchestration and delivery infrastructure**.
 
-Herald 是**轻量的通知编排与投递基础设施**（lightweight notification orchestration and delivery infrastructure）。
+The word "orchestration" is what this review nailed into the positioning: Herald was never just `send()` — it decides **who, when, through which channel, at what intensity, whether to aggregate, whether to filter, whether to escalate, and whether to dedup**. The delivery pipeline (landed through Phase 0-9) is the foundation; the audience layer (the unified subscription and delivery hub) stands up "the notified party decides"; orchestration is the behavior description on top of the two. The positioning sentence has been synchronized in three places: README, general model §1, and the architecture overview.
 
-「编排」二字是本次评审钉进定位的：Herald 从来不只是 `send()`——它决定**谁、什么时候、通过什么渠道、以什么强度、是否聚合、是否过滤、是否升级、是否去重**。投递管道（Phase 0-9 已落地）是地基；受众层（统一订阅与投递中枢）把「被通知者做主」立起来；编排是这两者之上的行为描述。README、总纲 §1、架构概览三处定位句已同步。
+## 2. Five-layer map
 
-## 2. 五层地图
-
-系统的分层边界，后续批次的功能必须先回答「落在哪一层」再动手：
+The system's layering boundaries — any feature in a later batch must first answer "which layer does this land in" before work starts:
 
 ```text
-┌────────────────────────────────────────────────────────────────┐
-│ 集成层    API（/notify /audience /feeds）· Go SDK · webhook 回调 │
-│          来源适配器（bot / 公众号 / 应用内勾选）                   │
-├────────────────────────────────────────────────────────────────┤
-│ 受众与偏好层  Registry · SurfaceRegistry · PreferenceRegistry    │
-│          Relation（订阅/指派）· Filter/矩阵 · 审计流水            │
-├────────────────────────────────────────────────────────────────┤
-│ 编排层    规则引擎 · 路由展开 · 去重/频控 · Digest 聚合            │
-│          紧急度×强度匹配 · 投递模式执行（升级链/单渠道/并行）       │
-├────────────────────────────────────────────────────────────────┤
-│ 投递运行时层  Planner→Task · Queue · Worker · Retry · ack · 状态机│
-├────────────────────────────────────────────────────────────────┤
-│ Provider 层  telegram / email / webhook / wechatmp / …（可换实现）│
-└────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Integration layer             API (/notify /audience /feeds) · Go SDK ·      │
+│                               webhook callbacks · Source adapters            │
+│                               (bot / official account / in-app checkbox)     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Audience & preference layer   Registry · SurfaceRegistry ·                   │
+│                               PreferenceRegistry · Relation                  │
+│                               (subscription/enrollment) · Filter/matrix ·    │
+│                               audit trail                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Orchestration layer           rule engine · route expansion ·                │
+│                               dedup/frequency control · Digest aggregation   │
+│                               · Urgency×Intensity matching · delivery mode   │
+│                               execution (escalation chain / single channel / │
+│                               parallel)                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Delivery runtime layer        Planner→Task · Queue · Worker · Retry · ack ·  │
+│                               state machine                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Provider layer                telegram / email / webhook / wechatmp / …      │
+│                               (swappable implementations)                    │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-代码落位（双栖件注明主层）：
+Code placement (dual-resident components note their primary layer):
 
-| 层 | 包/模块 |
+| Layer | Packages/modules |
 | --- | --- |
-| 集成层 | `api/`（HTTP 面）、`worker-sdk/go/`、来源适配器与 webhook 回调（批次 8/11） |
-| 受众与偏好层 | `core/audience/`（注册表/联系面/偏好/过滤）、`core/audit/` |
-| 编排层 | `core/rules/`、`core/route/`（路由表）、`core/dedup/`、`core/digest/`、`core/escalation/`；强度×紧急度匹配与三模式执行器（批次 9） |
-| 投递运行时层 | `core/service/`（planner/pool——编排决策在此落成任务）、`core/queue/`、worker、`core/retry/`、`core/ack/` |
-| Provider 层 | `providers/builtin/`、`core/errclass/`（错误词汇属 provider 契约） |
+| Integration layer | `api/` (HTTP surface), `worker-sdk/go/`, Source adapters and webhook callbacks (batch 8/11) |
+| Audience & preference layer | `core/audience/` (registry / contact surfaces / preferences / filters), `core/audit/` |
+| Orchestration layer | `core/rules/`, `core/route/` (routing table), `core/dedup/`, `core/digest/`, `core/escalation/`; Intensity×Urgency matching and the three-mode executors (batch 9) |
+| Delivery runtime layer | `core/service/` (planner/pool — orchestration decisions become tasks here), `core/queue/`, worker, `core/retry/`, `core/ack/` |
+| Provider layer | `providers/builtin/`, `core/errclass/` (the error vocabulary belongs to the provider contract) |
 
-## 3. 八词裁决：无重叠
+## 3. Ruling on the eight terms: no overlap
 
-评审点名排查的概念——受众 / 渠道 / 联系面 / provider / 偏好 / 投递模式 / 紧急度 / 侵扰度——逐词核处如下，结论：**各自回答不同的问题，不合并、不换名**。
+The concepts the review called out for an overlap sweep — audience / channel / ContactSurface / provider / Preference / delivery mode / Urgency / Intensity — are adjudicated word by word below. Conclusion: **each answers a different question; no merging, no renaming**.
 
-| 词 | 归属侧 | 回答的问题 | 边界红线 |
+| Term | Owning side | Question it answers | Boundary red line |
 | --- | --- | --- | --- |
-| 受众 `audience` | 身份 | 「通知谁」 | 全系统唯一 ID；不存渠道凭据；不再派生同位身份实体（§5） |
-| 渠道 `channel` | 触达手段 | 「走哪类通道」 | 带侵扰度、实时性、**投递方向**（§4）三个属性；渠道≠provider |
-| 联系面 `ContactSurface` | 凭据实例 | 「这个受众在这条渠道上的具体地址」 | 渠道的运行时绑定态；静态配置里的 recipients/endpoints 只是它的种子 |
-| provider | 投递实现 | 「用哪个实现投出去」 | 渠道经渠道块展开为 provider 实例；同一渠道可换实现（email→smtp 或 resend）；强度阶梯按渠道类标定，provider 继承所在级 |
-| 偏好 `Preference` | 用户选择 | 「受众自己要什么」 | 只能收窄不能放宽（静默底线、频控同理）；存在订阅关系上 |
-| 紧急度 `Urgency` | **消息侧** | 「这事有多紧急」 | 决定允许的强度区间（详设 §6.2）；品类默认映射，单事件可覆盖 |
-| 侵扰度 `Intensity` | **渠道侧** | 「这条渠道有多打扰」 | L0–L5 阶梯；与紧急度被 §6.2 矩阵连接——一个在消息上、一个在渠道上，永远不碰头 |
-| 投递模式 | **编排侧** | 「怎么投：升级链/固定单渠道/并行」 | 策略件同一入口不同执行器（批次 9）；与规则引擎升级正交（规则升级=叫谁，模式升级=怎么叫得更响） |
+| `audience` | identity | "who gets notified" | the single system-wide ID; stores no channel credentials; no further peer identity entities are derived (§5) |
+| `channel` | reach mechanism | "which class of conduit" | carries three attributes — Intensity, timeliness, and **delivery direction** (§4); channel ≠ provider |
+| `ContactSurface` | credential instance | "this audience's concrete address on this channel" | the channel's runtime binding state; the recipients/endpoints in static config are only its seed |
+| provider | delivery implementation | "which implementation carries the delivery" | a channel is expanded into provider instances through the channels block; the same channel can swap implementations (email→smtp or resend); the Intensity ladder is calibrated per channel class and the provider inherits its level |
+| `Preference` | user choice | "what the audience itself wants" | can only narrow, never widen (same for the silence floor and frequency control); stored on the subscription relation |
+| `Urgency` | **message side** | "how urgent this matter is" | determines the allowed Intensity range (detailed design §6.2); category-level default mapping, overridable per event |
+| `Intensity` | **channel side** | "how intrusive this channel is" | the L0–L5 ladder; linked to Urgency by the §6.2 matrix — one lives on the message, the other on the channel, and they never meet elsewhere |
+| delivery mode | **orchestration side** | "how to deliver: escalation chain / fixed single channel / parallel" | one policy component entry point with different executors (batch 9); orthogonal to rule-engine escalation (rule escalation = who to call; mode escalation = how to call louder) |
 
-评审担心的「`Intensity=high` / `Urgency=high` 分不清」在本仓不成立，因为两者**不共侧**：紧急度是消息的属性，侵扰度是渠道的属性，二者只在匹配矩阵（详设 §6.2）相遇。评审建议的「Intensity=投递策略多强」这一轴**已存在**，名字叫投递模式（escalation/fixed/parallel）——不再造第三个「强度」词。
+The review's worry that "`Intensity=high` / `Urgency=high`" are indistinguishable does not hold in this repo, because the two **never share a side**: Urgency is an attribute of the message, Intensity is an attribute of the channel, and the two meet only in the matching matrix (detailed design §6.2). The axis the review proposed — "Intensity = how strong the delivery policy is" — **already exists**, and its name is delivery mode (escalation/fixed/parallel); no third "strength" word will be coined.
 
-## 4. 投递方向：Push / Pull
+## 4. Delivery direction: Push / Pull
 
-评审指出 RSS 改变了投递模型（推 vs 拉），正确。裁决：
+The review pointed out that RSS changes the delivery model (push vs pull). Correct. Ruling:
 
-- 新增**投递方向**（push / pull）作为渠道属性：推送渠道由 Herald 主动投（telegram/email/短信/电话/站内信），拉式渠道由阅读者轮询（RSS）。
-- **RSS 是拉式渠道，不是一种 provider**：RSS feed 是投递记录的拉式投影（详设 §9），走同一套「关系允许×联系面绑定」校验。
-- **命名避让**：不采用「Push/Pull Delivery Mode」的叫法——「投递模式」一词已被升级链/固定单渠道/并行三选占用（总纲 §2 术语表），一个词不能有两个含义。方向轴落名「投递方向」，写进渠道属性。
+- Add **delivery direction** (push / pull) as a channel attribute: push channels are delivered proactively by Herald (telegram/email/SMS/phone/in-app message); pull channels are polled by the reader (RSS).
+- **RSS is a pull channel, not a kind of provider**: an RSS feed is a pull projection of delivery records (detailed design §9) and goes through the same "relation permits × ContactSurface bound" validation.
+- **Naming avoidance**: the name "Push/Pull Delivery Mode" is not adopted — "delivery mode" is already taken by the three-way choice of escalation chain / fixed single channel / parallel (general model §2 glossary), and one word cannot carry two meanings. The direction axis is named "delivery direction" and written into the channel attributes.
 
-批次 7（RSS）已按此口径落地：`core/feeds` 存储拉式投影，`/feeds/**` 属集成层的拉式出口，rss 类渠道在投递管道就地投影、不产生 provider 任务，可见性校验复用受众层（token 归属经 SurfaceRegistry、品类准入经关系注册表+矩阵复核），不新增投递状态机分支；多地址容灾归阅读器侧，不代码化。
+Batch 7 (RSS) has landed under this wording: `core/feeds` stores the pull projection, `/feeds/**` is the integration layer's pull-side outlet, rss-class channels are projected in place in the delivery pipeline without producing provider tasks, visibility validation reuses the audience layer (token ownership via SurfaceRegistry, category admission via the relation registry + matrix recheck), and no new delivery state machine branch is added; multi-address disaster tolerance belongs to the reader side and is not codified.
 
-## 5. 幂等 / 去重 / 频控 / 聚合：四件事四道闸
+## 5. Idempotency / dedup / frequency control / aggregation: four matters, four gates
 
-评审的四分法与本仓现状对齐（详设 §10/§11），措辞收紧如下，四个概念永不混叫：
+The review's four-way split lines up with this repo's current state (detailed design §10/§11). The wording is tightened as follows; the four concepts are never conflated:
 
-| 概念 | 解决什么 | 闸门位置 | 现状 |
+| Concept | What it solves | Gate position | Current state |
 | --- | --- | --- | --- |
-| 幂等 `idempotency_key`/`event_id` | 同一事件的**重复提交**（重试风暴、上游重发） | 管道最前 | 已落地（Phase 0） |
-| 折叠/状态机去重 | 等价内容的**重复投递**（×N 计数、状态翻转才发） | 编排层，投递之前、升级链之前 | 折叠已落地；状态机批次 10 |
-| 频控 once/throttle/always | 时间窗内的**频率**上限 | 去重之后 | 批次 10 |
-| 聚合 Digest | 多条不同消息**合一条摘要**（受众×品类×时间窗） | 独立旁路，摘要走全投递链 | 已落地（批次 6） |
+| Idempotency `idempotency_key`/`event_id` | **duplicate submission** of the same event (retry storms, upstream resends) | very front of the pipeline | landed (Phase 0) |
+| Folding / state-machine dedup | **duplicate delivery** of equivalent content (×N counting, send only on state flip) | orchestration layer, before delivery and before the escalation chain | folding landed; state machine in batch 10 |
+| Frequency control once/throttle/always | the **rate** cap within a time window | after dedup | batch 10 |
+| Aggregation Digest | **folding multiple distinct messages into one summary** (audience × category × time window) | independent bypass; the summary goes through the full delivery chain | landed (batch 6) |
 
-先后关系：幂等 → 折叠/状态 → 频控 → （旁路）聚合 → 投递。审计对每道闸都有独立事件词汇（`delivery.deduped` 等），回答「为什么这条没投」。
+Order: idempotency → folding/state → frequency control → (bypass) aggregation → delivery. The audit has independent event vocabulary for every gate (`delivery.deduped` etc.), answering "why was this one not delivered".
 
-## 6. 评审七点逐条回执
+## 6. Point-by-point receipt for the review's seven items
 
-| # | 评审意见 | 处置 |
+| # | Review point | Disposition |
 | --- | --- | --- |
-| ① | 定位升级为「通知编排与投递」 | **已改**：总纲 §1、README、架构概览三处定位句加「编排」（§1） |
-| ② | Surface 立为核心概念 | **已是现状**：联系面链 受众→接收人→联系面→渠道→provider（详设 §2 关键约束）；本次补显式句「渠道≠provider，可换实现」进总纲 §2 |
-| ③ | Push/Pull 立为投递模型轴 | **采纳并改名**：落为渠道属性「投递方向」，避让「投递模式」一词（§4） |
-| ④ | Urgency/Intensity 重新定义或合并 | **核实为已分层**：消息侧 vs 渠道侧，§6.2 矩阵连接；「策略强度」轴已由投递模式承担（§3） |
-| ⑤ | 幂等/去重/频控/聚合四分 | **已四分**，措辞收紧（§5） |
-| ⑥ | Redis 不做 Digest 硬依赖 | **批次 6 落地即合规**：`digest.LeaderLock` 构造注入，配置无 `redis_addr` 时为 nil、单机进程内定时器直跑；多实例才配租约。锁实现可换（接口只依赖 SET NX/续约/释放语义） |
-| ⑦ | 停止新增受众子概念 | **立为红线**（§7） |
+| ① | Positioning upgraded to "notification orchestration and delivery" | **changed**: the positioning sentence in general model §1, README, and the architecture overview now includes "orchestration" (§1) |
+| ② | Surface established as a core concept | **already the status quo**: the ContactSurface chain audience → recipient → ContactSurface → channel → provider (detailed design §2 key constraints); this round adds the explicit sentence "channel ≠ provider, implementations are swappable" to general model §2 |
+| ③ | Push/Pull established as a delivery-model axis | **adopted with a rename**: lands as the channel attribute "delivery direction", avoiding the word "delivery mode" (§4) |
+| ④ | Urgency/Intensity redefined or merged | **verified as already layered**: message side vs channel side, connected by the §6.2 matrix; the "policy strength" axis is already carried by delivery mode (§3) |
+| ⑤ | Idempotency/dedup/frequency control/aggregation split four ways | **already split four ways**, wording tightened (§5) |
+| ⑥ | Redis is not a hard dependency of Digest | **batch 6 landed already compliant**: `digest.LeaderLock` is constructor-injected; with no `redis_addr` in config it is nil and a single-machine in-process timer runs directly; the lease is configured only for multiple instances. The lock implementation is swappable (the interface depends only on SET NX / renew / release semantics) |
+| ⑦ | Stop adding audience sub-concepts | **established as a red line** (§7) |
 
-## 7. 红线：受众层实体封顶
+## 7. Red line: the audience layer entity cap
 
-受众层实体清单**封顶**为七个：**受众、接收人、端点、联系面、关系（订阅/指派）、偏好、聚合规则**。评审点名的 `Subscriber / Member / Contact / Identity / Profile / Target / Destination` 等同位实体**不再新增**——受众是身份，订阅者/接收者是关系角色，这个分层（详设 §1）已经覆盖上述全部词义。新需求一律落为**既有实体的属性或关系**；确需第八个实体时，先改总纲 §2 术语契约并过一遍本文 §3 的八词排查，再动代码。
+The audience layer entity list is **capped** at seven: **audience, recipient, Endpoint, ContactSurface, relation (subscription/enrollment), Preference, aggregation rule**. The peer entities the review named — `Subscriber / Member / Contact / Identity / Profile / Target / Destination` and the like — **will not be added**: audience is identity, subscriber/recipient are relation roles, and this layering (detailed design §1) already covers every sense of the words above. New requirements always land as **attributes or relations of existing entities**; if an eighth entity is genuinely needed, first amend the general model §2 term contract and run the eight-term sweep of §3 of this document, then touch code.
 
-## 8. 批次回执与后续纪律
+## 8. Batch receipts and follow-on discipline
 
-评审对批次 1-11 的分级判断与落地状态对照（落地详情见[总纲 §13](./design-audience-model#_13-落地状态-诚实口径)）：
+The review's graded judgments on batches 1-11 against landing status (landing details in [general model §13](./design-audience-model.md)):
 
-| 批次 | 评审判断 | 本仓处置 |
+| Batch | Review judgment | This repo's disposition |
 | --- | --- | --- |
-| 1 关系模型 | 非常合理 | ✅ 已落地 |
-| 2 联系面与绑定 | 合理，核心能力 | ✅ 已落地 |
-| 3 偏好中心 | 非常合理 | ✅ 已落地 |
-| 4 关系过滤 | 非常重要 | ✅ 已落地 |
-| 5 审计 | 应保留 | ✅ 已落地 |
-| 6 Digest | 合理但后置 | ✅ 已落地（redis 可选合规）；评审的「后置」指向当时未落地，不追溯 |
-| 7 RSS | 应定义为拉式渠道 | ✅ 已按 §4 口径落地（`core/feeds` + `/feeds/**`，拉式投影不产生 provider 任务） |
-| 8 来源适配器 | 合理 | ✅ 已按「订阅入口适配器」口径落地（`SourceAdapter` 动作归一化 + bot/公众号/应用内三端点 + `Reconciler` 定期对账；详设 §8 落地段） |
-| 9 强度与模式 | 有价值，需钉边界 | ◑ 按 §3 八词裁决落地——Urgency/Intensity/投递模式三轴不合并 |
-| 10 去重频控 | 必须做 | ◑ 按 §5 四分口径落地 |
-| 11 集成者 API/SDK | 非常合理 | ◑ token 权限按评审意见最小化起步：notify/query 先行，config 类权限收紧到管理面评审后再开 |
+| 1 Relation model | very reasonable | ✅ landed |
+| 2 ContactSurface and binding | reasonable, a core capability | ✅ landed |
+| 3 Preference center | very reasonable | ✅ landed |
+| 4 Relation filtering | very important | ✅ landed |
+| 5 Audit | should be kept | ✅ landed |
+| 6 Digest | reasonable but postponed | ✅ landed (redis-optional compliant); the review's "postponed" meant it was not landed at the time, and is not retroactive |
+| 7 RSS | should be defined as a pull channel | ✅ landed per §4 (`core/feeds` + `/feeds/**`; the pull projection produces no provider tasks) |
+| 8 Source adapters | reasonable | ✅ landed as "subscription entry point adapters" (`SourceAdapter` action normalization + bot / official account / in-app endpoints + `Reconciler` periodic reconciliation; detailed design §8 landing section) |
+| 9 Intensity and modes | valuable, boundaries need pinning | ◑ landed per the §3 eight-term ruling — the three axes Urgency/Intensity/delivery mode are not merged |
+| 10 Dedup and frequency control | must be done | ◑ landed per the §5 four-way split |
+| 11 Integrator API/SDK | very reasonable | ◑ token permissions start minimal per the review: notify/query first; config-class permissions are tightened and stay closed until the admin-surface review |
 
-**后续纪律**：批次 7-11 每批动手前，先对照 §2 五层地图回答「落在哪层」、对照 §3/§5 回答「用哪个既有词」；与本文冲突的实现不进门禁。
+**Follow-on discipline**: before starting each of batches 7-11, first check against the §2 five-layer map to answer "which layer does this land in", and against §3/§5 to answer "which existing word does this use"; implementations that conflict with this document do not pass the gate.

@@ -1,33 +1,31 @@
-> 中文 · [English](./tencentsms.en.md)
+# Tencent Cloud SMS
 
-# 腾讯云短信
+Send domestic/international SMS via Tencent Cloud SMS, suitable for verification codes, notifications, marketing, and similar scenarios.
 
-通过腾讯云短信服务发送国内/国际短信，适合验证码、通知、营销等场景。
+## What it does
 
-## 作用
+The `tencentsms` Builtin Provider calls the Tencent Cloud SMS API directly (`sms.tencentcloudapi.com/SendSms`) and sends template SMS using the TC3-HMAC-SHA256 signing scheme (API v3). It supports batch sends to multiple numbers, ordered parameter arrays, and app ID and signature configuration.
 
-`tencentsms` Builtin Provider 直接调用腾讯云短信 API（`sms.tencentcloudapi.com/SendSms`），使用 TC3-HMAC-SHA256 签名机制（API v3）发送模板短信。支持多号码批量发送、有序参数数组、应用 ID 与签名配置。
+> ⚠️ **Prerequisites**: you must enable Tencent Cloud SMS, complete real-name verification, create an SMS app, and apply for an SMS signature and templates that pass review.
 
-> ⚠️ **前置要求**：需开通腾讯云短信服务、完成实名认证、创建短信应用、申请短信签名与模板并通过审核。
+## Get credentials
 
-## 申请凭据
+Four steps (Tencent Cloud console):
 
-四步走（腾讯云控制台）：
+1. **Enable the service**: search for "SMS" in the console and enable it; the account must have completed real-name verification
+2. **Create an app**: App Management → Create App; you get an **SDKAppID** (the `app_id` in the config, shaped like `1400000000`)
+3. **Signature and body templates**: Domestic SMS → Signature Management / Body Template Management; submit each for review (signatures need supporting qualifications). Once approved, note the **body template ID** (shaped like `1234567`)
+4. **API keys**: Access Management CAM → API Key Management → Create Key; you get a SecretId / SecretKey
 
-1. **开通服务**：控制台搜「短信」开通；账号需完成实名认证
-2. **创建应用**：应用管理 → 创建应用，得到 **SDKAppID**（即配置里的 `app_id`，形如 `1400000000`）
-3. **签名与正文模板**：国内短信 → 签名管理 / 正文模板管理，各自提交审核（签名需资质佐证），通过后记下**正文模板 ID**（形如 `1234567`）
-4. **API 密钥**：访问管理 CAM → API 密钥管理 → 新建密钥，得到 SecretId / SecretKey
+## Send your first message
 
-## 发第一条消息
-
-短信**必须走模板**（本 Provider 不支持直连 title/body），配置模板 + 参数后发送：
+SMS **must go through templates** (this Provider does not support direct title/body); configure a template + parameters, then send:
 
 ```yaml
-# config.yaml 追加
+# append to config.yaml
 templates:
   verify_code:
-    name: "验证码"
+    name: "verification code"
     level: "info"
     template_id: "1234567"
     fields:
@@ -35,7 +33,7 @@ templates:
         value: "{{.Code}}"
 ```
 
-`heraldd serve --config config.yaml` 启动后：
+After starting with `heraldd serve --config config.yaml`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -50,23 +48,23 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   }'
 ```
 
-手机收到 `【你的签名】您的验证码884275...`。号码自动补 `+86` 前缀；没收到？签名/模板审核状态、错误码见[常见错误](#常见错误)与[排错指南](/guide/troubleshooting)。
+The phone receives `【Your Signature】Your verification code is 884275...` (the text = your template). Numbers are automatically prefixed with `+86`; nothing arrived? Check the signature/template review status and error codes under Common Errors and in the [troubleshooting guide](/guide/troubleshooting).
 
-## 配置项
+## Configuration options
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `secret_id` | ✅ | 腾讯云 SecretId | 无 |
-| `secret_key` | ✅ | 腾讯云 SecretKey | 无 |
-| `app_id` | ✅ | 短信应用 ID（SDK AppID） | 无 |
-| `sign_name` | ❌ | 短信签名内容（需在控制台审核通过） | 空 |
-| `region` | ❌ | 地域 | `ap-guangzhou` |
-| `endpoint` | ❌ | API 端点 | `sms.tencentcloudapi.com` |
-| `enabled` | ❌ | 是否启用 | `true` |
+| `secret_id` | ✅ | Tencent Cloud SecretId | none |
+| `secret_key` | ✅ | Tencent Cloud SecretKey | none |
+| `app_id` | ✅ | SMS app ID (SDK AppID) | none |
+| `sign_name` | ❌ | SMS signature content (must pass review in the console) | empty |
+| `region` | ❌ | region | `ap-guangzhou` |
+| `endpoint` | ❌ | API endpoint | `sms.tencentcloudapi.com` |
+| `enabled` | ❌ | whether to enable | `true` |
 
-缺 `secret_id`、`secret_key` 或 `app_id` 时 Provider 创建即失败（`tencentsms: secret_id is required` 等），启动日志可见。
+If `secret_id`, `secret_key`, or `app_id` is missing, Provider creation fails immediately (`tencentsms: secret_id is required` etc.); it shows up in startup logs.
 
-## 配置示例
+## Configuration example
 
 ```yaml
 providers:
@@ -77,72 +75,72 @@ providers:
       secret_id: "$TENCENT_SECRET_ID"
       secret_key: "$TENCENT_SECRET_KEY"
       app_id: "1400000000"
-      sign_name: "您的签名"
+      sign_name: "Your Signature"
       region: "ap-guangzhou"
       endpoint: "sms.tencentcloudapi.com"
 ```
 
-## 环境变量
+## Environment variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When loading config, Herald replaces string values in provider config **that start with `$`** with the value of the environment variable of the same name (the `$VAR` form, looked up as `VAR`). Note: the braced form `"${VAR}"` **is not expanded** (it is looked up as `{VAR}` and kept as-is); use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment variable | Corresponding config key | Description |
 |----------|-----------|------|
-| `TENCENT_SECRET_ID` | `secret_id` | 腾讯云 SecretId |
-| `TENCENT_SECRET_KEY` | `secret_key` | 腾讯云 SecretKey |
+| `TENCENT_SECRET_ID` | `secret_id` | Tencent Cloud SecretId |
+| `TENCENT_SECRET_KEY` | `secret_key` | Tencent Cloud SecretKey |
 
-## 消息模板与限制
+## Message template and limits
 
-### 发送模式
+### Send mode
 
-仅支持 **Provider Template** 模式（`PayloadKind: ProviderTemplate`），需在任务或模板 Binding 中提供：
+Only the **Provider Template** mode is supported (`PayloadKind: ProviderTemplate`); provide these in the task or template Binding:
 
-- `template_id`：腾讯云短信模板 ID（数字，如 `1234567`）
-- `params` / `param_order`：有序参数数组（`[]string`，按模板变量顺序填充）
+- `template_id`: Tencent Cloud SMS template ID (a number, e.g. `1234567`)
+- `params` / `param_order`: ordered parameter array (`[]string`, filled in template-variable order)
 
-### 手机号格式
+### Phone number format
 
-- 国内号码：`13800138000` 或 `+8613800138000`（自动补齐 `+86` 前缀）
-- 国际号码：必须使用 `+` 开头，如 `+1234567890`
-- 多号码：任务 `targets` 字段传入多个
+- Mainland Chinese numbers: `13800138000` or `+8613800138000` (the `+86` prefix is added automatically)
+- International numbers: must start with `+`, e.g. `+1234567890`
+- Multiple numbers: pass several in the task's `targets` field
 
-### 能力声明
+### Capability declaration
 
 - `PayloadKinds`: `provider_template`
 - `SupportsTemplate`: `true`
 
-### 限制说明
+### Limit notes
 
-| 限制项 | 说明 |
+| Limit | Notes |
 |--------|------|
-| **模板审核** | 模板需在腾讯云控制台审核通过 |
-| **签名审核** | 签名需审核通过，`sign_name` 填签名内容而非 ID |
-| **频率限制** | 默认单号码 1 条/30秒、10 条/小时、30 条/天（视套餐而定） |
-| **内容长度** | 单条 ≤ 70 字（含签名），长短信按 67 字/条计费 |
-| **重试** | 网络错误/频率限制走统一重试（429/5xx 等价语义） |
+| **Template review** | templates must pass review in the Tencent Cloud console |
+| **Signature review** | the signature must pass review; `sign_name` takes the signature content, not an ID |
+| **Rate limits** | by default 1 message per 30 seconds, 10 per hour, 30 per day for a single number (depends on your plan) |
+| **Content length** | up to 70 characters per message (signature included); long SMS is billed at 67 characters per segment |
+| **Retry** | network errors / rate limiting go through unified retry (429/5xx equivalent semantics) |
 
-## 常见错误
+## Common errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and fix |
 |------|-----------|
-| `tencentsms: secret_id is required` | 未配置 `secret_id` |
-| `tencentsms: secret_key is required` | 未配置 `secret_key` |
-| `tencentsms: app_id is required` | 未配置 `app_id` |
-| `phone numbers are required` | 发送时 `targets` 为空 |
-| `template_id is required` | 任务/模板未提供 `template_id` |
-| `tencent SMS error: FailedOperation.SignNotPass` | 签名未通过审核 |
-| `tencent SMS error: FailedOperation.TemplateNotPass` | 模板未通过审核 |
-| `tencent SMS error: FailedOperation.MobileNumberNotExist` | 手机号格式错误或为空号 |
-| `tencent SMS error: FailedOperation.FrequencyLimit` | 触达频率限制，需降低发送频率 |
-| `tencent SMS error: FailedOperation.InsufficientBalance` | 短信余额不足，需充值 |
-| `tencent SMS error: AuthFailure.SecretIdNotFound` | SecretId 不存在或已禁用 |
-| `tencent SMS error: AuthFailure.SignatureFailure` | 签名计算失败，检查 SecretKey 与系统时间 |
+| `tencentsms: secret_id is required` | `secret_id` is not configured |
+| `tencentsms: secret_key is required` | `secret_key` is not configured |
+| `tencentsms: app_id is required` | `app_id` is not configured |
+| `phone numbers are required` | `targets` was empty at send time |
+| `template_id is required` | the task/template did not provide `template_id` |
+| `tencent SMS error: FailedOperation.SignNotPass` | the signature has not passed review |
+| `tencent SMS error: FailedOperation.TemplateNotPass` | the template has not passed review |
+| `tencent SMS error: FailedOperation.MobileNumberNotExist` | the phone number is malformed or not in service |
+| `tencent SMS error: FailedOperation.FrequencyLimit` | the contact-frequency limit was hit; send less frequently |
+| `tencent SMS error: FailedOperation.InsufficientBalance` | insufficient SMS balance; top up |
+| `tencent SMS error: AuthFailure.SecretIdNotFound` | the SecretId does not exist or is disabled |
+| `tencent SMS error: AuthFailure.SignatureFailure` | signature computation failed; check the SecretKey and system clock |
 
-错误格式：`tencent SMS error: {Code} - {Message}`（顶层 Error）或 `tencent SMS error for {phone}: {Code} - {Message}`（单号码状态）；网络/HTTP 错误走统一重试（429/5xx）。
+Error format: `tencent SMS error: {Code} - {Message}` (top-level Error) or `tencent SMS error for {phone}: {Code} - {Message}` (per-number status); network/HTTP errors go through unified retry (429/5xx).
 
-## 下一步
+## Next steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [阿里云短信](./aliyunsms.md) - 阿里云短信通道
-- [网易云信短信](./neteasesms.md) - 网易云信短信通道
-- [SMS Providers](./sms.md) - 短信 Provider 综合对比
+- [Provider overview](./overview.md) - see all Providers and how to enable them
+- [Alibaba Cloud SMS](./aliyunsms.md) - Alibaba Cloud SMS channel
+- [NetEase Yunxin SMS](./neteasesms.md) - NetEase Yunxin SMS channel
+- [SMS Providers](./sms.md) - side-by-side comparison of SMS Providers

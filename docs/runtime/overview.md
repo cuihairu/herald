@@ -1,24 +1,22 @@
-> 中文 · [English](./overview.en.md)
+# Runtime Overview
 
-# Runtime 概述
+Which process a Provider runs in is decided by the Runtime. Herald has two categories: Builtin (in-process direct calls) and Worker (a separate process connected over WebSocket).
 
-Provider 跑在哪个进程里，由 Runtime 决定。Herald 分两类：Builtin（进程内直调）和 Worker（独立进程经 WebSocket 接入）。
-
-## Runtime 类型
+## Runtime Types
 
 ### Builtin Runtime
 
-直接运行在 Herald 核心进程内，投递就是一次函数调用，没有 IPC。
+Runs directly inside the Herald core process; delivery is a single function call, with no IPC.
 
-#### 适合场景
+#### Suitable Scenarios
 
-Telegram、Discord、飞书、企业微信 Bot、Email、Webhook、SMS（阿里云、腾讯云、网易云信）——纯 HTTP API 类渠道都算。
+Telegram, Discord, Feishu, WeCom bot, Email, Webhook, SMS (Aliyun, Tencent Cloud, NetEase Yunxin) — anything that is a pure HTTP API channel counts.
 
-#### 特点
+#### Key Features
 
-任务不出进程：延迟就是 Provider 本身的 HTTP 往返，配置一个 `providers:` 块即可注册，没有独立的进程要管。
+Tasks never leave the process: latency is just the Provider's own HTTP round trip, registering takes a single `providers:` block, and there is no separate process to manage.
 
-#### 接口
+#### Interface
 
 ```go
 type Provider interface {
@@ -29,7 +27,7 @@ type Provider interface {
 }
 ```
 
-#### 注册流程
+#### Registration Flow
 
 ```go
 manager.RegisterFactory(&telegram.Factory{})
@@ -39,71 +37,71 @@ manager.RegisterProvider("telegram", provider, true)
 
 ### Worker Runtime
 
-独立的 Runtime 节点，通过 WebSocket 连接到 Herald 核心。
+A standalone Runtime node that connects to the Herald core over WebSocket.
 
-#### 适合场景
+#### Suitable Scenarios
 
-- 浏览器自动化（微信公众号、网页版工具）
-- 移动端桥接（Android 通知桥接）
-- 需要 GUI Session 的场景
-- 需要特殊系统权限的场景
+- Browser automation (WeChat Official Account, web-based tools)
+- Mobile bridging (Android notification bridge)
+- Scenarios that need a GUI session
+- Scenarios that need special system permissions
 
-#### 架构图
+#### Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Herald Core                          │
-│                                                           │
+┌──────────────────────────────────────────────────────────┐
+│                       Herald Core                        │
+│                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │            Runtime Manager                         │  │
-│  │                                                     │  │
-│  │  ┌──────────────────┐      ┌──────────────────┐    │  │
-│  │  │ Builtin         │      │ Worker 代理       │    │  │
-│  │  │ Providers       │      │ Providers        │    │  │
-│  │  │                 │      │                  │    │  │
-│  │  │ • Telegram      │      │ • type: worker   │    │  │
-│  │  │ • Email         │      │   的转发渠道      │    │  │
-│  │  │ • SMS           │      │                  │    │  │
-│  │  └─────────────────┘      └────────┬─────────┘    │  │
-│  └─────────────────────────────────────────┼────────────┘  │
-│                                            │              │
-└────────────────────────────────────────────┼──────────────┘
-                                             │
+│  │                  Runtime Manager                   │  │
+│  │                                                    │  │
+│  │  ┌──────────────────┐    ┌──────────────────┐      │  │
+│  │  │ Builtin          │    │ Worker Proxy     │      │  │
+│  │  │ Providers        │    │ Providers        │      │  │
+│  │  │                  │    │                  │      │  │
+│  │  │ • Telegram       │    │ • type: worker   │      │  │
+│  │  │ • Email          │    │   forwarding     │      │  │
+│  │  │ • SMS            │    │   channel        │      │  │
+│  │  └──────────────────┘    └─────────┬────────┘      │  │
+│  └────────────────────────────────────┼───────────────┘  │
+│                                       │                  │
+└───────────────────────────────────────┼──────────────────┘
+                                        │
                                     WebSocket
-                                             │
-┌────────────────────────────────────────────┼──────────────┐
-│                                    Worker Hub │              │
-│                                              ▼              │
-│  ┌───────────────────────────────────────────────────┐    │
-│  │              Remote Worker Process                 │    │
-│  │                                                   │    │
-│  │  • 运行在独立进程中                               │    │
-│  │  • 通过 WebSocket 连接                           │    │
-│  │  • 注册自己的 capabilities                        │    │
-│  │  • 接收并处理任务                                 │    │
-│  └───────────────────────────────────────────────────┘    │
-└────────────────────────────────────────────────────────────┘
+                                        │
+┌───────────────────────────────────────┼──────────────────┐
+│                             Worker Hub│                  │
+│                                       ▼                  │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │               Remote Worker Process                │  │
+│  │                                                    │  │
+│  │  • Runs in a separate process                      │  │
+│  │  • Connects via WebSocket                          │  │
+│  │  • Registers its own capabilities                  │  │
+│  │  • Receives and processes tasks                    │  │
+│  └────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
 ```
 
-#### 特点
+#### Key Features
 
-渠道代码跑在独立进程里：崩溃不波及调度器，可以用到 GUI Session、特殊 OS 权限这类主进程没有的环境。代价是多一条 WebSocket 链路要维护心跳与重连。
+Channel code runs in a separate process: a crash does not take down the scheduler, and it can use environments the main process lacks, such as a GUI session or special OS permissions. The cost is one more WebSocket link that must maintain heartbeat and reconnection.
 
-#### Worker 协议
+#### Worker Protocol
 
-Worker 通过 WebSocket 与核心通信，支持以下消息类型：
+The Worker communicates with the core over WebSocket and supports the following message types:
 
-| 消息类型 | 方向 | 说明 |
+| Message Type | Direction | Description |
 |---------|------|------|
-| `register` | Worker → Core | Worker 注册 |
-| `register_ack` | Core → Worker | 注册确认 |
-| `heartbeat` | Worker → Core | 心跳 |
-| `dispatch` | Core → Worker | 已定义未启用（全仓无生产调用点；任务分发走队列，Hub 不参与） |
-| `ack` | Worker → Core | 任务确认 |
-| `error` | 双向 | 错误通报 |
-| `event` | Worker → Core | 事件通知（online/offline/error） |
+| `register` | Worker → Core | Worker registration |
+| `register_ack` | Core → Worker | Registration acknowledgment |
+| `heartbeat` | Worker → Core | Heartbeat |
+| `dispatch` | Core → Worker | Defined but not enabled (no production call sites in the repo; task dispatch goes through the queue and the Hub does not participate) |
+| `ack` | Worker → Core | Task acknowledgment |
+| `error` | Bidirectional | Error reporting |
+| `event` | Worker → Core | Event notification (online/offline/error) |
 
-#### Worker 配置
+#### Worker Configuration
 
 ```yaml
 providers:
@@ -114,9 +112,9 @@ providers:
       target: "wechat-worker-01"
 ```
 
-#### Worker 注册
+#### Worker Registration
 
-Worker 启动时发送注册消息：
+On startup, the Worker sends a registration message:
 
 ```json
 {
@@ -129,7 +127,7 @@ Worker 启动时发送注册消息：
 }
 ```
 
-核心返回注册确认：
+The core replies with a registration acknowledgment:
 
 ```json
 {
@@ -143,16 +141,16 @@ Worker 启动时发送注册消息：
 
 ## Runtime Manager
 
-Runtime Manager 是所有 Provider 的管理中心。
+The Runtime Manager is the management center for all Providers.
 
-### 核心功能
+### Core Functions
 
-Provider 的 Factory 与实例都注册在 Manager 上；投递时按名字找到实例调用 `Deliver`，失败交给重试机制，每次尝试写入投递日志。
+Both Provider factories and instances are registered on the Manager; at delivery time it looks up the instance by name and calls `Deliver`, hands failures over to the retry mechanism, and writes a delivery log entry for every attempt.
 
-### 使用示例
+### Usage Example
 
 ```go
-// 创建 Manager
+// Create the Manager
 manager := runtime.NewManager(1000, &retry.Config{
     Max:         3,
     Backoff:     "exponential",
@@ -160,43 +158,43 @@ manager := runtime.NewManager(1000, &retry.Config{
     MaxDelay:    time.Minute,
 })
 
-// 注册 Factory
+// Register factories
 manager.RegisterFactory(&telegram.Factory{})
 manager.RegisterFactory(&email.Factory{})
 
-// 创建并注册 Provider
+// Create and register a Provider
 provider, _ := manager.CreateProvider("telegram", config)
 manager.RegisterProvider("telegram", provider, true)
 
-// 投递任务
+// Deliver a task
 err := manager.Deliver(ctx, task)
 ```
 
 ## WebSocket Hub
 
-Hub 只管 Worker 的注册与生命周期，不管任务分发——任务走队列（`core/websocket/hub.go` 顶部注释明确写了这条边界）。
+The Hub only handles Worker registration and lifecycle, not task dispatch — tasks go through the queue (the comment at the top of `core/websocket/hub.go` states this boundary explicitly).
 
-### 核心功能
+### Core Functions
 
-1. **注册**：`OnRegister` 把远程 Worker（capabilities、Remote 模式）记入 worker.Registry
-2. **心跳**：`OnHeartbeat` 刷新存活时间，过期条目由 Registry 定期清理
-3. **连接管理**：`OnDisconnect` 注销；`OnTaskAck` / `OnWorkerEvent` 目前为空实现（任务结果走队列 Ack/Nack）
+1. **Registration**: `OnRegister` records the remote Worker (capabilities, Remote mode) into worker.Registry
+2. **Heartbeat**: `OnHeartbeat` refreshes the liveness timestamp; expired entries are cleaned up periodically by the Registry
+3. **Connection management**: `OnDisconnect` unregisters; `OnTaskAck` / `OnWorkerEvent` are currently empty implementations (task results go through queue Ack/Nack)
 
-## Dispatcher 与 Worker Pool
+## Dispatcher and Worker Pool
 
-Dispatcher 是 Worker Pool 的薄封装（`core/dispatch/dispatcher.go` 注释原话，新代码直接用 `worker.Pool`）。
+The Dispatcher is a thin wrapper over the Worker Pool (in the words of the comment in `core/dispatch/dispatcher.go`; new code should use `worker.Pool` directly).
 
-### 分发逻辑
+### Dispatch Logic
 
-所有任务都从队列 Pop，然后统一交给 `runtime.Manager.Deliver`：
+All tasks are popped from the queue and then handed uniformly to `runtime.Manager.Deliver`:
 
 ```
-Queue → worker.Pool (N 个本地 goroutine)
+Queue → worker.Pool (N local goroutines)
                       │
                       └─ runtime.Manager.Deliver(task)
                              │
-                             ├─ Builtin Provider → 进程内 Deliver()
-                             └─ type: worker 代理  → WebSocket 发给目标 Worker
+                             ├─ Builtin Provider → in-process Deliver()
+                             └─ type: worker proxy → sent over WebSocket to the target Worker
 ```
 
-本地与远程的分流点在 Provider 实例的 `type` 上：`type: worker` 的代理渠道把任务经 WebSocket 转发给 `target` 指定的远程 Worker；其余类型全部进程内直发。Pool 在投递失败时对队列 Nack，成功时 Ack。
+The local-vs-remote fork is decided by the Provider instance's `type`: a `type: worker` proxy channel forwards the task over WebSocket to the remote Worker named by `target`; all other types are delivered directly in-process. The Pool Nacks the queue on delivery failure and Acks on success.

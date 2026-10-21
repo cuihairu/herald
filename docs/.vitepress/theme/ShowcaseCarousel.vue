@@ -1,17 +1,18 @@
 <script setup lang="ts">
-// 走马灯（对齐 atlas 的 ShowcaseCarousel 版式）+ 灯箱大图：
-// 自动播放 + 箭头 + 圆点 + 键盘/触摸 + 悬停暂停 + 点击看大图（Esc/再点关闭）
-// + prefers-reduced-motion + SSG 安全（onMounted 才启动定时器）+ aria 完整语义。
+// Carousel aligned with atlas's ShowcaseCarousel layout, plus a lightbox:
+// autoplay + arrows + dots + keyboard/touch + hover pause + click-to-zoom
+// (Esc/click to close), prefers-reduced-motion, SSG-safe timers, and ARIA labels.
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { withBase } from 'vitepress'
 
 const props = withDefaults(
   defineProps<{
     slides: { image: string; title: string; alt?: string; caption?: string }[]
-    /** 自动播放间隔（毫秒）；0 = 不自动播放 */
+    /** Autoplay interval in milliseconds; 0 disables autoplay. */
     interval?: number
+    locale?: 'en' | 'zh'
   }>(),
-  { interval: 4500 },
+  { interval: 4500, locale: 'en' },
 )
 
 const index = ref(0)
@@ -23,7 +24,7 @@ const lightbox = ref(false)
 const total = computed(() => props.slides.length)
 
 function go(i: number) {
-  // total 是 computed ref：script 代码里必须 .value（模板里才自动解包）
+  // `total` is a computed ref: unwrap it with `.value` in script; templates unwrap automatically.
   index.value = ((i % total.value) + total.value) % total.value
 }
 const next = () => go(index.value + 1)
@@ -53,7 +54,7 @@ function onTouchEnd(e: TouchEvent) {
   if (Math.abs(dx) > 40) (dx < 0 ? next : prev)()
 }
 
-// 灯箱：打开即停轮播，Esc/点击/关闭按钮退出；开着时 ←/→ 仍可翻页
+// Open lightbox: pause autoplay. Close with Escape, click, or button; arrows remain active.
 function openLightbox() {
   lightbox.value = true
 }
@@ -84,6 +85,28 @@ onBeforeUnmount(() => {
 })
 
 defineExpose({ go, next, prev })
+
+const messages = computed(() =>
+  props.locale === 'zh'
+    ? {
+        carousel: `界面速览，共 ${total.value} 张`,
+        expand: (title: string) => `查看大图：${title}`,
+        previous: '上一张',
+        next: '下一张',
+        selectImage: '选择图片',
+        lightboxTitle: (title: string) => `${title} 大图`,
+        close: '关闭大图',
+      }
+    : {
+        carousel: `Interface overview, ${total.value} slides`,
+        expand: (title: string) => `View larger: ${title}`,
+        previous: 'Previous slide',
+        next: 'Next slide',
+        selectImage: 'Select image',
+        lightboxTitle: (title: string) => `${title} enlarged`,
+        close: 'Close enlarged image',
+      },
+)
 </script>
 
 <template>
@@ -91,7 +114,7 @@ defineExpose({ go, next, prev })
     class="sc"
     role="region"
     :aria-roledescription="'carousel'"
-    :aria-label="`界面速览，共 ${total} 张`"
+    :aria-label="messages.carousel"
     @mouseenter="paused = true"
     @mouseleave="paused = false"
     @focusin="paused = true"
@@ -109,7 +132,7 @@ defineExpose({ go, next, prev })
         class="sc-slide"
         :class="{ active: i === index }"
         :aria-hidden="i !== index"
-        :aria-label="`查看大图：${slide.title}`"
+        :aria-label="messages.expand(slide.title)"
         :inert="i !== index"
         @click="openLightbox"
       >
@@ -125,19 +148,19 @@ defineExpose({ go, next, prev })
         <span class="sc-caption" v-if="slide.caption">{{ slide.caption }}</span>
       </div>
 
-      <button class="sc-arrow prev" type="button" :aria-label="'上一张'" @click="prev">
+      <button class="sc-arrow prev" type="button" :aria-label="messages.previous" @click="prev">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path d="M15.5 4.5 8 12l7.5 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
-      <button class="sc-arrow next" type="button" :aria-label="'下一张'" @click="next">
+      <button class="sc-arrow next" type="button" :aria-label="messages.next" @click="next">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path d="M8.5 4.5 16 12l-7.5 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
     </div>
 
-    <div class="sc-dots" role="tablist" :aria-label="'选择图片'">
+    <div class="sc-dots" role="tablist" :aria-label="messages.selectImage">
       <button
         v-for="(slide, i) in slides"
         :key="slide.image"
@@ -158,10 +181,10 @@ defineExpose({ go, next, prev })
           class="sc-lightbox"
           role="dialog"
           aria-modal="true"
-          :aria-label="`${slides[index].title} 大图`"
+          :aria-label="messages.lightboxTitle(slides[index].title)"
           @click="closeLightbox"
         >
-          <button class="sc-lb-close" type="button" aria-label="关闭大图" @click.stop="closeLightbox">
+          <button class="sc-lb-close" type="button" :aria-label="messages.close" @click.stop="closeLightbox">
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>

@@ -1,24 +1,22 @@
-> 中文 · [English](./feishu.en.md)
+# Feishu
 
-# 飞书
+Push notifications into Feishu groups via a custom-robot webhook.
 
-通过飞书自定义机器人 Webhook 将通知推送到飞书群。
+## What It Does
 
-## 作用
+The `feishu` Builtin Provider calls the custom-robot webhook interface and sends Herald's notifications to a group chat as plain text or as an interactive card. Alert notifications can carry an Acknowledge Alert button that integrates with Herald's alert callbacks.
 
-`feishu` Builtin Provider 调用飞书自定义机器人的 Webhook 接口，把 Herald 的通知以纯文本或交互卡片的形式发送到群聊。告警类通知可携带「确认告警」按钮，与 Herald 的告警回调联动。
+## Obtaining Credentials
 
-## 申请凭据
+No approval needed — get a webhook URL in one minute:
 
-无需审批，一分钟拿到 Webhook 地址：
+1. Open the target Feishu group → **Settings** in the top-right → **Group Robots** → **Add Robot** → choose **Custom Robot**
+2. Name and describe it, then create it; **copy the webhook URL** (like `https://open.feishu.cn/open-apis/bot/v2/hook/xxxx`)
+3. Choose one of three security settings: **Custom keyword** (the message must contain that word), **Signature verification** (⚠️ not supported by the current implementation — **do not pick this**), **IP allowlist**
 
-1. 打开目标飞书群 → 右上角 **设置** → **群机器人** → **添加机器人** → 选 **自定义机器人**
-2. 起名、描述后创建，**复制 Webhook 地址**（形如 `https://open.feishu.cn/open-apis/bot/v2/hook/xxxx`）
-3. 安全设置三选一：**自定义关键词**（消息须含该词）、**签名校验**（⚠️ 当前实现不支持，**不要选**）、IP 白名单
+## Sending Your First Message
 
-## 发第一条消息
-
-配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+Configure it (see below) and start with `heraldd serve --config config.yaml`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -26,27 +24,27 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "demo",
     "level": "error",
-    "title": "Herald 第一条推送",
+    "title": "Herald first push",
     "body": "from curl",
     "channels": ["feishu"]
   }'
 ```
 
-API 返回 `"accepted":["feishu"]`，群里收到 `[错误] Herald 第一条推送`。若设了自定义关键词，记得让标题/正文包含该词。没收到？查[排错指南](/guide/troubleshooting)。
+The API returns `"accepted":["feishu"]` and the group receives `[Error] Herald first push`. If you set a custom keyword, remember to include that word in the title/body. Didn't arrive? See the [Troubleshooting Guide](/guide/troubleshooting).
 
-## 配置项
+## Configuration
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `webhook_url` | ✅ | 自定义机器人 Webhook 地址（群设置 → 群机器人 → 添加自定义机器人获得） | 无 |
-| `sign_secret` | ❌ | 机器人「签名校验」密钥。**注意：当前实现仅解析保存，发送时未参与加签计算**（预留字段） | 空 |
-| `interactive_cards` | ❌ | 告警通知是否发送为交互卡片（含「确认告警」按钮） | `false` |
+| `webhook_url` | ✅ | The custom-robot webhook URL (Group Settings → Group Robots → Add Custom Robot) | None |
+| `sign_secret` | ❌ | The robot's Signature verification secret. **Note: the current implementation only parses and stores it — it is not used in signing at send time** (reserved field) | Empty |
+| `interactive_cards` | ❌ | Whether alert notifications are sent as interactive cards (with an Acknowledge Alert button) | `false` |
 
-缺 `webhook_url` 时 Provider 创建即失败（`feishu: webhook_url is required`）。
+If `webhook_url` is missing, Provider creation fails immediately (`feishu: webhook_url is required`).
 
-> **⚠️ 签名校验**：若机器人在飞书侧开启了「签名校验」，当前实现不会计算签名，飞书会拒绝请求（返回签名不匹配错误）。请将机器人安全设置改为「自定义关键词」等不加签方式，或等待加签支持落地。
+> **⚠️ Signature verification**: If the robot has Signature verification enabled in its Feishu-side security settings, the current implementation does not compute a signature, so Feishu rejects the request (it returns a signature-mismatch error). Please change the robot's security setting to a non-signing option such as Custom keyword, or wait for signature support to land.
 
-## 配置示例
+## Configuration Example
 
 ```yaml
 providers:
@@ -55,59 +53,59 @@ providers:
     enabled: true
     config:
       webhook_url: "$FEISHU_WEBHOOK_URL"
-      interactive_cards: true      # 可选：告警发送为交互卡片
-      # sign_secret: "$FEISHU_SIGN_SECRET"   # 预留，当前未参与加签
+      interactive_cards: true      # optional: send alerts as interactive cards
+      # sign_secret: "$FEISHU_SIGN_SECRET"   # reserved, not used in signing yet
 ```
 
-## 环境变量
+## Environment Variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When Herald loads config, it replaces any **string value starting with `$`** in the provider config with the value of the same-named environment variable (using the `$VAR` form, looked up as `VAR`). Note: the `"${VAR}"` form with braces is **not expanded** (it looks up `{VAR}` and keeps the text as-is) — use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment Variable | Config Key | Description |
 |----------|-----------|------|
-| `FEISHU_WEBHOOK_URL` | `webhook_url` | 自定义机器人 Webhook 地址（`.env.example` 惯用名） |
+| `FEISHU_WEBHOOK_URL` | `webhook_url` | The custom-robot webhook URL (conventional name in `.env.example`) |
 
-## 消息模板与限制
+## Message Templates and Limits
 
-**默认纯文本**（级别前缀 + 标题 + 正文）：
+**Default plain text** (level prefix + title + body):
 
 ```
-[错误] {title}
+[Error] {title}
 
 {body}
 ```
 
-| 级别 | 前缀 |
+| Level | Prefix |
 |------|------|
-| `error` | `[错误] ` |
-| `warning` | `[警告] ` |
-| `info` | `[信息] ` |
-| 其他 | 无前缀 |
+| `error` | `[Error] ` |
+| `warning` | `[Warning] ` |
+| `info` | `[Info] ` |
+| Others | No prefix |
 
-**交互卡片**（`interactive_cards: true` 且通知关联了告警 ID 时）：
+**Interactive card** (when `interactive_cards: true` and the notification is associated with an alert ID):
 
-- 卡片 header 颜色：`error` / `critical` → 红色，`warning` → 橙色，其余 → 蓝色
-- 卡片正文为 `lark_md` 格式
-- 底部「确认告警」按钮，点击后回调 Herald 告警确认接口（见规则引擎 / 告警回调文档）
+- Card header color: `error` / `critical` → red, `warning` → orange, others → blue
+- The card body uses the `lark_md` format
+- An Acknowledge Alert button at the bottom, which calls back to Herald's alert acknowledgement API on click (see the rule engine / alert callback documentation)
 
-- Provider 能力声明仅支持 `plain`：默认纯文本消息中的 markdown 语法**不会**被飞书渲染
-- 请求超时 30s；HTTP 408/429/5xx 会被包装为可重试错误，走统一重试
-- 飞书侧限制：自定义机器人默认限频 100 条/分钟、5 条/秒，超限返回 `code: 9499`（频繁限流）
+- The Provider capability declaration supports only `plain`: markdown syntax in the default plain text message is **not** rendered by Feishu
+- Request timeout 30s; HTTP 408/429/5xx are wrapped as retryable errors and go through unified retry
+- Feishu-side limits: custom robots are rate limited to 100 per minute and 5 per second by default; exceeding the limit returns `code: 9499` (rate limiting)
 
-## 常见错误
+## Common Errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and remedy |
 |------|-----------|
-| `feishu: webhook_url is required` | 未配置 `webhook_url` |
-| `feishu API error: sign match fail` | 机器人开了「签名校验」而当前实现不加签，改用「自定义关键词」安全设置 |
-| `feishu API error: key words not found` | 机器人设置了「自定义关键词」但消息里不含该关键词（可在消息正文里带上关键词） |
-| `feishu API error: webhook is invalid` / `url not found` | Webhook 地址错误或机器人已被删除/停用，重新获取地址 |
-| `feishu API error: Forbidden` | 机器人被限流或被移出群聊 |
+| `feishu: webhook_url is required` | `webhook_url` not configured |
+| `feishu API error: sign match fail` | The robot has Signature verification enabled while the current implementation does not sign — switch to the Custom keyword security setting |
+| `feishu API error: key words not found` | The robot has Custom keyword set but the message does not contain that keyword (include the keyword in the message body) |
+| `feishu API error: webhook is invalid` / `url not found` | The webhook URL is wrong, or the robot has been deleted/disabled; obtain the URL again |
+| `feishu API error: Forbidden` | The robot was rate limited or removed from the group chat |
 
-错误格式说明：飞书返回 `code != 0` 时报 `feishu API error: {msg}`；HTTP 非 2xx 时报 `unexpected status code: {code}, body: …`。
+Error format notes: when Feishu returns `code != 0` the error is `feishu API error: {msg}`; for non-2xx HTTP responses it is `unexpected status code: {code}, body: …`.
 
-## 下一步
+## Next Steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [企业微信](./wecom.md) - 企业微信群机器人推送
-- [钉钉](./dingtalk.md) - 钉钉群机器人推送
+- [Provider Overview](./overview.md) - see all Providers and how to enable them
+- [WeCom](./wecom.md) - WeCom group-robot push
+- [DingTalk](./dingtalk.md) - DingTalk group-robot push

@@ -1,76 +1,74 @@
-> 中文 · [English](./overview.en.md)
-
 # Providers
 
-Herald 支持多种通知渠道，包括即时通讯、邮件、短信、推送和 Webhook。
+Herald supports a variety of notification channels, including instant messaging, email, SMS, push, and Webhook.
 
-## 按任务找渠道
+## Find a channel by task
 
-| 你想做什么 | 用哪个 | 申请难度 |
+| What you want to do | Which to use | Application difficulty |
 |-----------|--------|---------|
-| 消息发进飞书/企微/钉钉群 | [`feishu`](./feishu.md) / [`wecom`](./wecom.md) / [`dingtalk`](./dingtalk.md) | 群里加机器人即得，**零审批** |
-| 推送到自己手机 | [`telegram`](./telegram.md) 或 [`wechat`](./wechat.md)（Server酱等） | Telegram 零审批；微信第三方扫码即用 |
-| 发验证码 / 事务短信 | [`aliyunsms`](./aliyunsms.md) / [`tencentsms`](./tencentsms.md) / [`neteasesms`](./neteasesms.md) | 需签名+模板审核 |
-| 发邮件 | [`email`](./email.md) | 有 SMTP 账号即可（授权码） |
-| 推到 Discord / Slack 频道 | [`discord`](./discord.md) / [`slack`](./slack.md) | 创建 Webhook 即得，零审批 |
-| 对接自建系统 / 本地调试 | [`webhook`](./webhook.md) / [`log`](./log.md) | 零凭据 |
-| 公众号模板消息 | [`wechatmp`](./wechatmp.md) | 需认证服务号 |
-| App 推送（Android/Web） | [`fcm`](./fcm.md) | 需 Firebase 项目，控制台生成服务账号即用 |
-| App 推送（iOS/macOS） | [`apns`](./apns.md) | 需 Apple Developer 账号，Keys 页生成 .p8 |
-| App 推送（国内，Android/iOS/鸿蒙） | [`jpush`](./jpush.md) / [`getui`](./getui.md) | 需极光/个推账号，控制台建应用即得 AppKey/Master Secret |
+| Send messages to a Feishu/WeCom/DingTalk group | [`feishu`](./feishu.md) / [`wecom`](./wecom.md) / [`dingtalk`](./dingtalk.md) | add a bot to the group and you're done, **zero approval** |
+| Push to your own phone | [`telegram`](./telegram.md) or [`wechat`](./wechat.md) (ServerChan etc.) | Telegram needs zero approval; the WeChat third-party services work right after a QR-code login |
+| Send verification codes / transactional SMS | [`aliyunsms`](./aliyunsms.md) / [`tencentsms`](./tencentsms.md) / [`neteasesms`](./neteasesms.md) | requires signature + template review |
+| Send email | [`email`](./email.md) | any SMTP account works (authorization code) |
+| Push to a Discord / Slack channel | [`discord`](./discord.md) / [`slack`](./slack.md) | create a Webhook and you're done, zero approval |
+| Integrate with self-built systems / local debugging | [`webhook`](./webhook.md) / [`log`](./log.md) | zero credentials |
+| WeChat Official Account template messages | [`wechatmp`](./wechatmp.md) | requires a verified service account |
+| App push (Android/Web) | [`fcm`](./fcm.md) | needs a Firebase project; generate a service account in the console and you're set |
+| App push (iOS/macOS) | [`apns`](./apns.md) | needs an Apple Developer account; generate a .p8 on the Keys page |
+| App push (China, Android/iOS/HarmonyOS) | [`jpush`](./jpush.md) / [`getui`](./getui.md) | needs a JPush/Getui account; create an app in the console to get the AppKey/Master Secret |
 
-每个渠道页都含：**申请凭据 → 配置 → 发第一条消息（可跟跑的命令）→ 常见错误**。
+Every channel page contains: **get credentials → configure → send your first message (commands you can follow along) → common errors**.
 
-## Provider 分类
+## Provider Categories
 
-### 即时通讯
+### Instant Messaging
 
-| Provider | 说明 | 状态 |
+| Provider | Description | Status |
 |----------|------|------|
 | [`telegram`](./telegram.md) | Telegram Bot | ✅ |
-| [`feishu`](./feishu.md) | 飞书机器人 | ✅ |
-| [`wecom`](./wecom.md) | 企业微信机器人 | ✅ |
-| [`wechat`](./wechat.md) | 微信个人推送 (ServerChan/PushPlus/WxPusher) | ✅ |
-| [`wechatmp`](./wechatmp.md) | 微信公众号模板消息 | ✅ |
-| [`dingtalk`](./dingtalk.md) | 钉钉机器人 | ✅ |
+| [`feishu`](./feishu.md) | Feishu bot | ✅ |
+| [`wecom`](./wecom.md) | WeCom bot | ✅ |
+| [`wechat`](./wechat.md) | WeChat personal push (ServerChan/PushPlus/WxPusher) | ✅ |
+| [`wechatmp`](./wechatmp.md) | WeChat Official Account template messages | ✅ |
+| [`dingtalk`](./dingtalk.md) | DingTalk bot | ✅ |
 | [`slack`](./slack.md) | Slack | ✅ |
 | [`discord`](./discord.md) | Discord | ✅ |
 
-### 邮件
+### Email
 
-| Provider | 说明 | 状态 |
+| Provider | Description | Status |
 |----------|------|------|
-| [`email`](./email.md) | SMTP 邮件 | ✅ |
+| [`email`](./email.md) | SMTP email | ✅ |
 
-### 短信
+### SMS
 
-| Provider | 说明 | 状态 |
+| Provider | Description | Status |
 |----------|------|------|
-| [`aliyunsms`](./aliyunsms.md) | 阿里云短信 | ✅ |
-| [`tencentsms`](./tencentsms.md) | 腾讯云短信 | ✅ |
-| [`neteasesms`](./neteasesms.md) | 网易云信短信 | ✅ |
+| [`aliyunsms`](./aliyunsms.md) | Alibaba Cloud SMS | ✅ |
+| [`tencentsms`](./tencentsms.md) | Tencent Cloud SMS | ✅ |
+| [`neteasesms`](./neteasesms.md) | NetEase Yunxin SMS | ✅ |
 
-### 推送
+### Push
 
-| Provider | 说明 | 状态 |
+| Provider | Description | Status |
 |----------|------|------|
 | [`fcm`](./fcm.md) | Firebase Cloud Messaging (Android/Web) | ✅ |
 | [`apns`](./apns.md) | Apple Push Notification service (iOS/macOS) | ✅ |
-| [`jpush`](./jpush.md) | 极光推送 JPush (Android/iOS/鸿蒙) | ✅ |
-| [`getui`](./getui.md) | 个推 Getui (Android/iOS/鸿蒙) | ✅ |
+| [`jpush`](./jpush.md) | JPush (Android/iOS/HarmonyOS) | ✅ |
+| [`getui`](./getui.md) | Getui (Android/iOS/HarmonyOS) | ✅ |
 
-### 其他
+### Others
 
-| Provider | 说明 | 状态 |
+| Provider | Description | Status |
 |----------|------|------|
-| [`webhook`](./webhook.md) | 通用 Webhook | ✅ |
-| [`log`](./log.md) | 日志输出 | ✅ |
+| [`webhook`](./webhook.md) | Generic Webhook | ✅ |
+| [`log`](./log.md) | Log output | ✅ |
 
 ## Builtin vs Worker
 
 ### Builtin Providers
 
-Builtin Providers 直接在 Herald 核心进程中运行，配置块长这样：
+Builtin Providers run directly inside the Herald core process; the config block looks like this:
 
 ```yaml
 providers:
@@ -84,93 +82,93 @@ providers:
 
 ### Worker Providers
 
-Worker Providers 在独立的进程中运行，通过 WebSocket 连接到 Herald：
+Worker Providers run in a separate process and connect to Herald over WebSocket:
 
 ```yaml
 providers:
   custom-provider:
     type: worker
     config:
-      target: "custom-worker-01"   # 等价 name 键
+      target: "custom-worker-01"   # equivalent to the name key
 ```
 
-## 启用/禁用 Provider
+## Enable/Disable a Provider
 
-### 通过配置文件
+### Via the config file
 
 ```yaml
 providers:
   telegram:
     type: telegram
-    enabled: true    # 启用
+    enabled: true    # enable
     config:
       token: "your_token"
 
   slack:
     type: slack
-    enabled: false   # 禁用
+    enabled: false   # disable
     config:
       webhook_url: "your_url"
 ```
 
-### 通过 API
+### Via the API
 
 ```bash
-# 启用
+# enable
 curl -X POST http://localhost:8080/api/v1/providers/telegram/enable
 
-# 禁用
+# disable
 curl -X POST http://localhost:8080/api/v1/providers/telegram/disable
 ```
 
-### 通过 Dashboard
+### Via the Dashboard
 
-在 Dashboard 的 Providers 页面中，点击每个 Provider 卡片的启用/禁用按钮。
+On the Dashboard's Providers page, click the enable/disable button on each Provider card.
 
-## 配置优先级
+## Configuration Priority
 
-1. API 调用（运行时修改）
-2. 配置文件（启动时加载）
-3. 默认配置
+1. API calls (runtime changes)
+2. Config file (loaded at startup)
+3. Default configuration
 
-配置文件中的 `enabled` 字段指定 Provider 的初始状态，之后可以通过 API 或 Dashboard 动态修改。
+The `enabled` field in the config file sets the Provider's initial state; afterwards it can be changed dynamically via the API or the Dashboard.
 
-## 错误分类与重试
+## Error Classification and Retry
 
-投递失败是否重试由**错误分类**决定（六类词汇，见 [受众领域模型总纲](/design-audience-model)）：
+Whether a failed delivery is retried is decided by **error classification** (a six-value vocabulary, see the [Audience Domain Model](/design-audience-model)):
 
-| 分类 | 触发 | 是否重试 |
+| Class | Trigger | Retried? |
 |------|------|---------|
-| `temporary` | 上游 5xx、一般网络错误 | ✅ 按 `retry` 配置退避重投 |
-| `rate_limited` | 上游 429 | ✅ 带 `Retry-After` 时按其等待（封顶 `retry.max_delay`），否则同上 |
-| `timeout` | 请求超时（408 或传输超时） | ✅ 同上 |
-| `permanent` | 上游明确拒绝且重试无意义 | ❌ 立即 failed |
-| `authentication` | 凭据无效 | ❌ 立即 failed |
-| `invalid_request` | 请求本身不合法 | ❌ 立即 failed |
+| `temporary` | upstream 5xx, general network errors | ✅ retried with backoff per the `retry` config |
+| `rate_limited` | upstream 429 | ✅ when `Retry-After` is present, wait as instructed (capped at `retry.max_delay`); otherwise as above |
+| `timeout` | request timed out (408 or transport timeout) | ✅ as above |
+| `permanent` | upstream explicitly rejects and retrying is pointless | ❌ immediately failed |
+| `authentication` | invalid credentials | ❌ immediately failed |
+| `invalid_request` | the request itself is invalid | ❌ immediately failed |
 
-- 走内置 HTTP 客户端（`core/httpclient`）的 Provider 自动获得分类：408 归 `timeout`、429 归 `rate_limited`、5xx 与传输错误归 `temporary`（三类可重试），其余 4xx 不分类也重试不了（`classifyStatus` 注释原话：retrying them cannot succeed）
-- 「HTTP 200 但业务码失败」不在自动分类范围内，由 Provider 自己决定：腾讯云/网易云信给业务错误整体套 `httpclient.WithRetry`（业务码失败也重试），阿里云业务码只返回裸错误（不重试）——各渠道差异见对应 Provider 页
-- 重试等待发生在队列侧：可重试失败的任务带 `next_retry_at` 重新入队，到点再投，期间 worker 去投别的任务；`Retry-After` 的等待同样在队列侧消化（封顶 `retry.max_delay`）。日志（`/api/v1/logs`）里该任务只有一行，重试期间停在 `pending`
-- 可重试类耗尽 `retry.max` 后任务进入 dead（`dead` 与永久 `failed` 的区分只在投递状态面 `/api/v1/deliveries`），终态错误留在任务的 `last_error`；日志（`/api/v1/logs`）对两种终态都只报 `failed`
+- Providers that go through the built-in HTTP client (`core/httpclient`) get classification for free: 408 maps to `timeout`, 429 to `rate_limited`, 5xx and transport errors to `temporary` (the three retryable classes); other 4xx are unclassified and cannot be retried (in the words of the `classifyStatus` comment: retrying them cannot succeed)
+- "HTTP 200 but business-code failure" is outside automatic classification and is up to each Provider: Tencent Cloud/NetEase Yunxin wrap business errors with `httpclient.WithRetry` overall (business-code failures are retried too), while Alibaba Cloud returns a bare error for business codes (no retry) — see each Provider page for channel-specific differences
+- Retry waiting happens on the queue side: a retryable failed task is re-enqueued with `next_retry_at` and delivered again when due, while the worker delivers other tasks in the meantime; `Retry-After` waits are likewise absorbed on the queue side (capped at `retry.max_delay`). In the logs (`/api/v1/logs`) the task has a single entry and stays at `pending` while retrying
+- When a retryable class exhausts `retry.max`, the task goes to dead (the `dead` vs permanently `failed` distinction exists only on the delivery status surface `/api/v1/deliveries`); the terminal error stays in the task's `last_error`, and the logs (`/api/v1/logs`) report both terminal states simply as `failed`
 
-## 最佳实践
+## Best Practices
 
-1. 凭据走环境变量，配置文件里写 `$VAR` 占位
-2. 同类型配多个实例（如两个 webhook 指向不同接收端），故障时切路由不换业务代码
-3. `enabled: false` 只是关掉投递，Provider 仍会按配置创建、凭据照常校验；临时下线走 API 或 Dashboard 的动态开关
-4. 排查投递问题先查 `/api/v1/logs`，失败原因带渠道原始报错
+1. Put credentials in environment variables and write `$VAR` placeholders in the config file
+2. Configure multiple instances of the same type (e.g. two webhooks pointing at different receivers); when one fails, switch routing without touching business code
+3. `enabled: false` only turns delivery off; the Provider is still created per its config and its credentials are still validated. For temporary downtime use the dynamic switches via API or Dashboard
+4. When troubleshooting delivery issues, check `/api/v1/logs` first; failure reasons include the channel's original error
 
-## 注册机制与 worker 占位
+## Registration Mechanism and the Worker Placeholder
 
-- 所有 Builtin Provider 的工厂统一在 `providers/builtin/registry` 注册（`RegisterBuiltinProviders`），上表即注册全集，无需手工注册
-- `worker` 类型的 provider 是**远程 Worker 的本地占位**：本地 Deliver 为空操作，任务由调度器按 `target` 路由到对应 Worker 节点执行（`name` 默认 `worker`，`target` 默认取 `name`）。适用场景与开发方式见 [Worker Runtime](/runtime/worker) 与 [Worker SDK](/runtime/sdk)
+- Factories for all Builtin Providers are registered centrally in `providers/builtin/registry` (`RegisterBuiltinProviders`); the tables above are the full registered set, no manual registration needed
+- A `worker`-type provider is a **local placeholder for a remote Worker**: its local Deliver is a no-op, and tasks are routed by the scheduler to the matching Worker node per `target` (`name` defaults to `worker`; `target` defaults to `name`). For applicable scenarios and how to develop one, see [Worker Runtime](/runtime/worker) and [Worker SDK](/runtime/sdk)
 
-## 下一步
+## Next Steps
 
-- [微信个人推送](./wechat.md) - 使用第三方服务推送
-- [微信公众号指南](./wechat-official.md) - 自建公众号推送指南
-- [微信公众号模板消息](./wechatmp.md) - wechatmp Provider 配置参考
-- [Email](./email.md) - SMTP 邮件通道
-- [Webhook](./webhook.md) - 自定义 HTTP 接收端
-- [Log](./log.md) - 本地调试输出
-- [SMS Providers](./sms.md) - 短信 Provider 详细配置
+- [WeChat personal push](./wechat.md) - push via third-party services
+- [WeChat Official Account guide](./wechat-official.md) - guide to pushing through your own Official Account
+- [WeChat Official Account template messages](./wechatmp.md) - wechatmp Provider configuration reference
+- [Email](./email.md) - SMTP email channel
+- [Webhook](./webhook.md) - custom HTTP receiver
+- [Log](./log.md) - local debugging output
+- [SMS Providers](./sms.md) - detailed SMS Provider configuration

@@ -1,20 +1,18 @@
-> 中文 · [English](./core-design.en.md)
+# Core Design
 
-# 核心设计
+## System Positioning
 
-## 系统定位
+Herald is event-driven delivery infrastructure: a unified Worker model, with task distribution taking the Queue as its backbone. It is not a Plugin system, not a Webhook aggregation tool, and not a push SDK for business code.
 
-Herald 是事件驱动的投递基础设施：统一 Worker 模型，任务分发以 Queue 为骨干。它不是 Plugin 系统，不是 Webhook 聚合工具，也不是给业务代码用的推送 SDK。
+## Core Concepts
 
-## 核心概念
+### Unified Worker Model
 
-### Worker 统一模型
+All Workers are the same kind of thing; only `mode` distinguishes the deployment method:
 
-所有 Worker 都是同一种东西，只通过 `mode` 区分部署方式：
+A local worker is an in-process goroutine that calls built-in Providers directly; a remote worker is a standalone process (`heraldd worker`) that consumes tasks from a shared Queue.
 
-local worker 是进程内 goroutine，直接调用内置 Provider；remote worker 是独立进程（`heraldd worker`），从共享 Queue 消费任务。
-
-**"谁来做" 是部署问题，"怎么做" 是 Provider 问题。** Queue 是唯一的任务分发通道。
+**"Who does it" is a deployment question; "how it is done" is a Provider question.** The Queue is the only task distribution channel.
 
 ### Queue as Backbone
 
@@ -24,74 +22,74 @@ graph LR
     Queue -->|Pop + Ack| WP["Worker Pool"]
     WP --> L0["local-0"]
     WP --> L1["local-1"]
-    Queue -->|Pop + Ack| R0["remote-0<br/>(独立进程)"]
+    Queue -->|Pop + Ack| R0["remote-0<br/>(standalone process)"]
     L0 -->|Provider.Deliver| P1["Provider"]
     L1 -->|Provider.Deliver| P2["Provider"]
 ```
 
-Queue 提供可靠消费语义（Ack/Nack），支持背压、持久化（Redis 模式）。
+The Queue provides reliable consumption semantics (Ack/Nack) and supports backpressure and persistence (Redis mode).
 
 ### Provider vs Worker
 
-| 概念 | 职责 | 关注点 |
+| Concept | Responsibility | Concern |
 |------|------|--------|
-| Provider | 实现 Deliver 逻辑 | 怎么发 |
-| Worker | 从 Queue 消费任务 | 谁来做 |
+| Provider | Implements the Deliver logic | How to send |
+| Worker | Consumes tasks from the Queue | Who does it |
 
-### Queue 实现
+### Queue Implementations
 
-| 实现 | 适用场景 | Remote Worker |
+| Implementation | Use case | Remote Worker |
 |------|---------|---------------|
-| `memory` | 单机，开发 | 不支持 |
-| `redis` | 分布式，生产 | 支持 |
+| `memory` | Single machine, development | Not supported |
+| `redis` | Distributed, production | Supported |
 
-切换实现只需改配置，代码零改动。
+Switching implementations only requires a config change, with zero code changes.
 
-### WebSocket 管理通道
+### WebSocket Management Channel
 
-WebSocket 不用于任务分发，仅作为远程 Worker 的管理通道：
+WebSocket is not used for task distribution; it serves only as the management channel for remote Workers:
 
-- 注册（上报 ID、能力）
-- 心跳（保活，超时自动注销）
-- 状态上报（session 过期、需要扫码等）
+- Registration (report ID and capabilities)
+- Heartbeat (keep-alive, automatic deregistration on timeout)
+- Status reporting (session expired, QR code scan needed, etc.)
 
-## Delivery 抽象
+## Delivery Abstraction
 
 ### Notification → DeliveryTask
 
 ```mermaid
 graph TB
-    N["Notification"] -->|路由| Channels["目标渠道列表"]
-    Channels -->|模板渲染| Tasks["DeliveryTask[]"]
-    Tasks -->|入队| Q["Queue"]
+    N["Notification"] -->|routing| Channels["target channel list"]
+    Channels -->|template rendering| Tasks["DeliveryTask[]"]
+    Tasks -->|enqueue| Q["Queue"]
     Q -->|Worker Pop| WP["Worker Pool"]
     WP -->|Provider.Deliver| Provider["Provider"]
 ```
 
-### Payload 类型
+### Payload Kinds
 
-| PayloadKind | 说明 | 适用 Provider |
+| PayloadKind | Description | Applicable Providers |
 |-------------|------|--------------|
-| `content` | 渲染后的内容 | Telegram、Email、Feishu 等（未声明 Capability 时的默认） |
-| `provider_template` | 服务商模板 | 阿里云 SMS、腾讯云 SMS |
-| `raw` | 原始透传 | 声明 raw 能力的渠道：FCM / APNs / 极光 / 个推 / Webhook（Worker Provider 不声明 Capability，走 content 默认） |
+| `content` | Rendered content | Telegram, Email, Feishu, etc. (the default when no Capability is declared) |
+| `provider_template` | Vendor template | Alibaba Cloud SMS, Tencent Cloud SMS |
+| `raw` | Raw pass-through | Channels declaring the raw capability: FCM / APNs / JPush / Getui / Webhook (Worker Providers declare no Capability and go through the content default) |
 
-## 设计原则
+## Design Principles
 
 ### 1. HTTP First
 
-主要接口是 HTTP REST API。
+The primary interface is the HTTP REST API.
 
 ### 2. Queue First
 
-Queue 是唯一的任务分发通道，不存在第二条路径。
+The Queue is the only task distribution channel; there is no second path.
 
 ### 3. Template First
 
-模板定义与渠道无关，一次定义，多渠道复用。
+Template definitions are channel-independent: define once, reuse across multiple channels.
 
 ### 4. Deploy Flexible
 
-- 单机：`memory` 队列 + local workers
-- 分布式：`redis` 队列 + local workers + remote workers
-- 配置切换，代码不变
+- Single machine: `memory` queue + local workers
+- Distributed: `redis` queue + local workers + remote workers
+- Config switch, code unchanged

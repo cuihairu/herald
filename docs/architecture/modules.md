@@ -1,12 +1,10 @@
-> 中文 · [English](./modules.en.md)
+# Module Design
 
-# 模块设计
+## Core Modules
 
-## 核心模块
+### Worker Pool (unified Worker pool)
 
-### Worker Pool（统一 Worker 池）
-
-Worker Pool 管理一组 Worker，统一从 Queue 消费任务并投递：
+The Worker Pool manages a set of Workers that uniformly consume tasks from the Queue and deliver them:
 
 ```mermaid
 graph LR
@@ -16,17 +14,17 @@ graph LR
     RM --> Provider["Provider"]
 ```
 
-**核心职责：**
+**Core responsibilities:**
 
-1. 启动 N 个 local worker goroutine
-2. 每个 worker 循环：Pop → Deliver → Ack/Nack
-3. 管理远程 Worker 注册信息
+1. Start N local worker goroutines
+2. Each worker loops: Pop → Deliver → Ack/Nack
+3. Manage remote Worker registration information
 
-**源码位置：** `core/worker/pool.go`
+**Source location:** `core/worker/pool.go`
 
-### Registry（Worker 注册表）
+### Registry (Worker registry)
 
-统一管理所有 Worker 的元信息：
+Uniformly manages the metadata of all Workers:
 
 ```mermaid
 graph LR
@@ -38,48 +36,48 @@ graph LR
     end
 ```
 
-**源码位置：** `core/worker/registry.go`
+**Source location:** `core/worker/registry.go`
 
-## 数据流
+## Data Flow
 
 ```mermaid
 graph LR
     API["API Request"] --> Handler --> NS["NotificationService"]
-    NS -->|路由| Route["Route Engine"]
-    NS -->|去重| Dedup["Dedup"]
-    NS -->|渲染| Template["Template"]
+    NS -->|routing| Route["Route Engine"]
+    NS -->|dedup| Dedup["Dedup"]
+    NS -->|rendering| Template["Template"]
     NS --> Planner["DeliveryPlanner"]
-    Planner -->|Binding 解析| Queue["Queue"]
+    Planner -->|Binding resolution| Queue["Queue"]
     Queue --> WP["Worker Pool"]
     WP -->|Provider.Deliver| Provider["Provider"]
 ```
 
-## 核心类型
+## Core Types
 
-### Notification（通知意图）
+### Notification (notification intent)
 
-API 层的输入，描述"用户想发什么"。
+The API-layer input, describing "what the user wants to send".
 
 ```go
 type Notification struct {
     ID           string
     Type         string
     Level        string
-    AudienceID   string   // 受众维度（空为广播）
+    AudienceID   string   // audience dimension (empty means broadcast)
     Channels     []string
     Recipients   map[string][]string
     TemplateRef  string
     Params       map[string]any
     Content      *DirectContent
     CreatedAt    time.Time
-    RelationType string   // subscription / enrollment（受众关系上下文）
-    Source       string   // 入口来源（bot / preference_center / admin / app:<ns>）
+    RelationType string   // subscription / enrollment (audience relation context)
+    Source       string   // entry source (bot / preference_center / admin / app:<ns>)
 }
 ```
 
-### DeliveryTask（投递任务）
+### DeliveryTask (delivery task)
 
-Provider 层的输入，描述"怎么发到具体渠道"。
+The Provider-layer input, describing "how to send to a specific channel".
 
 ```go
 type DeliveryTask struct {
@@ -88,18 +86,18 @@ type DeliveryTask struct {
     Targets     []string
     Payload     DeliveryPayload
     Level       string
-    AlertID     string         // 确认身份透传到交互卡片按钮
-    Status      DeliveryStatus // 投递状态机（queued/delivering/retrying/delivered/failed/dead）
-    RetryCount  int            // 已重试次数（attempts = RetryCount + 1）
-    MaxAttempts int            // 首次投递时记入的总尝试预算
-    LastError   string         // 终态为 failed/dead 时的最后一次错误
+    AlertID     string         // acknowledgement identity passed through to the interactive card buttons
+    Status      DeliveryStatus // delivery state machine (queued/delivering/retrying/delivered/failed/dead)
+    RetryCount  int            // retries already performed (attempts = RetryCount + 1)
+    MaxAttempts int            // total attempt budget recorded at the first delivery
+    LastError   string         // the last error when the terminal state is failed/dead
     CreatedAt   time.Time
-    NextRetryAt *time.Time     // 等退避重投期间由队列持留
-    RelationType string        // subscription / enrollment（受众关系上下文）
-    Source       string        // 入口来源（bot / preference_center / admin / app:<ns>）
-    AudienceID   string        // §13.4 查询维度：投给谁（匿名 notify 为空）
-    Category     string        // §13.4 查询维度：按哪个品类触发
-    EventID      string        // 集成方事件身份，随 §13.5 回调回带
+    NextRetryAt *time.Time     // held by the queue while waiting for a backoff redelivery
+    RelationType string        // subscription / enrollment (audience relation context)
+    Source       string        // entry source (bot / preference_center / admin / app:<ns>)
+    AudienceID   string        // §13.4 query dimension: whom it is delivered to (empty for anonymous notify)
+    Category     string        // §13.4 query dimension: which category triggered it
+    EventID      string        // integrator event identity, echoed back with the §13.5 callback
 }
 
 type DeliveryPayload struct {
@@ -110,7 +108,7 @@ type DeliveryPayload struct {
 }
 ```
 
-### Queue（任务队列）
+### Queue (task queue)
 
 ```go
 type Queue interface {
@@ -123,28 +121,28 @@ type Queue interface {
 }
 ```
 
-## 模块列表
+## Module List
 
 ### 1. NotificationService
 
-核心编排层，流程：
+The core orchestration layer, whose flow is:
 
-1. **去重** — 基于内容的 SHA256 稳定 key
-2. **路由** — 根据 type/level 解析目标渠道
-3. **模板渲染** — 替换模板变量
-4. **投递规划** — 为每个渠道生成 DeliveryTask
-5. **入队** — 推送到 Queue
+1. **Dedup** — a stable content-based SHA256 key
+2. **Routing** — resolve the target channels from type/level
+3. **Template rendering** — substitute template variables
+4. **Delivery planning** — generate a DeliveryTask for each channel
+5. **Enqueue** — push to the Queue
 
 ### 2. DeliveryPlanner
 
-根据 Provider 能力和模板 Binding 生成 `DeliveryTask`：
+Generates a `DeliveryTask` from the Provider's capabilities and the template Binding:
 
 - **SMS Provider** → `ProviderTemplatePayload`
-- **内容 Provider** → `RenderedContent`
+- **Content Provider** → `RenderedContent`
 
 ### 3. Template + Binding
 
-一个业务模板可映射到多个渠道配置：
+One business template can map to multiple channel configurations:
 
 ```yaml
 templates:
@@ -154,41 +152,41 @@ templates:
       telegram:     { format: markdown }
       aliyunsms:
         template_code: "SMS_123456"
-        params: { "主机": "host", "状态": "status" }
+        params: { "host": "host", "status": "status" }
 ```
 
 ### 4. Route Engine
 
-负责：`Notification Type/Level → Provider`
+Responsible for: `Notification Type/Level → Provider`
 
 ### 5. Retry
 
-接入 `runtime.Manager.Deliver()`，支持指数退避重试。
+Hooked into `runtime.Manager.Deliver()`, supporting exponential-backoff retry.
 
 ### 6. Dedup
 
-基于内容的稳定 key（SHA256），窗口 5 分钟。
+A stable content-based key (SHA256), with a 5-minute window.
 
 ### 7. Queue
 
-队列抽象，当前实现：
+The queue abstraction; current implementations:
 
-| 实现 | 适用场景 | Remote Worker |
+| Implementation | Use case | Remote Worker |
 |------|---------|---------------|
-| `memory` | 单机部署 | 不支持 |
-| `redis` | 分布式部署 | 支持 |
+| `memory` | single-machine deployment | Not supported |
+| `redis` | distributed deployment | Supported |
 
 ### 8. WebSocket Hub
 
-远程 Worker 的管理通道（非任务分发通道）：
+The management channel for remote Workers (not a task distribution channel):
 
-- Worker 注册与能力记录
-- 心跳保活与超时注销
-- 状态事件上报
+- Worker registration and capability recording
+- Heartbeat keep-alive and deregistration on timeout
+- Status event reporting
 
 ### 9. Provider Capability
 
-每个 Provider 声明自己的能力：
+Every Provider declares its own capabilities:
 
 ```go
 type ProviderCapability struct {

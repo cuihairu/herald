@@ -1,122 +1,120 @@
-> 中文 · [English](./coverage-final-report-2026-09.en.md)
+# Coverage Task Final Report (2026-09)
 
-# 覆盖率任务收官报告（2026-09）
+Task: raise the test coverage of the entire Herald repo to 100% (both line and branch coverage at full), judged by real measurements from the test tooling, with no padding or fake coverage; branches that are genuinely unreachable are recorded honestly with their reasons; the CI gate is raised to the measured level in step. Only commits and pushes to main throughout, with no release actions of any kind.
 
-任务：把 Herald 全仓测试覆盖率提升到 100%（行覆盖 + 分支覆盖双满），以测试工具实测为准，禁止凑数的假覆盖；确实不可达的分支如实记录原因；CI 门禁同步抬到实测水位。全程只提交推送 main，无任何发版动作。
+For the method and process, see the [Coverage Drive: Wrap-Up (2026-09)](./coverage-initiative-2026-09.md); for the definition of the basis and the list of residual zero blocks, see [Test Coverage Basis](./architecture/coverage.md). This document is the final state record of the task chain.
 
-方法与过程详见[覆盖率攻坚总结（2026-09）](./coverage-initiative-2026-09.md)，口径定义与残余零块清单见[测试覆盖率口径](./architecture/coverage.md)。本文是任务链的最终状态记录。
+## Final Results
 
-## 最终结果
-
-| 项目 | 值 |
+| Item | Value |
 | --- | --- |
-| Go 语句覆盖率（go-test 口径原始值） | 99.64%（5012/5030 语句，唯一块聚合口径） |
-| Go 语句覆盖率（**门禁口径**：合并三个 `main()` 子进程实测后） | **99.78%**（5019/5030。期 5 收官时为 99.7%，其后规则/群组等功能代码与台账条目增长摊低；2026-09-27 三处登记（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`）经 seam 升格实测，回到并越过原水位） |
-| Go CI 门禁 | `tools/zero_check.py --gate 100`：排除台账登记块后等效语句覆盖率 **100%**，且无未定性零块；生效且通过 |
-| Go 残余零块 | 台账登记 **8 条**（详见[台账](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)）：3 块 `os.Exit` 失败分支 + 2 块 provider 重复名守卫 + 2 块 gorilla `SetWriteDeadline` 恒 nil + 1 块 wechatmp 写锁双检命中（调度偶发走到，非零轮次自然不参与豁免）。三处登记（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`）已先后按 `writeControl` 先例提为包级 seam、由注入失败用例实测覆盖并移出台账。2026-09-27 以 CI 同流程（go1.26.2）复测，该轮实测零块 **7 个**、全部命中台账 |
-| Go 残余零块状态 | 全部在 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 逐条登记原因，只剩两类：`os.Exit` 跳过 GOCOVERDIR 转储（工具链原理性不可测）、下游契约恒常使其不可达（gorilla `SetWriteDeadline` 恒 nil、调度窗口不可确定性构造）。曾经"补个 seam 就能实测"的一类——`Manager.Get` 契约守卫（`handler_groups.go:71/:88`）、两处 `SetReadDeadline`（`main.go:556`、`client.go:197`）——已于 2026-09-27 全部升格实测、清空。该类的教训：缺 seam 是待办，不是死因 |
-| Dashboard 行覆盖率（vitest + `@vitest/coverage-v8`） | **100%**（457/457；15 个测试文件 143 个用例，2026-09-27 复测全过） |
-| Dashboard CI 门禁 | `thresholds: { lines: 100, branches: 100 }`——期 4 时仅 `lines: 100`，`43a85ab` 起行 + 分支双阈值，生效且通过（ci.yml dashboard job） |
-| Dashboard 分支覆盖率 | **100%**（分支 260/260；语句 482/482、函数 149/149 同满，四项均无任何台账豁免。期 4 收官时记为 86.6%，经 95% → 97.69% 爬坡后由 `43a85ab` 补齐最后一轮，逐分支定性见[口径文档](./architecture/coverage.md)） |
-| CI | `43a85ab` 全部 job 全绿（Lint / Test / Dashboard / Docker Build / Build + Docs workflow） |
-| 发版动作 | 无（未打 tag、未发 release、未改版本号） |
+| Go statement coverage (raw value on the go-test basis) | 99.64% (5012/5030 statements, unique-block aggregation basis) |
+| Go statement coverage (**gate basis**: after merging the measured counts of the three `main()` subprocesses) | **99.78%** (5019/5030. It was 99.7% when phase 5 wrapped up; afterwards the growth of feature code such as rules/groups and of ledger entries diluted it down; on 2026-09-27 three registered sites (`main.go:556`, `client.go:197`, `handler_groups.go:71/:88`) were promoted to seams and measured, returning to and surpassing the original level) |
+| Go CI gate | `tools/zero_check.py --gate 100`: equivalent statement coverage **100%** after excluding ledger-registered blocks, with no unclassified zero blocks; in effect and passing |
+| Go residual zero blocks | **8** ledger-registered entries (see the [ledger](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md)): 3 `os.Exit` failure branches + 2 provider duplicate-name guards + 2 gorilla `SetWriteDeadline` always-nil blocks + 1 wechatmp write-lock double-check hit (occasionally reached by scheduling, and naturally excluded from exemption in rounds where it is non-zero). The three registered sites (`main.go:556`, `client.go:197`, `handler_groups.go:71/:88`) were, one after another, promoted to package-level seams following the `writeControl` precedent, measured by injected-failure test cases, and removed from the ledger. Retested on 2026-09-27 with the same CI flow (go1.26.2), that round measured **7** zero blocks, all matching the ledger |
+| Go residual zero-block status | All have their reasons registered one by one in [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md), and only two kinds remain: `os.Exit` skipping the GOCOVERDIR dump (unmeasurable in principle at the toolchain level), and downstream contracts that keep them permanently unreachable (gorilla `SetWriteDeadline` always nil, scheduling window that cannot be deterministically constructed). The category that once could be "measured simply by adding a seam" — the `Manager.Get` contract guard (`handler_groups.go:71/:88`) and the two `SetReadDeadline` sites (`main.go:556`, `client.go:197`) — were all promoted to measured tests and cleared on 2026-09-27. The lesson from this category: a missing seam is a to-do, not a cause of death |
+| Dashboard line coverage (vitest + `@vitest/coverage-v8`) | **100%** (457/457; 143 test cases across 15 test files, all passing on the 2026-09-27 retest) |
+| Dashboard CI gate | `thresholds: { lines: 100, branches: 100 }` — in phase 4 it was only `lines: 100`; from `43a85ab` on it has both line and branch thresholds; in effect and passing (ci.yml dashboard job) |
+| Dashboard branch coverage | **100%** (branches 260/260; statements 482/482 and functions 149/149 equally full, with none of the four metrics having any ledger exemption. It was recorded as 86.6% when phase 4 wrapped up; after climbing 95% → 97.69%, `43a85ab` filled in the last round; for the per-branch classification see the [basis document](./architecture/coverage.md)) |
+| CI | All jobs green at `43a85ab` (Lint / Test / Dashboard / Docker Build / Build + Docs workflow) |
+| Release actions | None (no tag, no release, no version-number change) |
 
-为什么 Go 侧门禁口径是"排除台账后 100%"而不是字面上的 100%：三个 `main()` 的成功路径入口块已通过 `go build -cover` 子进程口径实测，并经 `tools/covermerge.py` 合并进门禁 profile（合并还带防假绿硬失败：空 dump、入口无实测非零块、工具链漂移一律拒绝）；残余块全部在 KNOWN_UNCOVERABLE.md 逐条登记原因（8 条，见上表）——除 `os.Exit` 跳过 GOCOVERDIR 转储这一类工具链限制外，还有下游契约恒常使其不可达的分支；曾属"需加 seam 才能构造"的三处（`main.go:556`、`client.go:197`、`handler_groups.go:71/:88`）已按先例补 seam 升格实测、移出台账。门禁强制"排除登记块后等效覆盖率 100%"。
+Why the Go-side gate basis is "100% after excluding the ledger" rather than a literal 100%: the success-path entry blocks of the three `main()` functions have been measured on the `go build -cover` subprocess basis and merged into the gate profile via `tools/covermerge.py` (the merge also carries hard failures against false green: an empty dump, an entry with no measured non-zero block, or toolchain drift are all rejected); all residual blocks have their reasons registered one by one in KNOWN_UNCOVERABLE.md (8 entries, see the table above) — besides the toolchain limitation of `os.Exit` skipping the GOCOVERDIR dump, there are also branches that downstream contracts keep permanently unreachable; the three sites that once "required adding a seam to construct" (`main.go:556`, `client.go:197`, `handler_groups.go:71/:88`) had seams added following the precedent, were promoted to measured tests, and were removed from the ledger. The gate enforces "equivalent coverage 100% after excluding registered blocks".
 
-## 提交链
+## Commit Chain
 
-| 提交 | 内容 |
+| Commit | Content |
 | --- | --- |
-| `1f7eab9` | 期 1：私有函数直调实测——`compileRule` 六类字段错误（表驱动）、`pkcs7Unpad` 非法输入、显式 `GroupInterval` 编译路径 |
-| `b570ec0` | 期 2+3：防御分支清零（直调/seam 实测、重构消灭、恒 nil 改写）+ 三个 `main()` 双口径实测 + 门禁 98.7%→99.5% + 口径文档更新 |
-| `c68b4a7` | 修复 CI 暴露的 `awaitingQueue.wait` select 双就绪竞态（取消优先预检） |
-| `c9e9483` | 零块核对器入库 `tools/zero_check.py` |
-| `89dd2e5` | 修复 vitepress 死链（docs 内不能链接站点根之外的文件） |
-| `ffa237a` | 零块 KNOWN_UNCOVERABLE 登记机制与两处 flake 修复（Go 侧收尾） |
-| `acbe735` | 期 4：dashboard 前端测试从 0 建到行覆盖 100%，CI 门禁同步（含两个生产缺陷修复） |
-| `fb11d07` | 期 5：`main()` 子进程覆盖合并进门禁（`tools/covermerge.py` + `zero_check --gate 100`），残余零块 6 → 3（仅剩 os.Exit 原理性不可测） |
-| `43b8154` | 修复 CI 合并步骤：`HERALD_MAIN_COVERDIR` 须用绝对路径——`go test` 以各包目录为测试二进制 cwd，相对路径让 dump 散落到各包目录下，glob 落空硬失败 |
-| `b81bb99` | escalation 重排窗口 100ms→250ms：高负载下 `Sleep(40ms)` 超调越过 100ms 窗口使「未提前触发」断言误报，容差加到 210ms |
-| `7ea0f75` | 修两处 CI 红：dashboard 卸载泄漏（`setup.ts` 以 `liveRoots` 登记挂载根、`afterAll` 确定性 unmount，替代计时窗冲刷）与台账行号错位。后者根因更深：`zero_check.py` 曾按「文件:起始行」聚合取 max，单行 `if` 的条件块与分支体块同起始行，恒非零的条件块把 8 处真零块静默掩盖出门禁——改为与 covermerge 一致的完整区间 `(文件, 起, 止)` 聚合后缺口现形，台账据此补齐并重锚到 go1.26.2（CI 钉死工具链；本地 go1.27.1 块边界整体 +1，照它抄行号必失配） |
-| `43a85ab` | dashboard 分支覆盖 97.69%→100%：上一期定性为「工具口径残余 + 契约防御」的 6 个分支逐个重查，**全部实为可测业务路径**——`toGroupPayload` 提为导出纯函数直测、空试用例改 `waitFor` 真等（`not.toBeNull()` 对 `undefined` 也通过的假断言纠正）、schema 真正省略键、无 token 时点保存/测试按钮补 `token ? {} :` 假支、抓 `setInterval` 回调直调补上 `% Lines` 看不见的轮询函数缺口。阈值随之抬到 `thresholds: { lines: 100, branches: 100 }` |
+| `1f7eab9` | Phase 1: direct-call measurement of private functions — six kinds of `compileRule` field errors (table-driven), invalid input to `pkcs7Unpad`, the explicit `GroupInterval` compile path |
+| `b570ec0` | Phases 2+3: zeroing out defensive branches (direct-call/seam measurement, elimination by refactor, always-nil rewrites) + dual-basis measurement of the three `main()` + gate 98.7%→99.5% + basis-document update |
+| `c68b4a7` | Fix the `awaitingQueue.wait` select dual-ready race exposed by CI (cancellation-priority pre-check) |
+| `c9e9483` | Land the zero-block checker `tools/zero_check.py` |
+| `89dd2e5` | Fix vitepress dead links (files outside the site root cannot be linked from within docs) |
+| `ffa237a` | The zero-block KNOWN_UNCOVERABLE registration mechanism and two flake fixes (Go-side wrap-up) |
+| `acbe735` | Phase 4: build dashboard frontend tests from zero to 100% line coverage, with the CI gate brought in step (including fixes for two production defects) |
+| `fb11d07` | Phase 5: merge `main()` subprocess coverage into the gate (`tools/covermerge.py` + `zero_check --gate 100`), residual zero blocks 6 → 3 (only the toolchain-level unmeasurable os.Exit remains) |
+| `43b8154` | Fix the CI merge step: `HERALD_MAIN_COVERDIR` must use an absolute path — `go test` uses each package directory as the test binary's cwd, so a relative path scatters the dump into each package directory and the glob comes up empty, a hard failure |
+| `b81bb99` | escalation re-queue window 100ms→250ms: under high load the `Sleep(40ms)` overshoot crosses the 100ms window and makes the "did not trigger early" assertion falsely fail; the tolerance is raised to 210ms |
+| `7ea0f75` | Fix two CI reds: dashboard unmount leak (`setup.ts` registers mount roots in `liveRoots` and deterministically unmounts in `afterAll`, replacing the timed-window flush) and ledger line-number misalignment. The latter has a deeper root cause: `zero_check.py` used to aggregate by "file:start line" taking the max, and since a single-line `if` has its condition block and its branch body block starting on the same line, an always-non-zero condition block silently masked 8 genuinely zero blocks out of the gate — switching to the full interval `(file, start, end)` aggregation consistent with covermerge made the gaps surface, and the ledger was completed accordingly and re-anchored to go1.26.2 (CI pins the toolchain; locally go1.27.1 shifts block boundaries by +1 across the board, so copying line numbers from it will always mismatch) |
+| `43a85ab` | dashboard branch coverage 97.69%→100%: the 6 branches previously classified as "tooling-basis residue + contract defense" were re-examined one by one and **all turned out to be testable business paths** — `toGroupPayload` extracted into an exported pure function and tested directly; the empty-case test switched to `waitFor` to actually wait (correcting the false assertion where `not.toBeNull()` also passes for `undefined`); the schema genuinely omits the key; a `token ? {} :` false branch added for clicking the save/test buttons without a token; and the polling function gap invisible to `% Lines` filled by grabbing the `setInterval` callback and calling it directly. The thresholds were raised accordingly to `thresholds: { lines: 100, branches: 100 }` |
 
-## 三期冲刺内容
+## Three-Phase Sprint Content
 
-### 期 1 —— 私有函数直调实测
+### Phase 1 — Direct-Call Measurement of Private Functions
 
-包级私有函数不走生产入口也能测：同包测试直接调用，一次覆盖一类错误分支。`compileRule` 对 `for` / `group_interval` / `inhibit.ttl` / `silence.window` / `silence.match` / `ack_timeout` 六类字段错误的表驱动实测，`pkcs7Unpad` 的 nil / 空 / 非对齐 / 零填充非法输入实测。
+Package-level private functions can be tested without going through the production entry point: same-package tests call them directly, covering a whole class of error branches at once. Table-driven measurement of `compileRule` for six kinds of field errors — `for` / `group_interval` / `inhibit.ttl` / `silence.window` / `silence.match` / `ack_timeout` — and measurement of `pkcs7Unpad` for nil / empty / unaligned / zero-padding invalid inputs.
 
-### 期 2 —— 防御分支清零
+### Phase 2 — Zeroing Out Defensive Branches
 
-原清单几十处防御性零块，三种结局，profile 中不再存在任何防御性零块：
+The original list had dozens of defensive zero blocks; with three outcomes, no defensive zero block remains in the profile:
 
-1. **直调 / seam 实测**：`writeControl` 改包级变量注入传输失败（真实 dial）；`evalProgram` 打桩超时（真实表达式被安全护栏限制，无法自然超时）；`runProgram` 取消与超时路径直调。
-2. **重构消灭死分支**：`Manager.Deliver` 的 `IsEnabled`+`GetProvider` 双锁竞态合并为单锁 `lookupEnabled`；`Engine.Put` 把 `compileRule` 前置到 `Validate` 之前，编译错误分支从"不可达守卫"变为可实测；`runProgram` 的非 bool 返回值分支改单值断言（不变量破坏必须 panic）。
-3. **恒 nil 显式接受**：`x, _ := f(...)` 加注释说明契约——gorilla `SetWriteDeadline` 只记录时间戳、可序列化结构的 `json.Marshal`、回退式限流器工厂、base64 密码摘要、SHA-256 摘要上的 `aes.NewCipher`、类型断言式 `parseConfig`。若契约变化，注释要求恢复显式错误处理。
+1. **Direct-call / seam measurement**: `writeControl` changed to a package-level variable to inject a transport failure (a real dial); `evalProgram` with a stubbed timeout (real expressions are constrained by the safety guardrail and cannot time out naturally); `runProgram` cancellation and timeout paths called directly.
+2. **Eliminating dead branches by refactor**: `Manager.Deliver`'s `IsEnabled`+`GetProvider` double-lock race merged into a single-lock `lookupEnabled`; `Engine.Put` moves `compileRule` ahead of `Validate`, turning the compile-error branch from an "unreachable guard" into a measurable one; `runProgram`'s non-bool return-value branch changed to a single-value assertion (an invariant violation must panic).
+3. **Explicit acceptance of always-nil**: `x, _ := f(...)` annotated with a comment explaining the contract — gorilla `SetWriteDeadline` only records a timestamp; `json.Marshal` of a serializable struct; a fallback-style rate-limiter factory; a base64 password digest; `aes.NewCipher` over a SHA-256 digest; a type-assertion-style `parseConfig`. If the contract changes, the comment requires restoring explicit error handling.
 
-### 期 3 —— main() 双口径实测
+### Phase 3 — Dual-Basis Measurement of main()
 
-三个入口（`cmd/heraldd`、`examples/quickstart`、`worker-sdk/go/example`）统一模式：
+The three entry points (`cmd/heraldd`, `examples/quickstart`, `worker-sdk/go/example`) follow a unified pattern:
 
-1. `main` 改写为成功路径 `return`，失败才 `os.Exit(code)`；
-2. 各包 `main_cover_test.go` 以 `go build -cover -coverpkg=./...` 编译子进程（不加 `-coverpkg` 时 main 包本身不被插桩），在 `GOCOVERDIR` 下真实运行——heraldd 起 HTTP 服务后 SIGTERM 优雅退出、quickstart 同步派发后自然退出、worker-sdk 示例对 `ws://localhost:8081` 完成注册握手后 SIGTERM（端口被占则 skip）；
-3. 断言 `go tool covdata textfmt` 转储中 `main()` 区间内除 `os.Exit` 行（`mainExitAllow` 豁免表）之外每个块计数非零。
+1. `main` rewritten so the success path `return`s and only failure does `os.Exit(code)`;
+2. Each package's `main_cover_test.go` compiles a subprocess with `go build -cover -coverpkg=./...` (without `-coverpkg` the main package itself is not instrumented) and runs it for real under `GOCOVERDIR` — heraldd starts the HTTP service and then exits gracefully on SIGTERM; quickstart exits naturally after synchronous dispatch; the worker-sdk example completes the registration handshake against `ws://localhost:8081` and then exits on SIGTERM (skipped if the port is taken);
+3. Assert that in the `go tool covdata textfmt` dump every block within the `main()` range has a non-zero count, except the `os.Exit` lines (the `mainExitAllow` exemption table).
 
-### 期 4 —— dashboard 前端从 0 到行覆盖 100%
+### Phase 4 — dashboard Frontend from 0 to 100% Line Coverage
 
-前端 `dashboard/` 此前没有任何测试。本期引入 vitest + Testing Library + jsdom，建立 13 个测试文件 84 个用例，覆盖 API 层、zustand store、WebSocket hook、全部 7 个页面与应用入口；`vitest.config.ts` 的 `thresholds: { lines: 100 }` 进 CI（新增 dashboard job），门禁哲学与 Go 侧一致。关键技术点：
+The frontend `dashboard/` previously had no tests at all. This phase introduced vitest + Testing Library + jsdom, establishing 13 test files with 84 test cases covering the API layer, the zustand store, the WebSocket hook, all 7 pages, and the app entry point; `thresholds: { lines: 100 }` in `vitest.config.ts` entered CI (a new dashboard job added), with a gate philosophy consistent with the Go side. Key technical points:
 
-1. **seam 导出可测面**（沿用 Go 侧 `evalProgram` 先例）：`src/api` 导出真实 axios 实例，测试注入自定义 adapter 走真实拦截器链（`vi.mock('axios')` 对 CJS externalized 模块的源文件导入不生效，seam 是唯一可靠路径）；`src/main` 导出 `createStaticRenderer` 工厂，绕开 rc-motion 在 jsdom 里收不到 `transitionend` 的动画死路，直接验证 antd 静态方法渲染注入的 render/unmount 两条路径。
-2. **React 19 + antd v5 兼容注入**：antd 静态 message 依赖已移除的 `ReactDOM.render`，`unstableSetRender` 注入 `createRoot` 渲染器（生产入口与测试 setup 双处）。
-3. **jsdom 环境补齐**：`matchMedia` / `ResizeObserver` / `scrollTo` / `requestAnimationFrame` polyfill；antd message 的 portal 容器是全局单例，跨用例只清内容不删容器（删了会往 detached 节点渲染）。
-4. **残余分支的定性（后被整体推翻）**：行覆盖 100% 是门禁；当时把分支覆盖 86.6% 的缺口整体定性为 `|| '默认文案'` 兜底支、`allowClear` 清除到空路径与 jsdom 环境性分支（如 `https:` → `wss:`），登记于口径文档，并宣称「无一是未测的业务路径」。**这一结论是错的**：2026-09 末逐个重查，残余分支全部是可测的业务路径，其中一条更是把「用例空转」误判成「v8 归属偏差」（`not.toBeNull()` 对 `undefined` 也通过，等于零断言）。`43a85ab` 已把缺口全部补齐、无一进台账，逐分支定性与教训见[口径文档](./architecture/coverage.md)「前端分支覆盖补齐的最后一轮」。
+1. **seam exporting a testable surface** (following the Go-side `evalProgram` precedent): `src/api` exports the real axios instance, and tests inject a custom adapter to go through the real interceptor chain (`vi.mock('axios')` does not take effect for source-file imports of CJS externalized modules, so a seam is the only reliable path); `src/main` exports a `createStaticRenderer` factory, bypassing the animation dead end where rc-motion receives no `transitionend` in jsdom, and directly verifies the two paths — render/unmount — that antd static methods inject.
+2. **React 19 + antd v5 compatibility injection**: antd's static message relies on the removed `ReactDOM.render`, and `unstableSetRender` injects a `createRoot` renderer (in both the production entry and the test setup).
+3. **Filling in the jsdom environment**: `matchMedia` / `ResizeObserver` / `scrollTo` / `requestAnimationFrame` polyfills; antd message's portal container is a global singleton, so across test cases only the contents are cleared and the container is not removed (removing it would render into a detached node).
+4. **Classification of the residual branches (later overturned wholesale)**: 100% line coverage is the gate; at the time the 86.6% branch-coverage gap was classified wholesale as `|| 'default copy'` fallback branches, the `allowClear` clear-to-empty path, and jsdom environment branches (such as `https:` → `wss:`), registered in the basis document, with the claim that "none of them is an untested business path". **That conclusion was wrong**: re-examined one by one at the end of 2026-09, the residual branches were all testable business paths, and one of them even misjudged an "idle test case" as a "v8 attribution deviation" (`not.toBeNull()` also passes for `undefined`, which amounts to zero assertions). `43a85ab` filled in all the gaps with none entering the ledger; for the per-branch classification and the lesson, see the [basis document](./architecture/coverage.md) section "The last round of filling in frontend branch coverage".
 
-### 期 5 —— Go 侧收满：`main()` 子进程覆盖合并进门禁
+### Phase 5 — Go Side Fully Closed: Merging `main()` Subprocess Coverage into the Gate
 
-期 3 结束时，三个入口的 `main()` 入口块在 go-test 口径下仍是零块，以"登记豁免"存在。本期把子进程口径的**实测计数**真正合并进门禁 profile，让入口块不再靠豁免：
+At the end of phase 3, the `main()` entry blocks of the three entry points were still zero blocks on the go-test basis, existing as a "registered exemption". This phase actually merges the subprocess basis's **measured counts** into the gate profile, so the entry blocks no longer rely on an exemption:
 
-1. 三个 `main_cover_test.go` 在设了 `HERALD_MAIN_COVERDIR` 时持久化 textfmt 转储（不设时行为不变）；
-2. 新增 `tools/covermerge.py`：主 profile 与子进程 dump 按块键同键取 max 合并（同工具链下块集逐字节一致，已实证）；四条防假绿硬失败——空 dump 拒并、dump 含主 profile 未知块（工具链/代码漂移）拒并、`--expect` 入口必须 basename 为 `main.go`（按文件名识别入口，不按行号硬编码）、入口在 dump 中必须有非零块（子进程真的执行到了）；
-3. `tools/zero_check.py` 新增 `--gate N`：等效覆盖率 =（总语句 − 全部零块语句）/（总语句 − 台账登记块语句），登记块从分子分母同时剔除，与台账"排除登记项后 100%"声明同一口径；只做就地注释不进台账的零块会拉低等效值、打红门禁；
-4. CI Test job 串起 `HERALD_MAIN_COVERDIR` → covermerge → `--gate 100`，替换原 99.5% 裸阈值，codecov 上传合并后 profile；
-5. KNOWN_UNCOVERABLE.md 删去 3 个 `main()` 入口块登记（合并后实测非零，不再是"不可覆盖"），只保留 3 个 `os.Exit` 失败分支。
+1. The three `main_cover_test.go` persist a textfmt dump when `HERALD_MAIN_COVERDIR` is set (behavior unchanged when it is not);
+2. New `tools/covermerge.py`: the main profile and the subprocess dump are merged by taking the max on the same block key (under the same toolchain the block sets are byte-for-byte identical, as verified); four hard failures against false green — an empty dump is refused, a dump containing blocks unknown to the main profile (toolchain/code drift) is refused, an `--expect` entry must have a basename of `main.go` (entries are identified by file name, not hard-coded by line number), and an entry must have a non-zero block in the dump (the subprocess really executed it);
+3. `tools/zero_check.py` gains `--gate N`: equivalent coverage = (total statements − all zero-block statements) / (total statements − ledger-registered block statements), with registered blocks removed from both numerator and denominator, the same basis as the ledger's "100% after excluding registered items" claim; a zero block that only has an inline comment and does not enter the ledger will drag the equivalent value down and turn the gate red;
+4. The CI Test job chains `HERALD_MAIN_COVERDIR` → covermerge → `--gate 100`, replacing the original bare 99.5% threshold, and codecov uploads the merged profile;
+5. KNOWN_UNCOVERABLE.md removes the registration of the 3 `main()` entry blocks (measured non-zero after the merge, no longer "uncoverable"), keeping only the 3 `os.Exit` failure branches.
 
-效果：合并口径 99.5% → 99.7%，残余零块 6 → 3；门禁从裸数字阈值升级为"无未定性零块 + 排除台账后等效 100%"的结构化断言——绕过合并流程（不做子进程合并）会直接被 `--gate 100` 打红。
+Effect: merged basis 99.5% → 99.7%, residual zero blocks 6 → 3; the gate is upgraded from a bare numeric threshold to a structured assertion — "no unclassified zero blocks + equivalent 100% after excluding the ledger" — and bypassing the merge flow (not doing the subprocess merge) is immediately turned red by `--gate 100`.
 
-## 顺带消灭的真问题
+## Real Problems Eliminated Along the Way
 
-冲刺过程中暴露并修复了五处与覆盖率无关的缺陷（Go 三处、前端两处）：
+Five defects unrelated to coverage were exposed and fixed during the sprint (three on the Go side, two on the frontend):
 
-- **`runProgram` 取消竞态**：`select` 在「评估完成」与「上下文取消」同时就绪时伪随机择一，canceled context 的评估可能误报成功。修复：进入等待前预检父 `ctx.Err()`，取消路径确定性失败。
-- **`awaitingQueue.wait` 同款竞态**：任务已交付且 ctx 已取消时 `select` 双就绪随机返回，取消的 `DispatchSync` 可能误报成功。CI 上被 `TestRunCanceledContext` 抓住。修复：同款取消优先预检。
-- **`evalTimeout` 过紧**：50ms 在高负载下会被调度延迟击穿（CI 上正常表达式评估报超时）。放宽至 500ms，对微秒级的正常评估无感知，护栏（防失控程序）语义不变。（极端负载下 500ms 仍会击穿，后由 `3dd66f0` 提至 2s。）
-- **React 19 下 antd 静态 message 静默不弹**：antd v5 静态方法内部依赖 `ReactDOM.render`（React 19 已移除），生产环境所有 `message.success/error` 无声丢失。修复：`unstableSetRender` 注入基于 `createRoot` 的渲染器（`src/main.tsx`）。
-- **SendPage 渲染期 fetch 死循环**：`if (providers.length === 0) fetchProviders()` 写在渲染体内，zustand 每次 `set` 换 state 引用，形成「set → 重渲染 → 再 fetch」无限循环（测试挂起实证）。修复：副作用移入 `useEffect` 空依赖数组。
+- **`runProgram` cancellation race**: when "evaluation complete" and "context canceled" are ready at the same time, `select` picks one pseudo-randomly, so an evaluation on a canceled context could falsely report success. Fix: pre-check the parent `ctx.Err()` before entering the wait, making the cancellation path fail deterministically.
+- **The same race in `awaitingQueue.wait`**: when the task has already been delivered and ctx is already canceled, `select`'s dual-ready state returns randomly, so a canceled `DispatchSync` could falsely report success. Caught by `TestRunCanceledContext` on CI. Fix: the same cancellation-priority pre-check.
+- **`evalTimeout` too tight**: 50ms gets breached by scheduling delays under high load (normal expression evaluations report a timeout on CI). Relaxed to 500ms, imperceptible for microsecond-scale normal evaluations, with the guardrail's semantics (against runaway programs) unchanged. (Under extreme load 500ms still gets breached, later raised to 2s by `3dd66f0`.)
+- **antd static message silently does not pop up under React 19**: antd v5 static methods internally rely on `ReactDOM.render` (removed in React 19), so in production all `message.success/error` calls are silently lost. Fix: `unstableSetRender` injects a `createRoot`-based renderer (`src/main.tsx`).
+- **SendPage render-time fetch infinite loop**: `if (providers.length === 0) fetchProviders()` written in the render body, with zustand swapping the state reference on every `set`, forms a "set → re-render → fetch again" infinite loop (proven by the test hanging). Fix: move the side effect into a `useEffect` with an empty dependency array.
 
-## 验证清单
+## Verification Checklist
 
-每批提交前的本地验收（全部通过后才 push）：
+Local acceptance before each batch of commits (pushed only after everything passes):
 
-- `gofmt -l .` 无输出，`go vet ./...`、`golangci-lint run` 干净
-- `go test -race -count=1 ./...` 至少两遍全绿（flake 修复类提交对目标包额外 -race 重复 3-5 遍）
-- 零块核对器 `python3 tools/zero_check.py coverage.merged.out --gate 100` GREEN（`HERALD_MAIN_COVERDIR` 下跑全仓 `-coverpkg=./...`，covermerge 合并三个 `main()` 转储后验证；本地跑链必须 `GOTOOLCHAIN=go1.26.6` 与 `go.mod` 钉定的最低工具链一致——go1.27 的块边界整体 +1，照它核对或登记必失配）
-- 涉及文档站时 `pnpm run build` 通过（无死链）
-- 前端批次：`pnpm test:coverage`（含 lines + branches 双 100 阈值）与 `pnpm build` 全绿后才 push
-- CI 全部 job（Lint / Test / Dashboard / Docker Build / Build）全绿确认
+- `gofmt -l .` produces no output; `go vet ./...` and `golangci-lint run` are clean
+- `go test -race -count=1 ./...` all green at least twice (for flake-fix commits, an extra 3-5 repetitions with -race on the target package)
+- The zero-block checker `python3 tools/zero_check.py coverage.merged.out --gate 100` is GREEN (run the whole repo with `-coverpkg=./...` under `HERALD_MAIN_COVERDIR`, and verify after covermerge merges the three `main()` dumps; the local chain must use `GOTOOLCHAIN=go1.26.6` to match the minimum toolchain pinned in `go.mod` — go1.27 shifts block boundaries by +1 across the board, so checking or registering against it will always mismatch)
+- When the docs site is involved, `pnpm run build` passes (no dead links)
+- Frontend batches: push only after `pnpm test:coverage` (with both lines + branches 100 thresholds) and `pnpm build` are all green
+- Confirm all CI jobs (Lint / Test / Dashboard / Docker Build / Build) are green
 
-## 维护
+## Maintenance
 
-新代码以"触发每个分支"为测试目标；新增 `main()` 或常驻进程入口时同步补 GOCOVERDIR 子进程守卫测试，并把它加进 ci.yml 中 covermerge 的 `--expect` 清单；前端新增组件/页面同步补组件测试并维持行 + 分支双 100%（达不到的分支在测试文件或口径文档登记原因）；门禁只随实测水位上调，不预留缓冲。
+New code takes "trigger every branch" as its testing goal; when adding a `main()` or a long-running process entry point, add a GOCOVERDIR subprocess guard test in step and add it to covermerge's `--expect` list in ci.yml; for new frontend components/pages, add component tests in step and keep both line + branch at 100% (branches that cannot be reached have their reasons registered in the test file or the basis document); the gate is only ever raised to follow the measured level, never given a reserved buffer.
 
-## 后续
+## Follow-Up
 
-本文是 2026-09 那一轮攻坚的收官记录，数字停留在当时的水位。此后 dashboard 又补了通知规则与通知群组两个页面及其组件测试，并修掉两类"覆盖率满却没测到"的问题：一类是"行覆盖 100% 却 exit 1"的异步泄漏（未 `act` 收口的 React 调度在环境销毁后才冲刷），一类是把"用例空转"误判成"v8 归属偏差"（`not.toBeNull()` 对 `undefined` 也通过）。此后前端为 15 个文件 143 个用例，语句 / 分支 / 函数 / 行四项均 100%，门禁阈值已抬到 `branches: 100`。2026-09-27 按 CI 同流程复测（Go 侧链两轮 GREEN、等效 100.00%，前端 143 用例全过四项 100%）后，**本文的表格与提交链已按复测同步到当前水位，期 1–5 的叙述保留为该轮的历史记录**；最新水位始终以[测试覆盖率口径](./architecture/coverage.md)为准。
+This document is the wrap-up record of that round of work in 2026-09, and its numbers remain at the level of that time. Afterwards the dashboard gained two more pages — notification rules and notification groups — along with their component tests, and two classes of "coverage full but untested" problems were fixed: one is the async leak where "line coverage is 100% yet exit 1" (React scheduling not settled by `act` flushing only after the environment is torn down), and the other is misjudging an "idle test case" as a "v8 attribution deviation" (`not.toBeNull()` also passes for `undefined`). The frontend thereafter has 15 files with 143 test cases, with all four metrics — statements / branches / functions / lines — at 100%, and the gate threshold has been raised to `branches: 100`. After the 2026-09-27 retest following the same CI flow (the Go-side chain GREEN for two rounds at an equivalent 100.00%, and the frontend's 143 cases all passing at 100% across four metrics), **the tables and commit chain in this document have been synced to the current level per the retest, while the phase 1–5 narrative is retained as the historical record of that round**; the latest level always follows [Test Coverage Basis](./architecture/coverage.md).
 
-## 维持复核
+## Maintenance Re-Review
 
-| 日期 | go vet | go test（-count=1 -race 全包） | 覆盖率（go-test 原始口径） | 覆盖率（门禁合并口径） | zero_check --gate 100 | 结论 |
+| Date | go vet | go test (-count=1 -race, all packages) | Coverage (raw go-test basis) | Coverage (gate merged basis) | zero_check --gate 100 | Conclusion |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-09-27（维持复核） | 0 | 47 包全绿，0 FAIL | 99.64%（5012/5030，零块 10 = 台账 7 + 3 个 `main()` 入口块经子进程实测 rescue） | 99.78%（5019/5030，块 3262、零块 7） | GREEN，等效 **100.00%**（台账豁免 7/7，无未定性零块） | 与收官水位逐位一致，零漂移；零块集合与 [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) 台账一一对应（wechatmp 双检块本轮实测非零、按台账语义不参与豁免），无新增可达缺口 |
-| 2026-10-01（维持复核 + 最大缺口补测） | 0 | 47 包全绿，0 FAIL | 99.72%（5022/5036，零块 8 = 台账 5 + 3 个 `main()` 入口块经子进程实测 rescue） | 99.86%（5029/5036，块 3267、零块 5） | GREEN，等效 **100.00%**（台账豁免 5/5，无未定性零块） | 普查先确认 7 个零块全在台账内，但最大非 `os.Exit` 缺口簇 `cmd/heraldd` `main.go:130/:381` 的登记论证只覆盖了 map 键唯一性——按 `writeControl` 先例提为 seam `registerProvider`，由 `TestDuplicateNameGuardAbortsRegistration` 注入失败实测两处 `return 1` 分支（均在绑端口/起 worker 前退出）。该包 98.29%→99.66%（缺 5→1 语句，残余为 `os.Exit` 失败分支），残余零块 7→5、台账 8→6 条，逐处定性见[口径文档](./architecture/coverage.md)。门禁途中另暴露一处与本任务无关的真 flake：`core/worker` `TestPoolRunProcessesTasks` 报 `registry Count()=1`，根因是 `workerLoop` 的 `Pop` 错误分支在 ctx 取消时 `return` 前不注销，已改 `defer` 统一退出清理并由 `TestPoolRunDeregistersWorkersOnShutdown` 确定性复现（修复前红、修复后绿），本行数字取自修复后的串行跑 |
+| 2026-09-27 (maintenance re-review) | 0 | 47 packages all green, 0 FAIL | 99.64% (5012/5030, zero blocks 10 = ledger 7 + 3 `main()` entry blocks rescued by subprocess measurement) | 99.78% (5019/5030, blocks 3262, zero blocks 7) | GREEN, equivalent **100.00%** (ledger exemptions 7/7, no unclassified zero blocks) | Digit-for-digit consistent with the wrap-up level, zero drift; the zero-block set corresponds one-to-one with the [KNOWN_UNCOVERABLE.md](https://github.com/cuihairu/herald/blob/main/KNOWN_UNCOVERABLE.md) ledger (the wechatmp double-check block measured non-zero this round and by the ledger's semantics does not participate in exemption), with no newly reachable gaps |
+| 2026-10-01 (maintenance re-review + largest-gap backfill) | 0 | 47 packages all green, 0 FAIL | 99.72% (5022/5036, zero blocks 8 = ledger 5 + 3 `main()` entry blocks rescued by subprocess measurement) | 99.86% (5029/5036, blocks 3267, zero blocks 5) | GREEN, equivalent **100.00%** (ledger exemptions 5/5, no unclassified zero blocks) | The survey first confirmed all 7 zero blocks were within the ledger, but the registration argument for the largest non-`os.Exit` gap cluster, `cmd/heraldd` `main.go:130/:381`, only covered map key uniqueness — following the `writeControl` precedent it was promoted to the seam `registerProvider`, and `TestDuplicateNameGuardAbortsRegistration` injects a failure to measure both `return 1` branches (both exit before binding the port / starting workers). That package went 98.29%→99.66% (missing 5→1 statements, the remainder being the `os.Exit` failure branch), residual zero blocks 7→5, ledger entries 8→6; for the per-site classification see the [basis document](./architecture/coverage.md). Along the way the gate also exposed a real flake unrelated to this task: `core/worker`'s `TestPoolRunProcessesTasks` reported `registry Count()=1`, with the root cause being that `workerLoop`'s `Pop` error branch does not deregister before `return`ing when ctx is canceled; this was changed to a unified exit cleanup via `defer` and deterministically reproduced by `TestPoolRunDeregistersWorkersOnShutdown` (red before the fix, green after), and the numbers in this row are taken from the serial run after the fix |
 
-复核方法：`GOTOOLCHAIN=go1.26.6 go test -count=1 -race -coverpkg=./... -coverprofile=coverage.out ./...` → `tools/covermerge.py`（三个 `main()` 入口 `--expect`，3 块 rescue）→ `python3 tools/zero_check.py coverage.merged.out --gate 100`；语句数按完整块区间去重聚合（与核对器同口径）。台账残余 5 条全部维持原理性不可测定性（`os.Exit` 跳过 GOCOVERDIR ×3、gorilla `SetWriteDeadline` 恒 nil ×2，另有 wechatmp 双检命中块调度偶发走到非零），测试侧无可达 seam，不重复登记；原登记的「map 键唯一性矛盾 ×2」两条已于 2026-10-01 被反证——生产不可达不等于测试不可达，提 seam 后实测移出台账。
+Re-review method: `GOTOOLCHAIN=go1.26.6 go test -count=1 -race -coverpkg=./... -coverprofile=coverage.out ./...` → `tools/covermerge.py` (three `main()` entries with `--expect`, 3 blocks rescued) → `python3 tools/zero_check.py coverage.merged.out --gate 100`; statement counts are deduplicated and aggregated by full block interval (the same basis as the checker). The 5 residual ledger entries all maintain their in-principle unmeasurability (`os.Exit` skipping GOCOVERDIR ×3, gorilla `SetWriteDeadline` always nil ×2, plus the wechatmp double-check hit block occasionally reached as non-zero by scheduling), with no reachable seam on the test side, so they are not re-registered; the two originally registered "map key uniqueness contradiction ×2" entries were disproven on 2026-10-01 — unreachable in production does not mean unreachable in tests, and after adding the seam they were measured and removed from the ledger.

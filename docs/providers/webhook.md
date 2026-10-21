@@ -1,25 +1,23 @@
-> 中文 · [English](./webhook.en.md)
+# Webhook (generic HTTP callback)
 
-# Webhook (通用 HTTP 回调)
+POST/PUT notifications as JSON to any HTTP endpoint.
 
-将通知以 JSON 形式 POST/PUT 到任意 HTTP 端点。
+## What it does
 
-## 作用
+The `webhook` Builtin Provider wraps Herald notifications into a unified JSON payload and sends it to the configured `url`. Good for wiring up self-hosted alerting platforms, IM bots, CI/CD systems, Serverless functions — any HTTP receiver.
 
-`webhook` Builtin Provider 把 Herald 通知封装为统一 JSON 载荷，发送到配置的 `url`。适合对接自建告警平台、IM 机器人、CI/CD 系统、Serverless 函数等任意 HTTP 接收端。
+## Get credentials
 
-## 申请凭据
+Nothing to apply for — the receiver is **your own** HTTP service. To try it at zero cost first, you can:
 
-无需申请——接收端是**你自己的** HTTP 服务。想先零成本体验，可以：
+- generate a temporary URL with an online debugging service like [webhook.site](https://webhook.site), or
+- start a local listener: `nc -l 8899` / write your own receive route
 
-- 用 [webhook.site](https://webhook.site) 之类的在线调试服务生成一个临时 URL，或
-- 本地起一个监听：`nc -l 8899` / 自己写个接收路由
+For production, just swap in your alerting platform, Serverless function, or internal service address.
 
-生产环境换成你的告警平台、Serverless 函数或内部服务地址即可。
+## Send your first message
 
-## 发第一条消息
-
-配置好（见下）并 `heraldd serve --config config.yaml` 启动后：
+After configuring (see below) and starting with `heraldd serve --config config.yaml`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
@@ -27,40 +25,40 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -d '{
     "type": "demo",
     "level": "error",
-    "title": "Herald 第一条推送",
+    "title": "Herald first push",
     "body": "from curl",
     "channels": ["webhook"]
   }'
 ```
 
-接收端会收到一条 `POST`，body 形如：
+The receiver gets a `POST` whose body looks like:
 
 ```json
 {
   "id": "task-uuid",
   "provider": "webhook",
   "level": "error",
-  "title": "Herald 第一条推送",
+  "title": "Herald first push",
   "body": "from curl",
   "timestamp": "2026-10-02T12:00:00+08:00"
 }
 ```
 
-没收到？查接收端日志 + [排错指南](/guide/troubleshooting)。
+Nothing arrived? Check the receiver's logs plus the [troubleshooting guide](/guide/troubleshooting).
 
-## 配置项
+## Configuration options
 
-| 键 | 必填 | 说明 | 默认值 |
+| Key | Required | Description | Default |
 |----|------|------|--------|
-| `url` | ✅ | 目标 HTTP 端点（完整 URL，含 scheme） | 无 |
-| `method` | ❌ | HTTP 方法：`POST`、`PUT`、`GET`、`DELETE` | `POST` |
-| `headers` | ❌ | 自定义请求头（`map[string]string`） | 空 |
+| `url` | ✅ | target HTTP endpoint (full URL, scheme included) | none |
+| `method` | ❌ | HTTP method: `POST`, `PUT`, `GET`, `DELETE` | `POST` |
+| `headers` | ❌ | custom request headers (`map[string]string`) | empty |
 
-缺 `url` 时 Provider 创建即失败（`webhook: url is required`）。
+If `url` is missing, Provider creation fails immediately (`webhook: url is required`).
 
-> ⚠️ `headers` 为 `map[string]string`，YAML 写法示例见下。**headers 不参与环境变量展开**（`ExpandEnv` 仅处理顶层字符串值），请直接写字面值或在应用层注入。
+> ⚠️ `headers` is a `map[string]string`; see below for the YAML spelling. **headers do not take part in environment variable expansion** (`ExpandEnv` only handles top-level string values) — write literal values directly or inject them at the application layer.
 
-## 配置示例
+## Configuration example
 
 ```yaml
 providers:
@@ -69,26 +67,26 @@ providers:
     enabled: true
     config:
       url: "$WEBHOOK_URL"
-      method: "POST"                       # 可选：POST / PUT / GET / DELETE
-      headers:                             # 可选：自定义请求头
-        Authorization: "Bearer your-token" # 字面值，不展开环境变量
+      method: "POST"                       # optional: POST / PUT / GET / DELETE
+      headers:                             # optional: custom request headers
+        Authorization: "Bearer your-token" # literal value, environment variables not expanded
         X-Source: "herald"
-        Content-Type: "application/json"   # POST/PUT 默认已设为 application/json
+        Content-Type: "application/json"   # POST/PUT already defaults to application/json
 ```
 
-## 环境变量
+## Environment variables
 
-Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值**替换为同名环境变量的值（`$VAR` 写法，按 `VAR` 查找）。注意：`"${VAR}"` 带花括号的写法**不会被展开**（会按 `{VAR}` 查找并原样保留），请使用 `$VAR`。
+When loading config, Herald replaces string values in provider config **that start with `$`** with the value of the environment variable of the same name (the `$VAR` form, looked up as `VAR`). Note: the braced form `"${VAR}"` **is not expanded** (it is looked up as `{VAR}` and kept as-is); use `$VAR`.
 
-| 环境变量 | 对应配置项 | 说明 |
+| Environment variable | Corresponding config key | Description |
 |----------|-----------|------|
-| `WEBHOOK_URL` | `url` | 目标 HTTP 端点（`.env.example` 惯用名） |
+| `WEBHOOK_URL` | `url` | target HTTP endpoint (the conventional name in `.env.example`) |
 
-> ⚠️ `method`、`headers` 通常不含敏感信息，可直接写在配置文件中。
+> ⚠️ `method` and `headers` usually carry nothing sensitive and can be written directly in the config file.
 
-## 消息模板与限制
+## Message template and limits
 
-### 载荷结构 (WebhookPayload)
+### Payload structure (WebhookPayload)
 
 ```json
 {
@@ -97,13 +95,13 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
   "level": "warning",
   "targets": ["group:ops", "user:alice"],
   "timestamp": "2026-09-28T12:34:56+08:00",
-  "title": "服务器告警",
-  "body": "CPU 使用率超过 90%",
+  "title": "Server alert",
+  "body": "CPU usage exceeds 90%",
   "raw": { "custom": "field" }
 }
 ```
 
-| 字段 | 来源 |
+| Field | Source |
 |------|------|
 | `id` | `task.ID` |
 | `provider` | `task.Provider` |
@@ -112,52 +110,52 @@ Herald 加载配置时会把 provider config 里**以 `$` 开头的字符串值*
 | `timestamp` | `task.CreatedAt` (RFC3339) |
 | `title` | `task.Payload.Content.Title` |
 | `body` | `task.Payload.Content.Body` |
-| `raw` | `task.Payload.Raw`（透传原始字段） |
+| `raw` | `task.Payload.Raw` (passes raw fields through) |
 
-### HTTP 行为
+### HTTP behavior
 
-- **POST / PUT**: 以 `application/json` 发送上述 JSON，`Content-Type: application/json` 自动设置（可被 `headers` 覆盖）
-- **DELETE**: 同 POST/PUT，以 `application/json` 发送 JSON 体
-- **GET**: 无请求体，载荷平铺为 URL query 参数——`id`/`provider`/`level`/`timestamp`/`title`/`body` 非空才带上，`targets` 逗号连接，`raw` 序列化为 JSON 字符串；目标 URL 已带 `?` 时以 `&` 追加
-- `headers` 在四类方法上都作为请求头发送（`Content-Type` 默认值可被覆盖）
-- `method` 只接受 `GET`/`POST`/`PUT`/`DELETE`（大小写不敏感），其余值在 Provider 创建时拒绝（`webhook: method must be one of GET, POST, PUT, DELETE`）
-- 响应体不解析；仅记录响应日志（`httpclient.LogResponse`）
-- 请求超时、408/429/5xx 由 `httpclient` 包装为可重试错误，走统一重试
+- **POST / PUT**: send the JSON above as `application/json`; `Content-Type: application/json` is set automatically (overridable via `headers`)
+- **DELETE**: same as POST/PUT, sends the JSON body as `application/json`
+- **GET**: no request body; the payload is flattened into URL query parameters — `id`/`provider`/`level`/`timestamp`/`title`/`body` are included only when non-empty, `targets` is comma-joined, and `raw` is serialized to a JSON string; if the target URL already has a `?`, parameters are appended with `&`
+- `headers` are sent as request headers on all four methods (the default `Content-Type` can be overridden)
+- `method` only accepts `GET`/`POST`/`PUT`/`DELETE` (case-insensitive); anything else is rejected at Provider creation (`webhook: method must be one of GET, POST, PUT, DELETE`)
+- The response body is not parsed; only a response log is recorded (`httpclient.LogResponse`)
+- Request timeouts and 408/429/5xx are wrapped by `httpclient` as retryable errors and go through unified retry
 
-### 限制
+### Limits
 
-- 无签名/防重放机制（如需安全性，请在接收端校验 `Authorization` 或 IP 白名单）
-- 载荷大小受 HTTP 客户端/服务端限制（建议单条 < 1MB）
+- No signature / anti-replay mechanism (if you need security, validate `Authorization` or an IP allowlist on the receiver)
+- Payload size is bounded by HTTP client/server limits (keeping each message under 1MB is recommended)
 
-### 能力声明
+### Capability declaration
 
-- `PayloadKinds`: `Content`、`Raw`
+- `PayloadKinds`: `Content`, `Raw`
 - `ContentFormats`: `json`
 
-## 常见错误
+## Common errors
 
-| 错误 | 原因与处理 |
+| Error | Cause and fix |
 |------|-----------|
-| `webhook: url is required` | 未配置 `url` |
-| `webhook: method must be one of GET, POST, PUT, DELETE` | `method` 配了不支持的值（如 `PATCH`），改用四类方法之一 |
-| `unexpected status code: 401` | 目标端点返回 401，检查 `headers.Authorization` |
-| `unexpected status code: 403` | 目标端点返回 403，检查 IP 白名单/签名校验 |
-| `unexpected status code: 404` | `url` 路径错误 |
-| `unexpected status code: 500` | 目标端点内部错误，查看对端日志 |
-| `context deadline exceeded` | 请求超时（默认 30s），检查网络/目标端点性能 |
-| `connection refused` | 目标主机/端口不可达 |
+| `webhook: url is required` | `url` is not configured |
+| `webhook: method must be one of GET, POST, PUT, DELETE` | `method` is set to an unsupported value (e.g. `PATCH`); use one of the four methods |
+| `unexpected status code: 401` | the target endpoint returned 401; check `headers.Authorization` |
+| `unexpected status code: 403` | the target endpoint returned 403; check the IP allowlist / signature validation |
+| `unexpected status code: 404` | wrong path in `url` |
+| `unexpected status code: 500` | internal error on the target endpoint; check its logs |
+| `context deadline exceeded` | request timed out (default 30s); check the network / target endpoint performance |
+| `connection refused` | target host/port unreachable |
 
-错误格式说明：HTTP 非 2xx 返回 `unexpected status code: {code}, body: {response body}`；网络/超时错误由 `httpclient` 包装。
+Error format notes: non-2xx HTTP returns `unexpected status code: {code}, body: {response body}`; network/timeout errors are wrapped by `httpclient`.
 
-## 安全建议
+## Security recommendations
 
-1. **HTTPS**：生产环境必须使用 `https://` 端点
-2. **认证**：在 `headers` 配置 `Authorization: Bearer <token>` 或 `X-Api-Key`，接收端校验
-3. **IP 白名单**：接收端限制仅 Herald 所在 IP 段访问
-4. **幂等**：接收端按 `id` 去重（Herald 重试会带相同 `id`）
+1. **HTTPS**: production must use an `https://` endpoint
+2. **Authentication**: configure `Authorization: Bearer <token>` or `X-Api-Key` in `headers` and have the receiver validate it
+3. **IP allowlist**: restrict the receiver to the IP range Herald runs in
+4. **Idempotency**: dedup by `id` on the receiver (Herald retries carry the same `id`)
 
-## 下一步
+## Next steps
 
-- [Provider 概览](./overview.md) - 查看所有 Provider 与启用方式
-- [Email](./email.md) - SMTP 邮件通道
-- [Log](./log.md) - 本地调试输出
+- [Provider overview](./overview.md) - see all Providers and how to enable them
+- [Email](./email.md) - SMTP email channel
+- [Log](./log.md) - local debugging output
