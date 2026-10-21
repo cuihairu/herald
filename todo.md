@@ -39,3 +39,7 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 
 - [x] docs 根目录 13 份文档中英配对与首屏语言切换器
 - [x] docs 子目录 45 份文档双语配对：api 3、architecture 7、guide 9、providers 21、runtime 5；判据同根目录轮（中文文档补对应英文版，两份顶部首屏内语言切换器，真实翻译不得机翻占位，命令路径代码块专有名词不译；排除 CHANGELOG、CONTRIBUTING、LICENSE、CODE_OF_CONDUCT、SECURITY 与 node_modules、dist、build、target、coverage、vendor）— 45/45 配对，切换器 90/90，死链 0，docs build 绿；`coverage.*` 忽略规则吞掉 architecture/coverage.en.md 已补反向放行
+
+## Dependabot 清零（2026-10-21 执行单）
+
+- [x] 清理 open 安全告警 #99/#98/#93/#97/#96/#95/#94 — `5ffb5343fd0be9336176f3e7526c0b4fbfb4c85d`（docs build 绿；dashboard typecheck 绿、197/197 tests、coverage 100%）
