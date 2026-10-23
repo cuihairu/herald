@@ -179,6 +179,144 @@ export default defineConfig({
       label: '简体中文',
       lang: 'zh-CN',
       themeConfig: {
+        nav: [
+          { text: '快速开始', link: '/zh/guide/getting-started' },
+          { text: '使用场景', link: '/zh/guide/use-cases' },
+          { text: '服务商', link: '/zh/providers/overview' },
+          { text: '指南', link: '/zh/guide/introduction' },
+          { text: '架构', link: '/zh/architecture/overview' },
+          { text: '运行时', link: '/zh/runtime/overview' },
+          { text: 'API', link: '/zh/api/overview' },
+        ],
+        sidebar: {
+          '/zh/guide/': [
+            {
+              text: '入门',
+              items: [
+                { text: '简介', link: '/zh/guide/introduction' },
+                { text: '快速开始', link: '/zh/guide/getting-started' },
+                { text: '使用场景与集成', link: '/zh/guide/use-cases' },
+                { text: '集成指南（对外项目）', link: '/zh/guide/integration' },
+                { text: '事件与告警模型', link: '/zh/guide/events' },
+              ],
+            },
+            {
+              text: '配置',
+              items: [
+                { text: '配置参考', link: '/zh/guide/configuration' },
+                { text: '模板系统', link: '/zh/guide/templates' },
+              ],
+            },
+            {
+              text: '运维',
+              items: [
+                { text: '部署', link: '/zh/guide/deployment' },
+                { text: '故障排查指南', link: '/zh/guide/troubleshooting' },
+              ],
+            },
+          ],
+          '/zh/architecture/': [
+            {
+              text: '架构',
+              items: [
+                { text: '总览', link: '/zh/architecture/overview' },
+                { text: '核心设计', link: '/zh/architecture/core-design' },
+                { text: '模块设计', link: '/zh/architecture/modules' },
+                { text: '协议设计', link: '/zh/architecture/protocols' },
+                { text: '模板系统', link: '/zh/architecture/templates' },
+                { text: '目录结构', link: '/zh/architecture/directory' },
+                { text: '测试覆盖标准', link: '/zh/architecture/coverage' },
+                { text: '覆盖率完成报告（2026-09）', link: '/zh/coverage-final-report-2026-09' },
+                { text: '覆盖度专项总结（2026-09）', link: '/zh/coverage-initiative-2026-09' },
+              ],
+            },
+          ],
+          '/zh/runtime/': [
+            {
+              text: '运行时',
+              items: [
+                { text: '总览', link: '/zh/runtime/overview' },
+                { text: '内置运行时', link: '/zh/runtime/builtin' },
+                { text: 'Worker 运行时', link: '/zh/runtime/worker' },
+                { text: '服务商类别', link: '/zh/runtime/providers' },
+                { text: 'Worker SDK', link: '/zh/runtime/sdk' },
+              ],
+            },
+          ],
+          '/zh/api/': [
+            {
+              text: 'API',
+              items: [
+                { text: '总览', link: '/zh/api/overview' },
+                { text: 'REST API', link: '/zh/api/rest' },
+                { text: '应用 API', link: '/zh/api/apps' },
+                { text: 'OpenAPI 规范', link: '/zh/api/apps#openapi-specification' },
+              ],
+            },
+          ],
+          '/zh/': [
+            {
+              text: '服务商指南',
+              items: [
+                { text: '总览与选择', link: '/zh/providers/overview' },
+                { text: '短信服务商对比', link: '/zh/providers/sms' },
+              ],
+            },
+            {
+              text: '消息渠道',
+              items: [
+                { text: 'Telegram', link: '/zh/providers/telegram' },
+                { text: '飞书', link: '/zh/providers/feishu' },
+                { text: '企业微信', link: '/zh/providers/wecom' },
+                { text: '钉钉', link: '/zh/providers/dingtalk' },
+                { text: 'Slack', link: '/zh/providers/slack' },
+                { text: 'Discord', link: '/zh/providers/discord' },
+                { text: '微信个人号推送', link: '/zh/providers/wechat' },
+                { text: '微信公众号指南', link: '/zh/providers/wechat-official' },
+                { text: '微信公众号模板消息', link: '/zh/providers/wechatmp' },
+              ],
+            },
+            {
+              text: '短信与邮箱',
+              items: [
+                { text: '阿里云短信', link: '/zh/providers/aliyunsms' },
+                { text: '腾讯云短信', link: '/zh/providers/tencentsms' },
+                { text: '网易短信', link: '/zh/providers/neteasesms' },
+                { text: '邮箱', link: '/zh/providers/email' },
+              ],
+            },
+            {
+              text: '应用推送',
+              items: [
+                { text: 'FCM', link: '/zh/providers/fcm' },
+                { text: 'APNs', link: '/zh/providers/apns' },
+                { text: 'JPush', link: '/zh/providers/jpush' },
+                { text: '个推', link: '/zh/providers/getui' },
+              ],
+            },
+            {
+              text: '集成与调试',
+              items: [
+                { text: 'Webhook', link: '/zh/providers/webhook' },
+                { text: '日志', link: '/zh/providers/log' },
+              ],
+            },
+            {
+              text: '设计文档',
+              items: [
+                { text: '以 Go 库方式使用 Herald', link: '/zh/library-usage' },
+                { text: '通知规则引擎', link: '/zh/rule-engine-design' },
+                { text: '规则引擎决策层', link: '/zh/design-rule-engine' },
+                { text: '通知分组', link: '/zh/design-notification-groups' },
+                { text: '受众领域模型（总览）', link: '/zh/design-audience-model' },
+                { text: '受众订阅与投递枢纽（关系详解）', link: '/zh/design-audience-relations' },
+                { text: '概念边界与分层审计', link: '/zh/design-audience-boundaries' },
+                { text: '受众重构审计（存档）', link: '/zh/design-audience-audit' },
+                { text: '冻结批次解冻计划（待决策）', link: '/zh/design-audience-deferrals' },
+              ],
+            },
+          ],
+        },
         outline: [2, 3],
         docFooter: { prev: '上一页', next: '下一页' },
         lastUpdated: {
