@@ -533,6 +533,14 @@ func TestValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("allows localhost bind without auth", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "LocalHost:8080"
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected localhost bind to be allowed, got %v", err)
+		}
+	})
+
 	t.Run("provider missing type", func(t *testing.T) {
 		cfg := Default()
 		cfg.Server.Addr = "127.0.0.1:8080"

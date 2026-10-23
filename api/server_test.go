@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,7 +148,60 @@ func TestServer_RequestBodyLimit(t *testing.T) {
 			t.Fatalf("expected handler response 405, got %d", rr.Code)
 		}
 	})
+
+	t.Run("applies smaller per-route limit", func(t *testing.T) {
+		env := newTestEnv(t, func(c *Config) {
+			c.RequestBodyLimits = map[string]int64{"/api/v1/templates/create": 4}
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/templates/create", strings.NewReader("12345"))
+		rr := httptest.NewRecorder()
+		env.server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected 413 on route-limited body, got %d", rr.Code)
+		}
+	})
+
+	t.Run("keeps global limit when route limit is larger", func(t *testing.T) {
+		env := newTestEnv(t, func(c *Config) {
+			c.MaxRequestBodyBytes = 8
+			c.RequestBodyLimits = map[string]int64{"/api/v1/status": 1 << 20}
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/status", strings.NewReader("123456789"))
+		rr := httptest.NewRecorder()
+		env.server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected 413 from global limit, got %d", rr.Code)
+		}
+	})
+
+	t.Run("unmatched pattern keeps global limit", func(t *testing.T) {
+		env := newTestEnv(t, func(c *Config) {
+			c.RequestBodyLimits = map[string]int64{"/api/v1/templates/create": 4}
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/status", strings.NewReader("12345"))
+		rr := httptest.NewRecorder()
+		env.server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected handler response 405, got %d", rr.Code)
+		}
+	})
+
+	t.Run("returns 400 on unreadable body", func(t *testing.T) {
+		env := newTestEnv(t)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/status", errReader{})
+		rr := httptest.NewRecorder()
+		env.server.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 on body read failure, got %d", rr.Code)
+		}
+	})
 }
+
+// errReader fails on the first read, exercising the limit middleware's
+// body-read error branch.
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("read boom") }
 
 func TestServer_AuthRejectsMissingCredentials(t *testing.T) {
 	env := newTestEnv(t, func(c *Config) {

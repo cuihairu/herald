@@ -110,7 +110,10 @@ func TestServeCmdStartupFailures(t *testing.T) {
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {
-			path := writeTestConfig(t, cfgYAML)
+			// Bind loopback so the public-bind refusal (auth disabled on a
+			// non-loopback address) does not fire before each case reaches
+			// its own rejection point inside serveCmd.
+			path := writeTestConfig(t, "server:\n  addr: 127.0.0.1:0\n"+cfgYAML)
 			if code := serveCmd([]string{"--config", path}); code != 1 {
 				t.Fatalf("serveCmd(%s) = %d, want 1", name, code)
 			}
