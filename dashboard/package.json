@@ -37,11 +37,5 @@
     "axios": {
       "follow-redirects": "1.16.1"
     }
-  },
-  "pnpm": {
-    "overrides": {
-      "follow-redirects": "1.16.1",
-      "source-map-js@<1.2.2": ">=1.2.2"
-    }
   }
 }
