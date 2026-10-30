@@ -39,6 +39,13 @@ features:
     title: Worker Model
     details: 独立 Runtime 节点，支持浏览器自动化等复杂场景
 ---
+
+## 架构总览
+
+<div align="center">
+  <img src="/images/architecture-zh.svg" alt="Herald 通知编排与投递架构图" width="100%" />
+</div>
+
 ## Herald 是什么
 
 Herald 是一个**轻量、Provider 无关的统一订阅与投递中枢**：业务方只描述「发生了什么、通知什么、通知谁」，把通知作为一条 HTTP 请求交给它，由 Herald 负责受众解析、模板渲染、渠道路由与可靠送达；谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系决定。内置 Provider 覆盖即时通讯（飞书、企业微信、钉钉、Slack、Discord、Telegram、微信）、短信（阿里云、腾讯云、网易云信）、邮件、Webhook、日志调试与 App 推送（FCM、APNs、极光 JPush、个推 Getui）；受众 - 渠道 - Provider 的解耦模型见 [受众领域模型总纲](/design-audience-model)。

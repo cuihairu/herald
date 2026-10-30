@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1800" viewBox="0 0 1280 1800" role="img" aria-labelledby="title desc" xml:lang="zh-CN">
+<title id="title">Herald · 通知编排与投递架构</title>
+<desc id="desc">分层编排管道。外部调用方与集成者经 HTTP API 服务层进入编排层：规则引擎、路由、受众层、去重与模板、投递计划；Digest 时间窗聚合与 RSS 拉式投影为条件旁路。投递任务经 Queue（memory/redis）由 Worker 池消费，Runtime Manager 负责重试、限流与投递状态机，最后由 18 个内置渠道 Provider 送达外部平台。实线为业务数据流，虚线为控制/旁路关系。</desc>
+<defs><marker id="arrow-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#475569"/></marker><marker id="arrow-control" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#64748b"/></marker><marker id="arrow-bypass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#7c3aed"/></marker></defs>
+<style>text{font-family:Arial,'Noto Sans CJK SC','Microsoft YaHei',sans-serif;fill:#172b4d}.title{font-size:28px;font-weight:700}.sub{font-size:15px;fill:#435570}.band{font-size:15px;font-weight:600;fill:#435570}.name{font-size:18px;font-weight:700}.body{font-size:13px;fill:#435570}.small{font-size:12px;fill:#52647b}.label{font-size:12.5px;fill:#435570;paint-order:stroke;stroke:#f8fafc;stroke-width:5px;stroke-linejoin:round}.edge{fill:none;stroke-linejoin:round}.control{stroke-dasharray:7 5}</style>
+<rect width="1280" height="1800" rx="20" fill="#f8fafc"/>
+<text x="40" y="50" class="title" text-anchor="start">Herald · 通知编排与投递架构</text>
+<text x="40" y="82" class="sub" text-anchor="start">轻量、Provider 无关的统一订阅与投递中枢 · 单二进制调度器或 Go 库嵌入 · 核心管道：事件 → 路由 → 投递任务 → 队列 → Worker → Provider</text>
+
+<!-- 接入面 -->
+<g id="entry-band"><rect x="40" y="120" width="1200" height="190" rx="14" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+<text x="58" y="148" class="band" text-anchor="start">接入面 · 调用方与入口</text>
+<g id="ext-client"><rect x="60" y="170" width="360" height="110" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="80" y="204" class="name" text-anchor="start">外部调用方</text>
+<text x="80" y="234" class="body" text-anchor="start">curl · CI/CD · Go SDK (apps-sdk/go)</text>
+<text x="80" y="258" class="body" text-anchor="start">Go 库嵌入 App.Dispatch</text></g>
+<g id="integ-app"><rect x="460" y="170" width="360" height="110" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="480" y="204" class="name" text-anchor="start">集成者 App 命名空间</text>
+<text x="480" y="234" class="body" text-anchor="start">scoped token · config/trigger/query</text>
+<text x="480" y="258" class="body" text-anchor="start">品类注册 · 事件适配 · 签名回调</text></g>
+<g id="dashboard"><rect x="860" y="170" width="360" height="110" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="880" y="204" class="name" text-anchor="start">Dashboard（Web 管理台）</text>
+<text x="880" y="234" class="body" text-anchor="start">React + Ant Design · Vite</text>
+<text x="880" y="258" class="body" text-anchor="start">规则保存即编译 · 管理面消费</text></g>
+</g>
+
+<!-- API 服务层 -->
+<g id="api-band"><rect x="40" y="350" width="1200" height="190" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="58" y="378" class="band" text-anchor="start">HTTP API 服务层</text>
+<g id="rest-api"><rect x="60" y="400" width="740" height="110" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="80" y="434" class="name" text-anchor="start">REST API（HTTP First）</text>
+<text x="80" y="464" class="body" text-anchor="start">管理面 /api/v1/** · App 面 /api/v1/apps/{app}/**</text>
+<text x="80" y="488" class="body" text-anchor="start">匿名 /status · /feeds/** · 回调面 /callbacks/**</text></g>
+<g id="auth-ws"><rect x="830" y="400" width="390" height="110" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="850" y="434" class="name" text-anchor="start">鉴权与 WebSocket 控制面</text>
+<text x="850" y="464" class="body" text-anchor="start">Bearer · X-API-Key · JWT 登录</text>
+<text x="850" y="488" class="body" text-anchor="start">Worker 注册 / 心跳 / 能力上报</text></g>
+</g>
+
+<!-- 编排层 -->
+<g id="orchestration-band"><rect x="40" y="580" width="1200" height="370" rx="14" fill="#eef2ff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="58" y="608" class="band" text-anchor="start">编排层 · NotificationService（规则 → 路由 → 受众 → 去重 → 计划）</text>
+<g id="rule-engine"><rect x="60" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="80" y="664" class="name" text-anchor="start">规则引擎</text>
+<text x="80" y="694" class="body" text-anchor="start">expr 表达式求值</text>
+<text x="80" y="718" class="body" text-anchor="start">shadow 先观察 / active 生效</text>
+<text x="80" y="742" class="small" text-anchor="start">for · group_by · inhibit ·</text>
+<text x="80" y="760" class="small" text-anchor="start">silence · escalation</text></g>
+<g id="routing"><rect x="295" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="315" y="664" class="name" text-anchor="start">路由</text>
+<text x="315" y="694" class="body" text-anchor="start">type/level → channels</text>
+<text x="315" y="718" class="body" text-anchor="start">routes 表 · level_routes</text>
+<text x="315" y="742" class="small" text-anchor="start">channels 块 · group: · user:</text>
+<text x="315" y="760" class="small" text-anchor="start">引用展开</text></g>
+<g id="audience-layer"><rect x="530" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="550" y="664" class="name" text-anchor="start">受众层</text>
+<text x="550" y="694" class="body" text-anchor="start">关系 × 渠道矩阵（订阅/指派）</text>
+<text x="550" y="718" class="body" text-anchor="start">发送前四步交集复核</text>
+<text x="550" y="742" class="small" text-anchor="start">联系面绑定 · 偏好中心</text>
+<text x="550" y="760" class="small" text-anchor="start">品类 × 渠道 × 频率</text></g>
+<g id="dedup-template"><rect x="765" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="785" y="664" class="name" text-anchor="start">去重与模板</text>
+<text x="785" y="694" class="body" text-anchor="start">去重门：幂等 → 状态 → 频控</text>
+<text x="785" y="718" class="body" text-anchor="start">SHA256 内容键 · 5 分钟窗</text>
+<text x="785" y="742" class="small" text-anchor="start">模板渲染（渠道无关）</text>
+<text x="785" y="760" class="small" text-anchor="start">一次定义 · 多渠道复用</text></g>
+<g id="delivery-plan"><rect x="1000" y="630" width="220" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="1020" y="664" class="name" text-anchor="start">投递计划</text>
+<text x="1020" y="694" class="body" text-anchor="start">每通道一个 DeliveryTask</text>
+<text x="1020" y="718" class="body" text-anchor="start">RSS 通道判定 · 状态机</text>
+<text x="1020" y="742" class="small" text-anchor="start">Provider 能力声明</text>
+<text x="1020" y="760" class="small" text-anchor="start">入队 · 去重 · 摘要</text></g>
+<g id="digest"><rect x="60" y="785" width="560" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="80" y="819" class="name" text-anchor="start">Digest 时间窗聚合（旁路）</text>
+<text x="80" y="849" class="body" text-anchor="start">每日 / 每周摘要 · 实时豁免不入窗</text>
+<text x="80" y="873" class="body" text-anchor="start">redis 租约选主 · 到点经同一管道投递</text></g>
+<g id="rss"><rect x="660" y="785" width="560" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="680" y="819" class="name" text-anchor="start">RSS 拉式投影（旁路）</text>
+<text x="680" y="849" class="body" text-anchor="start">/feeds/{category}.xml · /feeds/private/{token}.xml</text>
+<text x="680" y="873" class="body" text-anchor="start">可见性读取时判定 · 取关即停投 · 天然无骚扰</text></g>
+</g>
+
+<!-- 队列 -->
+<g id="queue-band"><rect x="40" y="990" width="1200" height="120" rx="14" fill="#edf5ff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="58" y="1018" class="band" text-anchor="start">队列 · 唯一任务分发通道（Queue as Backbone）</text>
+<g id="queue-memory"><rect x="60" y="1035" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="80" y="1061" class="name" text-anchor="start">内存队列（memory）</text>
+<text x="80" y="1085" class="body" text-anchor="start">单机部署 · 所有 Worker 同进程</text></g>
+<g id="queue-redis"><rect x="660" y="1035" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="680" y="1061" class="name" text-anchor="start">Redis Stream（分布式）</text>
+<text x="680" y="1085" class="body" text-anchor="start">herald:tasks · herald-workers 组 · NextRetryAt 再入队（Scheduler 能力）</text></g>
+</g>
+
+<!-- Worker 池 -->
+<g id="worker-band"><rect x="40" y="1150" width="1200" height="200" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="58" y="1178" class="band" text-anchor="start">Worker 池与运行时管理（统一 Worker 模型）</text>
+<g id="worker-pool"><rect x="60" y="1200" width="560" height="120" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="80" y="1234" class="name" text-anchor="start">Worker 池</text>
+<text x="80" y="1264" class="body" text-anchor="start">local goroutine · 远端进程（独立部署）</text>
+<text x="80" y="1288" class="body" text-anchor="start">注册表 · capabilities · 心跳 · Pop/Ack/Nack</text></g>
+<g id="runtime-manager"><rect x="660" y="1200" width="560" height="120" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="680" y="1234" class="name" text-anchor="start">Runtime Manager</text>
+<text x="680" y="1264" class="body" text-anchor="start">重试（指数退避）· 限流（token bucket）</text>
+<text x="680" y="1288" class="body" text-anchor="start">投递状态机 queued→delivering→retrying→delivered/failed/dead</text></g>
+</g>
+
+<!-- Provider 层 -->
+<g id="provider-band"><rect x="40" y="1390" width="1200" height="170" rx="14" fill="#eef8f5" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="58" y="1418" class="band" text-anchor="start">Provider 层 · 渠道无关统一接口（18 内置渠道 + worker 远端占位）</text>
+<g id="provider-im"><rect x="60" y="1430" width="360" height="110" rx="10" fill="#ffffff" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="80" y="1464" class="name" text-anchor="start">即时通讯</text>
+<text x="80" y="1494" class="body" text-anchor="start">Telegram · 飞书 · 企微 · 钉钉</text>
+<text x="80" y="1518" class="body" text-anchor="start">Slack · Discord · 微信</text></g>
+<g id="provider-sms-email"><rect x="460" y="1430" width="360" height="110" rx="10" fill="#ffffff" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="480" y="1464" class="name" text-anchor="start">短信与邮件</text>
+<text x="480" y="1494" class="body" text-anchor="start">阿里云 · 腾讯云 · 网易云信</text>
+<text x="480" y="1518" class="body" text-anchor="start">Email（SMTP）</text></g>
+<g id="provider-push-debug"><rect x="860" y="1430" width="360" height="110" rx="10" fill="#ffffff" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="880" y="1464" class="name" text-anchor="start">App 推送与调试</text>
+<text x="880" y="1494" class="body" text-anchor="start">FCM · APNs · JPush · Getui</text>
+<text x="880" y="1518" class="body" text-anchor="start">Webhook · Log · 回调 Provider</text></g>
+</g>
+
+<!-- 外部平台 -->
+<g id="external-band"><rect x="40" y="1600" width="1200" height="130" rx="14" fill="#edf5ff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="58" y="1628" class="band" text-anchor="start">外部平台 · 送达端</text>
+<g id="platform-im"><rect x="60" y="1640" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="80" y="1666" class="name" text-anchor="start">即时通讯平台</text>
+<text x="80" y="1692" class="body" text-anchor="start">Telegram Bot · 群机器人（飞书/企微/钉钉/Slack/Discord/微信）</text></g>
+<g id="platform-other"><rect x="660" y="1640" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="680" y="1666" class="name" text-anchor="start">短信 / 邮件 / 推送 / Webhook</text>
+<text x="680" y="1692" class="body" text-anchor="start">短信网关 · SMTP · APNs/FCM/JPush/Getui · 自建 Webhook</text></g>
+</g>
+
+<!-- 主数据流（实线） -->
+<path id="e-client" data-from="ext-client" data-to="rest-api" d="M240 280 V400" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-app" data-from="integ-app" data-to="rest-api" d="M640 280 V400" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-api" data-from="rest-api" data-to="rule-engine" d="M430 510 V560 H170 V630" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-rule-route" data-from="rule-engine" data-to="routing" d="M279 690 H295" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-route-aud" data-from="routing" data-to="audience-layer" d="M514 690 H530" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-aud-dedup" data-from="audience-layer" data-to="dedup-template" d="M749 690 H765" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-dedup-plan" data-from="dedup-template" data-to="delivery-plan" d="M984 690 H1000" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-plan-queue" data-from="delivery-plan" data-to="queue-redis" d="M1110 750 V950 H940 V1035" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-digest-queue" data-from="digest" data-to="queue-memory" d="M240 905 V960 H340 V1035" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-q1-w1" data-from="queue-memory" data-to="worker-pool" d="M340 1105 V1200" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-q2-w1" data-from="queue-redis" data-to="worker-pool" d="M940 1105 V1145 H340 V1200" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-w1-w2" data-from="worker-pool" data-to="runtime-manager" d="M620 1260 H660" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-w2-provider" data-from="runtime-manager" data-to="provider-band" d="M940 1320 V1390" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-p1-plat" data-from="provider-im" data-to="platform-im" d="M240 1540 V1640" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-p2-plat" data-from="provider-sms-email" data-to="platform-other" d="M640 1540 V1580 H940 V1640" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-p3-plat" data-from="provider-push-debug" data-to="platform-other" d="M1040 1540 V1640" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+
+<!-- 控制关系（虚线） -->
+<path id="c-dash" data-from="dashboard" data-to="auth-ws" d="M1040 280 V400" class="edge control" fill="none" style="stroke:#64748b;stroke-width:2" marker-end="url(#arrow-control)"/>
+<path id="c-ws" data-from="auth-ws" data-to="worker-pool" d="M1025 510 V550 H20 V1260 H60" class="edge control" fill="none" style="stroke:#64748b;stroke-width:2" marker-end="url(#arrow-control)"/>
+
+<!-- 旁路分支（虚线） -->
+<path id="b-digest" data-from="audience-layer" data-to="digest" d="M650 750 V766 H240 V785" class="edge control" fill="none" style="stroke:#7c3aed;stroke-width:2" marker-end="url(#arrow-bypass)"/>
+<path id="b-rss" data-from="dedup-template" data-to="rss" d="M884 750 V766 H940 V785" class="edge control" fill="none" style="stroke:#7c3aed;stroke-width:2" marker-end="url(#arrow-bypass)"/>
+
+<!-- 边标注 -->
+<text x="248" y="340" class="label" text-anchor="start">POST /api/v1/notify</text>
+<text x="648" y="340" class="label" text-anchor="start">POST /api/v1/apps/{app}/dispatch</text>
+<text x="1048" y="340" class="label" text-anchor="start">管理面（鉴权）</text>
+<text x="438" y="545" class="label" text-anchor="start">编排入口</text>
+<text x="250" y="758" class="label" text-anchor="start">偏好折叠</text>
+<text x="888" y="758" class="label" text-anchor="start">RSS 投影</text>
+<text x="1050" y="900" class="label" text-anchor="start">投递任务入队</text>
+<text x="250" y="948" class="label" text-anchor="start">摘要重入管道</text>
+<text x="350" y="1160" class="label" text-anchor="start">Pop + Ack/Nack</text>
+<text x="950" y="1360" class="label" text-anchor="start">按通道能力分发</text>
+<text transform="translate(30 920) rotate(-90)" class="label" text-anchor="start" style="fill:#64748b">WebSocket 控制面（worker 注册/心跳）</text>
+
+<!-- 图例 -->
+<text x="40" y="1750" class="label" text-anchor="start">实线：业务数据流 · 虚线：控制 / 条件旁路 · 无圆点交叉不表示连通</text>
+<text x="40" y="1775" class="small" text-anchor="start">核心流程：Event → Notification → 路由 → 投递任务 → Queue → Worker → Provider · 两条旁路：Digest 时间窗聚合 / RSS 拉式投影</text>
+<text x="40" y="1798" class="small" text-anchor="start">§13.5 签名回调：投递结算经 Queue→Worker→回调 Provider 回流集成者 · worker 类型为远端节点占位，调度器路由到 target 命名节点</text>
+</svg>

@@ -40,6 +40,12 @@ features:
     details: standalone Runtime nodes for complex scenarios such as browser automation
 ---
 
+## Architecture Overview
+
+<div align="center">
+  <img src="/images/architecture-en.svg" alt="Herald architecture diagram" width="100%" />
+</div>
+
 ## What Is Herald
 
 Herald is a **lightweight, Provider-agnostic unified subscription and delivery hub**: callers only describe "what happened, what to notify about, and whom to notify", hand the notification over as a single HTTP request, and Herald takes care of audience resolution, template rendering, channel routing, and reliable delivery. Who receives what category of notification, on which channel, and at what frequency is decided by each party's own subscription relations. Built-in Providers cover instant messaging (Feishu, WeCom, DingTalk, Slack, Discord, Telegram, WeChat), SMS (Alibaba Cloud, Tencent Cloud, NetEase Yunxin), email, Webhook, log/debug channels, and app push (FCM, APNs, JPush, Getui); the decoupled audience-channel-Provider model is described in the [Audience Domain Model Overview](/design-audience-model).

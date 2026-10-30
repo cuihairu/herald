@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1800" viewBox="0 0 1280 1800" role="img" aria-labelledby="title desc" xml:lang="en">
+<title id="title">Herald · Notification Orchestration &amp; Delivery Architecture</title>
+<desc id="desc">Layered orchestration pipeline. External callers and integrators enter through the HTTP API layer into the orchestration pipeline: rule engine, routing, audience layer, dedup and templates, delivery planning; Digest time-window aggregation and RSS pull projection are conditional bypasses. Delivery tasks go through the Queue (memory/redis), are consumed by the Worker pool, the Runtime Manager handles retry, rate limiting and the delivery state machine, and finally 18 built-in channel Providers deliver to external platforms. Solid lines are business data flow; dashed are control/bypass relations.</desc>
+<defs><marker id="arrow-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#475569"/></marker><marker id="arrow-control" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#64748b"/></marker><marker id="arrow-bypass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#7c3aed"/></marker></defs>
+<style>text{font-family:Arial,'Noto Sans CJK SC','Microsoft YaHei',sans-serif;fill:#172b4d}.title{font-size:28px;font-weight:700}.sub{font-size:15px;fill:#435570}.band{font-size:15px;font-weight:600;fill:#435570}.name{font-size:18px;font-weight:700}.body{font-size:13px;fill:#435570}.small{font-size:12px;fill:#52647b}.label{font-size:12.5px;fill:#435570;paint-order:stroke;stroke:#f8fafc;stroke-width:5px;stroke-linejoin:round}.edge{fill:none;stroke-linejoin:round}.control{stroke-dasharray:7 5}</style>
+<rect width="1280" height="1800" rx="20" fill="#f8fafc"/>
+<text x="40" y="50" class="title" text-anchor="start">Herald · Notification Orchestration &amp; Delivery Architecture</text>
+<text x="40" y="82" class="sub" text-anchor="start">Lightweight, Provider-agnostic subscription &amp; delivery hub · single-binary scheduler or Go-library embed · core flow: event → routing → task → queue → worker → provider</text>
+
+<!-- Entry band -->
+<g id="entry-band"><rect x="40" y="120" width="1200" height="190" rx="14" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+<text x="58" y="148" class="band" text-anchor="start">Entry · callers and entrances</text>
+<g id="ext-client"><rect x="60" y="170" width="360" height="110" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="80" y="204" class="name" text-anchor="start">External callers</text>
+<text x="80" y="234" class="body" text-anchor="start">curl · CI/CD · Go SDK (apps-sdk/go)</text>
+<text x="80" y="258" class="body" text-anchor="start">Go-library embed App.Dispatch</text></g>
+<g id="integ-app"><rect x="460" y="170" width="360" height="110" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="480" y="204" class="name" text-anchor="start">Integrator App namespace</text>
+<text x="480" y="234" class="body" text-anchor="start">scoped token · config/trigger/query</text>
+<text x="480" y="258" class="body" text-anchor="start">category · events · signed callbacks</text></g>
+<g id="dashboard"><rect x="860" y="170" width="360" height="110" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="880" y="204" class="name" text-anchor="start">Dashboard (web console)</text>
+<text x="880" y="234" class="body" text-anchor="start">React + Ant Design · Vite</text>
+<text x="880" y="258" class="body" text-anchor="start">compile-on-save rules · mgmt plane</text></g>
+</g>
+
+<!-- API band -->
+<g id="api-band"><rect x="40" y="350" width="1200" height="190" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="58" y="378" class="band" text-anchor="start">HTTP API layer</text>
+<g id="rest-api"><rect x="60" y="400" width="740" height="110" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="80" y="434" class="name" text-anchor="start">REST API (HTTP First)</text>
+<text x="80" y="464" class="body" text-anchor="start">Management /api/v1/** · App /api/v1/apps/{app}/**</text>
+<text x="80" y="488" class="body" text-anchor="start">Anonymous /status · /feeds/** · callbacks /callbacks/**</text></g>
+<g id="auth-ws"><rect x="830" y="400" width="390" height="110" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="850" y="434" class="name" text-anchor="start">Auth &amp; WebSocket control plane</text>
+<text x="850" y="464" class="body" text-anchor="start">Bearer · X-API-Key · JWT login</text>
+<text x="850" y="488" class="body" text-anchor="start">worker register / heartbeat / capability</text></g>
+</g>
+
+<!-- Orchestration band -->
+<g id="orchestration-band"><rect x="40" y="580" width="1200" height="370" rx="14" fill="#eef2ff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="58" y="608" class="band" text-anchor="start">Orchestration · NotificationService (rules → routing → audience → dedup → plan)</text>
+<g id="rule-engine"><rect x="60" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="80" y="664" class="name" text-anchor="start">Rule engine</text>
+<text x="80" y="694" class="body" text-anchor="start">expr evaluation</text>
+<text x="80" y="718" class="body" text-anchor="start">shadow / active</text>
+<text x="80" y="742" class="small" text-anchor="start">for · group_by · inhibit</text>
+<text x="80" y="760" class="small" text-anchor="start">silence · escalation</text></g>
+<g id="routing"><rect x="295" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="315" y="664" class="name" text-anchor="start">Routing</text>
+<text x="315" y="694" class="body" text-anchor="start">type/level → channels</text>
+<text x="315" y="718" class="body" text-anchor="start">routes · level_routes</text>
+<text x="315" y="742" class="small" text-anchor="start">channels block · group:</text>
+<text x="315" y="760" class="small" text-anchor="start">user: expansion</text></g>
+<g id="audience-layer"><rect x="530" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="550" y="664" class="name" text-anchor="start">Audience layer</text>
+<text x="550" y="694" class="body" text-anchor="start">relation × channel matrix</text>
+<text x="550" y="718" class="body" text-anchor="start">subscription / enrollment</text>
+<text x="550" y="742" class="small" text-anchor="start">contact-surface binding</text>
+<text x="550" y="760" class="small" text-anchor="start">preference center</text></g>
+<g id="dedup-template"><rect x="765" y="630" width="219" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="785" y="664" class="name" text-anchor="start">Dedup &amp; templates</text>
+<text x="785" y="694" class="body" text-anchor="start">dedup: idempotency→state</text>
+<text x="785" y="718" class="body" text-anchor="start">→frequency · SHA256 key</text>
+<text x="785" y="742" class="small" text-anchor="start">template render (agnostic)</text>
+<text x="785" y="760" class="small" text-anchor="start">define once · reuse</text></g>
+<g id="delivery-plan"><rect x="1000" y="630" width="220" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="1020" y="664" class="name" text-anchor="start">Delivery planning</text>
+<text x="1020" y="694" class="body" text-anchor="start">one task per channel</text>
+<text x="1020" y="718" class="body" text-anchor="start">RSS check · state machine</text>
+<text x="1020" y="742" class="small" text-anchor="start">provider capability</text>
+<text x="1020" y="760" class="small" text-anchor="start">enqueue · dedup · digest</text></g>
+<g id="digest"><rect x="60" y="785" width="560" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="80" y="819" class="name" text-anchor="start">Digest time-window aggregation (bypass)</text>
+<text x="80" y="849" class="body" text-anchor="start">daily / weekly digest · realtime exemption</text>
+<text x="80" y="873" class="body" text-anchor="start">redis lease leader election · flips through the same pipeline</text></g>
+<g id="rss"><rect x="660" y="785" width="560" height="120" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.5"/>
+<text x="680" y="819" class="name" text-anchor="start">RSS pull projection (bypass)</text>
+<text x="680" y="849" class="body" text-anchor="start">/feeds/{category}.xml · /feeds/private/{token}.xml</text>
+<text x="680" y="873" class="body" text-anchor="start">visibility at read time · spam-free by construction</text></g>
+</g>
+
+<!-- Queue band -->
+<g id="queue-band"><rect x="40" y="990" width="1200" height="120" rx="14" fill="#edf5ff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="58" y="1018" class="band" text-anchor="start">Queue · the only task dispatch channel (Queue as Backbone)</text>
+<g id="queue-memory"><rect x="60" y="1035" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="80" y="1061" class="name" text-anchor="start">Memory queue (memory)</text>
+<text x="80" y="1085" class="body" text-anchor="start">single-machine · all workers in-process</text></g>
+<g id="queue-redis"><rect x="660" y="1035" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="680" y="1061" class="name" text-anchor="start">Redis Stream (distributed)</text>
+<text x="680" y="1085" class="body" text-anchor="start">herald:tasks · herald-workers group · NextRetryAt re-enqueue (Scheduler capability)</text></g>
+</g>
+
+<!-- Worker band -->
+<g id="worker-band"><rect x="40" y="1150" width="1200" height="200" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="58" y="1178" class="band" text-anchor="start">Worker pool &amp; runtime management (unified worker model)</text>
+<g id="worker-pool"><rect x="60" y="1200" width="560" height="120" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="80" y="1234" class="name" text-anchor="start">Worker pool</text>
+<text x="80" y="1264" class="body" text-anchor="start">local goroutine · remote process (deployed separately)</text>
+<text x="80" y="1288" class="body" text-anchor="start">registry · capabilities · heartbeat · Pop/Ack/Nack</text></g>
+<g id="runtime-manager"><rect x="660" y="1200" width="560" height="120" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="680" y="1234" class="name" text-anchor="start">Runtime Manager</text>
+<text x="680" y="1264" class="body" text-anchor="start">retry (exponential backoff) · rate limit (token bucket)</text>
+<text x="680" y="1288" class="body" text-anchor="start">delivery state machine queued→delivering→retrying→delivered/failed/dead</text></g>
+</g>
+
+<!-- Provider band -->
+<g id="provider-band"><rect x="40" y="1390" width="1200" height="170" rx="14" fill="#eef8f5" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="58" y="1418" class="band" text-anchor="start">Provider layer · channel-agnostic unified interface (18 built-in + worker remote placeholder)</text>
+<g id="provider-im"><rect x="60" y="1430" width="360" height="110" rx="10" fill="#ffffff" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="80" y="1464" class="name" text-anchor="start">Instant messaging</text>
+<text x="80" y="1494" class="body" text-anchor="start">Telegram · Feishu · WeCom · DingTalk</text>
+<text x="80" y="1518" class="body" text-anchor="start">Slack · Discord · WeChat</text></g>
+<g id="provider-sms-email"><rect x="460" y="1430" width="360" height="110" rx="10" fill="#ffffff" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="480" y="1464" class="name" text-anchor="start">SMS &amp; email</text>
+<text x="480" y="1494" class="body" text-anchor="start">Alibaba Cloud · Tencent Cloud · NetEase</text>
+<text x="480" y="1518" class="body" text-anchor="start">Email (SMTP)</text></g>
+<g id="provider-push-debug"><rect x="860" y="1430" width="360" height="110" rx="10" fill="#ffffff" stroke="#86c9b3" stroke-width="1.5"/>
+<text x="880" y="1464" class="name" text-anchor="start">App push &amp; debug</text>
+<text x="880" y="1494" class="body" text-anchor="start">FCM · APNs · JPush · Getui</text>
+<text x="880" y="1518" class="body" text-anchor="start">Webhook · Log · callback provider</text></g>
+</g>
+
+<!-- External band -->
+<g id="external-band"><rect x="40" y="1600" width="1200" height="130" rx="14" fill="#edf5ff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="58" y="1628" class="band" text-anchor="start">External platforms · delivery targets</text>
+<g id="platform-im"><rect x="60" y="1640" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="80" y="1666" class="name" text-anchor="start">Instant messaging platforms</text>
+<text x="80" y="1692" class="body" text-anchor="start">Telegram Bot · group bots (Feishu/WeCom/DingTalk/Slack/Discord/WeChat)</text></g>
+<g id="platform-other"><rect x="660" y="1640" width="560" height="70" rx="10" fill="#ffffff" stroke="#93b9e3" stroke-width="1.5"/>
+<text x="680" y="1666" class="name" text-anchor="start">SMS / email / push / Webhook</text>
+<text x="680" y="1692" class="body" text-anchor="start">SMS gateways · SMTP · APNs/FCM/JPush/Getui · own Webhook</text></g>
+</g>
+
+<!-- Main data flow (solid) -->
+<path id="e-client" data-from="ext-client" data-to="rest-api" d="M240 280 V400" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-app" data-from="integ-app" data-to="rest-api" d="M640 280 V400" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-api" data-from="rest-api" data-to="rule-engine" d="M430 510 V560 H170 V630" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-rule-route" data-from="rule-engine" data-to="routing" d="M279 690 H295" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-route-aud" data-from="routing" data-to="audience-layer" d="M514 690 H530" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-aud-dedup" data-from="audience-layer" data-to="dedup-template" d="M749 690 H765" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-dedup-plan" data-from="dedup-template" data-to="delivery-plan" d="M984 690 H1000" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-plan-queue" data-from="delivery-plan" data-to="queue-redis" d="M1110 750 V950 H940 V1035" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-digest-queue" data-from="digest" data-to="queue-memory" d="M240 905 V960 H340 V1035" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-q1-w1" data-from="queue-memory" data-to="worker-pool" d="M340 1105 V1200" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-q2-w1" data-from="queue-redis" data-to="worker-pool" d="M940 1105 V1145 H340 V1200" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-w1-w2" data-from="worker-pool" data-to="runtime-manager" d="M620 1260 H660" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-w2-provider" data-from="runtime-manager" data-to="provider-band" d="M940 1320 V1390" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-p1-plat" data-from="provider-im" data-to="platform-im" d="M240 1540 V1640" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-p2-plat" data-from="provider-sms-email" data-to="platform-other" d="M640 1540 V1580 H940 V1640" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+<path id="e-p3-plat" data-from="provider-push-debug" data-to="platform-other" d="M1040 1540 V1640" class="edge" fill="none" style="stroke:#475569;stroke-width:2" marker-end="url(#arrow-slate)"/>
+
+<!-- Control relations (dashed) -->
+<path id="c-dash" data-from="dashboard" data-to="auth-ws" d="M1040 280 V400" class="edge control" fill="none" style="stroke:#64748b;stroke-width:2" marker-end="url(#arrow-control)"/>
+<path id="c-ws" data-from="auth-ws" data-to="worker-pool" d="M1025 510 V550 H20 V1260 H60" class="edge control" fill="none" style="stroke:#64748b;stroke-width:2" marker-end="url(#arrow-control)"/>
+
+<!-- Bypass branches (dashed) -->
+<path id="b-digest" data-from="audience-layer" data-to="digest" d="M650 750 V766 H240 V785" class="edge control" fill="none" style="stroke:#7c3aed;stroke-width:2" marker-end="url(#arrow-bypass)"/>
+<path id="b-rss" data-from="dedup-template" data-to="rss" d="M884 750 V766 H940 V785" class="edge control" fill="none" style="stroke:#7c3aed;stroke-width:2" marker-end="url(#arrow-bypass)"/>
+
+<!-- Edge labels -->
+<text x="248" y="340" class="label" text-anchor="start">POST /api/v1/notify</text>
+<text x="648" y="340" class="label" text-anchor="start">POST /api/v1/apps/{app}/dispatch</text>
+<text x="1048" y="340" class="label" text-anchor="start">management plane (auth)</text>
+<text x="438" y="545" class="label" text-anchor="start">orchestration entry</text>
+<text x="250" y="758" class="label" text-anchor="start">preference fold</text>
+<text x="888" y="758" class="label" text-anchor="start">RSS projection</text>
+<text x="1050" y="900" class="label" text-anchor="start">delivery task enqueue</text>
+<text x="250" y="948" class="label" text-anchor="start">digest re-enters pipeline</text>
+<text x="350" y="1160" class="label" text-anchor="start">Pop + Ack/Nack</text>
+<text x="950" y="1360" class="label" text-anchor="start">dispatch by capability</text>
+<text transform="translate(30 920) rotate(-90)" class="label" text-anchor="start" style="fill:#64748b">WebSocket control plane (worker register/heartbeat)</text>
+
+<!-- Legend -->
+<text x="40" y="1750" class="label" text-anchor="start">Solid: business data flow · Dashed: control / conditional bypass · crossing without a dot is not a connection</text>
+<text x="40" y="1775" class="small" text-anchor="start">Core flow: Event → Notification → Routing → Delivery Task → Queue → Worker → Provider · two bypasses: Digest time-window aggregation / RSS pull projection</text>
+<text x="40" y="1798" class="small" text-anchor="start">§13.5 signed callback: settled delivery returns to the integrator via Queue→Worker→callback provider · worker type is a remote-node placeholder, routed to the target node</text>
+</svg>
