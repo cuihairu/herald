@@ -144,6 +144,7 @@ export default function RostersPage() {
         columns={columns as any}
         dataSource={rosters}
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={false}
       />
       <Modal

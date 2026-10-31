@@ -193,6 +193,7 @@ export default function RulesPage() {
         columns={columns as any}
         dataSource={rules}
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={false}
       />
       <Modal
@@ -284,6 +285,7 @@ function ShadowDetail({ rule, data }: { rule: any; data: any }) {
         <Table
           rowKey="at"
           size="small"
+          scroll={{ x: 'max-content' }}
           pagination={false}
           dataSource={samples}
           columns={[

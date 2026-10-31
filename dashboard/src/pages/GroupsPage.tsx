@@ -144,6 +144,7 @@ export default function GroupsPage() {
         columns={columns as any}
         dataSource={groups}
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={false}
       />
       <Modal

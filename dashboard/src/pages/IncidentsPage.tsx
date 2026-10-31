@@ -141,6 +141,7 @@ export default function IncidentsPage() {
         columns={columns as any}
         dataSource={incidents}
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={false}
       />
       <Modal
