@@ -4,6 +4,15 @@ server:
   addr: ":8080"
   timeout: 30s
 
+# API 鉴权：公网/通配绑定必须开启并至少配置一枚 api key，否则 heraldd 拒绝启动
+# （关闭鉴权时 server.addr 只能绑 loopback）。key 从 HERALD_ADMIN_API_KEY 读取；
+# 任意非 loopback 部署都必须先在 .env 里把它设成真实值。
+# 详见 docs/guide/configuration.md 的「认证配置」章节。
+auth:
+  enabled: true
+  api_keys:
+    operator: "$HERALD_ADMIN_API_KEY"
+
 # Provider 配置
 providers:
   # 日志 Provider (默认启用)
