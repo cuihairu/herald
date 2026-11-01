@@ -1,6 +1,6 @@
 [English](README.md) | [中文](README.zh.md)
 
-<div align="center"><img src="docs/public/logo.svg" width="64" alt="Herald logo" /> <a href="https://cuihairu.github.io/herald/"><img src="https://img.shields.io/badge/docs-docs-blue" alt="docs"></a></div>
+<div align="center"><a href="https://cuihairu.github.io/herald//"><img src="https://img.shields.io/badge/docs-docs-blue" alt="docs"></a> <a href="https://cuihairu.github.io/herald/"><img src="https://img.shields.io/badge/docs-docs-blue" alt="docs"></a></div>
 
 Herald is a lightweight notification orchestration and delivery infrastructure. The business side only describes what happened and what to notify; who receives it, when, through which channel, at what intensity, whether it is aggregated, filtered, or escalated — Herald orchestrates all of that and is the single place where it is decided. Recipients stay in control: who receives which category on which channel, and at what frequency, is determined by the audience's own subscription relations and preferences, not hard-coded by the caller.
 
