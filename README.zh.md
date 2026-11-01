@@ -1,14 +1,6 @@
 [English](README.md) | [中文](README.zh.md)
 
-<div align="center">
-  <img src="docs/public/logo.svg" width="64" alt="Herald logo" />
-
-  # Herald
-
-  **Lightweight Notification Orchestration & Delivery Infrastructure**
-
-[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE) [![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald) [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md)
-</div>
+<div align="center"><img src="docs/public/logo.svg" width="64" alt="Herald logo" /> <a href="https://cuihairu.github.io/herald/zh/"><img src="https://img.shields.io/badge/docs-文档-blue" alt="docs"></a></div>
 
 Herald 是一个轻量的通知编排与投递基础设施：业务只描述「发生了什么、通知什么」，谁、什么时候、通过什么渠道、以什么强度收到、是否聚合、是否过滤、是否升级，由 Herald 编排收口；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系与偏好决定，而不是由调用方写死。
 
