@@ -3,9 +3,8 @@
 ## Auth {#auth}
 
 The endpoints on this page require `Authorization: Bearer <token>` (or an API Key
-carried in the `X-API-Key` header; GET requests may also use the `?api_key=`
-query parameter) once `auth.enabled` is turned on; when it is not, anonymous
-access is allowed. When an API Key and a JWT are mixed, the API Key is checked
+carried in the `X-API-Key` header) once `auth.enabled` is turned on; when it is
+not, anonymous access is allowed. When an API Key and a JWT are mixed, the API Key is checked
 first. JWTs are issued by `/auth/login` with a **fixed 24-hour validity period**;
 use `/auth/refresh` to exchange for a new one after expiry. The four exception
 domains are described in [API Overview](./overview.md): `/auth/*` itself, the
@@ -44,9 +43,8 @@ token may also be replaced by an API Key carried in the `X-API-Key` header (see
 
 ## POST /api/v1/auth/refresh {#auth-refresh}
 
-Refresh the JWT: exchange the Bearer token (or the `herald_token` cookie / the
-`?token=` query parameter) for a new token. A missing, invalid, or expired token
-returns 401.
+Refresh the JWT: exchange the Bearer token (or the `herald_token` cookie) for a
+new token. A missing, invalid, or expired token returns 401.
 
 ### refresh-response {#refresh-response}
 

@@ -3,7 +3,7 @@
 ## 认证 {#auth}
 
 本页端点在开启 `auth.enabled` 后都需要 `Authorization: Bearer <token>`（或
-`X-API-Key` 头携带 API Key；GET 请求也可用 `?api_key=` 查询参数）；未开启时匿名可用。
+`X-API-Key` 头携带 API Key）；未开启时匿名可用。
 API Key 与 JWT 混用时先按 API Key 比对。JWT 由 `/auth/login` 签发，**有效期固定 24 小时**，
 过期用 `/auth/refresh` 换新。四个例外域另见
 [API 概述](./overview.md#认证)：`/auth/*` 自身、集成者 app 面（按 app token 三级
@@ -39,8 +39,8 @@ API Key 代替（见[认证](#auth)）。
 
 ## POST /api/v1/auth/refresh {#auth-refresh}
 
-刷新 JWT：凭 Bearer token（或 `herald_token` cookie / `?token=` 查询参数）换发新
-token。token 缺失、无效或过期返回 401。
+刷新 JWT：凭 Bearer token（或 `herald_token` cookie）换发新 token。token 缺失、
+无效或过期返回 401。
 
 ### refresh-响应 {#refresh-response}
 

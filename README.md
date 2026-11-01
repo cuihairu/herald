@@ -7,7 +7,7 @@
 
   **Lightweight Notification Orchestration & Delivery Infrastructure**
 
-[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE) [![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald) [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md) <a href="https://cuihairu.github.io/herald//"><img src="https://img.shields.io/badge/docs-blue" alt="docs"></a>
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE) [![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald) [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md) <a href="https://cuihairu.github.io/herald/"><img src="https://img.shields.io/badge/docs-blue" alt="docs"></a>
 </div>
 
 Herald is a lightweight notification orchestration and delivery infrastructure. The business side only describes what happened and what to notify; who receives it, when, through which channel, at what intensity, whether it is aggregated, filtered, or escalated — Herald orchestrates all of that and is the single place where it is decided. Recipients stay in control: who receives which category on which channel, and at what frequency, is determined by the audience's own subscription relations and preferences, not hard-coded by the caller.
@@ -128,7 +128,7 @@ make dashboard-dev
 http://localhost:3000
 ```
 
-After signing in, the sidebar exposes these pages: Dashboard, Providers, notification rules, notification groups, on-call rosters, the incident ledger, Workers, logs, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
+After signing in, the sidebar exposes these pages: Dashboard, Providers, notification rules, notification groups, on-call rosters, the incident ledger, Workers, logs, delivery records, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
 
 ## Usage
 

@@ -18,12 +18,11 @@ If you're unsure, take Path A first to get the pipeline working, then decide whe
 
 The service address is provided by the deployer, of the form `http://herald.example.com:8080`; this page uniformly writes `http://127.0.0.1:8080`.
 
-For deployments with `auth.enabled` on, admin-surface endpoints require credentials, and these three forms are equivalent (pick one):
+For deployments with `auth.enabled` on, admin-surface endpoints require credentials, and these two header forms are equivalent (pick one):
 
 ```http
 Authorization: Bearer <api-key-or-jwt>
 X-API-Key: <api-key>
-GET /api/v1/logs?api_key=<api-key>
 ```
 
 `/api/v1/status` and `/feeds/**` are available anonymously; the app surface (`/api/v1/apps/**`) is authenticated separately and requires an app token even when `auth.enabled` is off. The app token is only read from request headers — **there is no query-parameter fallback**.

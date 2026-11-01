@@ -7,7 +7,7 @@
 
   **Lightweight Notification Orchestration & Delivery Infrastructure**
 
-[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE) [![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald) [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md) <a href="https://cuihairu.github.io/herald/zh//"><img src="https://img.shields.io/badge/%E6%96%87%E6%A1%A3-blue" alt="docs"></a>
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE) [![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald) [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md) <a href="https://cuihairu.github.io/herald/zh/"><img src="https://img.shields.io/badge/%E6%96%87%E6%A1%A3-blue" alt="docs"></a>
 </div>
 
 Herald 是一个轻量的通知编排与投递基础设施：业务只描述「发生了什么、通知什么」，谁、什么时候、通过什么渠道、以什么强度收到、是否聚合、是否过滤、是否升级，由 Herald 编排收口；被通知者做主——谁在什么渠道、以什么频率收到什么品类，由受众自己的订阅关系与偏好决定，而不是由调用方写死。
@@ -128,7 +128,7 @@ make dashboard-dev
 http://localhost:3000
 ```
 
-登录后侧边栏可用的页面：仪表盘、Providers、通知规则、通知群组、on-call 值班表、事件账本、Workers、日志、发送消息。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
+登录后侧边栏可用的页面：仪表盘、Providers、通知规则、通知群组、on-call 值班表、事件账本、Workers、日志、投递记录、发送消息。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
 
 ## 使用
 

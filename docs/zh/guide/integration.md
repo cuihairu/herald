@@ -18,12 +18,11 @@
 
 服务地址由部署方提供，形如 `http://herald.example.com:8080`，本页统一写 `http://127.0.0.1:8080`。
 
-开启 `auth.enabled` 的部署，管理面接口要带凭证，三种写法等价（选一种）：
+开启 `auth.enabled` 的部署，管理面接口要带凭证，两种请求头写法等价（选一种）：
 
 ```http
 Authorization: Bearer <api-key-or-jwt>
 X-API-Key: <api-key>
-GET /api/v1/logs?api_key=<api-key>
 ```
 
 `/api/v1/status`、`/feeds/**` 匿名可用；app 面（`/api/v1/apps/**`）独立鉴权，即使 `auth.enabled` 关着也要带 app token。app token 只从请求头取，**没有 query 参数回退**。
