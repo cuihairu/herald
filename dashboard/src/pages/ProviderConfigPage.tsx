@@ -11,7 +11,6 @@ export default function ProviderConfigPage() {
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [form] = Form.useForm()
 
   useEffect(() => {
     fetchConfig()
@@ -36,7 +35,6 @@ export default function ProviderConfigPage() {
           }
         }
         setFormData(initial)
-        form.setFieldsValue(initial)
       } else {
         message.error(data.message)
       }
@@ -138,7 +136,7 @@ export default function ProviderConfigPage() {
         {Object.keys(schema).length === 0 ? (
           <Alert type="info" message="此 Provider 暂无可配置项" />
         ) : (
-          <Form form={form} layout="vertical" onFinish={handleSave}>
+          <Form initialValues={formData} layout="vertical" onFinish={handleSave}>
             {Object.entries(schema).map(([fieldName, fieldType]) => (
               <Form.Item key={fieldName} label={fieldName} name={fieldName}>
                 {fieldType === 'number' ? (
