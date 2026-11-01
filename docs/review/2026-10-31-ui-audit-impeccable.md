@@ -65,9 +65,9 @@
 - **注意**：`IncidentsPage` 的 `width={640}` 属 `Modal`（非 Drawer），`Modal` 不弃用 `width`，**故未迁移**——盲目迁移会破坏类型（`tsc -b` 已证 `size` 不在 `ModalProps`）。
 - 验证：`/`、`/logs`、`/providers/feishu/config` 控制台 0 条 deprecated/error 告警；`tsc -b` 通过；`vitest run --maxWorkers=1` 197/197。
 
-### P3 · `ProviderConfigPage` 的 `useForm` 未连接告警 — 已过时（无需修复）
+### P3 · `ProviderConfigPage` 的 `useForm` 未连接告警 — 已修复（`923b30c`）
 
-- 当前代码 `ProviderConfigPage.tsx` 已不用 `useForm`（改用 `<Form initialValues>`），`/providers/feishu/config` 实测控制台 0 告警。审计时描述的模式已不存在，标注为过时而非修复。
+- `ProviderConfigPage` 原以 `useForm` 创建 `form` 并经 `<Form form={form}>` 连接，因 `<Form>` 在数据就绪后才挂载而告警。`923b30c` 移除悬空 `form` 实例、改用 `<Form initialValues={formData}>`；`/providers/feishu/config` 实测控制台 0 告警（0 warning / 0 error）。
 
 ### Info · 既有失败单测（间歇性，非本次引入）
 
@@ -86,4 +86,4 @@
 
 ## 结论
 
-本次修复 2 类响应式硬伤（侧边栏收敛、表格容器内滚动）与 antd v6 弃用告警迁移（`70c1bcc`），全部通过回归验证；`ProviderConfigPage` 的 `useForm` 告警经复核已过时（代码已不用 `useForm`）；既有单测失败经串行实测为并行负载下的时序抖动（`vitest run --maxWorkers=1` 197/197）。桌面端本就成熟。**这座后台的桌面体验值得保留，短板只在"移动端从未测过"——修的是标准手法，没动视觉方向。**
+本次修复 2 类响应式硬伤（侧边栏收敛、表格容器内滚动）与 antd v6 弃用告警迁移（`70c1bcc`），全部通过回归验证；`ProviderConfigPage` 的 `useForm` 告警亦经 `923b30c` 修复（移除悬空 `form` 实例）；既有单测失败经串行实测为并行负载下的时序抖动（`vitest run --maxWorkers=1` 197/197）。桌面端本就成熟。**这座后台的桌面体验值得保留，短板只在"移动端从未测过"——修的是标准手法，没动视觉方向。**
