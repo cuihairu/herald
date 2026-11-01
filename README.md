@@ -1,6 +1,14 @@
 [English](README.md) | [中文](README.zh.md)
 
-<div align="center"><a href="https://cuihairu.github.io/herald//"><img src="https://img.shields.io/badge/docs-docs-blue" alt="docs"></a> <a href="https://cuihairu.github.io/herald/"><img src="https://img.shields.io/badge/docs-docs-blue" alt="docs"></a></div>
+<div align="center">
+  <img src="docs/public/logo.svg" width="64" alt="Herald logo" />
+
+  # Herald
+
+  **Lightweight Notification Orchestration & Delivery Infrastructure**
+
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/cuihairu/herald/blob/main/LICENSE) [![codecov](https://codecov.io/gh/cuihairu/herald/graph/badge.svg)](https://codecov.io/gh/cuihairu/herald) [![Coverage Gate](https://img.shields.io/badge/coverage%20gate-100%25%20excl.%20ledger-brightgreen)](./docs/architecture/coverage.md) <a href="https://cuihairu.github.io/herald//"><img src="https://img.shields.io/badge/docs-blue" alt="docs"></a>
+</div>
 
 Herald is a lightweight notification orchestration and delivery infrastructure. The business side only describes what happened and what to notify; who receives it, when, through which channel, at what intensity, whether it is aggregated, filtered, or escalated — Herald orchestrates all of that and is the single place where it is decided. Recipients stay in control: who receives which category on which channel, and at what frequency, is determined by the audience's own subscription relations and preferences, not hard-coded by the caller.
 
