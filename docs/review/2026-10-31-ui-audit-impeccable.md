@@ -35,7 +35,7 @@
 
 - **现象**：任务日志等六张表在窄屏把标题/错误列压成 0 宽消失，页面横向滚到 664px。
 - **根因**：antd `Table` 未设 `scroll`，固定列宽总和超容器时，弹性列被挤没、表格撑破文档。
-- **修复**：为 7 处 `Table` 增加 `scroll={{ x: 'max-content' }}`（Logs、Deliveries、Rules×2、Groups、Rosters、Incidents）——列按自然宽度渲染、在容器内横向滚动，文档不再溢出。
+- **修复**：为 7 处 `Table` 增加 <code v-pre>scroll={{ x: 'max-content' }}</code>（Logs、Deliveries、Rules×2、Groups、Rosters、Incidents）——列按自然宽度渲染、在容器内横向滚动，文档不再溢出。
 - **验证**：窄屏日志表 `.ant-table-content` scrollWidth 628px 收敛于 278px 容器内滚动，7 列（含标题/错误）全部渲染。
 - **文件**：`src/pages/LogsPage.tsx`、`DeliveriesPage.tsx`、`RulesPage.tsx`、`GroupsPage.tsx`、`RostersPage.tsx`、`IncidentsPage.tsx`。
 - **截图**：`2026-10-31-ui-audit/narrow-logs.png`（修复后）。
