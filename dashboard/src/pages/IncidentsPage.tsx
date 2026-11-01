@@ -175,7 +175,7 @@ export default function IncidentsPage() {
             {(detail.timeline || []).length === 0 ? (
               <Typography.Text type="secondary">无</Typography.Text>
             ) : (
-              <Space direction="vertical" size={4}>
+              <Space orientation="vertical" size={4}>
                 {detail.timeline.map((e: any, i: number) => (
                   <Typography.Text key={i}>
                     [{dayjs(e.at).format('MM-DD HH:mm:ss')}] {e.kind}{e.detail ? `: ${e.detail}` : ''}

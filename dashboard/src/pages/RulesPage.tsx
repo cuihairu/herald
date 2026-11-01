@@ -256,7 +256,7 @@ export default function RulesPage() {
         title="影子统计详情"
         open={detail !== null}
         onClose={() => setDetail(null)}
-        width={640}
+        size={640}
       >
         {detail && <ShadowDetail rule={detail} data={detailData} />}
       </Drawer>

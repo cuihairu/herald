@@ -142,10 +142,10 @@ export default function DeliveriesPage() {
       {stats && (
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col><Card size="small"><Statistic title="总数" value={stats.total} /></Card></Col>
-          <Col><Card size="small"><Statistic title="已投递" value={stats.by_status?.delivered || 0} valueStyle={{ color: '#22c55e' }} /></Card></Col>
-          <Col><Card size="small"><Statistic title="失败" value={stats.by_status?.failed || 0} valueStyle={{ color: '#ef4444' }} /></Card></Col>
-          <Col><Card size="small"><Statistic title="重试耗尽" value={stats.by_status?.dead || 0} valueStyle={{ color: '#dc2626' }} /></Card></Col>
-          <Col><Card size="small"><Statistic title="重试中" value={stats.by_status?.retrying || 0} valueStyle={{ color: '#f59e0b' }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="已投递" value={stats.by_status?.delivered || 0} styles={{ content: { color: '#22c55e' } }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="失败" value={stats.by_status?.failed || 0} styles={{ content: { color: '#ef4444' } }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="重试耗尽" value={stats.by_status?.dead || 0} styles={{ content: { color: '#dc2626' } }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="重试中" value={stats.by_status?.retrying || 0} styles={{ content: { color: '#f59e0b' } }} /></Card></Col>
         </Row>
       )}
 

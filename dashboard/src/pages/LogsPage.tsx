@@ -129,9 +129,9 @@ export default function LogsPage() {
       {stats && (
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col><Card size="small"><Statistic title="总数" value={stats.total} /></Card></Col>
-          <Col><Card size="small"><Statistic title="成功" value={stats.by_status?.success || 0} valueStyle={{ color: '#22c55e' }} /></Card></Col>
-          <Col><Card size="small"><Statistic title="失败" value={stats.by_status?.failed || 0} valueStyle={{ color: '#ef4444' }} /></Card></Col>
-          <Col><Card size="small"><Statistic title="进行中" value={stats.by_status?.pending || 0} valueStyle={{ color: '#f59e0b' }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="成功" value={stats.by_status?.success || 0} styles={{ content: { color: '#22c55e' } }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="失败" value={stats.by_status?.failed || 0} styles={{ content: { color: '#ef4444' } }} /></Card></Col>
+          <Col><Card size="small"><Statistic title="进行中" value={stats.by_status?.pending || 0} styles={{ content: { color: '#f59e0b' } }} /></Card></Col>
         </Row>
       )}
 

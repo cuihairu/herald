@@ -32,7 +32,7 @@ export default function DashboardPage() {
       <Typography.Title level={4}>仪表盘</Typography.Title>
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={8} md={4}>
-          <Card><Statistic title="系统状态" value={status?.status || 'unknown'} valueStyle={status?.status === 'running' ? { color: '#22c55e' } : undefined} /></Card>
+          <Card><Statistic title="系统状态" value={status?.status || 'unknown'} styles={{ content: status?.status === 'running' ? { color: '#22c55e' } : undefined }} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card><Statistic title="Provider 数量" value={providers.length} prefix={<ApiOutlined />} /></Card>
@@ -44,10 +44,10 @@ export default function DashboardPage() {
           <Card><Statistic title="通知总数" value={logStats?.total || 0} prefix={<NotificationOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
-          <Card><Statistic title="成功" value={logStats?.by_status?.success || 0} valueStyle={{ color: '#22c55e' }} prefix={<CheckCircleOutlined />} /></Card>
+          <Card><Statistic title="成功" value={logStats?.by_status?.success || 0} styles={{ content: { color: '#22c55e' } }} prefix={<CheckCircleOutlined />} /></Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
-          <Card><Statistic title="失败" value={logStats?.by_status?.failed || 0} valueStyle={{ color: '#ef4444' }} prefix={<CloseCircleOutlined />} /></Card>
+          <Card><Statistic title="失败" value={logStats?.by_status?.failed || 0} styles={{ content: { color: '#ef4444' } }} prefix={<CloseCircleOutlined />} /></Card>
         </Col>
       </Row>
 

@@ -103,7 +103,7 @@ export default function RostersPage() {
         const periods = roster.periods || []
         if (periods.length === 0) return '—'
         return (
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             {periods.map((p: any, i: number) => (
               // i 作 key：时段是纯展示行，无增删重排。
               // eslint-disable-next-line react/no-array-index-key
