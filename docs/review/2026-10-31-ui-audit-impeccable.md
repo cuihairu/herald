@@ -41,19 +41,37 @@
 - **截图**：`2026-10-31-ui-audit/narrow-logs.png`（修复后）。
 - **Commit**：`82ca3c3`。
 
-## 遗留问题（记录，未改动）
+## 修复对照（before/after 同视图截图，四联矩阵）
 
-### P3 · antd v6 弃用告警（开发控制台）
+> 成对截图存放于本文件同目录的 `shots-after/`。**before 的产生方式（可复核）**：用 `git worktree` 检出修复前提交——H1 取 `62e9c15`（侧边栏修复前），H2/H3 取 `7fd9778`（表格修复前、弃用迁移前）——各起独立 dev server，同一套 `/api/v1/**` 路由拦截注入数据态、同一视口、同一页面拍摄；成对截图逐张附实测值（见下列注）。
 
-- `Statistic` 的 `valueStyle` 弃用（`DashboardPage`、`LogsPage`、`DeliveriesPage`，改用 `styles.content`）；`Space` 的 `direction` 弃用（`RostersPage`，改用 `orientation`）；`Drawer` 的 `width` 弃用（`RulesPage`，改用 `size`）。纯弃用告警，无运行时影响；建议随升级统一迁移。
+| # | 问题 | before | after | commit |
+|---|---|---|---|---|
+| H1 | P0 窄屏侧边栏不收敛（390px 下 `sider` 200→64px，内容列 142→278px，统计卡不再裁切） | `shots-after/herald-H1-sider-narrow-before.png` | `shots-after/herald-H1-sider-narrow-after.png` | `7fd9778` |
+| H2 | P1 表格页窄屏丢列 + 整页横滚（文档 628/390px→390/390px，7 列含标题/错误全渲染） | `shots-after/herald-H2-table-columns-before.png` | `shots-after/herald-H2-table-columns-after.png` | `82ca3c3` |
+| H3 | P3 antd v6 弃用告警（控制台 deprecated 告警 1→0） | `shots-after/herald-H3-deprecated-console-before.png` | `shots-after/herald-H3-deprecated-console-after.png` | `70c1bcc` |
 
-### P3 · `ProviderConfigPage` 的 `useForm` 未连接告警
+各对实测（Playwright 计算样式/控制台，成对同视图）：
 
-- `form` 在 `config` 加载前创建，`<Form>` 在数据就绪后才挂载，antd 因此告警。良性但嘈杂；建议按需创建或忽略该告警。
+- **H1**：before `sider=200px content=142px`（"running"裁成"runni"）→ after `sider=64px content=278px`（卡片完整）。
+- **H2**：before 文档 `scrollWidth=628px`（`clientWidth=390`，溢出）、表格 `.ant-table-content` `540/278px`、可见列缺标题/错误 → after 文档 `scrollWidth=390px`（无溢出）、表格 `825/278px`（容器内滚动）、7 列全渲染（含标题）。
+- **H3**：before `/` 控制台 `Warning: [antd: Statistic] valueStyle is deprecated. Please use styles.content instead.`（1 条）→ after 同视图控制台 0 条 deprecated 告警；页面渲染无视觉变化（预期，纯 prop 迁移）。
 
-### Info · 既有失败单测（与本次无关）
+## 遗留问题（处置结果）
 
-- `src/pages/DeliveriesPage.test.tsx`「paginates to page 2 with the right offset」在 **pristine main** 上即失败（`pointer-events: none`，jsdom 点击分页 '2'）。已用 `git stash` 验证：去掉本次 `scroll` 改动后依旧失败，属既有技术债，非本次引入。
+### P3 · antd v6 弃用告警（开发控制台）— 已修复（`70c1bcc`）
+
+- `Statistic` `valueStyle`→`styles.content`（`DashboardPage`×3、`LogsPage`×3、`DeliveriesPage`×4）；`Space` `direction`→`orientation`（`RostersPage`、`IncidentsPage`）；`Drawer` `width`→`size`（`RulesPage`，`size={640}`）。
+- **注意**：`IncidentsPage` 的 `width={640}` 属 `Modal`（非 Drawer），`Modal` 不弃用 `width`，**故未迁移**——盲目迁移会破坏类型（`tsc -b` 已证 `size` 不在 `ModalProps`）。
+- 验证：`/`、`/logs`、`/providers/feishu/config` 控制台 0 条 deprecated/error 告警；`tsc -b` 通过；`vitest run --maxWorkers=1` 197/197。
+
+### P3 · `ProviderConfigPage` 的 `useForm` 未连接告警 — 已过时（无需修复）
+
+- 当前代码 `ProviderConfigPage.tsx` 已不用 `useForm`（改用 `<Form initialValues>`），`/providers/feishu/config` 实测控制台 0 告警。审计时描述的模式已不存在，标注为过时而非修复。
+
+### Info · 既有失败单测（间歇性，非本次引入）
+
+- `src/pages/DeliveriesPage.test.tsx`「paginates to page 2 with the right offset」：审计时在**并行负载**下失败（jsdom `pointer-events: none`）。**串行运行实测通过**（`vitest run --maxWorkers=1` 197/197，含该用例）——属并行负载下的时序抖动，非确定性失败；且经 `git stash` 验证与本次改动无关，非本次引入。
 
 ## 缺失上下文
 
@@ -68,4 +86,4 @@
 
 ## 结论
 
-本次修复 2 类响应式硬伤（侧边栏收敛、表格容器内滚动），全部通过回归验证；桌面端本就成熟。剩余为 antd v6 弃用告警与 1 个既有失败单测（均与本次无关）。**这座后台的桌面体验值得保留，短板只在"移动端从未测过"——修的是标准手法，没动视觉方向。**
+本次修复 2 类响应式硬伤（侧边栏收敛、表格容器内滚动）与 antd v6 弃用告警迁移（`70c1bcc`），全部通过回归验证；`ProviderConfigPage` 的 `useForm` 告警经复核已过时（代码已不用 `useForm`）；既有单测失败经串行实测为并行负载下的时序抖动（`vitest run --maxWorkers=1` 197/197）。桌面端本就成熟。**这座后台的桌面体验值得保留，短板只在"移动端从未测过"——修的是标准手法，没动视觉方向。**
