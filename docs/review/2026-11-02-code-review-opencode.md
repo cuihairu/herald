@@ -159,3 +159,59 @@
 - 一问题一提交；每个提交都带对应回归测试，提交后全量门禁复跑绿。
 - P2/P3 共 10 项已记入 `todo.md`：SEC-WORKER-AUTH、SEC-LOGIN-RATE、SEC-FEISHU-CBC、SEC-CALLBACK（结转）、BUG-NACK-ERR、BUG-BINDING-GROWTH、SEC-CONSTTIME、SEC-JWT-COOKIE、SEC-DEFAULT-ADMIN、SEC-ENV-PLACEHOLDER。
 - 本报告与 `todo.md` 更新单独提交，随后推送 `origin/main`。
+
+## 独立审核意见（2026-11-02）
+
+> 异模型审核（独立核验，不采信报告自述）。审核基准：报告写作时点（HEAD=be7c4b7）的代码状态 + 本审核时点（HEAD=955e11b）的现状。
+
+### 核验方法
+
+- ① 每条发现的 file:line 证据打开源码逐条对照；证据不实 = 打回（记「证伪」）。
+- ② 声称已修的 P0/P1（F-1~F-4）：核对 commit 存在 + 在隔离 worktree（`git worktree add /tmp/herald-audit HEAD`）上复跑相关包测试，确认真绿（主工作树当时被另一会话在途改动占用，不用其跑测试）。
+- ③ 抽查 3 个报告未覆盖的高危面：认证（`withAuth` 直通/`HandleRefresh`/`HandleMe`/`/feeds/private` 匿名面）、输入处理（分页参数/路径参数/notify body 上限）、资源释放（`time.After`/`resp.Body`/ticker/`time.AfterFunc` map/goroutine 收口）。
+
+### 逐条真实性判定
+
+| 条目 | 严重度 | 真实性 | 判定 |
+| --- | --- | --- | --- |
+| F-1 | P0 | 属实 | `config.yaml:16` 方向已修正（key=`$HERALD_ADMIN_API_KEY`、value=`operator`）；`config.go:523-566` ExpandEnv 覆盖 api_keys/secret_key/admin_user/card_callback/bot/wechat；`:611-619,:660-666` Validate fail-closed；测试 `TestExpandEnvSecrets`/`TestShippedConfigAuthOrientation`/`TestValidateRejectsUnresolvedSecrets` 均在。 |
+| F-2 | P0 | 属实 | `jwt.go` `crypto/rand` 32 字节 + base64url 每进程密钥；`NewManager` 熵失败记 initErr，`Generate`:60-62 与 `Validate`:93-95 双 fail-closed；旧常量生产代码无残留；测试三个在。 |
+| F-3 | P1 | 属实 | `handler_callbacks.go:84-89` 配置 `cardEncryptKey` 后明文 401（拒绝响应在 `:88`）、`url_verification` challenge 保留；测试两个在。 |
+| F-4 | P1 | 属实 | `server.go:141-143` 读取配置、`<=0` 兜底 1 MiB、`:256` SetReadLimit；`config.go:406-408,:478` 默认值；`main.go:582` 接线；测试两个在。 |
+| F-5 | P2 | 属实 | `server.go:159` `/worker` 无认证注册、`handleMessage`:328 收 register/heartbeat/ack/event、`hub.go` 驱动 registry；main.go:859 `/worker` 连接串。 |
+| F-6 | P2 | 属实 | `server.go:256` login 公开、`auth.go:148` 直调 `Authenticate`、`user.go:208` bcryptCost=10、HandleLogin 无限速/退避。 |
+| F-7 | P2 | **部分证伪** | CBC 无 MAC、错误可区分（`decrypt` err 原文 vs JSON 单独消息）属实；但「密文首块作 IV」表述不实——`handler_callbacks.go:171` `cipher.NewCBCDecrypter(block, key[:aes.BlockSize])` 的 IV 是 **SHA-256(encrypt_key) 摘要的前 16 字节**（密钥派生 IV），非密文首块。发现（padding-oracle 面）仍成立。 |
+| F-8 | P2 | 属实（当时） | 报告写作时（be7c4b7）`callback.go:26-40` 仅验绝对 http(s)、不拒私网，属实；**本审核时已由 `37f35c4` 修复**（`defaultCallbackDenyCIDRs` 含 loopback/private/link-local/unspecified IPv4+IPv6 + `SetCallbackPolicy` 豁免），todo SEC-CALLBACK 已勾。 |
+| F-9 | P3 | 属实 | `redis.go:263` `%w` 对 nil 产生 `%!w(<nil>)`，空结果分支无哨兵错误。 |
+| F-10 | P3 | 属实 | `surfaces.go:158` IssueBinding 只写不删；过期删除仅在 RedeemBinding（`:186-191`，过期删除在 `:187`）；无周期清理器。 |
+| F-11 | P3 | 属实 | `auth.go:116`/`apps.go:121`/`surfaces.go:371` 三处 `==` 比较。 |
+| F-12 | P3 | 属实 | `auth.go:241` `herald_token` cookie 回退存在；全仓无 `SetCookie("herald_token")`。 |
+| F-13 | P3 | 属实 | `config.go:489-490` `AdminUser: map[string]string{"admin": "admin"}`。 |
+| F-14 | P3 | **部分证伪** | 占位值 `HERALD_ADMIN_API_KEY=your-admin-api-key` 属实；但行号 `:12` 不实——值在 `:16`（`:12-15` 是注释）。发现本身成立。 |
+
+**核验 14 条；证伪 2 条（F-7、F-14，均为证据细节行号/表述小误，发现本身均成立）；其余 12 条属实。**
+
+### 已修 P0/P1 复核
+
+| 修复 | 声称 | 复核 |
+| --- | --- | --- |
+| `1a66791` | F-1 | commit 存在；config 包测试 HEAD 绿 |
+| `e31aad7` | F-2 | commit 存在；jwt 包测试 HEAD 绿 |
+| `b34fcf8` | F-3 | commit 存在；api 包测试 HEAD 绿 |
+| `8bcb8db` | F-4 | commit 存在；websocket 包测试 HEAD 绿 |
+
+4 个修复 commit 均存在，对应包测试在稳定 HEAD 上全绿（主工作树当时含另一会话在途改动故用隔离 worktree 复跑）。
+
+### 漏网抽查（报告未覆盖的高危面）
+
+| 面 | 抽查点 | 结论 |
+| --- | --- | --- |
+| 认证 | `withAuth` 直通（auth 关闭→受 loopback 门禁 `config.go:624` 守护）；`HandleRefresh`/`HandleMe` 自身 `getJWTToken`+`Validate`；`/feeds/private/{token}` 走 `RSSAudience(token)`；`/status`、`/feeds/{name}` 为文档承诺公开面 | 无漏网 |
+| 输入处理 | 分页 `limit<=0→50、>500→500`；路径参数走 `PathValue` 类型化；`handleNotify` 裸 `json.NewDecoder` 被全局中间件 `limitRequestBodies`（`server.go:346` Handler 链包裹整个 mux）覆盖 | 无漏网 |
+| 资源释放 | `httpclient.Get:288` defer Close；probe 用已读闭的 `Response.Body`；`escalation` `time.AfterFunc` map 在 `fire`:200-201、取消 `:247-249`、`Close`:182-184 三处清理；ticker/`time.After` 均收口 | 无漏网 |
+
+### 总评
+
+- **报告可信度：高（约 92%）**。14 条发现全部真实存在，4 个 P0/P1 修复属实且测试绿，抽查的 3 个高危面无漏网。扣分项：F-7 与 F-14 两处证据细节不实（IV 来源表述、行号），且 F-7 的「密文首块作 IV」若被当作攻击面建模依据会低估/误导实际方案（实为密钥派生 IV），建议修正该表述。
+- **审后现状注记**：报告写作后另一会话已推进——`37f35c4`（修 SEC-CALLBACK/F-8）、`2de2fed`（修 BUG-LIMITER）、`3b0696f`（修 BUG-WSSTOP 停机窄竞态）、`955e11b`（修 SEC-WORKER-AUTH/F-5：`websocket.auth_token` 共享密钥 + 非 loopback 强制）。这些不改变报告当时真实性。
+- **遗留待办（仍开放）**：F-6 登录限速、F-7 CBC 加固、F-9 Nack 哨兵、F-10 绑定清理、F-11 常量时间、F-12 cookie、F-13 默认 admin、F-14 占位密钥（均在 todo.md）。
