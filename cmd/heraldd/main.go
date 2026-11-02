@@ -139,7 +139,8 @@ func serveCmd(args []string) int {
 	// destination, event and signature all travel on the task. Registering
 	// before config providers run means a config entry claiming the same
 	// name refuses startup (the duplicate guard fires in the loop below).
-	if err := registerProvider(manager, callback.ProviderName, callback.NewProvider(), true); err != nil {
+	callbackProvider := callback.NewProvider()
+	if err := registerProvider(manager, callback.ProviderName, callbackProvider, true); err != nil {
 		logger.Error("failed to register callback provider", "error", err)
 		return 1
 	}
@@ -446,6 +447,7 @@ func serveCmd(args []string) int {
 	// §13.5 webhook 回调: delivery settles and unsubscribe backflow flow
 	// to the app's registered URL through the same queue→worker pipeline;
 	// apps without callback config simply never see tasks.
+	callbackProvider.SetAppRegistry(appRegistry)
 	emitter := callback.NewEmitter(appRegistry, q)
 	manager.SetCallbackSink(emitter)
 	relations.SetUnsubscribeHook(emitter.Unsubscribed)

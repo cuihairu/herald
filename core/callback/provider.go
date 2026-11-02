@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/httpclient"
 )
 
@@ -21,6 +22,7 @@ const ProviderName = "app-callback"
 type Provider struct {
 	status *core.ProviderStatus
 	client *httpclient.Client
+	apps   *apps.Registry
 }
 
 // NewProvider builds the callback dispatcher provider.
@@ -34,6 +36,14 @@ func NewProvider() *Provider {
 		},
 		client: httpclient.NewClient(nil),
 	}
+}
+
+// SetAppRegistry attaches the live integration namespace registry. When
+// present, the provider re-runs the callback destination policy on each
+// stored URL immediately before posting — the Set-time check cannot see
+// DNS answers that changed between configuration and delivery.
+func (p *Provider) SetAppRegistry(reg *apps.Registry) {
+	p.apps = reg
 }
 
 // Name identifies the provider on the queue task.
@@ -57,6 +67,11 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	signature, _ := task.Payload.Raw["signature"].(string)
 	if body == "" || signature == "" {
 		return fmt.Errorf("callback: task carries no signed event body")
+	}
+	if p.apps != nil {
+		if err := p.apps.ValidateCallbackURL(task.Targets[0]); err != nil {
+			return fmt.Errorf("callback: %w", err)
+		}
 	}
 	// Non-2xx answers come back as errors from the client itself, so
 	// the pipeline's retry budget applies to them unchanged.

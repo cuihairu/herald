@@ -80,11 +80,11 @@ func TestCallbackLifecycle(t *testing.T) {
 	}
 
 	// A replace wins wholesale.
-	if err := r.SetCallback("demo-app", "http://other.example.com/cb", strings.Repeat("n", 16)); err != nil {
+	if err := r.SetCallback("demo-app", "http://example.com/cb", strings.Repeat("n", 16)); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	cb, _ = r.Callback("demo-app")
-	if cb.URL != "http://other.example.com/cb" {
+	if cb.URL != "http://example.com/cb" {
 		t.Fatalf("replace: want the new url, got %q", cb.URL)
 	}
 

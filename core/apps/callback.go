@@ -26,16 +26,16 @@ const (
 // integration could otherwise direct signed callbacks at the internal
 // control plane or an adjacent host in a multi-tenant deployment.
 var defaultCallbackDenyCIDRs = []string{
-	"127.0.0.0/8",     // loopback
-	"::1/128",         // IPv6 loopback
-	"10.0.0.0/8",      // RFC1918 private
-	"172.16.0.0/12",   // RFC1918 private
-	"192.168.0.0/16",  // RFC1918 private
-	"169.254.0.0/16",  // link-local
-	"0.0.0.0/8",       // unspecified
-	"::/128",          // IPv6 unspecified
-	"fe80::/10",       // IPv6 link-local
-	"fc00::/7",        // IPv6 unique-local
+	"127.0.0.0/8",    // loopback
+	"::1/128",        // IPv6 loopback
+	"10.0.0.0/8",     // RFC1918 private
+	"172.16.0.0/12",  // RFC1918 private
+	"192.168.0.0/16", // RFC1918 private
+	"169.254.0.0/16", // link-local
+	"0.0.0.0/8",      // unspecified
+	"::/128",         // IPv6 unspecified
+	"fe80::/10",      // IPv6 link-local
+	"fc00::/7",       // IPv6 unique-local
 }
 
 // CallbackPolicy controls which callback URL destinations are accepted.
@@ -79,6 +79,9 @@ var defaultCallbackDeny = func() *cidrSet {
 	return parseCIDRs(defaultCallbackDenyCIDRs)
 }()
 
+// lookupIP is the resolver seam used by callback destination validation.
+var lookupIP = net.LookupIP
+
 // SetCallback attaches or replaces the app's callback configuration.
 // The URL must be absolute http(s); the secret must be 16-128 chars.
 // Both refuse, never clamp.
@@ -112,6 +115,17 @@ func (r *Registry) SetCallbackPolicy(p CallbackPolicy) {
 	r.callbackPolicy = p
 }
 
+// ValidateCallbackURL re-runs the destination policy on a stored callback
+// URL. Delivery calls this immediately before POSTing so a hostname whose
+// DNS answer changed after SetCallback cannot bypass the deny list.
+func (r *Registry) ValidateCallbackURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("callback url must be an absolute http(s) url")
+	}
+	return r.validateCallbackDestination(u)
+}
+
 // validateCallbackDestination rejects destinations on the deny list
 // unless the configured policy exempts them. Both literal IP hosts and
 // hostnames (resolved against the system resolver) are checked.
@@ -128,8 +142,11 @@ func (r *Registry) validateCallbackDestination(u *url.URL) error {
 	ips := []net.IP{}
 	if ip := net.ParseIP(host); ip != nil {
 		ips = append(ips, ip)
-	} else if resolved, err := net.LookupIP(host); err == nil {
+	} else if resolved, err := lookupIP(host); err == nil {
 		ips = append(ips, resolved...)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("callback url host %q could not be resolved", host)
 	}
 	for _, ip := range ips {
 		if allow.contains(ip) {

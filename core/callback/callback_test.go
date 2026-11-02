@@ -37,7 +37,7 @@ func emitterEnv(t *testing.T) (*Emitter, *apps.Registry, core.Queue) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	if err := reg.SetCallback("demo-app", "https://callback.example.com/hook", testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", "https://example.com/hook", testSecret); err != nil {
 		t.Fatalf("set callback: %v", err)
 	}
 	q, err := queue.NewMemoryQueue(&queue.QueueConfig{})
@@ -91,7 +91,7 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 		if task.Source != "" || !strings.HasPrefix(task.ID, "cb-") {
 			t.Fatalf("task dims: source=%q id=%q", task.Source, task.ID)
 		}
-		if task.Targets[0] != "https://callback.example.com/hook" {
+		if task.Targets[0] != "https://example.com/hook" {
 			t.Fatalf("task target: want the registered url, got %v", task.Targets)
 		}
 		// The signature must verify over the exact body with the app's
@@ -187,7 +187,7 @@ func TestUnsubscribedBackflow(t *testing.T) {
 	// A dead queue swallows the push error — the hooks discard it by
 	// contract, the direct callers read it. The callback config is
 	// re-armed first so the push really reaches the queue.
-	if err := reg.SetCallback("demo-app", "https://callback.example.com/hook", testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", "https://example.com/hook", testSecret); err != nil {
 		t.Fatalf("re-arm: %v", err)
 	}
 	if err := q.Close(); err != nil {
@@ -267,6 +267,54 @@ func TestProviderDeliver(t *testing.T) {
 	task.Targets = []string{deadURL}
 	if err := p.Deliver(context.Background(), task); err == nil {
 		t.Fatalf("unreachable endpoint: want failure")
+	}
+}
+
+// TestProviderDeliverRechecksDestination: the provider re-runs the app
+// registry's destination policy immediately before posting, so a DNS
+// answer that moved a hostname onto the deny list after SetCallback is
+// refused at delivery time.
+func TestProviderDeliverRechecksDestination(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	// Allow exactly the test server's loopback range so SetCallback and the
+	// valid delivery pass the recheck, while other private ranges (10/8)
+	// stay denied — the recheck must refuse them at delivery time.
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowCIDRs: []string{"127.0.0.0/8"}})
+	if err := reg.SetCallback("demo-app", srv.URL, testSecret); err != nil {
+		t.Fatalf("set callback: %v", err)
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	task := &core.DeliveryTask{
+		ID:      "cb-recheck",
+		Targets: []string{srv.URL},
+		Payload: core.DeliveryPayload{Kind: core.PayloadRaw, Raw: map[string]any{
+			"event_id":  "evt-r",
+			"body":      `{"event_id":"evt-r"}`,
+			"signature": signaturePrefix + "abc",
+		}},
+	}
+	if err := p.Deliver(context.Background(), task); err != nil {
+		t.Fatalf("deliver with valid destination: %v", err)
+	}
+
+	// A task whose URL is a denied private range must be refused even though
+	// it was never passed to SetCallback: delivery revalidates, never trusts.
+	task.Targets = []string{"http://10.0.0.1/hook"}
+	if err := p.Deliver(context.Background(), task); err == nil || !strings.Contains(err.Error(), "private/loopback") {
+		t.Fatalf("private destination: want refusal, got %v", err)
 	}
 }
 
