@@ -73,8 +73,6 @@ func (s *cidrSet) contains(ip net.IP) bool {
 	return false
 }
 
-func (s *cidrSet) empty() bool { return len(s.nets) == 0 }
-
 var defaultCallbackDeny = func() *cidrSet {
 	return parseCIDRs(defaultCallbackDenyCIDRs)
 }()
