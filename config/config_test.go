@@ -363,8 +363,8 @@ func TestDefault(t *testing.T) {
 	if cfg.Auth.Enabled {
 		t.Error("expected auth disabled")
 	}
-	if cfg.Auth.AdminUser["admin"] != "admin" {
-		t.Errorf("expected admin user admin=admin, got %v", cfg.Auth.AdminUser)
+	if len(cfg.Auth.AdminUser) != 0 {
+		t.Errorf("expected no default admin user, got %v", cfg.Auth.AdminUser)
 	}
 	if cfg.Queue.Type != "memory" {
 		t.Errorf("expected queue type memory, got %s", cfg.Queue.Type)
@@ -730,6 +730,17 @@ func TestValidate(t *testing.T) {
 		err := cfg.Validate()
 		if err == nil {
 			t.Error("expected error for auth enabled without api keys")
+		}
+	})
+
+	t.Run("auth enabled with admin user only", func(t *testing.T) {
+		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.AdminUser["admin"] = "password"
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected no error for admin_user-only auth, got %v", err)
 		}
 	})
 

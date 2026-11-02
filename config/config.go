@@ -497,9 +497,9 @@ func Default() *Config {
 			Enabled:   false,
 			APIKeys:   make(map[string]string),
 			SecretKey: "",
-			AdminUser: map[string]string{
-				"admin": "admin",
-			},
+			// No built-in admin: a default password is a public password. An
+			// enabled auth block must name its own credentials (Validate).
+			AdminUser: make(map[string]string),
 		},
 		Providers:  make(map[string]ProviderConfig),
 		Channels:   make(map[string]ChannelConfig),
@@ -611,8 +611,8 @@ func (c *Config) Validate() error {
 	if c.Server.Addr == "" {
 		return fmt.Errorf("server addr is required")
 	}
-	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
-		return fmt.Errorf("auth enabled but no api_keys configured")
+	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 && len(c.Auth.AdminUser) == 0 {
+		return fmt.Errorf("auth enabled but no api_keys or admin_user configured")
 	}
 	// The worker management channel drives register/heartbeat/ack/event and
 	// hub mutation. Binding it beyond loopback without a shared token lets
