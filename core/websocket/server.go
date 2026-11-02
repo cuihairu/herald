@@ -381,24 +381,27 @@ func (s *Server) handleMessage(state *ConnectionState, data []byte) error {
 
 // handleRegister handles a worker registration
 func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMessage) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// The management channel carries register/heartbeat/ack/event messages
 	// that drive the worker hub directly. When a token is configured, an
 	// unknown or missing one refuses the registration before any state is
 	// written. Constant-time compare keeps the check from leaking a prefix.
+	s.mu.Lock()
 	if s.authToken != "" && !constantTimeEqual(s.authToken, msg.AuthToken) {
-		// Send a rejection ack and close the connection so a rogue client
-		// does not hold the channel open in an unregistered loop.
+		// No hub state was written for a refused registration, so the lock is
+		// released before the network I/O below. The rejection ack is
+		// deadline-bounded and sent outside s.mu: a peer that stops reading
+		// must not stall register/heartbeat/ack/disconnect behind the same
+		// mutex.
+		s.mu.Unlock()
 		ack := &protocol.RegisterAckMessage{
-			WorkerID: msg.WorkerID,
-			Success:  false,
-			Error:    "invalid worker auth token",
-			ServerID: "herald-core",
+			WorkerID:  msg.WorkerID,
+			Success:   false,
+			Error:     "invalid worker auth token",
+			ServerID:  "herald-core",
 			Timestamp: time.Now().Unix(),
 		}
 		data, _ := jsonMarshal(ack)
+		_ = state.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
 		_ = state.conn.WriteMessage(websocket.TextMessage, data)
 		_ = state.conn.Close()
 		return fmt.Errorf("registration refused: invalid worker auth token")
@@ -421,7 +424,17 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 		"capabilities", msg.Capabilities,
 	)
 
-	// Send ACK
+	// Notify handler — a callback, still under the hub lock as before.
+	if s.handler != nil {
+		if err := s.handler.OnRegister(msg.WorkerID, msg); err != nil {
+			logger.Error("handler onregister error", "error", err)
+		}
+	}
+	s.mu.Unlock()
+
+	// Send ACK — outside s.mu: the write (and its deadline) must not run
+	// under the hub lock, or a slow peer head-of-line-blocks every other
+	// worker's register/heartbeat/ack.
 	ack := &protocol.RegisterAckMessage{
 		WorkerID:  msg.WorkerID,
 		Success:   true,
@@ -444,13 +457,6 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 
 	if err := state.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		return fmt.Errorf("failed to send ack: %w", err)
-	}
-
-	// Notify handler
-	if s.handler != nil {
-		if err := s.handler.OnRegister(msg.WorkerID, msg); err != nil {
-			logger.Error("handler onregister error", "error", err)
-		}
 	}
 
 	return nil

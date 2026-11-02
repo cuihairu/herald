@@ -418,6 +418,80 @@ func TestHandleRegisterAckMarshalError(t *testing.T) {
 	}
 }
 
+// TestHandleRegisterReleasesHubLock: by the time a register's ack reaches the
+// wire, the hub lock must be free — a leaked s.mu would deadlock every later
+// register/heartbeat/ack, and the ack write itself runs outside the lock. Both
+// paths are driven through the real read loop (so the test does not race it)
+// and the lock is polled for release.
+func TestHandleRegisterReleasesHubLock(t *testing.T) {
+	t.Run("success path", func(t *testing.T) {
+		server, ts := newFlowTestServer(t, newChannelHandler(), nil)
+		url := "ws" + ts.URL[len("http"):]
+
+		conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		registerFlowWorker(t, conn, "w-lock") // returns once the ack is read
+
+		assertHubLockFree(t, server)
+	})
+
+	t.Run("rejection path", func(t *testing.T) {
+		server, ts := newFlowTestServer(t, newChannelHandler(), &Config{
+			Addr:           "127.0.0.1:0",
+			ReadTimeout:    time.Second,
+			WriteTimeout:   time.Second,
+			PingTimeout:    time.Second,
+			PingInterval:   time.Second,
+			AllowedOrigins: []string{"*"},
+			AuthToken:      "secret",
+		})
+		url := "ws" + ts.URL[len("http"):]
+
+		conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		// A wrong-token register takes the rejection path: the refusal ack is
+		// written and the connection closed, and the lock is released.
+		register := &protocol.RegisterMessage{WorkerID: "w-lock", Platform: "linux", AuthToken: "wrong"}
+		payload, _ := protocol.MarshalMessage(register)
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			t.Fatalf("write register: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read register ack: %v", err)
+		}
+		var ack protocol.RegisterAckMessage
+		_ = json.Unmarshal(data, &ack)
+		if ack.Success {
+			t.Fatal("wrong-token register: success = true, want refusal")
+		}
+
+		assertHubLockFree(t, server)
+	})
+}
+
+// assertHubLockFree polls for the hub lock to be acquirable: a register path
+// that leaked s.mu would fail here after the timeout.
+func assertHubLockFree(t *testing.T, server *Server) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !server.mu.TryLock() {
+		if time.Now().After(deadline) {
+			t.Fatal("hub lock still held after register path returned")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	server.mu.Unlock()
+}
+
 // slowAckHandler blocks inside OnTaskAck so the test can close the server-side
 // conn while handleConnection is parked in the handler.
 type slowAckHandler struct {

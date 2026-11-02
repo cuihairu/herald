@@ -60,7 +60,7 @@
 
 ## core/websocket/server.go
 
-- `github.com/cuihairu/herald/core/websocket/server.go:441` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行自 370 更正 382，同日后随 worker-auth/停机闸门 SEC 批次（955e11b、3b0696f、55d690b、566a704）再加 59 行，更正为 441。）
+- `github.com/cuihairu/herald/core/websocket/server.go:454` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行自 370 更正 382，同日后随 worker-auth/停机闸门 SEC 批次（955e11b、3b0696f、55d690b、566a704）再加 59 行，更正为 441，同日随 register ack 移出 hub 锁的重构再下移 13 行，更正为 454。）
 
 ## apps-sdk/go/example/main.go
 
