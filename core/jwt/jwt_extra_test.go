@@ -25,6 +25,22 @@ func TestManagerInitFailureFailsClosed(t *testing.T) {
 	}
 }
 
+// RandRead is swapped for the duration of this test, so it must not run
+// concurrently with any other NewManager("") call in this package.
+func TestNewManagerEntropyFailureFailsClosed(t *testing.T) {
+	orig := RandRead
+	RandRead = func([]byte) (int, error) { return 0, errors.New("no entropy") }
+	defer func() { RandRead = orig }()
+
+	m := NewManager("")
+	if m.initErr == nil {
+		t.Fatal("NewManager(\"\") with failing entropy must record initErr")
+	}
+	if token, err := m.Generate("u1", "alice", "admin"); err == nil || token != "" {
+		t.Fatalf("Generate() = %q, %v; want empty token and the init error", token, err)
+	}
+}
+
 func TestManager_ValidateInvalidClaimsEncoding(t *testing.T) {
 	m := NewManager("test-secret-key")
 

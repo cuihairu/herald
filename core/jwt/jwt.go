@@ -24,6 +24,11 @@ type Claims struct {
 // tests (here and in dependent packages) can inject marshal failures.
 var JSONMarshal = json.Marshal
 
+// RandRead is the entropy source for the per-process fallback secret.
+// Exported as a seam so tests can inject entropy failure and assert the
+// manager fails closed instead of signing with a predictable key.
+var RandRead = rand.Read
+
 // Manager manages JWT tokens
 type Manager struct {
 	secretKey string
@@ -40,7 +45,7 @@ type Manager struct {
 func NewManager(secretKey string) *Manager {
 	if secretKey == "" {
 		buf := make([]byte, 32)
-		if _, err := rand.Read(buf); err != nil {
+		if _, err := RandRead(buf); err != nil {
 			return &Manager{initErr: fmt.Errorf("generate jwt secret: %w", err)}
 		}
 		secretKey = base64.RawURLEncoding.EncodeToString(buf)

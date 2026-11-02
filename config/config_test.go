@@ -633,6 +633,24 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 			t.Errorf("err = %v, want unresolved app token refusal", err)
 		}
 	})
+
+	t.Run("source bot secret reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Sources.Bot.Secret = "$HERALD_UNSET_BOT_SECRET"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sources.bot.secret") {
+			t.Errorf("err = %v, want unresolved source bot secret refusal", err)
+		}
+	})
+
+	t.Run("source wechat token reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Sources.WeChatMP.Token = "$HERALD_UNSET_WECHAT_TOKEN"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sources.wechat_mp.token") {
+			t.Errorf("err = %v, want unresolved source wechat token refusal", err)
+		}
+	})
 }
 
 func TestValidate(t *testing.T) {
