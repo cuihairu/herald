@@ -103,6 +103,19 @@ func TestTokenBucketWaitCancel(t *testing.T) {
 	}
 }
 
+func TestTokenBucketWaitTimerReused(t *testing.T) {
+	tb := NewTokenBucket(1, 1)
+	if !tb.Allow() {
+		t.Fatal("expected first request allowed")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	// Cancelling must return promptly; the timer must not accumulate.
+	if err := tb.Wait(ctx); err != context.DeadlineExceeded {
+		t.Fatalf("err = %v, want deadline exceeded", err)
+	}
+}
+
 func TestTokenBucketReservation(t *testing.T) {
 	tb := NewTokenBucket(10, 5)
 

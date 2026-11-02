@@ -155,6 +155,13 @@ func (tb *TokenBucket) Allow() bool {
 
 // Wait waits until a request is allowed
 func (tb *TokenBucket) Wait(ctx context.Context) error {
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
 	for {
 		if tb.Allow() {
 			return nil
@@ -165,8 +172,24 @@ func (tb *TokenBucket) Wait(ctx context.Context) error {
 		waitTime := tb.timeUntilToken()
 		tb.mu.Unlock()
 
+		if timer == nil {
+			timer = time.NewTimer(waitTime)
+			timerC = timer.C
+		} else {
+			// Stop and drain a possibly already-fired timer before
+			// resetting it; this avoids the leak that time.After caused
+			// on every cancelled iteration.
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(waitTime)
+		}
+
 		select {
-		case <-time.After(waitTime):
+		case <-timerC:
 			// Try again
 		case <-ctx.Done():
 			return ctx.Err()
