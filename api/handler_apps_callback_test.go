@@ -45,7 +45,7 @@ func TestAppCallbackFace(t *testing.T) {
 	}
 
 	code, _ = e.do(t, http.MethodPut, "/api/v1/apps/demo-app/callback",
-		`{"url":"https://example.com/hook","secret":"callback-secret-32bytes!!"}`, full)
+		`{"url":"https://93.184.216.34/hook","secret":"callback-secret-32bytes!!"}`, full)
 	if code != 200 {
 		t.Fatalf("set: got %d", code)
 	}
@@ -56,7 +56,7 @@ func TestAppCallbackFace(t *testing.T) {
 		t.Fatalf("read: got %d", code)
 	}
 	data, _ := body["data"].(map[string]any)
-	if data["url"] != "https://example.com/hook" || data["has_secret"] != true {
+	if data["url"] != "https://93.184.216.34/hook" || data["has_secret"] != true {
 		t.Fatalf("read: want the url and has_secret, got %v", data)
 	}
 	// Detach closes the face again.

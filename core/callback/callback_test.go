@@ -37,7 +37,7 @@ func emitterEnv(t *testing.T) (*Emitter, *apps.Registry, core.Queue) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	if err := reg.SetCallback("demo-app", "https://example.com/hook", testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", "https://93.184.216.34/hook", testSecret); err != nil {
 		t.Fatalf("set callback: %v", err)
 	}
 	q, err := queue.NewMemoryQueue(&queue.QueueConfig{})
@@ -91,7 +91,7 @@ func TestOnSettleEmitsSignedDeliveryResult(t *testing.T) {
 		if task.Source != "" || !strings.HasPrefix(task.ID, "cb-") {
 			t.Fatalf("task dims: source=%q id=%q", task.Source, task.ID)
 		}
-		if task.Targets[0] != "https://example.com/hook" {
+		if task.Targets[0] != "https://93.184.216.34/hook" {
 			t.Fatalf("task target: want the registered url, got %v", task.Targets)
 		}
 		// The signature must verify over the exact body with the app's
@@ -187,7 +187,7 @@ func TestUnsubscribedBackflow(t *testing.T) {
 	// A dead queue swallows the push error — the hooks discard it by
 	// contract, the direct callers read it. The callback config is
 	// re-armed first so the push really reaches the queue.
-	if err := reg.SetCallback("demo-app", "https://example.com/hook", testSecret); err != nil {
+	if err := reg.SetCallback("demo-app", "https://93.184.216.34/hook", testSecret); err != nil {
 		t.Fatalf("re-arm: %v", err)
 	}
 	if err := q.Close(); err != nil {

@@ -36,6 +36,10 @@ var defaultCallbackDenyCIDRs = []string{
 	"::/128",         // IPv6 unspecified
 	"fe80::/10",      // IPv6 link-local
 	"fc00::/7",       // IPv6 unique-local
+	"100.64.0.0/10",  // CGNAT (RFC 6598) — cloud internal services and metadata
+	"192.0.0.0/24",   // IETF protocol assignments (RFC 6890)
+	"198.18.0.0/15",  // benchmarking (RFC 2544)
+	"240.0.0.0/4",    // reserved, incl. broadcast (RFC 1112)
 }
 
 // CallbackPolicy controls which callback URL destinations are accepted.

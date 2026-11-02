@@ -124,11 +124,11 @@ func TestClientFullFlow(t *testing.T) {
 	if err != nil || pols.ChannelIntensity["sms"] != "L4" {
 		t.Fatalf("policies: %v / %+v", err, pols)
 	}
-	if err := c.SetCallback(ctx, "https://example.com/hook", "sdk-callback-secret-32"); err != nil {
+	if err := c.SetCallback(ctx, "https://93.184.216.34/hook", "sdk-callback-secret-32"); err != nil {
 		t.Fatalf("set callback: %v", err)
 	}
 	cb, err := c.Callback(ctx)
-	if err != nil || cb.URL != "https://example.com/hook" || !cb.HasSecret {
+	if err != nil || cb.URL != "https://93.184.216.34/hook" || !cb.HasSecret {
 		t.Fatalf("callback: %v / %+v", err, cb)
 	}
 	if err := c.DeleteCallback(ctx); err != nil {
@@ -137,7 +137,7 @@ func TestClientFullFlow(t *testing.T) {
 	if cb, err = c.Callback(ctx); err != nil || cb.URL != "" || cb.HasSecret {
 		t.Fatalf("callback after delete: %v / %+v", err, cb)
 	}
-	if err := c.SetCallback(ctx, "https://example.com/hook", "sdk-callback-secret-32"); err != nil {
+	if err := c.SetCallback(ctx, "https://93.184.216.34/hook", "sdk-callback-secret-32"); err != nil {
 		t.Fatalf("re-set callback: %v", err)
 	}
 

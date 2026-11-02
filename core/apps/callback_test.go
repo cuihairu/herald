@@ -16,8 +16,8 @@ func TestSetCallbackValidation(t *testing.T) {
 		{"relative url", "/hook", strings.Repeat("s", 32)},
 		{"ftp url", "ftp://example.com/hook", strings.Repeat("s", 32)},
 		{"hostless url", "https://", strings.Repeat("s", 32)},
-		{"short secret", "https://example.com/hook", "short-secret"},
-		{"long secret", "https://example.com/hook", strings.Repeat("s", 129)},
+		{"short secret", "https://93.184.216.34/hook", "short-secret"},
+		{"long secret", "https://93.184.216.34/hook", strings.Repeat("s", 129)},
 	}
 	for _, tc := range cases {
 		if err := r.SetCallback("demo-app", tc.url, tc.secret); err == nil {
@@ -27,12 +27,12 @@ func TestSetCallbackValidation(t *testing.T) {
 
 	// The boundaries hold: exactly 16 and exactly 128 chars are lawful.
 	for _, n := range []int{16, 128} {
-		if err := r.SetCallback("demo-app", "https://example.com/hook", strings.Repeat("s", n)); err != nil {
+		if err := r.SetCallback("demo-app", "https://93.184.216.34/hook", strings.Repeat("s", n)); err != nil {
 			t.Fatalf("secret of %d chars: %v", n, err)
 		}
 	}
 
-	if err := r.SetCallback("ghost", "https://example.com/hook", strings.Repeat("s", 32)); err != ErrUnknownApp {
+	if err := r.SetCallback("ghost", "https://93.184.216.34/hook", strings.Repeat("s", 32)); err != ErrUnknownApp {
 		t.Fatalf("unknown app: want ErrUnknownApp, got %v", err)
 	}
 }
@@ -43,6 +43,7 @@ func TestSetCallbackRejectsPrivateNetworks(t *testing.T) {
 	for _, host := range []string{
 		"127.0.0.1", "localhost", "10.1.2.3", "172.16.4.5", "192.168.7.8",
 		"169.254.1.2", "[::1]", "[fe80::1]", "[fc00::1]",
+		"100.64.1.2", "192.0.0.1", "198.18.0.1", "240.0.0.1",
 	} {
 		if err := r.SetCallback("demo-app", "http://"+host+"/hook", secret); err == nil {
 			t.Fatalf("host %s: want private-network refusal", host)
@@ -73,20 +74,20 @@ func TestCallbackLifecycle(t *testing.T) {
 		t.Fatalf("fresh app: want no callback")
 	}
 
-	if err := r.SetCallback("demo-app", "https://example.com/hook?x=1", strings.Repeat("s", 32)); err != nil {
+	if err := r.SetCallback("demo-app", "https://93.184.216.34/hook?x=1", strings.Repeat("s", 32)); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	cb, ok := r.Callback("demo-app")
-	if !ok || cb.URL != "https://example.com/hook?x=1" || cb.Secret != strings.Repeat("s", 32) {
+	if !ok || cb.URL != "https://93.184.216.34/hook?x=1" || cb.Secret != strings.Repeat("s", 32) {
 		t.Fatalf("get: got %v ok=%v", cb, ok)
 	}
 
 	// A replace wins wholesale.
-	if err := r.SetCallback("demo-app", "http://example.com/cb", strings.Repeat("n", 16)); err != nil {
+	if err := r.SetCallback("demo-app", "http://93.184.216.34/cb", strings.Repeat("n", 16)); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	cb, _ = r.Callback("demo-app")
-	if cb.URL != "http://example.com/cb" {
+	if cb.URL != "http://93.184.216.34/cb" {
 		t.Fatalf("replace: want the new url, got %q", cb.URL)
 	}
 
