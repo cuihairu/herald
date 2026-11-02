@@ -35,6 +35,35 @@ func TestSetCallbackValidation(t *testing.T) {
 	}
 }
 
+func TestSetCallbackRejectsPrivateNetworks(t *testing.T) {
+	r, _ := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{{Secret: "s", Scopes: []string{"config"}}}}})
+	secret := strings.Repeat("s", 32)
+	for _, host := range []string{
+		"127.0.0.1", "localhost", "10.1.2.3", "172.16.4.5", "192.168.7.8",
+		"169.254.1.2", "[::1]", "[fe80::1]", "[fc00::1]",
+	} {
+		if err := r.SetCallback("demo-app", "http://"+host+"/hook", secret); err == nil {
+			t.Fatalf("host %s: want private-network refusal", host)
+		}
+	}
+
+	// Specific allow list: only 10.0.0.0/8 is exempted, and other ranges
+	// remain refused.
+	r.SetCallbackPolicy(CallbackPolicy{AllowCIDRs: []string{"10.0.0.0/8"}})
+	if err := r.SetCallback("demo-app", "http://10.1.2.3/hook", secret); err != nil {
+		t.Fatalf("allow list 10/8: %v", err)
+	}
+	if err := r.SetCallback("demo-app", "http://127.0.0.1/hook", secret); err == nil {
+		t.Fatal("loopback is not exempted by the 10/8 allow list")
+	}
+
+	// Explicit deployment-level exemption allows localhost.
+	r.SetCallbackPolicy(CallbackPolicy{AllowPrivate: true})
+	if err := r.SetCallback("demo-app", "http://localhost/hook", secret); err != nil {
+		t.Fatalf("allow localhost policy: %v", err)
+	}
+}
+
 func TestCallbackLifecycle(t *testing.T) {
 	r, _ := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{{Secret: "s", Scopes: []string{"config"}}}}})
 

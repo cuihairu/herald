@@ -292,6 +292,7 @@ func TestPipelineDeliversSignedEvent(t *testing.T) {
 	defer srv.Close()
 
 	e, reg, q := emitterEnv(t)
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
 	if err := reg.SetCallback("demo-app", srv.URL, testSecret); err != nil {
 		t.Fatalf("re-point callback at the test server: %v", err)
 	}

@@ -144,8 +144,9 @@ var appPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
 // Registry holds every integration namespace. Read-mostly: seeds load
 // once at startup, later mutation arrives through the config API.
 type Registry struct {
-	mu   sync.RWMutex
-	apps map[string]*App
+	mu             sync.RWMutex
+	apps           map[string]*App
+	callbackPolicy CallbackPolicy
 }
 
 // NewRegistry builds the registry from config seeds. Validation refuses
