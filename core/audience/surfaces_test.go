@@ -4,6 +4,7 @@ import (
 	"github.com/cuihairu/herald/core/audit"
 
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,34 @@ func newTestSurfaces(t *testing.T) (*SurfaceRegistry, *time.Time) {
 func advance(t *testing.T, now *time.Time, d time.Duration) {
 	t.Helper()
 	*now = now.Add(d)
+}
+
+// TestIssueBindingSweepsExpiredTokens: the token map does not grow forever.
+// Once the table crosses the sweep threshold with the sweep interval
+// elapsed, expired unredeemed tokens are dropped on the next issue — the
+// F-10 unbounded-growth regression.
+func TestIssueBindingSweepsExpiredTokens(t *testing.T) {
+	s, now := newTestSurfaces(t)
+
+	for i := 0; i < bindingTokenSweepEvery; i++ {
+		if _, err := s.IssueBinding(fmt.Sprintf("aud-%d", i), "email"); err != nil {
+			t.Fatalf("IssueBinding(%d) error = %v", i, err)
+		}
+	}
+	if got := len(s.tokens); got != bindingTokenSweepEvery {
+		t.Fatalf("tokens before sweep = %d, want %d", got, bindingTokenSweepEvery)
+	}
+
+	// Past the TTL every issued token is expired, and past the sweep
+	// interval the next issue may sweep.
+	advance(t, now, BindingTTL+bindingTokenSweepInterval+time.Second)
+	if _, err := s.IssueBinding("aud-fresh", "email"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := len(s.tokens); got != 1 {
+		t.Fatalf("tokens after sweep = %d, want 1 (the fresh issue only)", got)
+	}
 }
 
 // TestBindingRedeemActivates: the happy path — issue, redeem, active —

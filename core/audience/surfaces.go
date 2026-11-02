@@ -78,6 +78,17 @@ var (
 // a policy.
 const maxTargetChars = 256
 
+// bindingTokenSweepEvery and bindingTokenSweepInterval gate IssueBinding's
+// amortized sweep of expired tokens: an unredeemed token is otherwise only
+// deleted when its own redemption finds it stale, so the map would grow
+// with every issue. The sweep runs when the live table crosses the
+// threshold and the previous sweep is interval-old — O(1) per issue on
+// average, and stale entries are bounded by issues since the last sweep.
+const (
+	bindingTokenSweepEvery    = 512
+	bindingTokenSweepInterval = time.Minute
+)
+
 // bindingToken is a one-time, expiring deep-link token: issued by the
 // binding API, redeemed by the bot's /start <token>.
 type bindingToken struct {
@@ -99,14 +110,15 @@ type pendingRebind struct {
 // (§3). In-memory like Registry — the shape is the API, not the storage.
 // Time is injected so expiry behaviour is deterministic under test.
 type SurfaceRegistry struct {
-	mu       sync.RWMutex
-	surfaces map[string]map[string]ContactSurface // audienceID -> channel -> surface
-	tokens   map[string]bindingToken              // token value -> one-time record
-	rebinds  map[string]map[string]pendingRebind  // audienceID -> channel -> parked target
-	rss      map[string]string                    // audienceID -> private RSS feed token
-	ttl      time.Duration                        // token and confirm-window lifetime (15 min by default)
-	now      func() time.Time
-	recorder audit.Recorder
+	mu        sync.RWMutex
+	surfaces  map[string]map[string]ContactSurface // audienceID -> channel -> surface
+	tokens    map[string]bindingToken              // token value -> one-time record
+	rebinds   map[string]map[string]pendingRebind  // audienceID -> channel -> parked target
+	rss       map[string]string                    // audienceID -> private RSS feed token
+	ttl       time.Duration                        // token and confirm-window lifetime (15 min by default)
+	now       func() time.Time
+	recorder  audit.Recorder
+	lastSweep time.Time // last amortized token sweep (zero = never)
 }
 
 // SetRecorder wires the audit trail: every accepted bind / rebind /
@@ -156,7 +168,24 @@ func (s *SurfaceRegistry) IssueBinding(audienceID, channel string) (string, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tokens[token] = bindingToken{audienceID: audienceID, channel: channel, expiresAt: s.now().Add(s.ttl)}
+	// Amortized upkeep: without it an expired, never-redeemed token lives
+	// in the map until its own (never coming) redemption.
+	if len(s.tokens) >= bindingTokenSweepEvery && s.now().Sub(s.lastSweep) >= bindingTokenSweepInterval {
+		s.sweepExpiredTokens()
+	}
 	return token, nil
+}
+
+// sweepExpiredTokens drops every binding token past its expiry and stamps
+// the sweep time. Callers hold the write lock.
+func (s *SurfaceRegistry) sweepExpiredTokens() {
+	now := s.now()
+	s.lastSweep = now
+	for tok, rec := range s.tokens {
+		if now.After(rec.expiresAt) {
+			delete(s.tokens, tok)
+		}
+	}
 }
 
 // RedeemBinding consumes a one-time token and binds target as the
