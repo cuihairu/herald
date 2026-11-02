@@ -499,3 +499,36 @@ func TestHandleConnectionResetReadDeadlineFailure(t *testing.T) {
 	// (this path returns without a disconnect callback).
 	server.wg.Wait()
 }
+
+// TestHandleConnectionSkipsClosingGate verifies that a connection that
+// reaches handleConnection after Stop set the closing gate is closed and
+// does not join the wait group (which would race an already-started Wait).
+func TestHandleConnectionSkipsClosingGate(t *testing.T) {
+	server, ts := newFlowTestServer(t, newChannelHandler(), nil)
+	conn := dialFlowWS(t, ts)
+
+	// Mark the server as closing, then run handleConnection exactly as a
+	// late upgrade would. The gate must close the conn and return without
+	// adding to the wait group.
+	server.closingMu.Lock()
+	server.closing = true
+	server.closingMu.Unlock()
+
+	server.handleConnection(&ConnectionState{conn: conn})
+
+	// The server-side conn was closed by the gate. A client read must now
+	// fail; Wait() returns promptly because no goroutine joined it.
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("connection was not closed by the closing gate")
+	}
+
+	done := make(chan struct{})
+	go func() { server.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wait group never released: the closing path joined it")
+	}
+	_ = ts
+}

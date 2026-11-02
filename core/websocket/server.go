@@ -101,6 +101,11 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	// closing is set once Stop begins. handleConnection checks it before
+	// wg.Add so a connection that upgrades during shutdown is not added
+	// after Wait has started (the Add/Wait race).
+	closingMu sync.RWMutex
+	closing   bool
 
 	// Configuration
 	readTimeout    time.Duration
@@ -194,6 +199,13 @@ func (s *Server) Start() error {
 func (s *Server) Stop() error {
 	logger.Info("websocket server stopping")
 
+	// Set the closing gate before closing connections and cancelling the
+	// context, so any handleConnection that runs from here on sees the
+	// gate and does not call wg.Add after Wait may have started.
+	s.closingMu.Lock()
+	s.closing = true
+	s.closingMu.Unlock()
+
 	// Close all worker connections
 	s.mu.Lock()
 	for _, state := range s.workers {
@@ -213,6 +225,13 @@ func (s *Server) Stop() error {
 	s.wg.Wait()
 
 	return nil
+}
+
+// GetWorkerCount returns the current worker count
+func (s *Server) GetWorkerCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.workers)
 }
 
 // handleWebSocket handles a WebSocket connection
@@ -258,6 +277,16 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // handleConnection handles messages from a connection
 func (s *Server) handleConnection(state *ConnectionState) {
+	s.closingMu.RLock()
+	closing := s.closing
+	s.closingMu.RUnlock()
+	if closing {
+		// The server is shutting down; this connection was upgraded into
+		// a closing server. Close it and return without joining the wait
+		// group (Wait may already be running).
+		_ = state.conn.Close()
+		return
+	}
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -580,11 +609,6 @@ func cloneWorkerInfo(s *ConnectionState) WorkerInfo {
 }
 
 // GetWorkerCount returns the number of connected workers
-func (s *Server) GetWorkerCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.workers)
-}
 
 // DisconnectWorker disconnects a worker
 func (s *Server) DisconnectWorker(workerID string) error {
