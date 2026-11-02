@@ -44,7 +44,7 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 
 - [x] 清理 open 安全告警 #99/#98/#93/#97/#96/#95/#94 — `5ffb5343fd0be9336176f3e7526c0b4fbfb4c85d`（docs build 绿；dashboard typecheck 绿、197/197 tests、coverage 100%）
 
-- [ ] DOC-GIF · P2 · 文档 · 配置开关效果动态图：为每个「开启后有效果」的配置开关生成 off→on 对比 GIF（GUI 用截图+切换录屏、CLI 用终端录屏 asciinema→GIF/ffmpeg），嵌入 docs「配置效果」页（双语），每个开关都有 off/on+GIF 且流水线可重跑（兼配置效果回归测试）。
+- [x] DOC-GIF · P2 · 文档 · 配置开关效果动态图：为每个「开启后有效果」的配置开关生成 off→on 对比 GIF（GUI 用截图+切换录屏、CLI 用终端录屏 asciinema→GIF/ffmpeg），嵌入 docs「配置效果」页（双语），每个开关都有 off/on+GIF 且流水线可重跑（兼配置效果回归测试）— `6c958a5`：27 开关（7 全局 + 18 provider + 2 provider 布尔）各含 off/on+GIF 共 82 资产；docs 中英页与侧栏接入；`python3 tools/config_effect/generate.py` + `pnpm --dir docs build` 可重跑（docs build 绿）。
 - [ ] SEC-CALLBACK · P2 · 安全 · 回调 URL 私网加固：`core/apps/callback.go` SetCallback 只验绝对 http(s)，未拒私网/环回段（127.0.0.1、::1、10/8、172.16/12、192.168/16、169.254/16）；多租户部署下持 config scope 的集成方可把签名回调指向内网。补 CIDR 拒绝列表（可配置豁免）+ 测试。证据见 docs/review/2026-11-01-code-review.md F-1；2026-11-02 复核仍成立，见 docs/review/2026-11-02-code-review-opencode.md F-8。
 - [ ] BUG-LIMITER · P3 · 并发 · limiter.Wait 计时器 churn：`core/limiter/limiter.go:169` 在 Wait 循环每轮 `time.After(waitTime)`，ctx 取消时计时器不能提前回收；高频取消下短期堆积。改 NewTimer+Stop 复用。证据见同报告 F-2。
 - [ ] BUG-WSSTOP · P3 · 并发 · websocket 关闭窄竞态：`core/websocket/server.go` Stop() 关连接后 Shutdown 再 wg.Wait()，升级中的连接若在 Shutdown 生效前进入 handleConnection 的 wg.Add，与已启动的 Wait 竞争；加关闭门闩。证据见同报告 F-3。
