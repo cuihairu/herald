@@ -45,6 +45,7 @@ export default defineConfig({
           text: 'Configuration',
           items: [
             { text: 'Configuration Reference', link: '/guide/configuration' },
+            { text: 'Configuration Effects', link: '/guide/configuration-effects' },
             { text: 'Template System', link: '/guide/templates' },
           ],
         },
@@ -204,6 +205,7 @@ export default defineConfig({
               text: '配置',
               items: [
                 { text: '配置参考', link: '/zh/guide/configuration' },
+                { text: '配置效果', link: '/zh/guide/configuration-effects' },
                 { text: '模板系统', link: '/zh/guide/templates' },
               ],
             },
