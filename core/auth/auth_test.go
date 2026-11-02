@@ -408,13 +408,13 @@ func TestAuth_getJWTToken(t *testing.T) {
 		}
 	})
 
-	t.Run("token from cookie", func(t *testing.T) {
+	t.Run("rejects token from cookie", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.AddCookie(&http.Cookie{Name: "herald_token", Value: "cookie-token-123"})
 		token := auth.getJWTToken(req)
 
-		if token != "cookie-token-123" {
-			t.Errorf("expected token 'cookie-token-123', got '%s'", token)
+		if token != "" {
+			t.Errorf("cookie credentials must be ignored, got '%s'", token)
 		}
 	})
 

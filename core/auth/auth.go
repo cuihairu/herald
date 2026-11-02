@@ -387,11 +387,10 @@ func (a *Auth) getJWTToken(r *http.Request) string {
 		}
 	}
 
-	// Try cookie
-	if cookie, err := r.Cookie("herald_token"); err == nil {
-		return cookie.Value
-	}
-
+	// Cookies are not an authentication channel: the token travels only in
+	// the Authorization header. No code path sets herald_token, and a cookie
+	// would be attachable to a cross-site request (CSRF) — so one is ignored
+	// rather than honoured.
 	return ""
 }
 
