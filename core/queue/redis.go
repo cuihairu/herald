@@ -259,8 +259,13 @@ func (q *redisQueue) Nack(ctx context.Context, taskID string, _ error) error {
 
 	// Read original message before acking so a failed requeue does not lose payload.
 	msgs, err := q.client.XRange(ctx, q.stream, streamID, streamID).Result()
-	if err != nil || len(msgs) == 0 {
+	if err != nil {
 		return fmt.Errorf("failed to load message for retry: %w", err)
+	}
+	if len(msgs) == 0 {
+		// The entry left the stream (trimmed or removed) while this worker
+		// still held it pending: there is no payload left to requeue.
+		return ErrMessageGone
 	}
 
 	// Re-push the original message before acking the pending entry.

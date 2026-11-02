@@ -145,6 +145,9 @@ func (q *memoryQueue) Close() error {
 
 var (
 	ErrQueueClosed = &QueueError{Message: "queue is closed"}
+	// ErrMessageGone is returned by Nack when the stream entry backing the
+	// task is no longer in the stream: the retry payload is unrecoverable.
+	ErrMessageGone = &QueueError{Message: "message no longer exists in stream"}
 )
 
 type QueueError struct {

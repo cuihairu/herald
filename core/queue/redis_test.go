@@ -3,6 +3,7 @@ package queue
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -907,6 +908,29 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to load message for retry") {
 			t.Errorf("expected load error, got %v", err)
+		}
+	})
+
+	t.Run("nack returns ErrMessageGone when entry left the stream", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		// Simulate the entry being trimmed while this worker still holds it
+		// pending: XRANGE now succeeds with an empty reply.
+		fr.mu.Lock()
+		fr.entries = nil
+		fr.mu.Unlock()
+
+		err := q.Nack(ctx, popped.ID, fmt.Errorf("failed"))
+		if !errors.Is(err, ErrMessageGone) {
+			t.Fatalf("expected ErrMessageGone, got %v", err)
+		}
+		if strings.Contains(err.Error(), "%!w") {
+			t.Errorf("error carries a fmt verb artifact: %v", err)
 		}
 	})
 
