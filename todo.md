@@ -62,4 +62,4 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 
 - [x] 审核发现：README「Run Locally」/`make run` 用出厂 config.yaml 直接启动时二进制不读 .env，`HERALD_ADMIN_API_KEY` 未导出即触发 Validate 拒起；本 diff 给 config.yaml 开鉴权却没同步本地运行说明（README.md:116, config.yaml:16）— 属实已修；`go test ./config` 34 tests green，`make -n run` 显式 source .env。
 - [x] 审核发现：出厂 config.yaml 开鉴权却未配 `admin_user`，README 快速开始仍称「登录后…」，实际 `/auth/login` 因无用户恒 401，Dashboard 登录不可达（README.md:131, config.yaml:13, core/user/user.go:73）— 属实已修：config.yaml 增 `admin_user.admin: "$HERALD_ADMIN_PASSWORD"`，README/README.zh/.env.example 同步说明。
-- [ ] 审核发现：KNOWN_UNCOVERABLE.md 已把 server.go 行号 370 更正为 382，但文档一致性台账仍声称「server.go:370 落在所述块上」，行号漂移未同步（docs/审计-文档一致性.md:391, KNOWN_UNCOVERABLE.md:61）。
+- [x] 审核发现：KNOWN_UNCOVERABLE.md 已把 server.go 行号 370 更正为 382，但文档一致性台账仍声称「server.go:370 落在所述块上」，行号漂移未同步（docs/审计-文档一致性.md:391, KNOWN_UNCOVERABLE.md:61）— 属实已修：docs/审计-文档一致性.md 与 docs/zh/审计-文档一致性.md 两处 `server.go:370` → `382`。
