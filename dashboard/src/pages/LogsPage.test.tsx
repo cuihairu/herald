@@ -187,7 +187,13 @@ describe('LogsPage', () => {
     render(<LogsPage />)
     await screen.findByText('正常一行')
 
-    await user.click(screen.getByText('2'))
+    // 分页项在数据到达时会做 motion 过渡，leave 窗口内元素是
+    // pointer-events: none（CI 慢机上点击会撞上）。等到可点再点。
+    const page2 = screen.getByText('2')
+    await vi.waitFor(() => {
+      expect(getComputedStyle(page2).pointerEvents).not.toBe('none')
+    })
+    await user.click(page2)
     await vi.waitFor(() => {
       const logs = fetchMock.mock.calls
         .map(c => String(c[0]))
