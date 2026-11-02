@@ -103,10 +103,11 @@ type Server struct {
 	wg     sync.WaitGroup
 
 	// Configuration
-	readTimeout  time.Duration
-	writeTimeout time.Duration
-	pingTimeout  time.Duration
-	pingInterval time.Duration
+	readTimeout    time.Duration
+	writeTimeout   time.Duration
+	pingTimeout    time.Duration
+	pingInterval   time.Duration
+	maxMessageSize int64
 }
 
 // Config is the WebSocket server configuration
@@ -132,16 +133,22 @@ func NewServer(config *Config, handler ConnHandler) *Server {
 		}
 	}
 
+	maxMessageSize := config.MaxMessageSize
+	if maxMessageSize <= 0 {
+		maxMessageSize = 1 << 20
+	}
+
 	mux := http.NewServeMux()
 	s := &Server{
-		addr:         config.Addr,
-		handler:      handler,
-		upgrader:     newUpgrader(config.AllowedOrigins),
-		workers:      make(map[string]*ConnectionState),
-		readTimeout:  config.ReadTimeout,
-		writeTimeout: config.WriteTimeout,
-		pingTimeout:  config.PingTimeout,
-		pingInterval: config.PingInterval,
+		addr:           config.Addr,
+		handler:        handler,
+		upgrader:       newUpgrader(config.AllowedOrigins),
+		workers:        make(map[string]*ConnectionState),
+		readTimeout:    config.ReadTimeout,
+		writeTimeout:   config.WriteTimeout,
+		pingTimeout:    config.PingTimeout,
+		pingInterval:   config.PingInterval,
+		maxMessageSize: maxMessageSize,
 	}
 
 	mux.HandleFunc("/worker", s.handleWebSocket)
@@ -223,6 +230,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		ConnectedAt: time.Now(),
 		Status:      make(map[string]interface{}),
 	}
+
+	// Bound one frame before reading anything: the management channel is
+	// unauthenticated, so an unbounded message is a remote memory-exhaustion
+	// vector.
+	conn.SetReadLimit(s.maxMessageSize)
 
 	// Upgrade just handed over a live connection and nothing can close it
 	// before this runs, so setting the read deadline cannot fail; net/http

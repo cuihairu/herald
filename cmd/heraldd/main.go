@@ -579,6 +579,7 @@ func serveCmd(args []string) int {
 		PingTimeout:    cfg.WebSocket.PingTimeout,
 		PingInterval:   cfg.WebSocket.PingInterval,
 		AllowedOrigins: cfg.WebSocket.AllowedOrigins,
+		MaxMessageSize: cfg.WebSocket.MaxMessageSize,
 	}, nil)
 	hub := websocket.NewHub(wsServer, registry)
 	wsServer.SetHandler(hub)

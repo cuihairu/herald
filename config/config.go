@@ -175,6 +175,10 @@ type WebSocketConfig struct {
 	PingTimeout    time.Duration `yaml:"ping_timeout"`
 	PingInterval   time.Duration `yaml:"ping_interval"`
 	AllowedOrigins []string      `yaml:"allowed_origins"`
+	// MaxMessageSize bounds one worker frame (bytes). Defaults to 1 MiB;
+	// the management channel is unauthenticated, so an unbounded frame is
+	// a remote memory-exhaustion vector.
+	MaxMessageSize int64 `yaml:"max_message_size"`
 }
 
 // WorkerConfig is the remote worker control-plane configuration.
@@ -399,6 +403,9 @@ func Load(path string) (*Config, error) {
 	if cfg.WebSocket.PingInterval == 0 {
 		cfg.WebSocket.PingInterval = 20 * time.Second
 	}
+	if cfg.WebSocket.MaxMessageSize <= 0 {
+		cfg.WebSocket.MaxMessageSize = 1 << 20
+	}
 	if cfg.Queue.Type == "" {
 		cfg.Queue.Type = "memory"
 	}
@@ -463,11 +470,12 @@ func Default() *Config {
 			MaxRequestBodyBytes: 1 << 20,
 		},
 		WebSocket: WebSocketConfig{
-			Addr:         ":8081",
-			ReadTimeout:  60 * time.Second,
-			WriteTimeout: 60 * time.Second,
-			PingTimeout:  30 * time.Second,
-			PingInterval: 20 * time.Second,
+			Addr:           ":8081",
+			ReadTimeout:    60 * time.Second,
+			WriteTimeout:   60 * time.Second,
+			PingTimeout:    30 * time.Second,
+			PingInterval:   20 * time.Second,
+			MaxMessageSize: 1 << 20,
 		},
 		Worker: WorkerConfig{
 			HeartbeatInterval: 20 * time.Second,

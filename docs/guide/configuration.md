@@ -294,6 +294,7 @@ websocket:
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s
+  max_message_size: 1048576   # bytes per worker frame; default 1 MiB (the channel is unauthenticated)
   # allowed_origins:       # list of allowed WebSocket origins
   #   - "https://your-domain.com"
   #   - "*"                 # allow all origins (development only)

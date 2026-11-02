@@ -290,6 +290,7 @@ websocket:
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s
+  max_message_size: 1048576   # 单帧字节上限，默认 1 MiB（该通道未鉴权）
   # allowed_origins:       # WebSocket 允许的来源列表
   #   - "https://your-domain.com"
   #   - "*"                 # 允许所有来源（仅开发环境）

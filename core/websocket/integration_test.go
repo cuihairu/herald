@@ -84,6 +84,39 @@ func startWSTestServer(t *testing.T) (*Server, *syncHandler, string) {
 	return server, handler, url
 }
 
+// TestWebSocketRejectsOversizedMessage proves the read limit is applied on
+// the wire: an unauthenticated client cannot make the server buffer an
+// arbitrarily large frame.
+func TestWebSocketRejectsOversizedMessage(t *testing.T) {
+	handler := &syncHandler{}
+	server := NewServer(&Config{
+		Addr:           "127.0.0.1:0",
+		AllowedOrigins: []string{"*"},
+		ReadTimeout:    5 * time.Second,
+		WriteTimeout:   5 * time.Second,
+		PingTimeout:    5 * time.Second,
+		PingInterval:   5 * time.Second,
+		MaxMessageSize: 32,
+	}, handler)
+	testSrv := httptest.NewServer(http.HandlerFunc(server.handleWebSocket))
+	t.Cleanup(testSrv.Close)
+
+	url := "ws" + strings.TrimPrefix(testSrv.URL, "http") + "/worker"
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(strings.Repeat("x", 128))); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("an oversized message must close the connection")
+	}
+}
+
 // TestWebSocketConnectionLifecycle drives a real worker connection through
 // registration, heartbeat, ack, event, junk frames and disconnect, asserting
 // every callback fires and the worker table tracks the connection.

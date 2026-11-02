@@ -234,6 +234,16 @@ func TestConfigDefaults(t *testing.T) {
 	if server.pingInterval != 20*time.Second {
 		t.Errorf("expected pingInterval 20s, got %v", server.pingInterval)
 	}
+	if server.maxMessageSize != 1<<20 {
+		t.Errorf("expected maxMessageSize 1 MiB, got %d", server.maxMessageSize)
+	}
+}
+
+func TestNewServerCustomMaxMessageSize(t *testing.T) {
+	server := NewServer(&Config{Addr: ":0", MaxMessageSize: 4096}, &mockHandler{})
+	if server.maxMessageSize != 4096 {
+		t.Errorf("expected maxMessageSize 4096, got %d", server.maxMessageSize)
+	}
 }
 
 func TestMessageTypes(t *testing.T) {

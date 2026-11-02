@@ -63,6 +63,9 @@ func TestLoad(t *testing.T) {
 		if cfg.WebSocket.PingInterval != 20*time.Second {
 			t.Errorf("expected websocket ping interval 20s, got %v", cfg.WebSocket.PingInterval)
 		}
+		if cfg.WebSocket.MaxMessageSize != 1<<20 {
+			t.Errorf("expected websocket max message size 1 MiB, got %d", cfg.WebSocket.MaxMessageSize)
+		}
 		if cfg.Queue.Type != "memory" {
 			t.Errorf("expected queue type memory, got %s", cfg.Queue.Type)
 		}
@@ -347,6 +350,9 @@ func TestDefault(t *testing.T) {
 	}
 	if cfg.WebSocket.PingTimeout != 30*time.Second {
 		t.Errorf("expected websocket ping timeout 30s, got %v", cfg.WebSocket.PingTimeout)
+	}
+	if cfg.WebSocket.MaxMessageSize != 1<<20 {
+		t.Errorf("expected websocket max message size 1 MiB, got %d", cfg.WebSocket.MaxMessageSize)
 	}
 	if cfg.Worker.HeartbeatInterval != 20*time.Second {
 		t.Errorf("expected worker heartbeat interval 20s, got %v", cfg.Worker.HeartbeatInterval)
