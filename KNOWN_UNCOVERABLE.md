@@ -58,7 +58,7 @@
 
 ## core/websocket/server.go
 
-- `github.com/cuihairu/herald/core/websocket/server.go:370` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。
+- `github.com/cuihairu/herald/core/websocket/server.go:382` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行，自 370 更正为 382。）
 
 ## apps-sdk/go/example/main.go
 
