@@ -282,16 +282,22 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // handleConnection handles messages from a connection
 func (s *Server) handleConnection(state *ConnectionState) {
 	s.closingMu.RLock()
-	closing := s.closing
-	s.closingMu.RUnlock()
-	if closing {
+	if s.closing {
+		s.closingMu.RUnlock()
 		// The server is shutting down; this connection was upgraded into
 		// a closing server. Close it and return without joining the wait
 		// group (Wait may already be running).
 		_ = state.conn.Close()
 		return
 	}
+	// The Add must happen inside the read-lock critical section: Stop sets
+	// the closing gate under the matching write lock, so a connection that
+	// sees the gate open is guaranteed to have joined the group before Stop
+	// reaches wg.Wait. Adding after releasing the lock left a window where
+	// Stop could set closing, start Wait, and a connection that read the
+	// gate just before would Add after Wait had begun — an Add/Wait race.
 	s.wg.Add(1)
+	s.closingMu.RUnlock()
 	defer s.wg.Done()
 
 	conn := state.conn

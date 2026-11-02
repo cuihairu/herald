@@ -532,3 +532,37 @@ func TestHandleConnectionSkipsClosingGate(t *testing.T) {
 	}
 	_ = ts
 }
+
+func TestHandleConnectionAddInsideClosingGate(t *testing.T) {
+	server, ts := newFlowTestServer(t, newChannelHandler(), nil)
+	conn := dialFlowWS(t, ts)
+
+	// Hold the closing read lock exactly as a connection does inside the
+	// gate critical section (after reading closing==false, before wg.Add).
+	server.closingMu.RLock()
+
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		_ = server.Stop()
+	}()
+
+	// Stop must block on the matching write lock while the connection holds
+	// the read lock: it cannot set closing nor reach wg.Wait before the
+	// connection's wg.Add has completed. If Add ever moved outside the
+	// critical section, this ordering would be lost and the Add/Wait race
+	// the finding describes would be back.
+	server.wg.Add(1)
+	server.wg.Done()
+
+	server.closingMu.RUnlock()
+	// Release the dialed connection so its read goroutine exits and Stop's
+	// wg.Wait completes once the gate is closed.
+	_ = conn.Close()
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop blocked after the gate critical section was released")
+	}
+	_ = ts
+}
