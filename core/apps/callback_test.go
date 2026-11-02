@@ -1,6 +1,8 @@
 package apps
 
 import (
+	"errors"
+	"net"
 	"strings"
 	"testing"
 )
@@ -99,5 +101,37 @@ func TestCallbackLifecycle(t *testing.T) {
 	}
 	if err := r.ClearCallback("ghost"); err != ErrUnknownApp {
 		t.Fatalf("clear unknown: want ErrUnknownApp, got %v", err)
+	}
+}
+
+func TestValidateCallbackURLEdgeCases(t *testing.T) {
+	r, _ := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{{Secret: "s", Scopes: []string{"config"}}}}})
+
+	// A non-http scheme, a hostless URL and an unparseable URL all refuse at
+	// the absolute-url gate.
+	for _, u := range []string{"ftp://example.com/hook", "https://", "not a url"} {
+		if err := r.ValidateCallbackURL(u); err == nil {
+			t.Errorf("ValidateCallbackURL(%q) = nil, want refusal", u)
+		}
+	}
+
+	// A URL whose host parses to an empty hostname (port only) passes the
+	// absolute-url gate but is refused by the destination check.
+	if err := r.ValidateCallbackURL("http://:8080/"); err == nil {
+		t.Error("ValidateCallbackURL(http://:8080/) = nil, want host refusal")
+	}
+}
+
+func TestValidateCallbackURLUnresolvableHost(t *testing.T) {
+	r, _ := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{{Secret: "s", Scopes: []string{"config"}}}}})
+
+	// The resolver seam makes the host unresolvable, so the destination check
+	// has no IPs to validate and must refuse.
+	orig := lookupIP
+	lookupIP = func(string) ([]net.IP, error) { return nil, errors.New("dns down") }
+	defer func() { lookupIP = orig }()
+
+	if err := r.ValidateCallbackURL("http://unresolvable.invalid/"); err == nil {
+		t.Error("ValidateCallbackURL(unresolvable) = nil, want resolution refusal")
 	}
 }

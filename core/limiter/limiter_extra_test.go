@@ -108,6 +108,30 @@ func TestWaitWithImmediateRefill(t *testing.T) {
 	}
 }
 
+func TestWaitReusesTimerAcrossSpins(t *testing.T) {
+	// A bucket whose refill never grants (lastTime in the future keeps
+	// elapsed negative) forces Wait to spin: every timer fire is followed by
+	// the reuse branch (stop the fired timer, drain it, reset), and only ctx
+	// cancel ends the loop.
+	tb := &TokenBucket{tokens: 0, rate: 100, burst: 1, lastTime: time.Now().Add(time.Hour)}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- tb.Wait(ctx) }()
+
+	time.Sleep(30 * time.Millisecond) // several 10ms spins through the reuse branch
+	cancel()
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Errorf("Wait() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait did not return after ctx cancel")
+	}
+}
+
 func TestReservationOnAvailableBucket(t *testing.T) {
 	tb := NewTokenBucket(10, 5)
 

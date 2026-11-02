@@ -30,13 +30,15 @@
 
 - `github.com/cuihairu/herald/cmd/heraldd/main.go:60` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。行号 2026-10-08 随文档一致性审计批次核对（原 49，main() 定义随批次 10-11 的 import 与注释增长整体下移到 :59，块起始行现 60）。
 
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:439` — §13.1 集成者命名空间注册表构建失败分支（`apps.NewRegistry` 报错即拒起）。到达条件：某个 apps 种子通过了 `config.Validate` 却在 `NewRegistry` 失败——不可能：Validate 内部调用的就是同一个构造器（config.go 的校验循环把同一批种子原样喂给 `apps.NewRegistry`），种子在 Validate 阶段就会被同一条校验拒掉（`main_cover_test.go` 错误表 `app scope invalid` 已实测拒起点在 Load）；到达本分支需要同一构造器对同一输入先过后拒。两次喂入仅顺序不同（Validate 按 map 迭代、main 按 sort 后列表），而构造器的全部约束都是逐 app 或全局集合性的，与顺序无关。行号 2026-10-07 随批次 11 增量六的审计流水常开 hunk 下移 1 行（原 400），同日增量七的回调 dispatcher 注册 hunk 再下移 10 行（411），2026-10-10 验收走查批的 auth 接线 hunk（AdminUser/SecretKey 透传）再下移 5 行（416），2026-10-14 audiences 运行时 API 批的 store 接线块（main.go:284-311）再下移 23 行（现 439）。
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:442` — §13.1 集成者命名空间注册表构建失败分支（`apps.NewRegistry` 报错即拒起）。到达条件：某个 apps 种子通过了 `config.Validate` 却在 `NewRegistry` 失败——不可能：Validate 内部调用的就是同一个构造器（config.go 的校验循环把同一批种子原样喂给 `apps.NewRegistry`），种子在 Validate 阶段就会被同一条校验拒掉（`main_cover_test.go` 错误表 `app scope invalid` 已实测拒起点在 Load）；到达本分支需要同一构造器对同一输入先过后拒。两次喂入仅顺序不同（Validate 按 map 迭代、main 按 sort 后列表），而构造器的全部约束都是逐 app 或全局集合性的，与顺序无关。行号 2026-10-07 随批次 11 增量六的审计流水常开 hunk 下移 1 行（原 400），同日增量七的回调 dispatcher 注册 hunk 再下移 10 行（411），2026-10-10 验收走查批的 auth 接线 hunk（AdminUser/SecretKey 透传）再下移 5 行（416），2026-10-14 audiences 运行时 API 批的 store 接线块（main.go:284-311）再下移 23 行（439），2026-11-02 随 SEC 批次（955e11b worker auth、9aec8dd 回调目的地复验、aa5c8bb Feishu 收尾）再下移 3 行（现 442）。
 
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:491` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）。行号 2026-10-07 随批次 10 配置透传 hunk 下移 4 行（原 418），同日批次 9 的投递策略构建块再下移 12 行（434），批次 11 的 app 注册表构建块与 sort import 再下移 11 行（445），同日增量六的审计流水常开 hunk 再下移 1 行（446），增量七的回调 dispatcher 注册与 emitter 接线 hunk 再下移 17 行（463），2026-10-10 验收走查批的 auth 接线 hunk 再下移 5 行（468），2026-10-14 audiences 运行时 API 批的 store 接线块（main.go:284-311）再下移 23 行（现 491，合计自 418）
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:495` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）。行号 2026-10-07 随批次 10 配置透传 hunk 下移 4 行（原 418），同日批次 9 的投递策略构建块再下移 12 行（434），批次 11 的 app 注册表构建块与 sort import 再下移 11 行（445），同日增量六的审计流水常开 hunk 再下移 1 行（446），增量七的回调 dispatcher 注册与 emitter 接线 hunk 再下移 17 行（463），2026-10-10 验收走查批的 auth 接线 hunk 再下移 5 行（468），2026-10-14 audiences 运行时 API 批的 store 接线块（main.go:284-311）再下移 23 行（491），2026-11-02 随 SEC 批次（955e11b worker auth、9aec8dd 回调目的地复验、aa5c8bb Feishu 收尾）再下移 4 行（现 495，合计自 418）
 
 > 本文件曾登记 `serveCmd`/`workerCmd` 两个注册循环里的 `manager.RegisterProvider` 重复名守卫（原 `main.go:130`、`main.go:381`）——按结构不可达（factories 与 providers 分属两个 map、`cfg.Providers` 键唯一）。2026-10-01 按 `writeControl` 先例提为包级 seam `registerProvider`，由 `TestDuplicateNameGuardAbortsRegistration` 注入失败实测两处 return 1 分支（均在绑端口/起 worker 前退出），已移出台账。
 
-## providers/builtin/wechatmp/wechatmp.go
+## core/limiter/limiter.go
+
+- `github.com/cuihairu/herald/core/limiter/limiter.go:184` — `Wait` 复用分支里 drain `select` 的 `case <-timer.C:` 接收臂。到达条件：`timer.Stop()` 返回 false 且 timer.C 仍有缓冲值。不可能——进 else 复用分支前，循环顶部的 `select` 已经消费了本 timer 的触发值（`case <-timerC:`），`Stop()` 恒返回 false（timer 已触发）时 C 恒空，接收臂走 `default:`。该臂是防御性死代码（标准 drain 惯用法），行为已由 `TestWaitReusesTimerAcrossSpins` 实测（future-lastTime 桶迫使 Wait 多次重旋，else/Stop-false/default 全命中、该接收臂恒零）。2026-11-02 登记。
 
 - `github.com/cuihairu/herald/providers/builtin/wechatmp/wechatmp.go:312` — `GetToken` 写锁内双检的命中分支。到达条件：并发调用方的读检查落在「缓存已过期且无人持写锁」的窗口内，且其写锁申请排在刷新胜者之后——窗口是读检查到加锁之间的微秒级间隙，能否命中完全取决于调度，确定性构造不可行（RWMutex 下读者会被持写锁者挡住，无法从外部制造该窗口）。分支**行为**已由 `TestTokenCacheConcurrentSingleFetch` 与 `TestTokenCacheDoubleCheckUnderContention` 每轮确定性断言：并发下恰好一次取 token、败者复用胜者结果；语句命中是偶发的（部分轮次的 profile 里该块非零，此时本条目自然不参与豁免）。
 
@@ -58,7 +60,7 @@
 
 ## core/websocket/server.go
 
-- `github.com/cuihairu/herald/core/websocket/server.go:382` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行，自 370 更正为 382。）
+- `github.com/cuihairu/herald/core/websocket/server.go:441` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行自 370 更正 382，同日后随 worker-auth/停机闸门 SEC 批次（955e11b、3b0696f、55d690b、566a704）再加 59 行，更正为 441。）
 
 ## apps-sdk/go/example/main.go
 
@@ -70,7 +72,7 @@
 
 ## worker-sdk/go/client.go
 
-- `github.com/cuihairu/herald/worker-sdk/go/client.go:275` — `writeControl` 里 `conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不会返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。真实传输失败由 `WriteMessage` 返回，已由 `TestRegisterWriteControlFailure` 覆盖。
+- `github.com/cuihairu/herald/worker-sdk/go/client.go:276` — `writeControl` 里 `conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不会返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。真实传输失败由 `WriteMessage` 返回，已由 `TestRegisterWriteControlFailure` 覆盖。（行号 2026-11-02 随 worker-auth SEC 批次自 275 下移 1 行，更正为 276。）
 
 > 登记行号会被注释改动顶掉：本文件里 `client.go:275`、`server.go:370` 各块上方都压着多行注释，增删一行整块位移，而 `zero_check` 按 `文件:起始行` 匹配，一对上路块就退回"未定性"并让门禁变红——所以**改动这些块附近的注释后要重跑门禁**（且必须用 go1.26.6，见页首纪律），别只看测试是否通过。
 

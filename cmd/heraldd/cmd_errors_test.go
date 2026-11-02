@@ -44,10 +44,13 @@ func TestServeCmdConfigErrors(t *testing.T) {
 		cfg  string
 	}{
 		{"bad yaml", "server: [unclosed"},
-		{"unknown queue type", "server:\n  addr: 127.0.0.1:0\nqueue:\n  type: banana\n"},
-		{"redis unreachable", "server:\n  addr: 127.0.0.1:0\nqueue:\n  type: redis\n  redis:\n    addr: 127.0.0.1:1\n"},
-		{"unknown provider type", "server:\n  addr: 127.0.0.1:0\nproviders:\n  bad:\n    type: no-such\n"},
-		{"bad template", "server:\n  addr: 127.0.0.1:0\ntemplates:\n  ops:\n    title: \"t\"\n"},
+		// The queue/provider/template cases bind websocket to loopback so the
+		// websocket management-channel refusal does not fire before each case
+		// reaches its own rejection point inside serveCmd.
+		{"unknown queue type", "server:\n  addr: 127.0.0.1:0\nwebsocket:\n  addr: 127.0.0.1:0\nqueue:\n  type: banana\n"},
+		{"redis unreachable", "server:\n  addr: 127.0.0.1:0\nwebsocket:\n  addr: 127.0.0.1:0\nqueue:\n  type: redis\n  redis:\n    addr: 127.0.0.1:1\n"},
+		{"unknown provider type", "server:\n  addr: 127.0.0.1:0\nwebsocket:\n  addr: 127.0.0.1:0\nproviders:\n  bad:\n    type: no-such\n"},
+		{"bad template", "server:\n  addr: 127.0.0.1:0\nwebsocket:\n  addr: 127.0.0.1:0\ntemplates:\n  ops:\n    title: \"t\"\n"},
 		{"auth without api_keys", "server:\n  addr: 127.0.0.1:0\nauth:\n  enabled: true\n"},
 		{"provider without type", "server:\n  addr: 127.0.0.1:0\nproviders:\n  bad: {}\n"},
 	}

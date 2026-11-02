@@ -178,3 +178,72 @@ func TestLoginRateLimiterEvictsIdleKeys(t *testing.T) {
 		t.Fatal("new key was not retained after eviction")
 	}
 }
+
+// TestLoginRateLimiterEvictsRecentFallback covers the cap-path fallback: when
+// every key is still active (none idle), the sweep drops the oldest quarter
+// instead of letting the table grow past the cap.
+func TestLoginRateLimiterEvictsRecentFallback(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 100)
+	now := time.Now()
+	for i := 0; i < loginLimiterMaxKeys; i++ {
+		key := "192.0.2.1|user-" + string(rune('a'+i%26)) + time.Duration(i).String()
+		limiter.keys[key] = nil
+		limiter.lastSeen[key] = now
+	}
+
+	if !limiter.allow("192.0.2.2|new-user") {
+		t.Fatal("new key must be allowed after fallback eviction")
+	}
+	if got := len(limiter.keys); got >= loginLimiterMaxKeys {
+		t.Fatalf("limiter key table = %d, want < %d after fallback", got, loginLimiterMaxKeys)
+	}
+}
+
+// TestLoginRateLimiterEvictFallbackFloorOne covers the floor guard: a table
+// smaller than four active keys drops exactly the oldest one, never zero.
+func TestLoginRateLimiterEvictFallbackFloorOne(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 100)
+	now := time.Now()
+	limiter.keys["a"] = nil
+	limiter.lastSeen["a"] = now.Add(-2 * time.Second)
+	limiter.keys["b"] = nil
+	limiter.lastSeen["b"] = now.Add(-1 * time.Second)
+
+	limiter.evictIdleLocked(time.Hour)
+	if len(limiter.keys) != 1 {
+		t.Fatalf("keys after evict = %d, want 1 (drop floors at one)", len(limiter.keys))
+	}
+	if _, ok := limiter.keys["a"]; ok {
+		t.Fatal("oldest key was not dropped")
+	}
+}
+
+// TestLoginRateLimiterNegativeRateDisables covers the disable path: a negative
+// configured rate yields a disabled limiter that admits every request, and a
+// nil limiter admits too.
+func TestLoginRateLimiterNegativeRateDisables(t *testing.T) {
+	limiter := newLoginRateLimiter(-1, 5)
+	if limiter.enabled {
+		t.Fatal("negative rate must disable the limiter")
+	}
+	if !limiter.allow("192.0.2.1|user-a") {
+		t.Fatal("disabled limiter must admit")
+	}
+	if !(*loginRateLimiter)(nil).allow("192.0.2.1|user-b") {
+		t.Fatal("nil limiter must admit")
+	}
+}
+
+// TestClientIP covers the RemoteAddr fallbacks: a host:port split, a raw value
+// that cannot be split, and an empty RemoteAddr.
+func TestClientIP(t *testing.T) {
+	if got := clientIP(&http.Request{RemoteAddr: "10.0.0.1:1234"}); got != "10.0.0.1" {
+		t.Errorf("host:port = %q, want host", got)
+	}
+	if got := clientIP(&http.Request{RemoteAddr: "no-port"}); got != "no-port" {
+		t.Errorf("unsplittable RemoteAddr = %q, want raw", got)
+	}
+	if got := clientIP(&http.Request{}); got != "unknown" {
+		t.Errorf("empty RemoteAddr = %q, want unknown", got)
+	}
+}
