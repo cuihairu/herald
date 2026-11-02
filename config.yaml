@@ -14,6 +14,10 @@ auth:
   enabled: true
   api_keys:
     "$HERALD_ADMIN_API_KEY": "operator"
+  # Dashboard 登录账号（可选，username -> password）；未配时 /auth/login 无用户恒 401。
+  # 使用真实口令，切勿用占位值。
+  admin_user:
+    admin: "$HERALD_ADMIN_PASSWORD"
 
 # Provider 配置
 providers:

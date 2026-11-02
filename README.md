@@ -127,6 +127,11 @@ set +a
 make dashboard-dev
 ```
 
+The Dashboard login uses `auth.admin_user` from `config.yaml` — the sample
+config maps `admin` to `$HERALD_ADMIN_PASSWORD`, so export a real password in
+`.env` (see `.env.example`) before starting. Without it, `/auth/login` has no
+account to authenticate against and the Dashboard cannot sign in.
+
 ### Open the Dashboard
 
 ```

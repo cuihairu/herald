@@ -554,6 +554,7 @@ func TestExpandEnvSecrets(t *testing.T) {
 // description — here "operator" — the accepted API key.
 func TestShippedConfigAuthOrientation(t *testing.T) {
 	t.Setenv("HERALD_ADMIN_API_KEY", "test-admin-key")
+	t.Setenv("HERALD_ADMIN_PASSWORD", "test-admin-password")
 
 	cfg, err := Load("../config.yaml")
 	if err != nil {

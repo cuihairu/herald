@@ -127,6 +127,10 @@ set +a
 make dashboard-dev
 ```
 
+Dashboard 登录使用 `config.yaml` 的 `auth.admin_user`——出厂配置把 `admin` 映射到
+`$HERALD_ADMIN_PASSWORD`，请在 `.env` 中导出真实口令（见 `.env.example`），否则
+`/auth/login` 无账号可鉴、Dashboard 无法登录。
+
 ### 访问 Dashboard
 
 ```
