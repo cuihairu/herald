@@ -6,6 +6,8 @@
 package apps
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"regexp"
@@ -118,11 +120,20 @@ type App struct {
 // secrets, so there is exactly one.
 func (a *App) ScopesFor(secret string) (Scopes, bool) {
 	for _, t := range a.tokens {
-		if t.Secret == secret {
+		if constantTimeEqual(t.Secret, secret) {
 			return t.Scopes, true
 		}
 	}
 	return nil, false
+}
+
+// constantTimeEqual compares two app bearer secrets in constant time: both
+// sides are hashed to a fixed 32 bytes before the compare, so a length or
+// prefix difference cannot be timed apart.
+func constantTimeEqual(a, b string) bool {
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }
 
 // SeedApp and SeedToken are the bootstrap input: an app with at least

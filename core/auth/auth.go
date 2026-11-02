@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -230,11 +232,21 @@ func (a *Auth) authenticateAPIKey(r *http.Request) bool {
 	}
 
 	for validKey := range a.apiKeys {
-		if apiKey == validKey {
+		if constantTimeEqual(apiKey, validKey) {
 			return true
 		}
 	}
 	return false
+}
+
+// constantTimeEqual compares two bearer secrets without early-exiting on a
+// length or prefix difference: both sides are hashed to a fixed 32 bytes
+// before the constant-time compare, so a timing oracle learns nothing about
+// the stored secret's length or contents.
+func constantTimeEqual(a, b string) bool {
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }
 
 // authenticateJWT authenticates using JWT token

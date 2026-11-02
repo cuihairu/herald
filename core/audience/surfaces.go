@@ -2,6 +2,8 @@ package audience
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -397,11 +399,20 @@ func (s *SurfaceRegistry) RSSAudience(token string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for id, tok := range s.rss {
-		if tok == token {
+		if constantTimeEqual(tok, token) {
 			return id, true
 		}
 	}
 	return "", false
+}
+
+// constantTimeEqual compares two RSS feed tokens in constant time: both
+// sides are hashed to a fixed 32 bytes before the compare, so a length or
+// prefix difference cannot be timed apart.
+func constantTimeEqual(a, b string) bool {
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }
 
 // ResetRSSToken retires the audience's private feed address (§9: 重置即
