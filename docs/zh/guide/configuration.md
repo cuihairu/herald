@@ -899,6 +899,8 @@ auth:
     "$HERALD_ADMIN_API_KEY": "operator"   # 以 "$VAR" 作 key 时从环境变量读取；未解析的引用会拒绝启动
     "hk-xxxxxxxx": "CI 管道"               # 字面量 key 原样使用
   secret_key: "$HERALD_JWT_SECRET"   # 可选：JWT 签名密钥（不配则用每进程随机密钥，重启后旧 token 失效）
+  login_rate: 0                    # 可选：每客户端+用户名登录次数/分；0=默认 5
+  login_burst: 3                   # 可选：突发额度；0=默认 5
   admin_user:               # 可选：Dashboard 登录账号（用户名 -> 密码）
     admin: "$HERALD_ADMIN_PASSWORD"
 ```

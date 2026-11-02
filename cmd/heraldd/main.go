@@ -184,10 +184,12 @@ func serveCmd(args []string) int {
 	// and dropping either makes /auth/login a permanent 401 (or falls
 	// back to a random per-process key, so sessions die on restart).
 	a := auth.New(&auth.Config{
-		Enabled:   cfg.Auth.Enabled,
-		APIKeys:   cfg.Auth.APIKeys,
-		SecretKey: cfg.Auth.SecretKey,
-		AdminUser: cfg.Auth.AdminUser,
+		Enabled:    cfg.Auth.Enabled,
+		APIKeys:    cfg.Auth.APIKeys,
+		SecretKey:  cfg.Auth.SecretKey,
+		AdminUser:  cfg.Auth.AdminUser,
+		LoginRate:  cfg.Auth.LoginRate,
+		LoginBurst: cfg.Auth.LoginBurst,
 	})
 
 	// Create template manager

@@ -904,6 +904,8 @@ auth:
     "$HERALD_ADMIN_API_KEY": "operator"   # a "$VAR" key is read from the environment; unresolved references refuse startup
     "hk-xxxxxxxx": "CI pipeline"           # literal keys are used verbatim
   secret_key: "$HERALD_JWT_SECRET"   # optional: JWT signing key (unset = random per-process key; tokens then do not survive restart)
+  login_rate: 0                    # optional: login attempts/min per client+username; 0 = default 5
+  login_burst: 3                   # optional: burst allowance; 0 = default 5
   admin_user:               # optional: Dashboard login account (username -> password)
     admin: "$HERALD_ADMIN_PASSWORD"
 ```

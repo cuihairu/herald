@@ -202,6 +202,11 @@ type AuthConfig struct {
 	APIKeys   map[string]string `yaml:"api_keys"`
 	SecretKey string            `yaml:"secret_key"`
 	AdminUser map[string]string `yaml:"admin_user"` // username -> password
+	// LoginRate is the login attempts per minute per client+username key
+	// (0 = default 5/min). LoginBurst is the burst allowance. These bound
+	// bcrypt cost on the public /auth/login endpoint.
+	LoginRate  float64 `yaml:"login_rate"`
+	LoginBurst int     `yaml:"login_burst"`
 }
 
 // ProviderConfig is a provider configuration

@@ -249,6 +249,38 @@ func TestAuth_HandleLogin(t *testing.T) {
 			t.Errorf("expected status 401, got %d", w.Code)
 		}
 	})
+
+	t.Run("too many attempts", func(t *testing.T) {
+		auth := New(&Config{
+			AdminUser:  map[string]string{"admin": "password123"},
+			LoginRate:  0,
+			LoginBurst: 3,
+		})
+
+		for i := 0; i < 3; i++ {
+			body := `{"username": "admin", "password": "wrong"}`
+			req := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			auth.HandleLogin(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("attempt %d: expected status 401, got %d", i+1, w.Code)
+			}
+		}
+
+		body := `{"username": "admin", "password": "password123"}`
+		req := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		auth.HandleLogin(w, req)
+
+		if w.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected status 429 after burst, got %d", w.Code)
+		}
+		if got := w.Header().Get("Retry-After"); got != "60" {
+			t.Fatalf("Retry-After = %q, want 60", got)
+		}
+	})
 }
 
 func TestAuth_HandleRefresh(t *testing.T) {

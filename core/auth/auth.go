@@ -2,10 +2,13 @@ package auth
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/cuihairu/herald/core/jwt"
+	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/user"
 )
 
@@ -15,6 +18,7 @@ type Auth struct {
 	jwtManager  *jwt.Manager
 	apiKeys     map[string]string
 	enabled     bool
+	loginLimits *loginRateLimiter
 }
 
 // Config is the auth configuration
@@ -23,6 +27,11 @@ type Config struct {
 	APIKeys   map[string]string `yaml:"api_keys"` // key -> description
 	SecretKey string            `yaml:"secret_key"`
 	AdminUser map[string]string `yaml:"admin_user"` // username -> password
+	// LoginRate is the maximum login attempts per minute per client+username
+	// key. Zero uses the built-in default (5/min). A negative value disables
+	// login rate limiting (not recommended).
+	LoginRate float64 `yaml:"login_rate"`
+	LoginBurst int    `yaml:"login_burst"`
 }
 
 // New creates a new auth instance
@@ -58,7 +67,50 @@ func New(config *Config) *Auth {
 		jwtManager:  jm,
 		apiKeys:     apiKeys,
 		enabled:     config.Enabled,
+		loginLimits: newLoginRateLimiter(config.LoginRate, config.LoginBurst),
 	}
+}
+
+// loginRateLimiter buckets one token per (clientIP, username) key. A burst
+// covers repeated typos; beyond it a 429 is returned without running bcrypt.
+type loginRateLimiter struct {
+	mu      sync.Mutex
+	keys    map[string]*limiter.TokenBucket
+	rate    float64
+	burst   int
+	enabled bool
+}
+
+func newLoginRateLimiter(rate float64, burst int) *loginRateLimiter {
+	if rate < 0 {
+		return &loginRateLimiter{enabled: false}
+	}
+	if rate == 0 {
+		rate = 5.0 / 60.0 // 5 per minute
+	}
+	if burst <= 0 {
+		burst = 5
+	}
+	return &loginRateLimiter{
+		keys:    make(map[string]*limiter.TokenBucket),
+		rate:    rate,
+		burst:   burst,
+		enabled: true,
+	}
+}
+
+func (l *loginRateLimiter) allow(key string) bool {
+	if l == nil || !l.enabled {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.keys[key]
+	if !ok {
+		b = limiter.NewTokenBucket(l.rate, l.burst)
+		l.keys[key] = b
+	}
+	return b.Allow()
 }
 
 // LoginRequest is a login request
@@ -144,6 +196,15 @@ func (a *Auth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit by client IP + username before running bcrypt. A 429
+	// avoids CPU-bound password hashing on the public login endpoint.
+	key := clientIP(r) + "|" + req.Username
+	if !a.loginLimits.allow(key) {
+		w.Header().Set("Retry-After", "60")
+		a.respondError(w, http.StatusTooManyRequests, "too many login attempts, retry later")
+		return
+	}
+
 	// Authenticate user
 	u, err := a.userManager.Authenticate(req.Username, req.Password)
 	if err != nil {
@@ -168,6 +229,18 @@ func (a *Auth) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			Role:     u.Role,
 		},
 	})
+}
+
+// clientIP extracts the remote address host, falling back to a constant for
+// tests that do not set RemoteAddr.
+func clientIP(r *http.Request) string {
+	if r.RemoteAddr != "" {
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			return host
+		}
+		return r.RemoteAddr
+	}
+	return "unknown"
 }
 
 // HandleRefresh handles token refresh requests
