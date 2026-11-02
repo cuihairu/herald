@@ -899,7 +899,8 @@ Feishu interactive card callback entry (the acknowledge button on the card).
 **Does not go through Bearer auth**; the caller is Feishu's server, authenticated
 by `card_callback.encrypt_key`: answer Feishu's `url_verification` challenge;
 encrypted callbacks (the `encrypt` field, AES-256-CBC) are decrypted and
-processed when an encryption key is configured, and return 501 when it is not.
+processed when an encryption key is configured, and fold to the uniform 400
+when it is not (so a missing key is indistinguishable from a bad ciphertext).
 Plaintext card actions are accepted only while no key is configured; once a key
 is set they return 401 (the URL verification challenge is still answered). The
 acknowledge action goes through the same store as `POST /alerts/{id}/ack`: the

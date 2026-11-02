@@ -66,9 +66,14 @@ func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.Encrypt != "" {
+	encrypted := payload.Encrypt != ""
+	if encrypted {
 		if h.cardEncryptKey == "" {
-			h.respondError(w, http.StatusNotImplemented, "callback encryption key is not configured")
+			// Uniform fold: an encrypted callback with no key configured is
+			// indistinguishable from a decryption failure. Answering a
+			// distinct 501 here would let anyone probe whether the callback
+			// credential is armed.
+			h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
 			return
 		}
 		plain, err := decryptFeishuCallback(h.cardEncryptKey, payload.Encrypt)
@@ -95,6 +100,14 @@ func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 
 	alertID, ackedBy := extractFeishuCardAck(payload.Schema, payload.Event, payload.Action, payload.OpenID)
 	if alertID == "" {
+		if encrypted {
+			// Fold the no-alert_id outcome into the uniform decryption
+			// message too: a valid-padding payload that lacks an alert_id
+			// must not be distinguishable from a decryption failure, or the
+			// response itself becomes a padding oracle.
+			h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
+			return
+		}
 		h.respondError(w, http.StatusBadRequest, "card action carries no alert_id")
 		return
 	}

@@ -147,8 +147,12 @@ func TestFeishuCallbackEncryptedWithoutKey(t *testing.T) {
 	env := newTestEnv(t, withAckStore(store))
 
 	body := `{"encrypt":"AAAA"}`
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusNotImplemented {
-		t.Fatalf("encrypted callback without a key must be 501, got %d", code)
+	code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("encrypted callback without a key must fold to the uniform 400, got %d", code)
+	}
+	if msg, _ := resp["message"].(string); msg != "invalid encrypted callback" {
+		t.Fatalf("no-key encrypted callback message = %q, want the uniform fold", msg)
 	}
 }
 
@@ -329,6 +333,27 @@ func TestFeishuCallbackDecryptionFailuresFoldUniform(t *testing.T) {
 		if msg != "invalid encrypted callback" || (first != "" && msg != first) {
 			t.Fatalf("%s: response message %q must fold to the uniform oracle response", name, msg)
 		}
+	}
+}
+
+func TestFeishuCallbackNoAlertIDFoldsUniform(t *testing.T) {
+	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
+
+	// A valid-padding payload that decrypts but carries no alert_id must
+	// answer the same uniform message as a decryption failure — otherwise
+	// the response becomes a padding oracle distinguishing valid padding.
+	inner := map[string]any{
+		"schema": "2.0",
+		"event":  map[string]any{"action": map[string]any{"value": map[string]any{"other": "v"}}},
+	}
+	body, _ := json.Marshal(map[string]any{"encrypt": feishuSeal(t, testEncryptKey, inner)})
+	code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("no-alert_id encrypted callback must be 400, got %d", code)
+	}
+	if msg, _ := resp["message"].(string); msg != "invalid encrypted callback" {
+		t.Fatalf("no-alert_id encrypted callback message = %q, want the uniform fold", msg)
 	}
 }
 
