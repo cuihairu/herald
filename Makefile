@@ -11,7 +11,8 @@ clean:
 
 run: build
 	@echo "Running herald..."
-	@./bin/heraldd serve --config config.yaml
+	@if [ ! -f .env ]; then echo "Missing .env; copy .env.example and fill the required secrets first" >&2; exit 2; fi
+	@set -a; . ./.env; set +a; ./bin/heraldd serve --config config.yaml
 
 docs-dev:
 	@echo "Starting docs dev server..."

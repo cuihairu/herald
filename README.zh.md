@@ -112,6 +112,11 @@ docker-compose up -d herald
 # 构建
 make build
 
+# 导出 .env 中的密钥；heraldd 不会自动读取 .env
+set -a
+source .env
+set +a
+
 # 启动调度器
 ./bin/heraldd serve --config config.yaml
 

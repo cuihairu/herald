@@ -112,6 +112,11 @@ docker-compose up -d herald
 # Build
 make build
 
+# Export the secrets from .env; heraldd does not load .env by itself
+set -a
+source .env
+set +a
+
 # Start the scheduler
 ./bin/heraldd serve --config config.yaml
 

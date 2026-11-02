@@ -57,3 +57,9 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 - [ ] SEC-JWT-COOKIE · P3 · 安全 · `herald_token` cookie 无 CSRF 约束：`core/auth/auth.go:230-243` 接受 cookie 作为 JWT，但全仓无 `SetCookie("herald_token")`；部署方若自行注入 cookie，管理面写操作暴露于 CSRF。删除该回退，或启用时强制 SameSite=Strict + Origin/CSRF 校验。证据见同报告 F-12。
 - [ ] SEC-DEFAULT-ADMIN · P3 · 安全 · `config.Default()` 内置 `admin:admin`：`config/config.go:489-491`；`heraldd serve` 走 Load 暂不可达，但库调用方/未来子命令会得到公开默认口令。Default 留空 map，Validate 在 auth.enabled 且无凭据时拒绝启动。证据见同报告 F-13。
 - [ ] SEC-ENV-PLACEHOLDER · P3 · 安全 · `.env.example` 占位密钥可直接生效：`.env.example:12` `HERALD_ADMIN_API_KEY=your-admin-api-key`，修复 F-1 后会被真正展开；直接复用示例即弱口令。占位留空并注明必填，或 Validate 拒绝 `your-*`/`change-me` 前缀。证据见同报告 F-14。
+
+## 审核发现
+
+- [x] 审核发现：README「Run Locally」/`make run` 用出厂 config.yaml 直接启动时二进制不读 .env，`HERALD_ADMIN_API_KEY` 未导出即触发 Validate 拒起；本 diff 给 config.yaml 开鉴权却没同步本地运行说明（README.md:116, config.yaml:16）— 属实已修；`go test ./config` 34 tests green，`make -n run` 显式 source .env。
+- [ ] 审核发现：出厂 config.yaml 开鉴权却未配 `admin_user`，README 快速开始仍称「登录后…」，实际 `/auth/login` 因无用户恒 401，Dashboard 登录不可达（README.md:131, config.yaml:13, core/user/user.go:73）。
+- [ ] 审核发现：KNOWN_UNCOVERABLE.md 已把 server.go 行号 370 更正为 382，但文档一致性台账仍声称「server.go:370 落在所述块上」，行号漂移未同步（docs/审计-文档一致性.md:391, KNOWN_UNCOVERABLE.md:61）。
