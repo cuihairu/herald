@@ -892,8 +892,9 @@ token 或 API Key）。`enabled: true` 时 `api_keys` 必须至少配置一条�
 auth:
   enabled: true
   api_keys:                 # key -> 描述（Dashboard/API 调用方使用）
-    "hk-xxxxxxxx": "CI 管道"
-  secret_key: "$HERALD_JWT_SECRET"   # 可选：JWT 签名密钥（不配则使用内置默认密钥，生产环境必须显式配置）
+    "$HERALD_ADMIN_API_KEY": "operator"   # 以 "$VAR" 作 key 时从环境变量读取；未解析的引用会拒绝启动
+    "hk-xxxxxxxx": "CI 管道"               # 字面量 key 原样使用
+  secret_key: "$HERALD_JWT_SECRET"   # 可选：JWT 签名密钥（不配则用每进程随机密钥，重启后旧 token 失效）
   admin_user:               # 可选：Dashboard 登录账号（用户名 -> 密码）
     admin: "$HERALD_ADMIN_PASSWORD"
 ```

@@ -897,8 +897,9 @@ with authentication disabled, only `127.0.0.1`, `[::1]` or `localhost` binds are
 auth:
   enabled: true
   api_keys:                 # key -> description (used by Dashboard/API callers)
-    "hk-xxxxxxxx": "CI pipeline"
-  secret_key: "$HERALD_JWT_SECRET"   # optional: JWT signing key (a built-in default key is used when unset; production must configure it explicitly)
+    "$HERALD_ADMIN_API_KEY": "operator"   # a "$VAR" key is read from the environment; unresolved references refuse startup
+    "hk-xxxxxxxx": "CI pipeline"           # literal keys are used verbatim
+  secret_key: "$HERALD_JWT_SECRET"   # optional: JWT signing key (unset = random per-process key; tokens then do not survive restart)
   admin_user:               # optional: Dashboard login account (username -> password)
     admin: "$HERALD_ADMIN_PASSWORD"
 ```

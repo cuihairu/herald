@@ -5,13 +5,15 @@ server:
   timeout: 30s
 
 # API 鉴权：公网/通配绑定必须开启并至少配置一枚 api key，否则 heraldd 拒绝启动
-# （关闭鉴权时 server.addr 只能绑 loopback）。key 从 HERALD_ADMIN_API_KEY 读取；
+# （关闭鉴权时 server.addr 只能绑 loopback）。api_keys 的 key 是密钥本身，
+# value 是描述；这里用 "$HERALD_ADMIN_API_KEY" 作 key，从环境变量读取真实值。
+# 变量未设置/为空时 heraldd 拒绝启动，绝不会把 "$HERALD_ADMIN_API_KEY" 当密钥用。
 # 任意非 loopback 部署都必须先在 .env 里把它设成真实值。
 # 详见 docs/guide/configuration.md 的「认证配置」章节。
 auth:
   enabled: true
   api_keys:
-    operator: "$HERALD_ADMIN_API_KEY"
+    "$HERALD_ADMIN_API_KEY": "operator"
 
 # Provider 配置
 providers:

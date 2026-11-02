@@ -140,8 +140,9 @@ type Config struct {
 
 // CardCallbackConfig holds the provider-side secrets of card button
 // callbacks. EncryptKey is the Feishu console's "Encrypt Key": callbacks
-// that arrive encrypted are decrypted with it; empty keeps encrypted
-// callbacks rejected (plaintext and the URL challenge still work).
+// that arrive encrypted are decrypted with it, and plaintext card actions
+// are rejected while it is set (the URL verification challenge still works).
+// Empty keeps encrypted callbacks rejected and accepts plaintext actions.
 type CardCallbackConfig struct {
 	EncryptKey string `yaml:"encrypt_key"`
 }
@@ -507,7 +508,10 @@ func Default() *Config {
 	}
 }
 
-// ExpandEnv expands environment variables in config
+// ExpandEnv expands $VAR references in configuration values. Provider
+// configs are free-form, so every string value is a candidate; the typed
+// secret fields below are expanded explicitly because a literal "$VAR" left
+// in place would become a real — and publicly known — credential.
 func (c *Config) ExpandEnv() {
 	for name, p := range c.Providers {
 		if p.Config == nil {
@@ -520,6 +524,45 @@ func (c *Config) ExpandEnv() {
 		}
 		c.Providers[name] = p
 	}
+
+	// auth.api_keys is key -> description: the key is the secret, so both
+	// sides may carry a reference (e.g. "$HERALD_ADMIN_API_KEY": "operator").
+	if len(c.Auth.APIKeys) > 0 {
+		keys := make(map[string]string, len(c.Auth.APIKeys))
+		for key, description := range c.Auth.APIKeys {
+			keys[expandEnv(key)] = expandEnv(description)
+		}
+		c.Auth.APIKeys = keys
+	}
+	c.Auth.SecretKey = expandEnv(c.Auth.SecretKey)
+	for username, password := range c.Auth.AdminUser {
+		c.Auth.AdminUser[username] = expandEnv(password)
+	}
+
+	for name, app := range c.Apps {
+		for i := range app.Tokens {
+			app.Tokens[i].Secret = expandEnv(app.Tokens[i].Secret)
+		}
+		c.Apps[name] = app
+	}
+
+	if c.CardCallback != nil {
+		c.CardCallback.EncryptKey = expandEnv(c.CardCallback.EncryptKey)
+	}
+	c.Sources.Bot.Secret = expandEnv(c.Sources.Bot.Secret)
+	c.Sources.WeChatMP.Token = expandEnv(c.Sources.WeChatMP.Token)
+	c.Queue.Redis.Password = expandEnv(c.Queue.Redis.Password)
+	c.Digest.RedisPassword = expandEnv(c.Digest.RedisPassword)
+	if c.RulesState != nil {
+		c.RulesState.Password = expandEnv(c.RulesState.Password)
+	}
+}
+
+// unresolvedEnv reports a "$VAR" reference that ExpandEnv could not resolve
+// (the variable is unset or empty). Such a value must never be used as a
+// credential: it is a literal known to anyone reading the config.
+func unresolvedEnv(s string) bool {
+	return len(s) > 0 && s[0] == '$'
 }
 
 func expandEnv(s string) string {
@@ -549,6 +592,26 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
 		return fmt.Errorf("auth enabled but no api_keys configured")
+	}
+	if c.Auth.Enabled {
+		// An unexpanded "$VAR" would become the literal key/password and
+		// authenticate anyone who can read this repository's sample config.
+		for key := range c.Auth.APIKeys {
+			if key == "" {
+				return fmt.Errorf("auth enabled but api_keys contains an empty key")
+			}
+			if unresolvedEnv(key) {
+				return fmt.Errorf("auth enabled but api_keys entry %q is an unresolved environment reference; set the variable or configure a literal key", key)
+			}
+		}
+		if unresolvedEnv(c.Auth.SecretKey) {
+			return fmt.Errorf("auth secret_key %q is an unresolved environment reference; set the variable or leave secret_key empty to use a random per-process key", c.Auth.SecretKey)
+		}
+		for username, password := range c.Auth.AdminUser {
+			if unresolvedEnv(password) {
+				return fmt.Errorf("auth admin_user[%s] password is an unresolved environment reference", username)
+			}
+		}
 	}
 	if !c.Auth.Enabled && !isLoopbackBind(c.Server.Addr) {
 		return fmt.Errorf("refusing to bind public address %q while auth is disabled; enable auth and configure api_keys, or bind to loopback", c.Server.Addr)
@@ -584,6 +647,18 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("dedup category_windows[%s]: window must be positive, got %v", category, window)
 		}
 	}
+	// Secrets used outside auth (card callbacks, source adapters, app
+	// tokens) must be resolved too: a "$VAR" here is a literal credential.
+	if c.CardCallback != nil && unresolvedEnv(c.CardCallback.EncryptKey) {
+		return fmt.Errorf("card_callback.encrypt_key %q is an unresolved environment reference", c.CardCallback.EncryptKey)
+	}
+	if unresolvedEnv(c.Sources.Bot.Secret) {
+		return fmt.Errorf("sources.bot.secret is an unresolved environment reference")
+	}
+	if unresolvedEnv(c.Sources.WeChatMP.Token) {
+		return fmt.Errorf("sources.wechat_mp.token is an unresolved environment reference")
+	}
+
 	// §13.1 app seeds: the registry constructor is the single validation
 	// point (name slug, non-empty secrets, scope vocabulary, no secret
 	// shared across namespaces) — config refuses exactly what it refuses.
@@ -591,6 +666,9 @@ func (c *Config) Validate() error {
 	for name, app := range c.Apps {
 		tokens := make([]apps.SeedToken, 0, len(app.Tokens))
 		for _, t := range app.Tokens {
+			if unresolvedEnv(t.Secret) {
+				return fmt.Errorf("app %s token secret is an unresolved environment reference", name)
+			}
 			tokens = append(tokens, apps.SeedToken{Secret: t.Secret, Scopes: t.Scopes})
 		}
 		seeds = append(seeds, apps.SeedApp{Name: name, Tokens: tokens})

@@ -315,9 +315,9 @@ routes:
 # /status 与 /feeds/** 始终匿名。
 auth:
   enabled: true
-  api_keys:
-    operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> 或 X-API-Key: <key>
-#   secret_key: "$JWT_SECRET"      # 可选：JWT 校验密钥
+  api_keys:                        # key -> 描述；以 "$VAR" 作 key 时从环境变量读取
+    "$ADMIN_API_KEY": "operator"   # Authorization: Bearer <key> 或 X-API-Key: <key>
+#   secret_key: "$JWT_SECRET"      # 可选：JWT 签名密钥（不配则用每进程随机密钥）
 #   admin_user:
 #     admin: "$ADMIN_PASSWORD"     # 可选：控制台登录
 

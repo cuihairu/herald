@@ -485,6 +485,150 @@ func TestExpandEnv(t *testing.T) {
 	})
 }
 
+func TestExpandEnvSecrets(t *testing.T) {
+	t.Setenv("HERALD_TEST_API_KEY", "real-api-key")
+	t.Setenv("HERALD_TEST_JWT_SECRET", "real-jwt-secret")
+	t.Setenv("HERALD_TEST_ADMIN_PASSWORD", "real-admin-password")
+	t.Setenv("HERALD_TEST_APP_TOKEN", "real-app-token")
+	t.Setenv("HERALD_TEST_CARD_KEY", "real-card-key")
+	t.Setenv("HERALD_TEST_SOURCE_SECRET", "real-source-secret")
+
+	cfg := &Config{
+		Auth: AuthConfig{
+			APIKeys: map[string]string{
+				"$HERALD_TEST_API_KEY": "operator",
+			},
+			SecretKey: "$HERALD_TEST_JWT_SECRET",
+			AdminUser: map[string]string{
+				"admin": "$HERALD_TEST_ADMIN_PASSWORD",
+			},
+		},
+		Apps: map[string]AppConfig{
+			"demo-app": {Tokens: []AppTokenConfig{
+				{Secret: "$HERALD_TEST_APP_TOKEN", Scopes: []string{"query"}},
+			}},
+		},
+		CardCallback: &CardCallbackConfig{EncryptKey: "$HERALD_TEST_CARD_KEY"},
+		Sources: SourcesConfig{
+			Bot:      SourceBotConfig{Secret: "$HERALD_TEST_SOURCE_SECRET"},
+			WeChatMP: SourceWeChatMPConfig{Token: "$HERALD_TEST_SOURCE_SECRET"},
+		},
+	}
+	cfg.ExpandEnv()
+
+	if _, ok := cfg.Auth.APIKeys["real-api-key"]; !ok {
+		t.Fatalf("api key map key must be expanded, got %v", cfg.Auth.APIKeys)
+	}
+	if got := cfg.Auth.APIKeys["real-api-key"]; got != "operator" {
+		t.Errorf("api key description = %q, want operator", got)
+	}
+	if cfg.Auth.SecretKey != "real-jwt-secret" {
+		t.Errorf("secret key = %q, want expanded value", cfg.Auth.SecretKey)
+	}
+	if got := cfg.Auth.AdminUser["admin"]; got != "real-admin-password" {
+		t.Errorf("admin password = %q, want expanded value", got)
+	}
+	if got := cfg.Apps["demo-app"].Tokens[0].Secret; got != "real-app-token" {
+		t.Errorf("app token = %q, want expanded value", got)
+	}
+	if got := cfg.CardCallback.EncryptKey; got != "real-card-key" {
+		t.Errorf("card callback key = %q, want expanded value", got)
+	}
+	if got := cfg.Sources.Bot.Secret; got != "real-source-secret" {
+		t.Errorf("bot secret = %q, want expanded value", got)
+	}
+	if got := cfg.Sources.WeChatMP.Token; got != "real-source-secret" {
+		t.Errorf("wechat mp token = %q, want expanded value", got)
+	}
+}
+
+// TestShippedConfigAuthOrientation pins the sample config's api_keys
+// direction: the environment reference must be the map key (the secret),
+// never the description. Getting this backwards makes the literal
+// description — here "operator" — the accepted API key.
+func TestShippedConfigAuthOrientation(t *testing.T) {
+	t.Setenv("HERALD_ADMIN_API_KEY", "test-admin-key")
+
+	cfg, err := Load("../config.yaml")
+	if err != nil {
+		t.Fatalf("load shipped config: %v", err)
+	}
+	cfg.ExpandEnv()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("shipped config must validate with the env set: %v", err)
+	}
+	if _, ok := cfg.Auth.APIKeys["test-admin-key"]; !ok {
+		t.Fatalf("the expanded key must authenticate, got %v", cfg.Auth.APIKeys)
+	}
+	if _, ok := cfg.Auth.APIKeys["operator"]; ok {
+		t.Fatalf("the description must never become the key, got %v", cfg.Auth.APIKeys)
+	}
+}
+
+func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
+	t.Run("api key reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.APIKeys = map[string]string{"$HERALD_UNSET_KEY": "operator"}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "unresolved environment reference") {
+			t.Errorf("err = %v, want unresolved api key refusal", err)
+		}
+	})
+
+	t.Run("empty api key", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.APIKeys = map[string]string{"": "empty"}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "empty key") {
+			t.Errorf("err = %v, want empty api key refusal", err)
+		}
+	})
+
+	t.Run("jwt secret reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.APIKeys = map[string]string{"real-key": "operator"}
+		cfg.Auth.SecretKey = "$HERALD_UNSET_JWT"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "secret_key") {
+			t.Errorf("err = %v, want unresolved secret_key refusal", err)
+		}
+	})
+
+	t.Run("admin password reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.APIKeys = map[string]string{"real-key": "operator"}
+		cfg.Auth.AdminUser = map[string]string{"admin": "$HERALD_UNSET_PASSWORD"}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "admin_user") {
+			t.Errorf("err = %v, want unresolved admin password refusal", err)
+		}
+	})
+
+	t.Run("card callback key reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.CardCallback = &CardCallbackConfig{EncryptKey: "$HERALD_UNSET_CARD_KEY"}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "encrypt_key") {
+			t.Errorf("err = %v, want unresolved card callback key refusal", err)
+		}
+	})
+
+	t.Run("app token reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Apps = map[string]AppConfig{
+			"demo-app": {Tokens: []AppTokenConfig{{Secret: "$HERALD_UNSET_APP_TOKEN", Scopes: []string{"query"}}}},
+		}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "demo-app") {
+			t.Errorf("err = %v, want unresolved app token refusal", err)
+		}
+	})
+}
+
 func TestValidate(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		cfg := Default()

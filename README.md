@@ -319,9 +319,9 @@ routes:
 # /status and /feeds/** stay anonymous.
 auth:
   enabled: true
-  api_keys:
-    operator: "$ADMIN_API_KEY"   # Authorization: Bearer <key> or X-API-Key: <key>
-#   secret_key: "$JWT_SECRET"      # optional: JWT verifier key
+  api_keys:                        # key -> description; "$VAR" keys are read from the environment
+    "$ADMIN_API_KEY": "operator"   # Authorization: Bearer <key> or X-API-Key: <key>
+#   secret_key: "$JWT_SECRET"      # optional: JWT signing key (unset = random per-process key)
 #   admin_user:
 #     admin: "$ADMIN_PASSWORD"     # optional: dashboard login
 
