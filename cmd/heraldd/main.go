@@ -580,6 +580,7 @@ func serveCmd(args []string) int {
 		PingInterval:   cfg.WebSocket.PingInterval,
 		AllowedOrigins: cfg.WebSocket.AllowedOrigins,
 		MaxMessageSize: cfg.WebSocket.MaxMessageSize,
+		AuthToken:      cfg.WebSocket.AuthToken,
 	}, nil)
 	hub := websocket.NewHub(wsServer, registry)
 	wsServer.SetHandler(hub)
@@ -807,7 +808,7 @@ func runRemoteWorkerControlPlane(ctx context.Context, cfg *config.Config, regist
 		}
 
 		logger.Info("remote worker websocket connected", "worker_id", workerID, "url", wsURL)
-		if err := registerRemoteWorker(conn, workerID, capabilities); err != nil {
+		if err := registerRemoteWorker(conn, workerID, capabilities, cfg.Worker.AuthToken); err != nil {
 			logger.Error("remote worker registration failed", "worker_id", workerID, "error", err)
 			_ = conn.Close()
 			if !sleepOrDone(ctx, reconnectDelay) {
@@ -867,13 +868,14 @@ func buildWorkerWebSocketURL(cfg *config.Config) string {
 // in registerRemoteWorker can never be executed.
 var setReadDeadline = func(conn *gws.Conn, t time.Time) error { return conn.SetReadDeadline(t) }
 
-func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string) error {
+func registerRemoteWorker(conn *gws.Conn, workerID string, capabilities []string, authToken string) error {
 	msg := &protocol.RegisterMessage{
 		WorkerID:     workerID,
 		Mode:         string(worker.Remote),
 		Platform:     stdruntime.GOOS,
 		Version:      "dev",
 		Capabilities: capabilities,
+		AuthToken:    authToken,
 	}
 	// The register message has only concrete fields, so marshalling
 	// cannot fail; gorilla's SetWriteDeadline only records the timestamp

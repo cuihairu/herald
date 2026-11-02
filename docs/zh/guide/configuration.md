@@ -287,10 +287,11 @@ rules:
 # WebSocket 配置（远程 Worker 管理通道）
 websocket:
   addr: ":8081"
+  # auth_token: "$WORKER_TOKEN"  # 远程 Worker 共享令牌；非回环绑定必填
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s
-  max_message_size: 1048576   # 单帧字节上限，默认 1 MiB（该通道未鉴权）
+  max_message_size: 1048576   # 单帧字节上限，默认 1 MiB
   # allowed_origins:       # WebSocket 允许的来源列表
   #   - "https://your-domain.com"
   #   - "*"                 # 允许所有来源（仅开发环境）
@@ -352,6 +353,7 @@ queue:
 worker:
   id: "worker-01"             # 可选，缺省自动生成
   server_url: "ws://localhost:8081/worker"   # 调度器管理通道（注意带 /worker 路径）
+  auth_token: "$WORKER_TOKEN"  # 必须与调度器 websocket.auth_token 一致
 
 # 兼容写法：不配 worker.server_url 时回退到 websocket.addr（自动补 /worker 路径）
 websocket:

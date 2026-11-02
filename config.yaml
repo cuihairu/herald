@@ -167,6 +167,8 @@ dedup:
 # WebSocket 配置 (用于 Worker 连接)
 websocket:
   addr: ":8081"
+  # 远程 Worker 共享令牌：非回环绑定必须设置；变量未设置/为空时 heraldd 拒起。
+  auth_token: "$HERALD_WORKER_TOKEN"
   read_timeout: 60s
   write_timeout: 60s
   ping_interval: 20s

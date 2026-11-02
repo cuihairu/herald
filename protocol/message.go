@@ -28,6 +28,10 @@ type RegisterMessage struct {
 	Platform     string   `json:"platform"`
 	Version      string   `json:"version"`
 	Capabilities []string `json:"capabilities"`
+	// AuthToken authenticates the worker against the management channel.
+	// Empty on the client means no token is supplied; the server refuses
+	// registration when it requires one.
+	AuthToken string `json:"auth_token,omitempty"`
 }
 
 func (m *RegisterMessage) Type() string { return MessageTypeRegister }
@@ -126,6 +130,7 @@ func (s ConnectionState) String() string {
 type WorkerConfig struct {
 	WorkerID          string        `json:"worker_id"`
 	CoreURL           string        `json:"core_url"` // WebSocket URL
+	AuthToken         string        `json:"auth_token,omitempty"`
 	ReconnectDelay    time.Duration `json:"reconnect_delay"`
 	HeartbeatInterval time.Duration `json:"heartbeat_interval"`
 	Capabilities      []string      `json:"capabilities"`

@@ -175,6 +175,11 @@ type WebSocketConfig struct {
 	PingTimeout    time.Duration `yaml:"ping_timeout"`
 	PingInterval   time.Duration `yaml:"ping_interval"`
 	AllowedOrigins []string      `yaml:"allowed_origins"`
+	// AuthToken is the shared secret a remote worker must present when
+	// registering. Empty means the management channel accepts anonymous
+	// registration (development/local only); production deployments that
+	// bind the channel beyond loopback must set it.
+	AuthToken string `yaml:"auth_token"`
 	// MaxMessageSize bounds one worker frame (bytes). Defaults to 1 MiB;
 	// the management channel is unauthenticated, so an unbounded frame is
 	// a remote memory-exhaustion vector.
@@ -185,6 +190,7 @@ type WebSocketConfig struct {
 type WorkerConfig struct {
 	ID                string        `yaml:"id"`
 	ServerURL         string        `yaml:"server_url"`
+	AuthToken         string        `yaml:"auth_token"`
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	ReconnectDelay    time.Duration `yaml:"reconnect_delay"`
 	Capabilities      []string      `yaml:"capabilities"`
@@ -600,6 +606,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
 		return fmt.Errorf("auth enabled but no api_keys configured")
+	}
+	// The worker management channel drives register/heartbeat/ack/event and
+	// hub mutation. Binding it beyond loopback without a shared token lets
+	// anyone register, ack, and inject events. Refuse to start.
+	if c.WebSocket.AuthToken == "" && !isLoopbackBind(c.WebSocket.Addr) {
+		return fmt.Errorf("websocket management channel bound to non-loopback address %q but no auth_token configured; set websocket.auth_token or bind to loopback", c.WebSocket.Addr)
 	}
 	if c.Auth.Enabled {
 		// An unexpanded "$VAR" would become the literal key/password and

@@ -220,7 +220,7 @@ func TestRegisterRemoteWorkerSuccess(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	if err := registerRemoteWorker(conn, "w1", []string{"telegram"}); err != nil {
+	if err := registerRemoteWorker(conn, "w1", []string{"telegram"}, ""); err != nil {
 		t.Fatalf("registerRemoteWorker() error = %v", err)
 	}
 }
@@ -237,7 +237,7 @@ func TestRegisterRemoteWorkerRejected(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	err = registerRemoteWorker(conn, "w1", nil)
+	err = registerRemoteWorker(conn, "w1", nil, "")
 	if err == nil || !strings.Contains(err.Error(), "register rejected: not allowed") {
 		t.Errorf("registerRemoteWorker() error = %v, want rejection", err)
 	}
@@ -254,7 +254,7 @@ func TestRegisterRemoteWorkerBadAck(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	if err := registerRemoteWorker(conn, "w1", nil); err == nil {
+	if err := registerRemoteWorker(conn, "w1", nil, ""); err == nil {
 		t.Error("registerRemoteWorker() with non-JSON ack should fail")
 	}
 }
@@ -270,7 +270,7 @@ func TestRegisterRemoteWorkerWriteFailure(t *testing.T) {
 	serverConn := stub.nextConn(3 * time.Second)
 	_ = serverConn.Close()
 
-	if err := registerRemoteWorker(conn, "w1", nil); err == nil {
+	if err := registerRemoteWorker(conn, "w1", nil, ""); err == nil {
 		t.Error("registerRemoteWorker() on dead conn should fail")
 	}
 	_ = conn.Close()

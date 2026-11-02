@@ -330,6 +330,11 @@ auth:
 #   admin_user:
 #     admin: "$ADMIN_PASSWORD"     # 可选：控制台登录
 
+# Worker 管理通道（websocket.addr ":8081" 或非回环绑定）：
+# websocket:
+#   addr: ":8081"
+#   auth_token: "$WORKER_TOKEN"    # 非回环绑定必填；远程 Worker 发送该令牌
+
 # 集成者命名空间（可选）：应用名 -> 引导 token。scope 三档：config（品类/模板/策略/回调）、
 # trigger（dispatch/事件）、query（deliveries/审计）；一枚 token 一个权限集。
 # apps:

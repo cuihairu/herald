@@ -335,6 +335,11 @@ auth:
 #   admin_user:
 #     admin: "$ADMIN_PASSWORD"     # optional: dashboard login
 
+# Worker management channel (websocket.addr ":8081" or non-loopback binds):
+# websocket:
+#   addr: ":8081"
+#   auth_token: "$WORKER_TOKEN"    # required for non-loopback binds; remote workers send this token
+
 # Integrator namespace (optional): app name -> bootstrap tokens. Scopes are
 # config (categories/templates/policies/callback), trigger (dispatch/events)
 # and query (deliveries/audit); one token per scope set.

@@ -125,6 +125,8 @@ func TestDuplicateNameGuardAbortsRegistration(t *testing.T) {
 	serveCfg := writeTestConfig(t, `
 server:
   addr: 127.0.0.1:0
+websocket:
+  addr: 127.0.0.1:0
 queue:
   type: memory
 providers:
@@ -144,6 +146,8 @@ providers:
 	fr := newFakeRedis(t)
 	workerCfg := writeTestConfig(t, fmt.Sprintf(`
 server:
+  addr: 127.0.0.1:0
+websocket:
   addr: 127.0.0.1:0
 queue:
   type: redis
@@ -470,7 +474,7 @@ func TestRegisterRemoteWorkerWriteError(t *testing.T) {
 	}
 	_ = conn.Close()
 
-	if err := registerRemoteWorker(conn, "w-wrerr", nil); err == nil {
+	if err := registerRemoteWorker(conn, "w-wrerr", nil, ""); err == nil {
 		t.Error("registerRemoteWorker() on closed conn = nil, want write error")
 	}
 }
@@ -493,7 +497,7 @@ func TestRegisterRemoteWorkerReadDeadlineFailure(t *testing.T) {
 	setReadDeadline = func(*gws.Conn, time.Time) error { return sentinel }
 	defer func() { setReadDeadline = orig }()
 
-	if err := registerRemoteWorker(conn, "w-dlerr", nil); err != sentinel {
+	if err := registerRemoteWorker(conn, "w-dlerr", nil, ""); err != sentinel {
 		t.Fatalf("registerRemoteWorker() error = %v, want the injected deadline failure", err)
 	}
 }
@@ -511,7 +515,7 @@ func TestRegisterRemoteWorkerReadError(t *testing.T) {
 	serverConn := stub.nextConn(3 * time.Second)
 	_ = serverConn.Close()
 
-	if err := registerRemoteWorker(conn, "w-readerr", nil); err == nil {
+	if err := registerRemoteWorker(conn, "w-readerr", nil, ""); err == nil {
 		t.Error("registerRemoteWorker() without ack should fail on read")
 	}
 	_ = conn.Close()

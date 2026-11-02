@@ -1360,6 +1360,63 @@ func TestHandleRegister(t *testing.T) {
 	}
 }
 
+func TestHandleRegisterRequiresAuthToken(t *testing.T) {
+	secret := "supersecret-worker-token"
+	for _, tc := range []struct {
+		name  string
+		token string
+		want  bool
+	}{
+		{"correct token", secret, true},
+		{"missing token", "", false},
+		{"wrong token", "wrong-token", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &mockHandler{}
+			server := NewServer(&Config{
+				Addr:           "127.0.0.1:0",
+				ReadTimeout:    time.Second,
+				WriteTimeout:   time.Second,
+				PingTimeout:    time.Second,
+				PingInterval:   time.Second,
+				AllowedOrigins: []string{"*"},
+				AuthToken:      secret,
+			}, handler)
+			testSrv := httptest.NewServer(http.HandlerFunc(server.handleWebSocket))
+			defer testSrv.Close()
+
+			wsURL := "ws" + testSrv.URL[len("http"):]
+			conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+			if err != nil {
+				t.Fatalf("failed to dial websocket: %v", err)
+			}
+			defer func() { _ = conn.Close() }()
+
+			register := &protocol.RegisterMessage{
+				WorkerID:     "worker-1",
+				Platform:     "linux",
+				Version:      "1.0.0",
+				Capabilities: []string{"telegram"},
+				AuthToken:    tc.token,
+			}
+			payload, _ := protocol.MarshalMessage(register)
+			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				t.Fatalf("write register: %v", err)
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_, ackData, err := conn.ReadMessage()
+			if err != nil {
+				t.Fatalf("read register ack: %v", err)
+			}
+			var ack protocol.RegisterAckMessage
+			_ = json.Unmarshal(ackData, &ack)
+			if ack.Success != tc.want {
+				t.Fatalf("success = %v, want %v", ack.Success, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleRegisterHandlerError(t *testing.T) {
 	// Handler that returns an error on OnRegister
 	errorHandler := &errorMockHandler{}

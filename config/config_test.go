@@ -555,6 +555,7 @@ func TestExpandEnvSecrets(t *testing.T) {
 func TestShippedConfigAuthOrientation(t *testing.T) {
 	t.Setenv("HERALD_ADMIN_API_KEY", "test-admin-key")
 	t.Setenv("HERALD_ADMIN_PASSWORD", "test-admin-password")
+	t.Setenv("HERALD_WORKER_TOKEN", "test-worker-token")
 
 	cfg, err := Load("../config.yaml")
 	if err != nil {
@@ -575,6 +576,7 @@ func TestShippedConfigAuthOrientation(t *testing.T) {
 func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 	t.Run("api key reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		cfg.Auth.APIKeys = map[string]string{"$HERALD_UNSET_KEY": "operator"}
@@ -585,6 +587,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("empty api key", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		cfg.Auth.APIKeys = map[string]string{"": "empty"}
@@ -595,6 +598,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("jwt secret reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		cfg.Auth.APIKeys = map[string]string{"real-key": "operator"}
@@ -606,6 +610,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("admin password reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		cfg.Auth.APIKeys = map[string]string{"real-key": "operator"}
@@ -617,6 +622,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("card callback key reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.CardCallback = &CardCallbackConfig{EncryptKey: "$HERALD_UNSET_CARD_KEY"}
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "encrypt_key") {
@@ -626,6 +632,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("app token reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{{Secret: "$HERALD_UNSET_APP_TOKEN", Scopes: []string{"query"}}}},
@@ -637,6 +644,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("source bot secret reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Sources.Bot.Secret = "$HERALD_UNSET_BOT_SECRET"
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sources.bot.secret") {
@@ -646,6 +654,7 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 
 	t.Run("source wechat token reference", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Sources.WeChatMP.Token = "$HERALD_UNSET_WECHAT_TOKEN"
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sources.wechat_mp.token") {
@@ -655,9 +664,14 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
+	// Default() has websocket.addr ":8081" (wildcard). Most cases exercise
+	// unrelated validators, so use loopback plus a token unless the case
+	// targets websocket binding itself.
 	t.Run("valid config", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Auth.Enabled = true
 		cfg.Auth.APIKeys["admin"] = "secret"
 		cfg.Providers["webhook"] = ProviderConfig{Type: "webhook"}
@@ -668,6 +682,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("missing server addr", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Server.Addr = ""
 		err := cfg.Validate()
@@ -678,6 +693,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("auth enabled without api keys", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Auth.Enabled = true
 		err := cfg.Validate()
@@ -688,6 +704,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("rejects public bind without auth", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth is disabled") {
 			t.Errorf("expected public unauthenticated bind refusal, got %v", err)
 		}
@@ -695,6 +712,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("allows loopback bind without auth", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		if err := cfg.Validate(); err != nil {
@@ -704,14 +722,40 @@ func TestValidate(t *testing.T) {
 
 	t.Run("allows localhost bind without auth", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "LocalHost:8080"
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("expected localhost bind to be allowed, got %v", err)
 		}
 	})
 
+	t.Run("websocket non-loopback requires auth_token", func(t *testing.T) {
+		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.WebSocket.Addr = ":8081"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth_token") {
+			t.Errorf("expected non-loopback websocket without token to be refused, got %v", err)
+		}
+		cfg.WebSocket.AuthToken = "shared-worker-secret"
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected non-loopback websocket with token to pass, got %v", err)
+		}
+	})
+
+	t.Run("websocket loopback without auth_token allowed", func(t *testing.T) {
+		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected loopback websocket without token to be allowed, got %v", err)
+		}
+	})
+
 	t.Run("provider missing type", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Providers["log"] = ProviderConfig{Type: ""}
 		err := cfg.Validate()
@@ -722,6 +766,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("channel without providers", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Channels["ci"] = ChannelConfig{}
 		err := cfg.Validate()
@@ -732,6 +777,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("channel references unknown provider", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"ghost"}}
 		err := cfg.Validate()
@@ -742,6 +788,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("channel naming a real provider", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Providers["feishu"] = ProviderConfig{Type: "webhook"}
 		cfg.Channels["ci"] = ChannelConfig{Providers: []string{"feishu"}}
@@ -752,6 +799,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("dedup override tables parse", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Dedup.CategoryTiers = map[string]string{"bills": "always", "alerts": "once"}
 		cfg.Dedup.CategoryWindows = map[string]time.Duration{"alerts": 30 * time.Minute}
@@ -762,6 +810,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("dedup unparseable tier refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Dedup.CategoryTiers = map[string]string{"alerts": "hourly"}
 		err := cfg.Validate()
@@ -772,6 +821,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("dedup non-positive window refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Dedup.CategoryWindows = map[string]time.Duration{"alerts": -time.Minute}
 		err := cfg.Validate()
@@ -782,6 +832,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app seeds validate", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{
@@ -798,6 +849,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app without tokens refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{"demo-app": {}}
 		err := cfg.Validate()
@@ -808,6 +860,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app with unparseable scope refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"admin"}}}},
@@ -820,6 +873,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app secret shared across namespaces refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"demo-app": {Tokens: []AppTokenConfig{{Secret: "twin", Scopes: []string{"query"}}}},
@@ -833,6 +887,7 @@ func TestValidate(t *testing.T) {
 
 	t.Run("app with invalid name refuses to start", func(t *testing.T) {
 		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
 		cfg.Server.Addr = "127.0.0.1:8080"
 		cfg.Apps = map[string]AppConfig{
 			"bad name!": {Tokens: []AppTokenConfig{{Secret: "s", Scopes: []string{"query"}}}},

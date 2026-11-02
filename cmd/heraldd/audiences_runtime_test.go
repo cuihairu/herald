@@ -29,6 +29,8 @@ func TestServeCmdAudiencesRuntimeLifecycle(t *testing.T) {
 	cfgYAML := fmt.Sprintf(`
 server:
   addr: 127.0.0.1:%d
+websocket:
+  addr: 127.0.0.1:0
 queue:
   type: memory
   workers: 1

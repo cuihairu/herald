@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -113,6 +114,7 @@ type Server struct {
 	pingTimeout    time.Duration
 	pingInterval   time.Duration
 	maxMessageSize int64
+	authToken      string
 }
 
 // Config is the WebSocket server configuration
@@ -124,6 +126,7 @@ type Config struct {
 	PingInterval   time.Duration // Ping interval
 	MaxMessageSize int64         // Max message size
 	AllowedOrigins []string      // Allowed origins for WebSocket connections (["*"] to allow all)
+	AuthToken      string        // Shared secret required from registering workers (empty = anonymous)
 }
 
 // NewServer creates a new WebSocket server
@@ -154,6 +157,7 @@ func NewServer(config *Config, handler ConnHandler) *Server {
 		pingTimeout:    config.PingTimeout,
 		pingInterval:   config.PingInterval,
 		maxMessageSize: maxMessageSize,
+		authToken:      config.AuthToken,
 	}
 
 	mux.HandleFunc("/worker", s.handleWebSocket)
@@ -374,6 +378,26 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// The management channel carries register/heartbeat/ack/event messages
+	// that drive the worker hub directly. When a token is configured, an
+	// unknown or missing one refuses the registration before any state is
+	// written. Constant-time compare keeps the check from leaking a prefix.
+	if s.authToken != "" && !constantTimeEqual(s.authToken, msg.AuthToken) {
+		// Send a rejection ack and close the connection so a rogue client
+		// does not hold the channel open in an unregistered loop.
+		ack := &protocol.RegisterAckMessage{
+			WorkerID: msg.WorkerID,
+			Success:  false,
+			Error:    "invalid worker auth token",
+			ServerID: "herald-core",
+			Timestamp: time.Now().Unix(),
+		}
+		data, _ := jsonMarshal(ack)
+		_ = state.conn.WriteMessage(websocket.TextMessage, data)
+		_ = state.conn.Close()
+		return fmt.Errorf("registration refused: invalid worker auth token")
+	}
+
 	// Update state
 	state.WorkerID = msg.WorkerID
 	state.Platform = msg.Platform
@@ -424,6 +448,16 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 	}
 
 	return nil
+}
+
+// constantTimeEqual compares two strings in constant time with respect to
+// the byte length of the configured token. A length mismatch answers false
+// without timing on the content.
+func constantTimeEqual(want, got string) bool {
+	if len(want) != len(got) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
 }
 
 // handleHeartbeat handles a heartbeat message

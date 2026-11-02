@@ -160,6 +160,7 @@ func (c *Client) register(ctx context.Context) error {
 		Platform:     detectPlatform(),
 		Version:      "1.0.0",
 		Capabilities: c.config.Capabilities,
+		AuthToken:    c.config.AuthToken,
 	}
 	if err := writeControl(conn, msg); err != nil {
 		// Defensive in practice: a peer reset is only surfaced by the next
