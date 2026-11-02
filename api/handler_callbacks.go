@@ -22,9 +22,10 @@ const ackSourceCard = "feishu_card"
 // it is called by Feishu's servers, which authenticate with the callback
 // encryption key instead.
 //
-// It answers Feishu's URL verification challenge and accepts both the
-// encrypted (encrypt field, AES-256-CBC under SHA-256 of the encrypt key)
-// and the plaintext callback body.
+// It answers Feishu's URL verification challenge. When card_callback.encrypt_key
+// is configured it accepts only encrypted bodies (encrypt field, AES-256-CBC
+// under SHA-256 of the key) — plaintext actions would bypass the credential.
+// Without a key, plaintext bodies are accepted and encrypted ones are rejected.
 func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 	if h.ackStore == nil {
 		h.respondError(w, http.StatusServiceUnavailable, "ack store is not configured")
@@ -80,6 +81,12 @@ func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 			h.respondError(w, http.StatusBadRequest, "invalid decrypted payload")
 			return
 		}
+	} else if h.cardEncryptKey != "" {
+		// The encryption key is the endpoint's credential. Accepting a
+		// plaintext action while it is configured would let anyone ack an
+		// alert without knowing the key.
+		h.respondError(w, http.StatusUnauthorized, "plaintext callbacks are not accepted while callback encryption is configured")
+		return
 	}
 
 	alertID, ackedBy := extractFeishuCardAck(payload.Schema, payload.Event, payload.Action, payload.OpenID)

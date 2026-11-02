@@ -152,6 +152,37 @@ func TestFeishuCallbackEncryptedWithoutKey(t *testing.T) {
 	}
 }
 
+func TestFeishuCallbackRejectsPlaintextWhenKeyConfigured(t *testing.T) {
+	store := ack.NewMemoryStore()
+	env := newTestEnv(t, withAckStore(store), func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
+
+	// A valid-looking plaintext action must not be processable without the
+	// encryption key once one is configured.
+	body := `{"schema":"2.0","event":{"operator":{"open_id":"ou_plain"},"action":{"value":{"alert_id":"inc-plain"}}}}`
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusUnauthorized {
+		t.Fatalf("plaintext callback with a key configured must be 401, got %d", code)
+	}
+	if rec, err := store.Get(t.Context(), "inc-plain"); err != nil || rec != nil {
+		t.Fatalf("a rejected plaintext action must not ack, got %v / %v", rec, err)
+	}
+}
+
+func TestFeishuCallbackChallengeWithKeyConfigured(t *testing.T) {
+	// Feishu's one-time URL verification is not an action and stays
+	// answerable even when callback encryption is configured.
+	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
+
+	code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu",
+		`{"type":"url_verification","challenge":"tok-enc"}`, nil)
+	if code != http.StatusOK {
+		t.Fatalf("challenge with a key configured failed: %d", code)
+	}
+	if got := dataOf(t, resp)["challenge"]; got != "tok-enc" {
+		t.Fatalf("challenge must be echoed, got %v", got)
+	}
+}
+
 func TestFeishuCallbackV1Fallback(t *testing.T) {
 	store := ack.NewMemoryStore()
 	env := newTestEnv(t, withAckStore(store))
