@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cuihairu/herald/core/jwt"
 	"github.com/cuihairu/herald/core/limiter"
@@ -30,8 +32,8 @@ type Config struct {
 	// LoginRate is the maximum login attempts per minute per client+username
 	// key. Zero uses the built-in default (5/min). A negative value disables
 	// login rate limiting (not recommended).
-	LoginRate float64 `yaml:"login_rate"`
-	LoginBurst int    `yaml:"login_burst"`
+	LoginRate  float64 `yaml:"login_rate"`
+	LoginBurst int     `yaml:"login_burst"`
 }
 
 // New creates a new auth instance
@@ -79,6 +81,11 @@ type loginRateLimiter struct {
 	rate    float64
 	burst   int
 	enabled bool
+	// lastSeen tracks the most recent allow for each key so idle entries
+	// can be evicted. Without it the map grows one bucket per unique
+	// clientIP|username key forever — a rotating-username attacker can
+	// exhaust memory.
+	lastSeen map[string]time.Time
 }
 
 func newLoginRateLimiter(rate float64, burst int) *loginRateLimiter {
@@ -92,12 +99,22 @@ func newLoginRateLimiter(rate float64, burst int) *loginRateLimiter {
 		burst = 5
 	}
 	return &loginRateLimiter{
-		keys:    make(map[string]*limiter.TokenBucket),
-		rate:    rate,
-		burst:   burst,
-		enabled: true,
+		keys:     make(map[string]*limiter.TokenBucket),
+		rate:     rate,
+		burst:    burst,
+		enabled:  true,
+		lastSeen: make(map[string]time.Time),
 	}
 }
+
+const (
+	// loginLimiterMaxKeys bounds the bucket table so a rotating-username
+	// or spoofed-IP attacker cannot grow it without bound.
+	loginLimiterMaxKeys = 10000
+	// loginLimiterIdleTTL is how long an unused key keeps its bucket
+	// before a sweep reclaims it.
+	loginLimiterIdleTTL = 10 * time.Minute
+)
 
 func (l *loginRateLimiter) allow(key string) bool {
 	if l == nil || !l.enabled {
@@ -109,8 +126,56 @@ func (l *loginRateLimiter) allow(key string) bool {
 	if !ok {
 		b = limiter.NewTokenBucket(l.rate, l.burst)
 		l.keys[key] = b
+		now := time.Now()
+		l.lastSeen[key] = now
+		// Amortized cleanup: when the table reaches the cap, drop the
+		// longest-idle entries in one pass instead of growing forever.
+		if len(l.keys) > loginLimiterMaxKeys {
+			l.evictIdleLocked(loginLimiterIdleTTL)
+		}
+	} else {
+		l.lastSeen[key] = time.Now()
 	}
 	return b.Allow()
+}
+
+// evictIdleLocked reclaims buckets that have seen no traffic for longer
+// than ttl. Callers hold the lock. It is only invoked at the cap, so the
+// extra scan is bounded by the table size and amortized over the insert
+// that triggered it.
+func (l *loginRateLimiter) evictIdleLocked(ttl time.Duration) {
+	cutoff := time.Now().Add(-ttl)
+	idle := make([]string, 0, len(l.keys))
+	for k, seen := range l.lastSeen {
+		if seen.Before(cutoff) {
+			idle = append(idle, k)
+		}
+	}
+	if len(idle) == 0 {
+		// Nothing idle: fall back to dropping the oldest quarter so the
+		// table stays bounded even under a burst of distinct active keys.
+		type kv struct {
+			k string
+			t time.Time
+		}
+		all := make([]kv, 0, len(l.keys))
+		for k, seen := range l.lastSeen {
+			all = append(all, kv{k, seen})
+		}
+		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+		drop := len(all) / 4
+		if drop < 1 {
+			drop = 1
+		}
+		idle = make([]string, 0, drop)
+		for i := 0; i < drop; i++ {
+			idle = append(idle, all[i].k)
+		}
+	}
+	for _, k := range idle {
+		delete(l.keys, k)
+		delete(l.lastSeen, k)
+	}
 }
 
 // LoginRequest is a login request

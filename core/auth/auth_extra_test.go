@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuihairu/herald/core/jwt"
 )
@@ -153,5 +154,27 @@ func TestAuth_HandleLoginGenerateError(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "failed to generate token") {
 		t.Errorf("expected 'failed to generate token' message, got %q", w.Body.String())
+	}
+}
+
+func TestLoginRateLimiterEvictsIdleKeys(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 100)
+
+	// Simulate a cap-sized table where every key has gone idle. allow
+	// must keep the table bounded instead of inserting the 10001st key.
+	for i := 0; i < loginLimiterMaxKeys; i++ {
+		key := "192.0.2.1|user-" + string(rune('a'+i%26)) + time.Duration(i).String()
+		limiter.keys[key] = nil
+		limiter.lastSeen[key] = time.Now().Add(-loginLimiterIdleTTL - time.Second)
+	}
+
+	if !limiter.allow("192.0.2.2|new-user") {
+		t.Fatal("new key must be allowed after eviction")
+	}
+	if got := len(limiter.keys); got > loginLimiterMaxKeys {
+		t.Fatalf("limiter key table = %d, want <= %d", got, loginLimiterMaxKeys)
+	}
+	if _, ok := limiter.keys["192.0.2.2|new-user"]; !ok {
+		t.Fatal("new key was not retained after eviction")
 	}
 }
