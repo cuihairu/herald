@@ -211,7 +211,7 @@ curl -X PUT http://127.0.0.1:8080/api/v1/apps/demo-app/callback \
   -d '{"url":"https://app.example.com/herald/callback","secret":"demo-callback-secret-0123456789"}'
 ```
 
-约束：url 必须是绝对 http(s) 地址；secret 16–128 字符；读口永不回显 secret。两类事件：
+约束：url 必须是绝对 http(s) 地址，且主机不得解析进私网、回环、链路本地、CGNAT（`100.64.0.0/10`）等保留网段——这类目标直接拒绝（`callback url must not target a private/loopback network`），回调地址需指向公网；secret 为 16–128 字符；读取端点永不回显 secret。两类事件：
 
 - `delivery_result`：任务落定状态（success/failed + provider/受众/品类），**重试是管道内部事务，应用只看落定**；
 - `unsubscribe`：受众退订回流（受众×品类×渠道×关系类型）。
