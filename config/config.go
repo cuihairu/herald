@@ -557,6 +557,8 @@ func (c *Config) ExpandEnv() {
 	for username, password := range c.Auth.AdminUser {
 		c.Auth.AdminUser[username] = expandEnv(password)
 	}
+	c.WebSocket.AuthToken = expandEnv(c.WebSocket.AuthToken)
+	c.Worker.AuthToken = expandEnv(c.Worker.AuthToken)
 
 	for name, app := range c.Apps {
 		for i := range app.Tokens {
@@ -617,6 +619,12 @@ func (c *Config) Validate() error {
 	// anyone register, ack, and inject events. Refuse to start.
 	if c.WebSocket.AuthToken == "" && !isLoopbackBind(c.WebSocket.Addr) {
 		return fmt.Errorf("websocket management channel bound to non-loopback address %q but no auth_token configured; set websocket.auth_token or bind to loopback", c.WebSocket.Addr)
+	}
+	if unresolvedEnv(c.WebSocket.AuthToken) {
+		return fmt.Errorf("websocket.auth_token %q is an unresolved environment reference; set the variable or configure a literal token", c.WebSocket.AuthToken)
+	}
+	if unresolvedEnv(c.Worker.AuthToken) {
+		return fmt.Errorf("worker.auth_token %q is an unresolved environment reference; set the variable or configure a literal token", c.Worker.AuthToken)
 	}
 	if c.Auth.Enabled {
 		// An unexpanded "$VAR" would become the literal key/password and

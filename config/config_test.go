@@ -498,6 +498,7 @@ func TestExpandEnvSecrets(t *testing.T) {
 	t.Setenv("HERALD_TEST_APP_TOKEN", "real-app-token")
 	t.Setenv("HERALD_TEST_CARD_KEY", "real-card-key")
 	t.Setenv("HERALD_TEST_SOURCE_SECRET", "real-source-secret")
+	t.Setenv("HERALD_TEST_WORKER_TOKEN", "real-worker-token")
 
 	cfg := &Config{
 		Auth: AuthConfig{
@@ -519,6 +520,8 @@ func TestExpandEnvSecrets(t *testing.T) {
 			Bot:      SourceBotConfig{Secret: "$HERALD_TEST_SOURCE_SECRET"},
 			WeChatMP: SourceWeChatMPConfig{Token: "$HERALD_TEST_SOURCE_SECRET"},
 		},
+		WebSocket: WebSocketConfig{AuthToken: "$HERALD_TEST_WORKER_TOKEN"},
+		Worker:    WorkerConfig{AuthToken: "$HERALD_TEST_WORKER_TOKEN"},
 	}
 	cfg.ExpandEnv()
 
@@ -546,6 +549,12 @@ func TestExpandEnvSecrets(t *testing.T) {
 	if got := cfg.Sources.WeChatMP.Token; got != "real-source-secret" {
 		t.Errorf("wechat mp token = %q, want expanded value", got)
 	}
+	if got := cfg.WebSocket.AuthToken; got != "real-worker-token" {
+		t.Errorf("websocket auth_token = %q, want expanded value", got)
+	}
+	if got := cfg.Worker.AuthToken; got != "real-worker-token" {
+		t.Errorf("worker auth_token = %q, want expanded value", got)
+	}
 }
 
 // TestShippedConfigAuthOrientation pins the sample config's api_keys
@@ -570,6 +579,9 @@ func TestShippedConfigAuthOrientation(t *testing.T) {
 	}
 	if _, ok := cfg.Auth.APIKeys["operator"]; ok {
 		t.Fatalf("the description must never become the key, got %v", cfg.Auth.APIKeys)
+	}
+	if got := cfg.WebSocket.AuthToken; got != "test-worker-token" {
+		t.Fatalf("websocket.auth_token must be expanded to the env value, got %q", got)
 	}
 }
 
@@ -659,6 +671,25 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 		cfg.Sources.WeChatMP.Token = "$HERALD_UNSET_WECHAT_TOKEN"
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sources.wechat_mp.token") {
 			t.Errorf("err = %v, want unresolved source wechat token refusal", err)
+		}
+	})
+
+	t.Run("websocket auth token reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.WebSocket.AuthToken = "$HERALD_UNSET_WS_TOKEN"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "websocket.auth_token") {
+			t.Errorf("err = %v, want unresolved websocket auth_token refusal", err)
+		}
+	})
+
+	t.Run("worker auth token reference", func(t *testing.T) {
+		cfg := Default()
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.WebSocket.AuthToken = "real-token"
+		cfg.Worker.AuthToken = "$HERALD_UNSET_WORKER_TOKEN"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "worker.auth_token") {
+			t.Errorf("err = %v, want unresolved worker auth_token refusal", err)
 		}
 	})
 }
