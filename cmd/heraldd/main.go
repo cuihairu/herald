@@ -181,8 +181,8 @@ func serveCmd(args []string) int {
 
 	// Create auth. AdminUser and SecretKey must ride along: the docs
 	// promise config-file Dashboard accounts and a configured JWT key,
-	// and dropping either makes /auth/login a permanent 401 (or signs
-	// tokens with the built-in default key).
+	// and dropping either makes /auth/login a permanent 401 (or falls
+	// back to a random per-process key, so sessions die on restart).
 	a := auth.New(&auth.Config{
 		Enabled:   cfg.Auth.Enabled,
 		APIKeys:   cfg.Auth.APIKeys,

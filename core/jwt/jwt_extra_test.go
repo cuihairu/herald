@@ -14,6 +14,17 @@ func forgeToken(m *Manager, claimsEncoded string) string {
 	return payload + "." + m.sign(payload)
 }
 
+func TestManagerInitFailureFailsClosed(t *testing.T) {
+	m := &Manager{initErr: errors.New("no entropy")}
+
+	if token, err := m.Generate("u1", "alice", "admin"); err == nil || token != "" {
+		t.Fatalf("Generate() = %q, %v; want empty token and the init error", token, err)
+	}
+	if claims, err := m.Validate("a.b.c"); err == nil || claims != nil {
+		t.Fatalf("Validate() = %v, %v; want nil claims and the init error", claims, err)
+	}
+}
+
 func TestManager_ValidateInvalidClaimsEncoding(t *testing.T) {
 	m := NewManager("test-secret-key")
 

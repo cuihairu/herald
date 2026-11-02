@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -26,12 +27,23 @@ var JSONMarshal = json.Marshal
 // Manager manages JWT tokens
 type Manager struct {
 	secretKey string
+	// initErr records a failure to generate the fallback secret. Generate
+	// and Validate then fail closed instead of signing with a predictable
+	// key.
+	initErr error
 }
 
-// NewManager creates a new JWT manager
+// NewManager creates a new JWT manager. An empty secretKey selects a
+// cryptographically random per-process secret: tokens stay unforgeable but do
+// not survive a restart. Deployments that need stable sessions must configure
+// auth.secret_key explicitly.
 func NewManager(secretKey string) *Manager {
 	if secretKey == "" {
-		secretKey = "herald-default-secret-key-change-in-production"
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			return &Manager{initErr: fmt.Errorf("generate jwt secret: %w", err)}
+		}
+		secretKey = base64.RawURLEncoding.EncodeToString(buf)
 	}
 	return &Manager{
 		secretKey: secretKey,
@@ -40,6 +52,10 @@ func NewManager(secretKey string) *Manager {
 
 // Generate generates a JWT token
 func (m *Manager) Generate(userID, username, role string) (string, error) {
+	if m.initErr != nil {
+		return "", m.initErr
+	}
+
 	now := time.Now()
 	exp := now.Add(24 * time.Hour) // 24 hour expiration
 
@@ -69,6 +85,10 @@ func (m *Manager) Generate(userID, username, role string) (string, error) {
 
 // Validate validates a JWT token
 func (m *Manager) Validate(token string) (*Claims, error) {
+	if m.initErr != nil {
+		return nil, m.initErr
+	}
+
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid token format")

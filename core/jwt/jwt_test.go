@@ -28,6 +28,40 @@ func TestNewManager(t *testing.T) {
 	})
 }
 
+func TestNewManagerEmptySecretIsRandom(t *testing.T) {
+	a, b := NewManager(""), NewManager("")
+	if a.secretKey == "" || b.secretKey == "" {
+		t.Fatal("an empty secret must be replaced by a generated one")
+	}
+	if a.secretKey == b.secretKey {
+		t.Fatal("two managers must not share the same generated secret")
+	}
+	if a.secretKey == "herald-default-secret-key-change-in-production" {
+		t.Fatal("the retired hardcoded default secret must never be used")
+	}
+
+	token, err := a.Generate("user123", "john", "admin")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if _, err := b.Validate(token); err == nil {
+		t.Fatal("a token must not validate under another manager's random secret")
+	}
+}
+
+func TestManagerRejectsLegacyDefaultSecret(t *testing.T) {
+	// A token signed with the old built-in key must no longer authenticate
+	// an unconfigured manager.
+	legacy := &Manager{secretKey: "herald-default-secret-key-change-in-production"}
+	token, err := legacy.Generate("user123", "john", "admin")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if _, err := NewManager("").Validate(token); err == nil {
+		t.Fatal("the retired default key must not validate")
+	}
+}
+
 func TestManager_Generate(t *testing.T) {
 	mgr := NewManager("test-secret")
 
