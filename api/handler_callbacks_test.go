@@ -295,6 +295,43 @@ func TestFeishuCallbackRejectsCorruptCiphertext(t *testing.T) {
 	}
 }
 
+func TestFeishuCallbackDecryptionFailuresFoldUniform(t *testing.T) {
+	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
+
+	// Corrupt ciphertext, wrong-key seal, and garbage-after-decrypt must
+	// all answer the same message so an attacker cannot distinguish the
+	// padding oracle from other failures.
+	wrongKey := sha256.Sum256([]byte("different"))
+	block, _ := aes.NewCipher(wrongKey[:])
+	plain := []byte(`{"schema":"2.0","event":{}}`)
+	if len(plain)%aes.BlockSize != 0 {
+		plain = append(plain, make([]byte, aes.BlockSize-len(plain)%aes.BlockSize)...)
+	}
+	wrongCt := make([]byte, len(plain))
+	cipher.NewCBCEncrypter(block, wrongKey[:aes.BlockSize]).CryptBlocks(wrongCt, plain)
+
+	cases := map[string]string{
+		"corrupt base64": base64.StdEncoding.EncodeToString([]byte("not-a-block")),
+		"wrong key seal": base64.StdEncoding.EncodeToString(wrongCt),
+	}
+	first := ""
+	for name, ct := range cases {
+		body, _ := json.Marshal(map[string]any{"encrypt": ct})
+		code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil)
+		if code != http.StatusBadRequest {
+			t.Fatalf("%s: want 400, got %d", name, code)
+		}
+		msg, _ := resp["message"].(string)
+		if name == "corrupt base64" {
+			first = msg
+		}
+		if msg != "invalid encrypted callback" || (first != "" && msg != first) {
+			t.Fatalf("%s: response message %q must fold to the uniform oracle response", name, msg)
+		}
+	}
+}
+
 func TestFeishuCallbackDecryptedGarbage(t *testing.T) {
 	env := newTestEnv(t, withAckStore(ack.NewMemoryStore()),
 		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })

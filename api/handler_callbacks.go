@@ -73,12 +73,16 @@ func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		plain, err := decryptFeishuCallback(h.cardEncryptKey, payload.Encrypt)
 		if err != nil {
-			h.respondError(w, http.StatusBadRequest, err.Error())
+			// Padding-oracle fold: every decryption failure answers the
+			// same uniform message. Leaking the exact padding/decrypt error
+			// would let an attacker distinguish padding validity and
+			// recover plaintext byte by byte.
+			h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
 			return
 		}
 		payload.Encrypt = ""
 		if err := json.Unmarshal(plain, &payload); err != nil {
-			h.respondError(w, http.StatusBadRequest, "invalid decrypted payload")
+			h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
 			return
 		}
 	} else if h.cardEncryptKey != "" {
