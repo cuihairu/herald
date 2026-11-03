@@ -410,6 +410,89 @@ func TestProviderReusesPinnedClientTransport(t *testing.T) {
 	}
 }
 
+// TestProviderPinnedClientKeyIsOrderInsensitive: the same address set in
+// a different answer order must reuse one pinned transport, not rebuild a
+// fresh one (which would churn transports on every DNS answer rotation).
+func TestProviderPinnedClientKeyIsOrderInsensitive(t *testing.T) {
+	p := NewProvider()
+	ipA := net.ParseIP("192.0.2.1")
+	ipB := net.ParseIP("192.0.2.2")
+
+	first := p.pinnedClientFor("http://app.example.com/hook", []net.IP{ipA, ipB})
+	second := p.pinnedClientFor("http://app.example.com/hook", []net.IP{ipB, ipA})
+	if first != second {
+		t.Fatal("reordered IP set must reuse the pinned client")
+	}
+}
+
+// TestProviderDropsPinnedClientOnCallbackClear: clearing a callback URL
+// must drop its cached pinned transport so the connection pool is not
+// retained indefinitely after the URL is removed.
+func TestProviderDropsPinnedClientOnCallbackClear(t *testing.T) {
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}
+	if err := reg.SetCallback("demo-app", "http://app.example.com/hook", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("set callback: %v", err)
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	url := "http://app.example.com/hook"
+	_ = p.pinnedClientFor(url, []net.IP{net.ParseIP("127.0.0.1")})
+	if len(p.pinned) != 1 {
+		t.Fatalf("pinned entries = %d, want 1", len(p.pinned))
+	}
+	if err := reg.ClearCallback("demo-app"); err != nil {
+		t.Fatalf("clear callback: %v", err)
+	}
+	if len(p.pinned) != 0 {
+		t.Fatalf("pinned entries after clear = %d, want 0", len(p.pinned))
+	}
+}
+
+// TestProviderDropsPinnedClientOnCallbackReplace: re-pointing a callback
+// URL must drop the old URL's cached transport; the new URL is built
+// lazily on the next delivery.
+func TestProviderDropsPinnedClientOnCallbackReplace(t *testing.T) {
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}
+	oldURL := "http://app.example.com/old"
+	if err := reg.SetCallback("demo-app", oldURL, strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("set callback: %v", err)
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	_ = p.pinnedClientFor(oldURL, []net.IP{net.ParseIP("127.0.0.1")})
+	if len(p.pinned) != 1 {
+		t.Fatalf("pinned entries = %d, want 1", len(p.pinned))
+	}
+	if err := reg.SetCallback("demo-app", "http://app.example.com/new", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("replace callback: %v", err)
+	}
+	if len(p.pinned) != 0 {
+		t.Fatalf("pinned entries after replace = %d, want 0", len(p.pinned))
+	}
+}
+
 // TestProviderDeliverRefusesHostnameResolvedToDenied: a hostname that the
 // resolver maps to a denied network is refused at delivery time — the seam
 // hostname path, not just literal-IP targets.

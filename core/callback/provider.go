@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -57,7 +58,29 @@ func NewProvider() *Provider {
 // stored URL immediately before posting — the Set-time check cannot see
 // DNS answers that changed between configuration and delivery.
 func (p *Provider) SetAppRegistry(reg *apps.Registry) {
+	if p.apps != nil {
+		p.apps.SetCallbackChangeHook(nil)
+	}
 	p.apps = reg
+	if reg != nil {
+		// Drop every cached pinned transport: the registry's callback set
+		// may have changed while this provider was detached, and stale
+		// URL entries would otherwise linger forever.
+		p.pinned = nil
+		reg.SetCallbackChangeHook(func(url string, present bool) {
+			p.dropPinnedURL(url)
+		})
+	}
+}
+
+// dropPinnedURL removes the cached pinned transport for a callback URL
+// that is no longer attached. The transport's idle connection pool would
+// otherwise be retained indefinitely, growing without bound as URLs are
+// added and cleared at runtime.
+func (p *Provider) dropPinnedURL(rawURL string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.pinned, rawURL)
 }
 
 // Name identifies the provider on the queue task.
@@ -133,8 +156,25 @@ func (p *Provider) pinnedClientFor(rawURL string, ips []net.IP) *httpclient.Clie
 }
 
 func joinIPs(ips []net.IP) string {
+	// The address set is unordered (it comes from a DNS answer), so sort
+	// it before hashing: the same set in a different answer order must
+	// map to the same pinned client, not spuriously rebuild a transport.
+	sorted := make([]net.IP, len(ips))
+	copy(sorted, ips)
+	sort.Slice(sorted, func(i, j int) bool {
+		ib, jb := sorted[i].To16(), sorted[j].To16()
+		if ib == nil || jb == nil {
+			return sorted[i].String() < sorted[j].String()
+		}
+		for k := 0; k < 16; k++ {
+			if ib[k] != jb[k] {
+				return ib[k] < jb[k]
+			}
+		}
+		return false
+	})
 	b := make([]byte, 0, len(ips)*16)
-	for _, ip := range ips {
+	for _, ip := range sorted {
 		if v4 := ip.To4(); v4 != nil {
 			b = append(b, v4...)
 		} else if v16 := ip.To16(); v16 != nil {

@@ -106,13 +106,24 @@ func (r *Registry) SetCallback(app, rawURL, secret string) error {
 	if err := r.validateCallbackDestination(u); err != nil {
 		return err
 	}
+	oldURL := ""
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	a, ok := r.apps[app]
 	if !ok {
+		r.mu.Unlock()
 		return ErrUnknownApp
 	}
+	if a.callback != nil {
+		oldURL = a.callback.URL
+	}
 	a.callback = &Callback{URL: u.String(), Secret: secret}
+	r.mu.Unlock()
+	// Notify outside the lock: a delivery-side cache must drop the old
+	// URL's entry (the face moved) and can add the new one lazily on the
+	// next delivery.
+	if oldURL != "" && oldURL != u.String() {
+		r.notifyCallbackChange(oldURL, false)
+	}
 	return nil
 }
 
@@ -198,12 +209,20 @@ func (r *Registry) resolveCallbackDestination(u *url.URL) ([]net.IP, error) {
 // events (the emitter skips unconfigured apps).
 func (r *Registry) ClearCallback(app string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	a, ok := r.apps[app]
 	if !ok {
+		r.mu.Unlock()
 		return ErrUnknownApp
 	}
+	oldURL := ""
+	if a.callback != nil {
+		oldURL = a.callback.URL
+	}
 	a.callback = nil
+	r.mu.Unlock()
+	if oldURL != "" {
+		r.notifyCallbackChange(oldURL, false)
+	}
 	return nil
 }
 
