@@ -58,6 +58,40 @@ func TestClientWithPinnedIPsDialsWithoutResolving(t *testing.T) {
 	}
 }
 
+// TestClientWithPinnedIPsDoesNotFollowRedirect: a pinned transport cannot
+// safely follow a cross-host redirect—the dialer would connect to the
+// original address while sending the redirect host's Host/SNI. The 3xx
+// response itself is returned so callbacks fail visibly instead of being
+// misdirected.
+func TestClientWithPinnedIPsDoesNotFollowRedirect(t *testing.T) {
+	redirects := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/source" {
+			redirects++
+			http.Redirect(w, r, "http://redirected.invalid/target", http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	srvURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	c := NewClient(nil).WithPinnedIPs([]net.IP{net.ParseIP(srvURL.Hostname())})
+	resp, err := c.Get(context.Background(), "http://unresolvable.invalid:"+srvURL.Port()+"/source")
+	if err == nil || !strings.Contains(err.Error(), "307") {
+		t.Fatalf("pinned redirect error = %v, want original 307", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("response = %+v, want original 307", resp)
+	}
+	if redirects != 1 {
+		t.Fatalf("source requests = %d, want 1", redirects)
+	}
+}
+
 // TestClientWithPinnedIPsDialErrorIsTemporary: when none of the pinned
 // addresses connect, the transport error stays a classified temporary
 // failure so the normal retry policy applies.
