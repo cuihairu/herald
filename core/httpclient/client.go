@@ -207,13 +207,22 @@ func (c *Client) WithPinnedIPs(ips []net.IP) *Client {
 	transport.DialContext = pinnedDialContext(ips)
 	httpClient := *c.client
 	httpClient.Transport = transport
-	// A pinned transport cannot follow a redirect to another hostname:
-	// the transport would call DialContext with the redirect target's
-	// host, but the pinned dialer always connects to the originally
-	// validated address — the redirect would land on the wrong server.
-	// Refuse redirects instead of misdirecting them; the 3xx answer comes
-	// back as a non-2xx and the retry pipeline handles it.
+	// A pinned transport may follow a redirect that stays on the same
+	// host: the dialer still connects to the originally validated
+	// addresses, and the Host/SNI are unchanged, so the target is just
+	// as authorized as the first hop. A redirect to another hostname is
+	// refused instead: the dialer would connect to the original address
+	// while sending the redirect target's Host/SNI, landing on the wrong
+	// server. Refusing it surfaces the 3xx as a non-2xx for the retry
+	// pipeline instead of misdirecting the POST.
 	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		// via holds the requests already sent; the last one is the
+		// original hop. Redirecting to a different host (or port) would
+		// leave the pinned address set behind, so only same-host hops are
+		// safe to follow.
+		if len(via) > 0 && req.URL.Host == via[len(via)-1].URL.Host {
+			return nil
+		}
 		return http.ErrUseLastResponse
 	}
 	return &Client{client: &httpClient, timeout: c.timeout}

@@ -92,6 +92,40 @@ func TestClientWithPinnedIPsDoesNotFollowRedirect(t *testing.T) {
 	}
 }
 
+// TestClientWithPinnedIPsFollowsSameHostRedirect: a relative redirect to
+// the same host keeps the pinned dialer on the validated address set, so
+// it is safe to follow and must not be refused. This guards the
+// availability regression where every redirect (including safe same-host
+// hops) was rejected outright.
+func TestClientWithPinnedIPsFollowsSameHostRedirect(t *testing.T) {
+	redirects := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/source" {
+			redirects++
+			http.Redirect(w, r, "/target", http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	srvURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	c := NewClient(nil).WithPinnedIPs([]net.IP{net.ParseIP(srvURL.Hostname())})
+	resp, err := c.Get(context.Background(), "http://unresolvable.invalid:"+srvURL.Port()+"/source")
+	if err != nil {
+		t.Fatalf("same-host redirect error = %v, want follow to 200", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("response = %+v, want 200", resp)
+	}
+	if redirects != 1 {
+		t.Fatalf("source requests = %d, want 1", redirects)
+	}
+}
+
 // TestClientWithPinnedIPsDialErrorIsTemporary: when none of the pinned
 // addresses connect, the transport error stays a classified temporary
 // failure so the normal retry policy applies.
