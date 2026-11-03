@@ -531,6 +531,40 @@ func TestHandleRegisterPanicDoesNotLeakHubLock(t *testing.T) {
 	assertHubLockFree(t, server)
 }
 
+// TestHandleRegisterCriticalPanicRemovesWorker: a panic while s.mu is held
+// must not leak that lock into the connection recovery path. Recovery calls
+// handleDisconnect, so a leaked critical section would deadlock the hub.
+func TestHandleRegisterCriticalPanicRemovesWorker(t *testing.T) {
+	original := jsonMarshal
+	handler := &mockHandler{}
+	server, ts := newFlowTestServer(t, handler, nil)
+	defer ts.Close()
+	defer func() { jsonMarshal = original }()
+	jsonMarshal = func(v any) ([]byte, error) { panic("registration critical panic") }
+	url := "ws" + ts.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	msg := &protocol.RegisterMessage{WorkerID: "w-critical-panic", Platform: "linux"}
+	payload, _ := protocol.MarshalMessage(msg)
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		t.Fatalf("write register: %v", err)
+	}
+
+	assertHubLockFree(t, server)
+	deadline := time.Now().Add(2 * time.Second)
+	for server.GetWorkerCount() != 0 || handler.disconnectCount() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("worker count = %d, disconnect callbacks = %d; want 0, 1", server.GetWorkerCount(), handler.disconnectCount())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	_ = conn.Close()
+}
+
 // ackGateHandler records whether OnRegister ran and signals the caller.
 type ackGateHandler struct {
 	mockHandler
