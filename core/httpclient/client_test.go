@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +23,56 @@ func TestNewClient(t *testing.T) {
 	}
 	if c.timeout != 30*time.Second {
 		t.Errorf("expected default timeout 30s, got %v", c.timeout)
+	}
+}
+
+// TestClientWithPinnedIPsDialsWithoutResolving proves the pinned transport
+// connects to the supplied address rather than re-resolving a hostname.
+// The URL uses a name that this test resolver refuses, so any transport
+// resolver attempt fails; the pinned dialer alone reaches the test server.
+func TestClientWithPinnedIPsDialsWithoutResolving(t *testing.T) {
+	var gotHost string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	srvURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	pinnedIP := net.ParseIP(srvURL.Hostname())
+
+	target := *srvURL
+	target.Host = "unresolvable.invalid:" + srvURL.Port()
+	pinned := NewClient(nil).WithPinnedIPs([]net.IP{pinnedIP})
+	resp, err := pinned.PostJSON(context.Background(), target.String(), map[string]string{"k": "v"})
+	if err != nil {
+		t.Fatalf("pinned post: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if gotHost != target.Host {
+		t.Fatalf("host header = %q, want %q", gotHost, target.Host)
+	}
+}
+
+// TestClientWithPinnedIPsDialErrorIsTemporary: when none of the pinned
+// addresses connect, the transport error stays a classified temporary
+// failure so the normal retry policy applies.
+func TestClientWithPinnedIPsDialErrorIsTemporary(t *testing.T) {
+	// Port 1 on loopback is not served by the test process.
+	ip := net.ParseIP("127.0.0.1")
+	c := NewClient(nil).WithPinnedIPs([]net.IP{ip})
+	target := "http://unresolvable.invalid:1/hook"
+	_, err := c.PostJSON(context.Background(), target, map[string]string{"k": "v"})
+	if err == nil {
+		t.Fatal("pinned dial failure: want error")
+	}
+	class, ok := errclass.Of(err)
+	if !ok || class != errclass.Temporary {
+		t.Fatalf("class = %q, ok = %v, want temporary", class, ok)
 	}
 }
 

@@ -1,10 +1,17 @@
 package apps
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 )
+
+// ErrCallbackUnresolvable marks a callback hostname that could not be
+// resolved at validation time. Delivery treats it as transient (a DNS
+// answer may appear on a later attempt), while configuration-time uses
+// treat it as a plain refusal.
+var ErrCallbackUnresolvable = errors.New("callback url host could not be resolved")
 
 // Callback is one app's §13.5 webhook callback face configuration: the
 // URL herald posts delivery results and unsubscribe backflow to, and the
@@ -45,12 +52,21 @@ var defaultCallbackDenyCIDRs = []string{
 // CallbackPolicy controls which callback URL destinations are accepted.
 // The zero value denies every private/loopback/link-local network. The
 // operator may relax this per deployment (e.g. an on-prem callback).
+//
+// The deny list always wins: AllowCIDRs and AllowPrivate can never
+// re-admit a network on the default deny list. AllowCIDRs is only for
+// networks the default list does not cover (e.g. a private range the
+// operator genuinely owns is already denied, so it cannot be re-opened
+// here). To point a callback at loopback or a private host, set
+// AllowPrivate — an explicit, deployment-wide decision.
 type CallbackPolicy struct {
 	// AllowPrivate exempts the default deny list entirely. Prefer an
 	// explicit allow list when the destination is a known internal host.
 	AllowPrivate bool
-	// AllowCIDRs exempts specific networks in addition to the public
-	// range. Entries must be valid CIDRs or they are ignored.
+	// AllowCIDRs exempts specific networks from the deny list — but only
+	// networks NOT already on the default deny list. The default deny
+	// list stays absolute: it is the SSRF hard stop. Entries must be
+	// valid CIDRs or they are ignored.
 	AllowCIDRs []string
 }
 
@@ -80,9 +96,6 @@ func (s *cidrSet) contains(ip net.IP) bool {
 var defaultCallbackDeny = func() *cidrSet {
 	return parseCIDRs(defaultCallbackDenyCIDRs)
 }()
-
-// lookupIP is the resolver seam used by callback destination validation.
-var lookupIP = net.LookupIP
 
 // SetCallback attaches or replaces the app's callback configuration.
 // The URL must be absolute http(s); the secret must be 16-128 chars.
@@ -128,17 +141,39 @@ func (r *Registry) ValidateCallbackURL(rawURL string) error {
 	return r.validateCallbackDestination(u)
 }
 
+// ResolveCallbackURL re-runs the destination policy and returns the
+// addresses the URL was validated against. Delivery pins these IPs on
+// the connection so the hostname cannot be re-resolved (and rebound to a
+// denied network) between this check and the actual POST.
+func (r *Registry) ResolveCallbackURL(rawURL string) ([]net.IP, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("callback url must be an absolute http(s) url")
+	}
+	return r.resolveCallbackDestination(u)
+}
+
 // validateCallbackDestination rejects destinations on the deny list
 // unless the configured policy exempts them. Both literal IP hosts and
 // hostnames (resolved against the system resolver) are checked.
 func (r *Registry) validateCallbackDestination(u *url.URL) error {
+	_, err := r.resolveCallbackDestination(u)
+	return err
+}
+
+// resolveCallbackDestination rejects destinations on the deny list
+// unless the configured policy exempts them, and returns the IPs that
+// passed. Both literal IP hosts and hostnames (resolved against the
+// system resolver) are checked.
+func (r *Registry) resolveCallbackDestination(u *url.URL) ([]net.IP, error) {
 	host := u.Hostname()
 	if host == "" {
-		return fmt.Errorf("callback url must have a host")
+		return nil, fmt.Errorf("callback url must have a host")
 	}
 	r.mu.RLock()
 	allowPrivate := r.callbackPolicy.AllowPrivate
 	allow := parseCIDRs(r.callbackPolicy.AllowCIDRs)
+	lookupIP := r.LookupIP
 	r.mu.RUnlock()
 
 	ips := []net.IP{}
@@ -148,17 +183,24 @@ func (r *Registry) validateCallbackDestination(u *url.URL) error {
 		ips = append(ips, resolved...)
 	}
 	if len(ips) == 0 {
-		return fmt.Errorf("callback url host %q could not be resolved", host)
+		return nil, fmt.Errorf("%w: %s", ErrCallbackUnresolvable, host)
 	}
 	for _, ip := range ips {
+		// The default deny list is an absolute hard stop: an allow-list
+		// entry cannot re-admit loopback/private/link-local. Checking it
+		// first means a malicious "allow 0.0.0.0/0" cannot blanket-reopen
+		// the networks the policy exists to refuse.
+		if defaultCallbackDeny.contains(ip) {
+			if !allowPrivate {
+				return nil, fmt.Errorf("callback url must not target a private/loopback network %q", host)
+			}
+			continue
+		}
 		if allow.contains(ip) {
 			continue
 		}
-		if defaultCallbackDeny.contains(ip) && !allowPrivate {
-			return fmt.Errorf("callback url must not target a private/loopback network %q", host)
-		}
 	}
-	return nil
+	return ips, nil
 }
 
 // ClearCallback removes the callback face: the app stops receiving

@@ -3,12 +3,14 @@ package callback
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/httpclient"
+	"github.com/cuihairu/herald/core/retry"
 )
 
 // ProviderName is the queue-side provider name every callback task
@@ -68,14 +70,29 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	if body == "" || signature == "" {
 		return fmt.Errorf("callback: task carries no signed event body")
 	}
+	// Revalidate the destination and pin the validated addresses on the
+	// connection. The hostname is not re-resolved by the transport, so a
+	// DNS answer that moves after this check cannot redirect the POST to
+	// a network the policy refused.
+	client := p.client
 	if p.apps != nil {
-		if err := p.apps.ValidateCallbackURL(task.Targets[0]); err != nil {
+		ips, err := p.apps.ResolveCallbackURL(task.Targets[0])
+		if err != nil {
+			// A hostname that momentarily fails to resolve is transient:
+			// the next attempt may see a healthy DNS answer. Deterministic
+			// refusals (private/loopback destinations) stay terminal.
+			if errors.Is(err, apps.ErrCallbackUnresolvable) {
+				return retry.NewRetryableError(fmt.Errorf("callback: %w", err))
+			}
 			return fmt.Errorf("callback: %w", err)
+		}
+		if len(ips) > 0 {
+			client = client.WithPinnedIPs(ips)
 		}
 	}
 	// Non-2xx answers come back as errors from the client itself, so
 	// the pipeline's retry budget applies to them unchanged.
-	_, err := p.client.PostJSONWithHeaders(ctx, task.Targets[0], json.RawMessage(body), map[string]string{
+	_, err := client.PostJSONWithHeaders(ctx, task.Targets[0], json.RawMessage(body), map[string]string{
 		"Content-Type":  "application/json",
 		SignatureHeader: signature,
 		EventIDHeader:   eventID,

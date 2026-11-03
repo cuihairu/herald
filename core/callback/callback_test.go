@@ -6,9 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/cuihairu/herald/core/apps"
 	"github.com/cuihairu/herald/core/audience"
 	"github.com/cuihairu/herald/core/queue"
+	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/runtime"
 )
 
@@ -287,10 +291,11 @@ func TestProviderDeliverRechecksDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	// Allow exactly the test server's loopback range so SetCallback and the
-	// valid delivery pass the recheck, while other private ranges (10/8)
-	// stay denied — the recheck must refuse them at delivery time.
-	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowCIDRs: []string{"127.0.0.0/8"}})
+	// Allow the test server's loopback so SetCallback and the valid
+	// delivery pass the recheck; the recheck still refuses other private
+	// ranges (10/8) at delivery time because only the explicit deployment
+	// switch admits loopback.
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
 	if err := reg.SetCallback("demo-app", srv.URL, testSecret); err != nil {
 		t.Fatalf("set callback: %v", err)
 	}
@@ -310,11 +315,175 @@ func TestProviderDeliverRechecksDestination(t *testing.T) {
 		t.Fatalf("deliver with valid destination: %v", err)
 	}
 
-	// A task whose URL is a denied private range must be refused even though
-	// it was never passed to SetCallback: delivery revalidates, never trusts.
+	// A task whose URL is a denied private range must be refused even
+	// though it was never passed to SetCallback. Use a strict registry
+	// (no AllowPrivate) so the recheck still refuses 10/8; delivery
+	// revalidates, never trusts.
+	strict, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("strict registry: %v", err)
+	}
+	pStrict := NewProvider()
+	pStrict.SetAppRegistry(strict)
 	task.Targets = []string{"http://10.0.0.1/hook"}
-	if err := p.Deliver(context.Background(), task); err == nil || !strings.Contains(err.Error(), "private/loopback") {
+	if err := pStrict.Deliver(context.Background(), task); err == nil || !strings.Contains(err.Error(), "private/loopback") {
 		t.Fatalf("private destination: want refusal, got %v", err)
+	}
+}
+
+// TestProviderDeliverPinsValidatedHostname: delivery resolves the hostname
+// once through the registry seam, pins the validated IPs, and connects
+// without a second resolution. A resolver that answers the test server's
+// loopback proves the seam path end to end.
+func TestProviderDeliverPinsValidatedHostname(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	srvURL, _ := url.Parse(srv.URL)
+	srvIP := net.ParseIP(srvURL.Hostname())
+
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{srvIP}, nil
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	task := &core.DeliveryTask{
+		ID:      "cb-pin",
+		Targets: []string{"http://app.example.com:" + srvURL.Port() + "/hook?pin=1"},
+		Payload: core.DeliveryPayload{Kind: core.PayloadRaw, Raw: map[string]any{
+			"event_id":  "evt-pin",
+			"body":      `{"event_id":"evt-pin"}`,
+			"signature": signaturePrefix + "abc",
+		}},
+	}
+	if err := p.Deliver(context.Background(), task); err != nil {
+		t.Fatalf("deliver pinned hostname: %v", err)
+	}
+}
+
+// TestProviderDeliverRefusesHostnameResolvedToDenied: a hostname that the
+// resolver maps to a denied network is refused at delivery time — the seam
+// hostname path, not just literal-IP targets.
+func TestProviderDeliverRefusesHostnameResolvedToDenied(t *testing.T) {
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("10.0.0.1")}, nil
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	task := &core.DeliveryTask{
+		ID:      "cb-deny-host",
+		Targets: []string{"http://app.example.com/hook"},
+		Payload: core.DeliveryPayload{Kind: core.PayloadRaw, Raw: map[string]any{
+			"event_id":  "evt-dh",
+			"body":      `{"event_id":"evt-dh"}`,
+			"signature": signaturePrefix + "abc",
+		}},
+	}
+	err = p.Deliver(context.Background(), task)
+	if err == nil || !strings.Contains(err.Error(), "private/loopback") {
+		t.Fatalf("denied hostname: want private refusal, got %v", err)
+	}
+	// A deterministic refusal is not retryable — a later attempt cannot
+	// make a private destination lawful.
+	if _, ok := err.(*retry.RetryableError); ok {
+		t.Fatalf("denied hostname must not be retryable, got %v", err)
+	}
+}
+
+// TestProviderDeliverDNSFailureIsRetryable: an unresolvable hostname at
+// delivery time is transient — a DNS blip must not permanently fail the
+// callback. The task comes back through the retry budget instead.
+func TestProviderDeliverDNSFailureIsRetryable(t *testing.T) {
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: host}
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	task := &core.DeliveryTask{
+		ID:      "cb-dns-fail",
+		Targets: []string{"http://app.example.com/hook"},
+		Payload: core.DeliveryPayload{Kind: core.PayloadRaw, Raw: map[string]any{
+			"event_id":  "evt-df",
+			"body":      `{"event_id":"evt-df"}`,
+			"signature": signaturePrefix + "abc",
+		}},
+	}
+	err = p.Deliver(context.Background(), task)
+	if err == nil {
+		t.Fatal("dns failure: want error")
+	}
+	var retryErr *retry.RetryableError
+	if !errors.As(err, &retryErr) {
+		t.Fatalf("dns failure must be retryable, got %v", err)
+	}
+}
+
+// TestProviderDeliverRebindAfterSet: a URL that passed SetCallback against
+// a public answer is refused when delivery's resolver now maps it to a
+// denied network — the Set-time check alone cannot see the flip.
+func TestProviderDeliverRebindAfterSet(t *testing.T) {
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	// Set sees a public answer.
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("93.184.216.34")}, nil
+	}
+	if err := reg.SetCallback("demo-app", "http://app.example.com/hook", testSecret); err != nil {
+		t.Fatalf("set callback: %v", err)
+	}
+	// Delivery sees the answer flip to a private range.
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("10.0.0.1")}, nil
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	task := &core.DeliveryTask{
+		ID:      "cb-rebind",
+		Targets: []string{"http://app.example.com/hook"},
+		Payload: core.DeliveryPayload{Kind: core.PayloadRaw, Raw: map[string]any{
+			"event_id":  "evt-rb",
+			"body":      `{"event_id":"evt-rb"}`,
+			"signature": signaturePrefix + "abc",
+		}},
+	}
+	err = p.Deliver(context.Background(), task)
+	if err == nil || !strings.Contains(err.Error(), "private/loopback") {
+		t.Fatalf("rebind after set: want private refusal, got %v", err)
 	}
 }
 

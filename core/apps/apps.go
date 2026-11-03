@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"sort"
 	"sync"
@@ -158,13 +159,17 @@ type Registry struct {
 	mu             sync.RWMutex
 	apps           map[string]*App
 	callbackPolicy CallbackPolicy
+	// LookupIP is the callback hostname resolver seam. Defaults to the
+	// system resolver; tests may substitute a deterministic answer. It is
+	// copied under r.mu before use so concurrent deliveries are safe.
+	LookupIP func(string) ([]net.IP, error)
 }
 
 // NewRegistry builds the registry from config seeds. Validation refuses
 // the whole registry on any bad seed — a half-loaded integration face
 // is worse than a refused start.
 func NewRegistry(seeds []SeedApp) (*Registry, error) {
-	r := &Registry{apps: make(map[string]*App)}
+	r := &Registry{apps: make(map[string]*App), LookupIP: net.LookupIP}
 	seen := make(map[string]string) // secret -> app name, across all apps
 	for _, seed := range seeds {
 		if !appPattern.MatchString(seed.Name) {

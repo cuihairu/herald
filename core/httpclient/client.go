@@ -19,6 +19,39 @@ import (
 	"github.com/cuihairu/herald/internal/logger"
 )
 
+// pinnedDialContext returns a DialContext that connects to exactly the
+// given addresses for the requested host:port, bypassing the resolver.
+// The original hostname is kept for TLS SNI and the Host header, so a
+// callback URL validated against a set of IPs cannot be rebound to a
+// different address between validation and connection.
+func pinnedDialContext(ips []net.IP) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 30 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		// A literal-IP URL dials that IP; a hostname URL uses the pinned
+		// addresses instead of re-resolving it. Try each in order.
+		if net.ParseIP(host) != nil {
+			return dialer.DialContext(ctx, network, addr)
+		}
+		var lastErr error
+		for _, ip := range ips {
+			target := net.JoinHostPort(ip.String(), port)
+			conn, err := dialer.DialContext(ctx, network, target)
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+		}
+		if lastErr == nil {
+			lastErr = fmt.Errorf("no pinned addresses for %q", host)
+		}
+		return nil, lastErr
+	}
+}
+
 // Client is a HTTP client for providers
 type Client struct {
 	client  *http.Client
@@ -159,6 +192,19 @@ func sendError(err error) error {
 func (c *Client) WithClientCert(cert tls.Certificate) *Client {
 	transport := c.client.Transport.(*http.Transport).Clone()
 	transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+	httpClient := *c.client
+	httpClient.Transport = transport
+	return &Client{client: &httpClient, timeout: c.timeout}
+}
+
+// WithPinnedIPs returns a copy that dials exactly these addresses,
+// bypassing the resolver for hostname targets. The URL's hostname still
+// drives TLS SNI and the Host header, so certificate verification and
+// virtual-hosting are unchanged; only the connection is pinned to the
+// IPs the destination policy already validated.
+func (c *Client) WithPinnedIPs(ips []net.IP) *Client {
+	transport := c.client.Transport.(*http.Transport).Clone()
+	transport.DialContext = pinnedDialContext(ips)
 	httpClient := *c.client
 	httpClient.Transport = transport
 	return &Client{client: &httpClient, timeout: c.timeout}
