@@ -58,8 +58,10 @@ var defaultCallbackDenyCIDRs = []string{
 // a private host, set AllowPrivate — an explicit, deployment-wide
 // decision.
 type CallbackPolicy struct {
-	// AllowPrivate exempts the default deny list entirely. Prefer an
-	// explicit allow list when the destination is a known internal host.
+	// AllowPrivate exempts the default deny list entirely. It is the
+	// only way to re-admit a network on the default deny list (the deny
+	// list always wins otherwise), so set it only when the callback
+	// destination is a known internal host the operator trusts.
 	AllowPrivate bool
 }
 
