@@ -578,7 +578,9 @@ func (s *Server) handleDisconnect(workerID string) {
 
 // pruneStaleWorkers removes workers whose heartbeat is too old.
 func (s *Server) pruneStaleWorkers(now time.Time) {
+	handler := s.handlerRef()
 	s.mu.Lock()
+	var staleWorkerIDs []string
 
 	for workerID, state := range s.workers {
 		if now.Sub(state.LastHeartbeat) > 2*time.Minute {
@@ -590,16 +592,16 @@ func (s *Server) pruneStaleWorkers(now time.Time) {
 				_ = state.conn.Close()
 			}
 			delete(s.workers, workerID)
-
-			handler := s.handlerRef()
-			s.mu.Unlock()
-			if handler != nil {
-				handler.OnDisconnect(workerID)
-			}
-			return
+			staleWorkerIDs = append(staleWorkerIDs, workerID)
 		}
 	}
 	s.mu.Unlock()
+
+	for _, workerID := range staleWorkerIDs {
+		if handler != nil {
+			handler.OnDisconnect(workerID)
+		}
+	}
 }
 
 // staleCheckInterval is the period between stale-worker prunes; a package

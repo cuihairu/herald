@@ -1317,9 +1317,14 @@ func TestCheckStaleWorkers(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(&Config{Addr: ":0"}, handler)
 
-		staleState := &ConnectionState{
-			WorkerID:      "stale-worker",
+		firstStaleState := &ConnectionState{
+			WorkerID:      "stale-worker-1",
 			LastHeartbeat: time.Now().Add(-3 * time.Minute),
+			Status:        make(map[string]interface{}),
+		}
+		secondStaleState := &ConnectionState{
+			WorkerID:      "stale-worker-2",
+			LastHeartbeat: time.Now().Add(-4 * time.Minute),
 			Status:        make(map[string]interface{}),
 		}
 		freshState := &ConnectionState{
@@ -1329,25 +1334,34 @@ func TestCheckStaleWorkers(t *testing.T) {
 		}
 
 		server.mu.Lock()
-		server.workers["stale-worker"] = staleState
+		server.workers["stale-worker-1"] = firstStaleState
+		server.workers["stale-worker-2"] = secondStaleState
 		server.workers["fresh-worker"] = freshState
 		server.mu.Unlock()
 
 		server.pruneStaleWorkers(time.Now())
 
 		server.mu.RLock()
-		_, staleExists := server.workers["stale-worker"]
+		_, firstStaleExists := server.workers["stale-worker-1"]
+		_, secondStaleExists := server.workers["stale-worker-2"]
 		_, freshExists := server.workers["fresh-worker"]
 		server.mu.RUnlock()
 
-		if staleExists {
-			t.Error("expected stale worker to be removed")
+		if firstStaleExists || secondStaleExists {
+			t.Error("expected all stale workers to be removed")
 		}
 		if !freshExists {
 			t.Error("expected fresh worker to remain")
 		}
-		if len(handler.disconnectCalls) != 1 || handler.disconnectCalls[0] != "stale-worker" {
-			t.Fatalf("expected one disconnect call for stale-worker, got %#v", handler.disconnectCalls)
+		if handler.disconnectCount() != 2 {
+			t.Fatalf("expected two disconnect calls, got %d", handler.disconnectCount())
+		}
+		disconnectCalls := map[string]bool{}
+		for _, workerID := range handler.disconnectCalls {
+			disconnectCalls[workerID] = true
+		}
+		if !disconnectCalls["stale-worker-1"] || !disconnectCalls["stale-worker-2"] {
+			t.Fatalf("expected disconnect calls for both stale workers, got %#v", handler.disconnectCalls)
 		}
 	})
 }
