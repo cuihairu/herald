@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +88,14 @@ type loginRateLimiter struct {
 	// clientIP|username key forever — a rotating-username attacker can
 	// exhaust memory.
 	lastSeen map[string]time.Time
+	// trial holds single-token buckets for keys that arrived while the
+	// main table was at cap with no idle key to reclaim. Each such key
+	// gets one granted attempt without being admitted to the main table
+	// (which would evict an active bucket) and without letting a flood of
+	// distinct keys obtain a full bucket. It is bounded by
+	// loginLimiterMaxKeys and reclaimed by idle TTL or LRU.
+	trial     map[string]*limiter.TokenBucket
+	trialSeen map[string]time.Time
 }
 
 func newLoginRateLimiter(rate float64, burst int) *loginRateLimiter {
@@ -100,11 +109,13 @@ func newLoginRateLimiter(rate float64, burst int) *loginRateLimiter {
 		burst = 5
 	}
 	return &loginRateLimiter{
-		keys:     make(map[string]*limiter.TokenBucket),
-		rate:     rate,
-		burst:    burst,
-		enabled:  true,
-		lastSeen: make(map[string]time.Time),
+		keys:      make(map[string]*limiter.TokenBucket),
+		rate:      rate,
+		burst:     burst,
+		enabled:   true,
+		lastSeen:  make(map[string]time.Time),
+		trial:     make(map[string]*limiter.TokenBucket),
+		trialSeen: make(map[string]time.Time),
 	}
 }
 
@@ -129,12 +140,11 @@ func (l *loginRateLimiter) allow(key string) bool {
 		// active bucket would let a rotating-key flood reset somebody's
 		// rate budget; refusing every new key would let the same flood
 		// lock out legitimate users. If the table is full and active,
-		// rate-limit this unknown key without retaining it.
+		// grant this unknown key a single trial attempt through the
+		// bounded trial table without retaining it in the main table.
 		if len(l.keys) >= loginLimiterMaxKeys {
 			if !l.evictIdleLocked(loginLimiterIdleTTL) {
-				b = limiter.NewTokenBucket(l.rate, l.burst)
-				_ = b.Allow()
-				return false
+				return l.trialAllowLocked(key)
 			}
 		}
 		b = limiter.NewTokenBucket(l.rate, l.burst)
@@ -145,6 +155,75 @@ func (l *loginRateLimiter) allow(key string) bool {
 		l.lastSeen[key] = time.Now()
 	}
 	return b.Allow()
+}
+
+// trialAllowLocked handles an unknown key when the main table is at cap
+// with no idle bucket to reclaim. The key gets a single-token trial bucket
+// so a legitimate new user can still make one attempt; it is never placed
+// in the main table, so no active bucket is evicted (and its rate budget
+// reset) and a rotating-key flood cannot obtain a full bucket. The trial
+// table is bounded by loginLimiterMaxKeys, reclaimed by idle TTL, and at
+// capacity evicts its least-recently-used trial entries (which merely
+// revokes a later second attempt for those keys, never a main-table budget).
+// Callers hold the lock.
+func (l *loginRateLimiter) trialAllowLocked(key string) bool {
+	now := time.Now()
+	tb, ok := l.trial[key]
+	if !ok {
+		// Reclaim idle entries only at capacity; the full scan is
+		// amortized over the inserts that fill the table, so a sustained
+		// flood does not pay an O(n) sweep per new key.
+		if len(l.trial) >= loginLimiterMaxKeys {
+			l.evictTrialIdleLocked(loginLimiterIdleTTL)
+			if len(l.trial) >= loginLimiterMaxKeys {
+				l.evictTrialLRUBatchLocked()
+			}
+		}
+		tb = limiter.NewTokenBucket(l.rate, 1)
+		l.trial[key] = tb
+	}
+	l.trialSeen[key] = now
+	return tb.Allow()
+}
+
+// evictTrialIdleLocked reclaims trial buckets that have seen no traffic for
+// longer than ttl. Callers hold the lock.
+func (l *loginRateLimiter) evictTrialIdleLocked(ttl time.Duration) {
+	cutoff := time.Now().Add(-ttl)
+	for k, seen := range l.trialSeen {
+		if seen.Before(cutoff) {
+			delete(l.trial, k)
+			delete(l.trialSeen, k)
+		}
+	}
+}
+
+// evictTrialLRUBatchLocked drops the least-recently-used quarter of trial
+// entries so the trial table stays bounded under a sustained flood. Evicting
+// a batch amortizes the O(n) scan over the insertions that fill the table
+// again, keeping per-key cost O(1) amortized. Callers hold the lock and have
+// already confirmed the table is at capacity with no idle entry.
+func (l *loginRateLimiter) evictTrialLRUBatchLocked() {
+	type seen struct {
+		key string
+		at  time.Time
+	}
+	oldest := make([]seen, 0, len(l.trialSeen))
+	for k, t := range l.trialSeen {
+		oldest = append(oldest, seen{k, t})
+	}
+	if len(oldest) == 0 {
+		return
+	}
+	sort.Slice(oldest, func(i, j int) bool { return oldest[i].at.Before(oldest[j].at) })
+	n := len(oldest) / 4
+	if n < 1 {
+		n = 1
+	}
+	for _, s := range oldest[:n] {
+		delete(l.trial, s.key)
+		delete(l.trialSeen, s.key)
+	}
 }
 
 // evictIdleLocked reclaims buckets that have seen no traffic for longer

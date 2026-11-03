@@ -180,11 +180,12 @@ func TestLoginRateLimiterEvictsIdleKeys(t *testing.T) {
 	}
 }
 
-// TestLoginRateLimiterFullActiveTableDoesNotEvictOrRetain: when the table
-// is at cap and every key is still active, a new key must not evict an
-// active bucket (which would reset its budget) and must not be retained
-// (which would admit the flood).
-func TestLoginRateLimiterFullActiveTableDoesNotEvictOrRetain(t *testing.T) {
+// TestLoginRateLimiterFullActiveTableGrantsSingleTrial: when the table is at
+// cap and every key is still active, a new key must get exactly one granted
+// trial attempt, then be denied; it must not evict an active bucket (which
+// would reset its budget) and must not be retained in the main table (which
+// would admit the flood).
+func TestLoginRateLimiterFullActiveTableGrantsSingleTrial(t *testing.T) {
 	limiter := newLoginRateLimiter(1, 100)
 	now := time.Now()
 	for i := 0; i < loginLimiterMaxKeys; i++ {
@@ -193,17 +194,52 @@ func TestLoginRateLimiterFullActiveTableDoesNotEvictOrRetain(t *testing.T) {
 		limiter.lastSeen[key] = now
 	}
 
-	if limiter.allow("192.0.2.2|new-user") {
-		t.Fatal("first unknown key under a full active table must spend its trial token")
+	if !limiter.allow("192.0.2.2|new-user") {
+		t.Fatal("first unknown key under a full active table must be granted its single trial attempt")
 	}
 	if limiter.allow("192.0.2.2|new-user") {
-		t.Fatal("unknown key must remain rate-limited without a retained bucket")
+		t.Fatal("unknown key must be denied on its second attempt without a retained bucket")
 	}
 	if got := len(limiter.keys); got != loginLimiterMaxKeys {
 		t.Fatalf("limiter key table = %d, want unchanged %d", got, loginLimiterMaxKeys)
 	}
 	if _, ok := limiter.keys["192.0.2.2|new-user"]; ok {
-		t.Fatal("unknown key must not be retained under a full active table")
+		t.Fatal("unknown key must not be retained in the main table under a full active table")
+	}
+}
+
+// TestLoginRateLimiterTrialTableStaysBounded: a flood of distinct keys under
+// a full active table must each get at most one trial attempt, must not grow
+// the main table, and must not grow the trial table past the cap.
+func TestLoginRateLimiterTrialTableStaysBounded(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 100)
+	now := time.Now()
+	for i := 0; i < loginLimiterMaxKeys; i++ {
+		key := "192.0.2.1|user-" + string(rune('a'+i%26)) + time.Duration(i).String()
+		limiter.keys[key] = nil
+		limiter.lastSeen[key] = now
+	}
+	// Pre-fill the trial table to the cap with active entries so a flood
+	// must evict a batch to stay bounded (no per-key main-table sweep).
+	for i := 0; i < loginLimiterMaxKeys; i++ {
+		key := "198.51.100.1|fill-" + time.Duration(i).String()
+		limiter.trial[key] = newTokenBucketForTest(1, 1)
+		limiter.trialSeen[key] = now
+	}
+	for i := 0; i < 2000; i++ {
+		key := "203.0.113.1|flood-" + time.Duration(i).String()
+		if !limiter.allow(key) {
+			t.Fatalf("distinct flood key %q must be granted its single trial attempt", key)
+		}
+		if limiter.allow(key) {
+			t.Fatalf("flood key %q must not be granted a second attempt", key)
+		}
+	}
+	if got := len(limiter.keys); got != loginLimiterMaxKeys {
+		t.Fatalf("main table = %d, want unchanged %d", got, loginLimiterMaxKeys)
+	}
+	if got := len(limiter.trial); got > loginLimiterMaxKeys {
+		t.Fatalf("trial table = %d, want <= %d", got, loginLimiterMaxKeys)
 	}
 }
 
@@ -228,14 +264,39 @@ func TestLoginRateLimiterFallbackPreservesActiveBudget(t *testing.T) {
 		limiter.keys[key] = nil
 		limiter.lastSeen[key] = now
 	}
-	if limiter.allow("192.0.2.1|new-key") {
-		t.Fatal("new key must spend its single fallback token")
+	if !limiter.allow("192.0.2.1|new-key") {
+		t.Fatal("new key must be granted its single fallback trial token")
 	}
 	if limiter.allow("192.0.2.1|new-key") {
-		t.Fatal("new key must not receive repeated full-budget fallback tokens")
+		t.Fatal("new key must not receive a second trial token")
 	}
 	if limiter.allow("192.0.2.1|exhausted") {
 		t.Fatal("exhausted key must stay denied; table pressure must not reset it")
+	}
+}
+
+// TestLoginRateLimiterTrialExpires: a trial key reclaims its single attempt
+// after the idle TTL, so a legitimately new login later is not permanently
+// locked out by a one-off trial.
+func TestLoginRateLimiterTrialExpires(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 100)
+	now := time.Now()
+	for i := 0; i < loginLimiterMaxKeys; i++ {
+		key := "192.0.2.1|user-" + string(rune('a'+i%26)) + time.Duration(i).String()
+		limiter.keys[key] = nil
+		limiter.lastSeen[key] = now
+	}
+	key := "192.0.2.2|new-user"
+	if !limiter.allow(key) {
+		t.Fatal("first trial attempt must be granted")
+	}
+	if limiter.allow(key) {
+		t.Fatal("second attempt must be denied")
+	}
+	// Reclaim the trial key and verify a later legitimate login works.
+	limiter.evictTrialIdleLocked(time.Nanosecond)
+	if !limiter.allow(key) {
+		t.Fatal("trial attempt must be granted again after the trial entry expires")
 	}
 }
 
