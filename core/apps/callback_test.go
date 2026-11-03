@@ -50,16 +50,6 @@ func TestSetCallbackRejectsPrivateNetworks(t *testing.T) {
 		}
 	}
 
-	// Specific allow lists cannot exempt a default-deny network. A private
-	// callback requires the explicit deployment-wide AllowPrivate switch.
-	r.SetCallbackPolicy(CallbackPolicy{AllowCIDRs: []string{"10.0.0.0/8"}})
-	if err := r.SetCallback("demo-app", "http://10.1.2.3/hook", secret); err == nil {
-		t.Fatal("allow list 10/8 must not re-admit a default-deny network")
-	}
-	if err := r.SetCallback("demo-app", "http://127.0.0.1/hook", secret); err == nil {
-		t.Fatal("loopback is not exempted by the 10/8 allow list")
-	}
-
 	// Explicit deployment-level exemption allows localhost.
 	r.SetCallbackPolicy(CallbackPolicy{AllowPrivate: true})
 	if err := r.SetCallback("demo-app", "http://localhost/hook", secret); err != nil {
@@ -67,26 +57,31 @@ func TestSetCallbackRejectsPrivateNetworks(t *testing.T) {
 	}
 }
 
-// TestAllowCIDRsCannotReopenDefaultDeny: the default deny list is the
-// SSRF hard stop. Even a blanket allow (0.0.0.0/0) must not re-admit
-// loopback, link-local, or private ranges — only AllowPrivate can.
-func TestAllowCIDRsCannotReopenDefaultDeny(t *testing.T) {
+// TestDefaultDenyIsAbsoluteHardStop: the default deny list is the SSRF
+// hard stop. A host on a default-deny network is refused no matter what;
+// only AllowPrivate can re-admit it.
+func TestDefaultDenyIsAbsoluteHardStop(t *testing.T) {
 	r, _ := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{{Secret: "s", Scopes: []string{"config"}}}}})
 	secret := strings.Repeat("s", 32)
 
-	r.SetCallbackPolicy(CallbackPolicy{AllowCIDRs: []string{"0.0.0.0/0", "::/0"}})
 	for _, host := range []string{
 		"127.0.0.1", "10.1.2.3", "169.254.1.2", "[::1]",
 		"100.64.1.2", "198.18.0.1",
 	} {
 		if err := r.SetCallback("demo-app", "http://"+host+"/hook", secret); err == nil {
-			t.Fatalf("host %s: blanket allow must not re-admit a default-deny network", host)
+			t.Fatalf("host %s: default deny must refuse", host)
 		}
 	}
 
-	// A non-default range not on the deny list can still be allowed.
-	if err := r.SetCallback("demo-app", "http://192.0.2.1/hook", secret); err != nil {
-		t.Fatalf("allow 192.0.2.0/24: %v", err)
+	// AllowPrivate is the only exemption.
+	r.SetCallbackPolicy(CallbackPolicy{AllowPrivate: true})
+	for _, host := range []string{
+		"127.0.0.1", "10.1.2.3", "169.254.1.2", "[::1]",
+		"100.64.1.2", "198.18.0.1",
+	} {
+		if err := r.SetCallback("demo-app", "http://"+host+"/hook", secret); err != nil {
+			t.Fatalf("host %s with AllowPrivate: want acceptance, got %v", host, err)
+		}
 	}
 }
 

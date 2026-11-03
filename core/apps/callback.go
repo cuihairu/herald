@@ -53,21 +53,14 @@ var defaultCallbackDenyCIDRs = []string{
 // The zero value denies every private/loopback/link-local network. The
 // operator may relax this per deployment (e.g. an on-prem callback).
 //
-// The deny list always wins: AllowCIDRs and AllowPrivate can never
-// re-admit a network on the default deny list. AllowCIDRs is only for
-// networks the default list does not cover (e.g. a private range the
-// operator genuinely owns is already denied, so it cannot be re-opened
-// here). To point a callback at loopback or a private host, set
-// AllowPrivate — an explicit, deployment-wide decision.
+// The deny list always wins: AllowPrivate is the only way to re-admit a
+// network on the default deny list. To point a callback at loopback or
+// a private host, set AllowPrivate — an explicit, deployment-wide
+// decision.
 type CallbackPolicy struct {
 	// AllowPrivate exempts the default deny list entirely. Prefer an
 	// explicit allow list when the destination is a known internal host.
 	AllowPrivate bool
-	// AllowCIDRs exempts specific networks from the deny list — but only
-	// networks NOT already on the default deny list. The default deny
-	// list stays absolute: it is the SSRF hard stop. Entries must be
-	// valid CIDRs or they are ignored.
-	AllowCIDRs []string
 }
 
 type cidrSet struct {
@@ -172,7 +165,6 @@ func (r *Registry) resolveCallbackDestination(u *url.URL) ([]net.IP, error) {
 	}
 	r.mu.RLock()
 	allowPrivate := r.callbackPolicy.AllowPrivate
-	allow := parseCIDRs(r.callbackPolicy.AllowCIDRs)
 	lookupIP := r.LookupIP
 	r.mu.RUnlock()
 
@@ -194,9 +186,6 @@ func (r *Registry) resolveCallbackDestination(u *url.URL) ([]net.IP, error) {
 			if !allowPrivate {
 				return nil, fmt.Errorf("callback url must not target a private/loopback network %q", host)
 			}
-			continue
-		}
-		if allow.contains(ip) {
 			continue
 		}
 	}
