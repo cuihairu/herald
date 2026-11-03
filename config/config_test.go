@@ -632,6 +632,28 @@ func TestValidateRejectsUnresolvedSecrets(t *testing.T) {
 		}
 	})
 
+	t.Run("empty admin password", func(t *testing.T) {
+		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.AdminUser = map[string]string{"admin": ""}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "admin_user[admin]") {
+			t.Errorf("err = %v, want empty admin password refusal", err)
+		}
+	})
+
+	t.Run("empty admin username", func(t *testing.T) {
+		cfg := Default()
+		cfg.WebSocket.Addr = "127.0.0.1:8081"
+		cfg.Server.Addr = "127.0.0.1:8080"
+		cfg.Auth.Enabled = true
+		cfg.Auth.AdminUser = map[string]string{"": "password"}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "empty username") {
+			t.Errorf("err = %v, want empty admin username refusal", err)
+		}
+	})
+
 	t.Run("card callback key reference", func(t *testing.T) {
 		cfg := Default()
 		cfg.WebSocket.Addr = "127.0.0.1:8081"

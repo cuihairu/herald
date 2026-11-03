@@ -641,6 +641,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("auth secret_key %q is an unresolved environment reference; set the variable or leave secret_key empty to use a random per-process key", c.Auth.SecretKey)
 		}
 		for username, password := range c.Auth.AdminUser {
+			if username == "" {
+				return fmt.Errorf("auth enabled but admin_user contains an empty username")
+			}
+			if password == "" {
+				return fmt.Errorf("auth enabled but admin_user[%s] password is empty; set a password or remove the user", username)
+			}
 			if unresolvedEnv(password) {
 				return fmt.Errorf("auth admin_user[%s] password is an unresolved environment reference", username)
 			}
