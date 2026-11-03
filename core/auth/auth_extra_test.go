@@ -180,12 +180,11 @@ func TestLoginRateLimiterEvictsIdleKeys(t *testing.T) {
 	}
 }
 
-// TestLoginRateLimiterRejectsNewWhenFullAndActive: when the table is at
-// cap and every key is still active (none idle), a new key must not evict
-// an active bucket. The evicted bucket would be rebuilt full the next
-// time it is used, so a flood of distinct keys could reset the rate
-// budget of any key the attacker chooses. The new key is refused instead.
-func TestLoginRateLimiterRejectsNewWhenFullAndActive(t *testing.T) {
+// TestLoginRateLimiterFullActiveTableDoesNotEvictOrRetain: when the table
+// is at cap and every key is still active, a new key must not evict an
+// active bucket (which would reset its budget) and must not be retained
+// (which would admit the flood).
+func TestLoginRateLimiterFullActiveTableDoesNotEvictOrRetain(t *testing.T) {
 	limiter := newLoginRateLimiter(1, 100)
 	now := time.Now()
 	for i := 0; i < loginLimiterMaxKeys; i++ {
@@ -195,10 +194,16 @@ func TestLoginRateLimiterRejectsNewWhenFullAndActive(t *testing.T) {
 	}
 
 	if limiter.allow("192.0.2.2|new-user") {
-		t.Fatal("new key must be refused when the table is full with active keys")
+		t.Fatal("first unknown key under a full active table must spend its trial token")
+	}
+	if limiter.allow("192.0.2.2|new-user") {
+		t.Fatal("unknown key must remain rate-limited without a retained bucket")
 	}
 	if got := len(limiter.keys); got != loginLimiterMaxKeys {
 		t.Fatalf("limiter key table = %d, want unchanged %d", got, loginLimiterMaxKeys)
+	}
+	if _, ok := limiter.keys["192.0.2.2|new-user"]; ok {
+		t.Fatal("unknown key must not be retained under a full active table")
 	}
 }
 
@@ -224,7 +229,10 @@ func TestLoginRateLimiterFallbackPreservesActiveBudget(t *testing.T) {
 		limiter.lastSeen[key] = now
 	}
 	if limiter.allow("192.0.2.1|new-key") {
-		t.Fatal("new key must be refused when full and active")
+		t.Fatal("new key must spend its single fallback token")
+	}
+	if limiter.allow("192.0.2.1|new-key") {
+		t.Fatal("new key must not receive repeated full-budget fallback tokens")
 	}
 	if limiter.allow("192.0.2.1|exhausted") {
 		t.Fatal("exhausted key must stay denied; table pressure must not reset it")

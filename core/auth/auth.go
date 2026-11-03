@@ -125,14 +125,15 @@ func (l *loginRateLimiter) allow(key string) bool {
 	defer l.mu.Unlock()
 	b, ok := l.keys[key]
 	if !ok {
-		// At the cap with no idle key to reclaim, a new key must not
-		// evict an active bucket: the evicted bucket would be rebuilt
-		// full the next time it is used, letting a flood of distinct
-		// keys reset the rate budget of an attacker-chosen key. Refuse
-		// the new key instead — fail-closed, the limit cannot be
-		// weakened by table pressure.
+		// At the cap, reclaim only genuinely idle keys. Evicting an
+		// active bucket would let a rotating-key flood reset somebody's
+		// rate budget; refusing every new key would let the same flood
+		// lock out legitimate users. If the table is full and active,
+		// rate-limit this unknown key without retaining it.
 		if len(l.keys) >= loginLimiterMaxKeys {
 			if !l.evictIdleLocked(loginLimiterIdleTTL) {
+				b = limiter.NewTokenBucket(l.rate, l.burst)
+				_ = b.Allow()
 				return false
 			}
 		}
