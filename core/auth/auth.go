@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -126,15 +125,21 @@ func (l *loginRateLimiter) allow(key string) bool {
 	defer l.mu.Unlock()
 	b, ok := l.keys[key]
 	if !ok {
+		// At the cap with no idle key to reclaim, a new key must not
+		// evict an active bucket: the evicted bucket would be rebuilt
+		// full the next time it is used, letting a flood of distinct
+		// keys reset the rate budget of an attacker-chosen key. Refuse
+		// the new key instead — fail-closed, the limit cannot be
+		// weakened by table pressure.
+		if len(l.keys) >= loginLimiterMaxKeys {
+			if !l.evictIdleLocked(loginLimiterIdleTTL) {
+				return false
+			}
+		}
 		b = limiter.NewTokenBucket(l.rate, l.burst)
 		l.keys[key] = b
 		now := time.Now()
 		l.lastSeen[key] = now
-		// Amortized cleanup: when the table reaches the cap, drop the
-		// longest-idle entries in one pass instead of growing forever.
-		if len(l.keys) > loginLimiterMaxKeys {
-			l.evictIdleLocked(loginLimiterIdleTTL)
-		}
 	} else {
 		l.lastSeen[key] = time.Now()
 	}
@@ -144,8 +149,10 @@ func (l *loginRateLimiter) allow(key string) bool {
 // evictIdleLocked reclaims buckets that have seen no traffic for longer
 // than ttl. Callers hold the lock. It is only invoked at the cap, so the
 // extra scan is bounded by the table size and amortized over the insert
-// that triggered it.
-func (l *loginRateLimiter) evictIdleLocked(ttl time.Duration) {
+// that triggered it. It reports whether any entry was reclaimed; when
+// nothing is idle it leaves the table untouched (never evicts an active
+// bucket, which would reset its rate budget).
+func (l *loginRateLimiter) evictIdleLocked(ttl time.Duration) bool {
 	cutoff := time.Now().Add(-ttl)
 	idle := make([]string, 0, len(l.keys))
 	for k, seen := range l.lastSeen {
@@ -154,30 +161,13 @@ func (l *loginRateLimiter) evictIdleLocked(ttl time.Duration) {
 		}
 	}
 	if len(idle) == 0 {
-		// Nothing idle: fall back to dropping the oldest quarter so the
-		// table stays bounded even under a burst of distinct active keys.
-		type kv struct {
-			k string
-			t time.Time
-		}
-		all := make([]kv, 0, len(l.keys))
-		for k, seen := range l.lastSeen {
-			all = append(all, kv{k, seen})
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
-		drop := len(all) / 4
-		if drop < 1 {
-			drop = 1
-		}
-		idle = make([]string, 0, drop)
-		for i := 0; i < drop; i++ {
-			idle = append(idle, all[i].k)
-		}
+		return false
 	}
 	for _, k := range idle {
 		delete(l.keys, k)
 		delete(l.lastSeen, k)
 	}
+	return true
 }
 
 // LoginRequest is a login request

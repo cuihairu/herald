@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core/jwt"
+	"github.com/cuihairu/herald/core/limiter"
 )
 
 func TestAuth_MiddlewareJWTAuthentication(t *testing.T) {
@@ -179,10 +180,12 @@ func TestLoginRateLimiterEvictsIdleKeys(t *testing.T) {
 	}
 }
 
-// TestLoginRateLimiterEvictsRecentFallback covers the cap-path fallback: when
-// every key is still active (none idle), the sweep drops the oldest quarter
-// instead of letting the table grow past the cap.
-func TestLoginRateLimiterEvictsRecentFallback(t *testing.T) {
+// TestLoginRateLimiterRejectsNewWhenFullAndActive: when the table is at
+// cap and every key is still active (none idle), a new key must not evict
+// an active bucket. The evicted bucket would be rebuilt full the next
+// time it is used, so a flood of distinct keys could reset the rate
+// budget of any key the attacker chooses. The new key is refused instead.
+func TestLoginRateLimiterRejectsNewWhenFullAndActive(t *testing.T) {
 	limiter := newLoginRateLimiter(1, 100)
 	now := time.Now()
 	for i := 0; i < loginLimiterMaxKeys; i++ {
@@ -191,31 +194,61 @@ func TestLoginRateLimiterEvictsRecentFallback(t *testing.T) {
 		limiter.lastSeen[key] = now
 	}
 
-	if !limiter.allow("192.0.2.2|new-user") {
-		t.Fatal("new key must be allowed after fallback eviction")
+	if limiter.allow("192.0.2.2|new-user") {
+		t.Fatal("new key must be refused when the table is full with active keys")
 	}
-	if got := len(limiter.keys); got >= loginLimiterMaxKeys {
-		t.Fatalf("limiter key table = %d, want < %d after fallback", got, loginLimiterMaxKeys)
+	if got := len(limiter.keys); got != loginLimiterMaxKeys {
+		t.Fatalf("limiter key table = %d, want unchanged %d", got, loginLimiterMaxKeys)
 	}
 }
 
-// TestLoginRateLimiterEvictFallbackFloorOne covers the floor guard: a table
-// smaller than four active keys drops exactly the oldest one, never zero.
-func TestLoginRateLimiterEvictFallbackFloorOne(t *testing.T) {
+// TestLoginRateLimiterFallbackPreservesActiveBudget: a key whose bucket has
+// been exhausted stays exhausted when the table is full with active keys —
+// another key's arrival cannot reset it.
+func TestLoginRateLimiterFallbackPreservesActiveBudget(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 1)
+	now := time.Now()
+	limiter.keys["192.0.2.1|exhausted"] = newTokenBucketForTest(1, 1)
+	limiter.lastSeen["192.0.2.1|exhausted"] = now
+	_ = limiter.allow("192.0.2.1|exhausted") // spends the single token
+	if limiter.allow("192.0.2.1|exhausted") {
+		t.Fatal("exhausted key must be denied before table pressure")
+	}
+	// Fill the remaining table so the exhausted key is surrounded by
+	// active keys and cannot be evicted to make room.
+	for i := 1; i < loginLimiterMaxKeys; i++ {
+		key := "192.0.2.1|filler-" + time.Duration(i).String()
+		// Fillers are never admitted; a nil bucket is enough to occupy
+		// the table and keeps the test light under -race.
+		limiter.keys[key] = nil
+		limiter.lastSeen[key] = now
+	}
+	if limiter.allow("192.0.2.1|new-key") {
+		t.Fatal("new key must be refused when full and active")
+	}
+	if limiter.allow("192.0.2.1|exhausted") {
+		t.Fatal("exhausted key must stay denied; table pressure must not reset it")
+	}
+}
+
+// TestLoginRateLimiterEvictIdleFloorOne covers the idle floor: a table with
+// only two idle keys drops the older one, never zero.
+func TestLoginRateLimiterEvictIdleFloorOne(t *testing.T) {
 	limiter := newLoginRateLimiter(1, 100)
 	now := time.Now()
-	limiter.keys["a"] = nil
-	limiter.lastSeen["a"] = now.Add(-2 * time.Second)
-	limiter.keys["b"] = nil
-	limiter.lastSeen["b"] = now.Add(-1 * time.Second)
+	limiter.keys["a"] = newTokenBucketForTest(1, 1)
+	limiter.lastSeen["a"] = now.Add(-2 * time.Hour)
+	limiter.keys["b"] = newTokenBucketForTest(1, 1)
+	limiter.lastSeen["b"] = now.Add(-1 * time.Hour)
 
 	limiter.evictIdleLocked(time.Hour)
-	if len(limiter.keys) != 1 {
-		t.Fatalf("keys after evict = %d, want 1 (drop floors at one)", len(limiter.keys))
+	if len(limiter.keys) != 0 {
+		t.Fatalf("keys after evict = %d, want 0 (both idle past ttl)", len(limiter.keys))
 	}
-	if _, ok := limiter.keys["a"]; ok {
-		t.Fatal("oldest key was not dropped")
-	}
+}
+
+func newTokenBucketForTest(rate float64, burst int) *limiter.TokenBucket {
+	return limiter.NewTokenBucket(rate, burst)
 }
 
 // TestLoginRateLimiterNegativeRateDisables covers the disable path: a negative
