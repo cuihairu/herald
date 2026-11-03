@@ -211,7 +211,7 @@ curl -X PUT http://127.0.0.1:8080/api/v1/apps/demo-app/callback \
   -d '{"url":"https://app.example.com/herald/callback","secret":"demo-callback-secret-0123456789"}'
 ```
 
-Constraints: url must be an absolute http(s) address whose host must not resolve into a private, loopback, link-local, CGNAT (`100.64.0.0/10`), or other reserved range — such destinations are refused outright (`callback url must not target a private/loopback network`), so point the callback at a public address; secret is 16–128 characters; the read endpoint never echoes the secret back. This deny list is an absolute hard stop: no allow-list or CIDR exemption can re-admit a default-deny network, and there is no public API to relax it. Two kinds of events:
+Constraints: url must be an absolute http(s) address whose host must not resolve into a private, loopback, link-local, CGNAT (`100.64.0.0/10`), or other reserved range — such destinations are refused outright (`callback url must not target a private/loopback network`), so point the callback at a public address; secret is 16–128 characters; the read endpoint never echoes the secret back. This deny list is an absolute hard stop for public deployments: no allow-list or CIDR exemption can re-admit a default-deny network. Deployment operators can relax it only by setting the app registry callback policy to allow private destinations. Two kinds of events:
 
 - `delivery_result`: the task's final state (success/failed + provider/audience/category), **retries are an internal pipeline affair; the application only sees the final state**;
 - `unsubscribe`: audience unsubscribe feedback (audience × category × channel × relation type).
