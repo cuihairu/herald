@@ -96,8 +96,9 @@ type Server struct {
 	server   *http.Server
 	upgrader websocket.Upgrader
 
-	mu      sync.RWMutex
-	workers map[string]*ConnectionState
+	mu        sync.RWMutex
+	workers   map[string]*ConnectionState
+	handlerMu sync.RWMutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -176,9 +177,19 @@ func NewServer(config *Config, handler ConnHandler) *Server {
 
 // SetHandler updates the connection handler.
 func (s *Server) SetHandler(handler ConnHandler) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
 	s.handler = handler
+}
+
+// handlerRef returns the current handler under the lock. Callers must not
+// hold s.mu when invoking methods on the returned handler: the handler is
+// only used after the lock is released, so SetHandler cannot race the read
+// and the callback cannot deadlock against the hub lock.
+func (s *Server) handlerRef() ConnHandler {
+	s.handlerMu.RLock()
+	defer s.handlerMu.RUnlock()
+	return s.handler
 }
 
 // Start starts the WebSocket server
@@ -394,14 +405,29 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 	// that drive the worker hub directly. When a token is configured, an
 	// unknown or missing one refuses the registration before any state is
 	// written. Constant-time compare keeps the check from leaking a prefix.
-	s.mu.Lock()
-	if s.authToken != "" && !constantTimeEqual(s.authToken, msg.AuthToken) {
-		// No hub state was written for a refused registration, so the lock is
-		// released before the network I/O below. The rejection ack is
-		// deadline-bounded and sent outside s.mu: a peer that stops reading
-		// must not stall register/heartbeat/ack/disconnect behind the same
-		// mutex.
-		s.mu.Unlock()
+	handler := func() ConnHandler {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.authToken != "" && !constantTimeEqual(s.authToken, msg.AuthToken) {
+			return nil
+		}
+
+		state.WorkerID = msg.WorkerID
+		state.Platform = msg.Platform
+		state.Version = msg.Version
+		state.Capabilities = msg.Capabilities
+		state.LastHeartbeat = time.Now()
+		s.workers[msg.WorkerID] = state
+
+		logger.Info("worker registered",
+			"worker_id", msg.WorkerID,
+			"platform", msg.Platform,
+			"version", msg.Version,
+			"capabilities", msg.Capabilities,
+		)
+		return s.handlerRef()
+	}()
+	if handler == nil {
 		ack := &protocol.RegisterAckMessage{
 			WorkerID:  msg.WorkerID,
 			Success:   false,
@@ -415,31 +441,6 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 		_ = state.conn.Close()
 		return fmt.Errorf("registration refused: invalid worker auth token")
 	}
-
-	// Update state
-	state.WorkerID = msg.WorkerID
-	state.Platform = msg.Platform
-	state.Version = msg.Version
-	state.Capabilities = msg.Capabilities
-	state.LastHeartbeat = time.Now()
-
-	// Store connection
-	s.workers[msg.WorkerID] = state
-
-	logger.Info("worker registered",
-		"worker_id", msg.WorkerID,
-		"platform", msg.Platform,
-		"version", msg.Version,
-		"capabilities", msg.Capabilities,
-	)
-
-	// Capture the handler under the lock so SetHandler cannot race the
-	// unlocked callback below. The callback itself runs outside s.mu:
-	// a handler panic is caught by net/http's per-goroutine recovery and
-	// must not leak the hub lock (which would deadlock every later
-	// register/heartbeat/ack).
-	handler := s.handler
-	s.mu.Unlock()
 
 	// Send ACK — outside s.mu: the write (and its deadline) must not run
 	// under the hub lock, or a slow peer head-of-line-blocks every other
@@ -506,8 +507,8 @@ func (s *Server) handleHeartbeat(msg *protocol.HeartbeatMessage) error {
 	}
 	s.mu.Unlock()
 
-	if s.handler != nil {
-		if err := s.handler.OnHeartbeat(msg.WorkerID); err != nil {
+	if handler := s.handlerRef(); handler != nil {
+		if err := handler.OnHeartbeat(msg.WorkerID); err != nil {
 			logger.Error("handler onheartbeat error", "worker_id", msg.WorkerID, "error", err)
 		}
 	}
@@ -523,8 +524,8 @@ func (s *Server) handleAck(msg *protocol.AckMessage) error {
 		"error", msg.Error,
 	)
 
-	if s.handler != nil {
-		if err := s.handler.OnTaskAck(msg.TaskID, msg.Success, msg.Error); err != nil {
+	if handler := s.handlerRef(); handler != nil {
+		if err := handler.OnTaskAck(msg.TaskID, msg.Success, msg.Error); err != nil {
 			logger.Error("handler ontaskack error", "error", err)
 		}
 	}
@@ -539,8 +540,8 @@ func (s *Server) handleEvent(msg *protocol.EventMessage) error {
 		"event_type", msg.EventType,
 	)
 
-	if s.handler != nil {
-		if err := s.handler.OnWorkerEvent(msg.WorkerID, msg); err != nil {
+	if handler := s.handlerRef(); handler != nil {
+		if err := handler.OnWorkerEvent(msg.WorkerID, msg); err != nil {
 			logger.Error("handler onevent error", "error", err)
 		}
 	}
@@ -551,10 +552,10 @@ func (s *Server) handleEvent(msg *protocol.EventMessage) error {
 // handleDisconnect handles a worker disconnection
 func (s *Server) handleDisconnect(workerID string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	state, ok := s.workers[workerID]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 
@@ -568,16 +569,16 @@ func (s *Server) handleDisconnect(workerID string) {
 
 	logger.Info("worker disconnected", "worker_id", workerID)
 
-	// Notify handler
-	if s.handler != nil {
-		s.handler.OnDisconnect(workerID)
+	handler := s.handlerRef()
+	s.mu.Unlock()
+	if handler != nil {
+		handler.OnDisconnect(workerID)
 	}
 }
 
 // pruneStaleWorkers removes workers whose heartbeat is too old.
 func (s *Server) pruneStaleWorkers(now time.Time) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	for workerID, state := range s.workers {
 		if now.Sub(state.LastHeartbeat) > 2*time.Minute {
@@ -590,11 +591,15 @@ func (s *Server) pruneStaleWorkers(now time.Time) {
 			}
 			delete(s.workers, workerID)
 
-			if s.handler != nil {
-				s.handler.OnDisconnect(workerID)
+			handler := s.handlerRef()
+			s.mu.Unlock()
+			if handler != nil {
+				handler.OnDisconnect(workerID)
 			}
+			return
 		}
 	}
+	s.mu.Unlock()
 }
 
 // staleCheckInterval is the period between stale-worker prunes; a package
@@ -678,10 +683,10 @@ func cloneWorkerInfo(s *ConnectionState) WorkerInfo {
 // DisconnectWorker disconnects a worker
 func (s *Server) DisconnectWorker(workerID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	state, ok := s.workers[workerID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("worker not found: %s", workerID)
 	}
 
@@ -692,8 +697,10 @@ func (s *Server) DisconnectWorker(workerID string) error {
 
 	logger.Info("worker disconnected", "worker_id", workerID, "reason", "requested")
 
-	if s.handler != nil {
-		s.handler.OnDisconnect(workerID)
+	handler := s.handlerRef()
+	s.mu.Unlock()
+	if handler != nil {
+		handler.OnDisconnect(workerID)
 	}
 
 	return nil
