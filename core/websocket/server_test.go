@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 // mockHandler is a mock connection handler for testing
 type mockHandler struct {
+	mu              sync.Mutex
 	registerCalls   []registerCall
 	ackCalls        []ackCall
 	eventCalls      []eventCall
@@ -59,6 +61,8 @@ type eventCall struct {
 }
 
 func (m *mockHandler) OnRegister(workerID string, msg *protocol.RegisterMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.registerCalls = append(m.registerCalls, registerCall{
 		workerID: workerID,
 		msg:      msg,
@@ -71,6 +75,8 @@ func (m *mockHandler) OnHeartbeat(workerID string) error {
 }
 
 func (m *mockHandler) OnTaskAck(taskID string, success bool, errMsg string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ackCalls = append(m.ackCalls, ackCall{
 		taskID:  taskID,
 		success: success,
@@ -80,6 +86,8 @@ func (m *mockHandler) OnTaskAck(taskID string, success bool, errMsg string) erro
 }
 
 func (m *mockHandler) OnWorkerEvent(workerID string, event *protocol.EventMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.eventCalls = append(m.eventCalls, eventCall{
 		workerID: workerID,
 		event:    event,
@@ -88,7 +96,69 @@ func (m *mockHandler) OnWorkerEvent(workerID string, event *protocol.EventMessag
 }
 
 func (m *mockHandler) OnDisconnect(workerID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.disconnectCalls = append(m.disconnectCalls, workerID)
+}
+
+func (m *mockHandler) registerCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.registerCalls)
+}
+
+func (m *mockHandler) ackCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.ackCalls)
+}
+
+func (m *mockHandler) eventCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.eventCalls)
+}
+
+func (m *mockHandler) disconnectCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.disconnectCalls)
+}
+
+func (m *mockHandler) lastRegisterCall() registerCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.registerCalls) == 0 {
+		return registerCall{}
+	}
+	return m.registerCalls[0]
+}
+
+func (m *mockHandler) firstAckCall() ackCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.ackCalls) == 0 {
+		return ackCall{}
+	}
+	return m.ackCalls[0]
+}
+
+func (m *mockHandler) firstEventCall() eventCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.eventCalls) == 0 {
+		return eventCall{}
+	}
+	return m.eventCalls[0]
+}
+
+func (m *mockHandler) firstDisconnectCall() (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.disconnectCalls) == 0 {
+		return "", false
+	}
+	return m.disconnectCalls[0], true
 }
 
 func TestNewServer(t *testing.T) {
@@ -457,14 +527,14 @@ func TestMockHandler(t *testing.T) {
 		Platform: "test",
 	}
 	_ = handler.OnRegister("test-worker", msg)
-	if len(handler.registerCalls) != 1 {
-		t.Errorf("expected 1 register call, got %d", len(handler.registerCalls))
+	if handler.registerCount() != 1 {
+		t.Errorf("expected 1 register call, got %d", handler.registerCount())
 	}
 
 	// Test OnTaskAck
 	_ = handler.OnTaskAck("task-1", true, "")
-	if len(handler.ackCalls) != 1 {
-		t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+	if handler.ackCount() != 1 {
+		t.Errorf("expected 1 ack call, got %d", handler.ackCount())
 	}
 
 	// Test OnWorkerEvent
@@ -473,14 +543,14 @@ func TestMockHandler(t *testing.T) {
 		EventType: "test.event",
 	}
 	_ = handler.OnWorkerEvent("test-worker", event)
-	if len(handler.eventCalls) != 1 {
-		t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
+	if handler.eventCount() != 1 {
+		t.Errorf("expected 1 event call, got %d", handler.eventCount())
 	}
 
 	// Test OnDisconnect
 	handler.OnDisconnect("test-worker")
-	if len(handler.disconnectCalls) != 1 {
-		t.Errorf("expected 1 disconnect call, got %d", len(handler.disconnectCalls))
+	if handler.disconnectCount() != 1 {
+		t.Errorf("expected 1 disconnect call, got %d", handler.disconnectCount())
 	}
 }
 
@@ -985,8 +1055,8 @@ func TestHandleAck(t *testing.T) {
 		}
 
 		// Verify handler was notified
-		if len(handler.ackCalls) != 1 {
-			t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+		if handler.ackCount() != 1 {
+			t.Errorf("expected 1 ack call, got %d", handler.ackCount())
 		}
 		if handler.ackCalls[0].taskID != "task-1" {
 			t.Errorf("expected taskID task-1, got %s", handler.ackCalls[0].taskID)
@@ -1011,11 +1081,11 @@ func TestHandleAck(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		if len(handler.ackCalls) != 1 {
-			t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+		if handler.ackCount() != 1 {
+			t.Errorf("expected 1 ack call, got %d", handler.ackCount())
 		}
-		if handler.ackCalls[0].errMsg != "delivery failed" {
-			t.Errorf("expected error message 'delivery failed', got %s", handler.ackCalls[0].errMsg)
+		if got := handler.firstAckCall(); got.errMsg != "delivery failed" {
+			t.Errorf("expected error message 'delivery failed', got %s", got.errMsg)
 		}
 	})
 
@@ -1054,14 +1124,13 @@ func TestHandleEvent(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		if len(handler.eventCalls) != 1 {
-			t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
+		if handler.eventCount() != 1 {
+			t.Errorf("expected 1 event call, got %d", handler.eventCount())
 		}
-		if handler.eventCalls[0].workerID != "test-worker" {
-			t.Errorf("expected workerID test-worker, got %s", handler.eventCalls[0].workerID)
-		}
-		if handler.eventCalls[0].event.EventType != "worker.started" {
-			t.Errorf("expected event type worker.started, got %s", handler.eventCalls[0].event.EventType)
+		if got := handler.firstEventCall(); got.workerID != "test-worker" {
+			t.Errorf("expected workerID test-worker, got %s", got.workerID)
+		} else if got.event.EventType != "worker.started" {
+			t.Errorf("expected event type worker.started, got %s", got.event.EventType)
 		}
 	})
 
@@ -1171,8 +1240,8 @@ func TestHandleMessage(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		if len(handler.ackCalls) != 1 {
-			t.Errorf("expected 1 ack call, got %d", len(handler.ackCalls))
+		if handler.ackCount() != 1 {
+			t.Errorf("expected 1 ack call, got %d", handler.ackCount())
 		}
 	})
 
@@ -1189,8 +1258,8 @@ func TestHandleMessage(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 
-		if len(handler.eventCalls) != 1 {
-			t.Errorf("expected 1 event call, got %d", len(handler.eventCalls))
+		if handler.eventCount() != 1 {
+			t.Errorf("expected 1 event call, got %d", handler.eventCount())
 		}
 	})
 
@@ -1348,15 +1417,15 @@ func TestHandleRegister(t *testing.T) {
 		t.Fatalf("expected 2 capabilities, got %d", len(state.Capabilities))
 	}
 	deadline := time.Now().Add(time.Second)
-	for len(handler.registerCalls) == 0 && time.Now().Before(deadline) {
+	for handler.registerCount() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
 
-	if len(handler.registerCalls) != 1 {
-		t.Fatalf("expected 1 register callback, got %d", len(handler.registerCalls))
+	if handler.registerCount() != 1 {
+		t.Fatalf("expected 1 register callback, got %d", handler.registerCount())
 	}
-	if handler.registerCalls[0].workerID != "worker-1" {
-		t.Fatalf("expected worker-1 callback, got %s", handler.registerCalls[0].workerID)
+	if got := handler.lastRegisterCall(); got.workerID != "worker-1" {
+		t.Fatalf("expected worker-1 callback, got %s", got.workerID)
 	}
 }
 

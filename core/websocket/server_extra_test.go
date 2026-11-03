@@ -492,6 +492,141 @@ func assertHubLockFree(t *testing.T, server *Server) {
 	server.mu.Unlock()
 }
 
+// panicHandler panics inside OnRegister to prove the server recovers
+// without leaking the hub lock.
+type panicHandler struct {
+	mockHandler
+}
+
+func (h *panicHandler) OnRegister(workerID string, msg *protocol.RegisterMessage) error {
+	panic("register handler panic")
+}
+
+// TestHandleRegisterPanicDoesNotLeakHubLock: if the OnRegister callback
+// panics, the per-connection goroutine's recovery must not leave s.mu
+// held — a leaked lock would deadlock every later register/heartbeat/ack.
+func TestHandleRegisterPanicDoesNotLeakHubLock(t *testing.T) {
+	server, ts := newFlowTestServer(t, &panicHandler{}, nil)
+	url := "ws" + ts.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// The register is read by the real read loop, which recovers the
+	// panic in the handler goroutine; the ack still reaches the client.
+	msg := &protocol.RegisterMessage{WorkerID: "w-panic", Platform: "linux"}
+	payload, _ := protocol.MarshalMessage(msg)
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		t.Fatalf("write register: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, _, err = conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read register ack: %v", err)
+	}
+	// The handler panicked; the lock must still be free for the next
+	// register to proceed.
+	assertHubLockFree(t, server)
+}
+
+// ackGateHandler records whether OnRegister ran and signals the caller.
+type ackGateHandler struct {
+	mockHandler
+	registerRan chan string
+}
+
+func (h *ackGateHandler) OnRegister(workerID string, msg *protocol.RegisterMessage) error {
+	h.registerRan <- workerID
+	return nil
+}
+
+// TestHandleRegisterCallbackAfterAck: OnRegister must run only after the
+// ack reached the wire. If the ack write fails, the handler must not be
+// told the worker registered — the worker never learned of the success.
+func TestHandleRegisterCallbackAfterAck(t *testing.T) {
+	h := &ackGateHandler{registerRan: make(chan string, 1)}
+	_, ts := newFlowTestServer(t, h, nil)
+	url := "ws" + ts.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	msg := &protocol.RegisterMessage{WorkerID: "w-ackgate", Platform: "linux"}
+	payload, _ := protocol.MarshalMessage(msg)
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		t.Fatalf("write register: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read register ack: %v", err)
+	}
+	var ack protocol.RegisterAckMessage
+	_ = json.Unmarshal(data, &ack)
+	if !ack.Success {
+		t.Fatal("register ack = false, want true")
+	}
+	select {
+	case got := <-h.registerRan:
+		if got != "w-ackgate" {
+			t.Fatalf("OnRegister worker = %q, want w-ackgate", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnRegister was not called after a successful ack")
+	}
+}
+
+// TestHandleRegisterNoCallbackOnAckFailure: when the ack cannot reach the
+// wire, the handler must not be notified — a worker that never got its
+// confirmation is not "registered" to the observer. The marshal step is
+// injected to fail deterministically before any bytes hit the wire.
+func TestHandleRegisterNoCallbackOnAckFailure(t *testing.T) {
+	h := &ackGateHandler{registerRan: make(chan string, 1)}
+	server, ts := newFlowTestServer(t, h, nil)
+	url := "ws" + ts.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Register once to get a live state, then inject an ack marshal
+	// failure so the register path returns before any callback runs.
+	registerFlowWorker(t, conn, "w-noack")
+	// The first register's callback is the success proof; drain it so the
+	// failure assertion below only sees the second (failed) attempt.
+	select {
+	case <-h.registerRan:
+	default:
+		t.Fatal("first register did not run its callback")
+	}
+	server.mu.Lock()
+	state := server.workers["w-noack"]
+	server.mu.Unlock()
+	if state == nil {
+		t.Fatal("worker w-noack not registered")
+	}
+
+	orig := jsonMarshal
+	jsonMarshal = func(v any) ([]byte, error) { return nil, errors.New("ack marshal boom") }
+	defer func() { jsonMarshal = orig }()
+
+	err = server.handleRegister(state, &protocol.RegisterMessage{WorkerID: "w-noack-2", Platform: "linux"})
+	if err == nil || !strings.Contains(err.Error(), "failed to marshal ack") {
+		t.Fatalf("handleRegister = %v, want ack marshal failure", err)
+	}
+	select {
+	case <-h.registerRan:
+		t.Fatal("OnRegister ran despite a failed ack")
+	case <-time.After(500 * time.Millisecond):
+		// expected: no callback
+	}
+}
+
 // slowAckHandler blocks inside OnTaskAck so the test can close the server-side
 // conn while handleConnection is parked in the handler.
 type slowAckHandler struct {

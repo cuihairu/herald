@@ -345,7 +345,10 @@ func TestDisconnectWorkerWithoutConn(t *testing.T) {
 	if server.GetWorkerCount() != 0 {
 		t.Errorf("expected 0 workers, got %d", server.GetWorkerCount())
 	}
-	if len(handler.disconnectCalls) != 1 || handler.disconnectCalls[0] != "ghost" {
-		t.Errorf("unexpected disconnect calls: %#v", handler.disconnectCalls)
+	if handler.disconnectCount() != 1 {
+		t.Errorf("expected one disconnect call, got %d", handler.disconnectCount())
+	}
+	if got, ok := handler.firstDisconnectCall(); ok && got != "ghost" {
+		t.Errorf("unexpected disconnect call: %q", got)
 	}
 }

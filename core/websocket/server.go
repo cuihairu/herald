@@ -299,6 +299,15 @@ func (s *Server) handleConnection(state *ConnectionState) {
 	s.wg.Add(1)
 	s.closingMu.RUnlock()
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("websocket connection panic", "panic", r)
+			if state.WorkerID != "" {
+				s.handleDisconnect(state.WorkerID)
+			}
+			_ = state.conn.Close()
+		}
+	}()
 
 	conn := state.conn
 
@@ -424,12 +433,12 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 		"capabilities", msg.Capabilities,
 	)
 
-	// Notify handler — a callback, still under the hub lock as before.
-	if s.handler != nil {
-		if err := s.handler.OnRegister(msg.WorkerID, msg); err != nil {
-			logger.Error("handler onregister error", "error", err)
-		}
-	}
+	// Capture the handler under the lock so SetHandler cannot race the
+	// unlocked callback below. The callback itself runs outside s.mu:
+	// a handler panic is caught by net/http's per-goroutine recovery and
+	// must not leak the hub lock (which would deadlock every later
+	// register/heartbeat/ack).
+	handler := s.handler
 	s.mu.Unlock()
 
 	// Send ACK — outside s.mu: the write (and its deadline) must not run
@@ -457,6 +466,16 @@ func (s *Server) handleRegister(state *ConnectionState, msg *protocol.RegisterMe
 
 	if err := state.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		return fmt.Errorf("failed to send ack: %w", err)
+	}
+
+	// Notify the handler only after the ack reached the wire. A worker
+	// that never received its confirmation must not be observed as
+	// registered — the pre-ack order would let the handler see a
+	// registered worker whose channel the worker never learned about.
+	if handler != nil {
+		if err := handler.OnRegister(msg.WorkerID, msg); err != nil {
+			logger.Error("handler onregister error", "error", err)
+		}
 	}
 
 	return nil
