@@ -43,8 +43,8 @@ token may also be replaced by an API Key carried in the `X-API-Key` header (see
 
 ## POST /api/v1/auth/refresh {#auth-refresh}
 
-Refresh the JWT: exchange the Bearer token (or the `herald_token` cookie) for a
-new token. A missing, invalid, or expired token returns 401.
+Refresh the JWT: exchange the Bearer token for a new token. A missing,
+invalid, or expired token returns 401.
 
 ### refresh-response {#refresh-response}
 

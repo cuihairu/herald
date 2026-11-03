@@ -39,8 +39,7 @@ API Key 代替（见[认证](#auth)）。
 
 ## POST /api/v1/auth/refresh {#auth-refresh}
 
-刷新 JWT：凭 Bearer token（或 `herald_token` cookie）换发新 token。token 缺失、
-无效或过期返回 401。
+刷新 JWT：凭 Bearer token 换发新 token。token 缺失、无效或过期返回 401。
 
 ### refresh-响应 {#refresh-response}
 
