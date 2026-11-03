@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"sync"
 	"time"
 
 	"github.com/cuihairu/herald/core"
@@ -25,6 +27,16 @@ type Provider struct {
 	status *core.ProviderStatus
 	client *httpclient.Client
 	apps   *apps.Registry
+	mu     sync.Mutex
+	pinned map[string]*pinnedClient
+}
+
+// pinnedClient remembers one URL's pinned client so repeated deliveries to
+// the same destination reuse the same transport (and its idle connection
+// pool) instead of cloning a fresh one on every POST.
+type pinnedClient struct {
+	ipsKey string
+	client *httpclient.Client
 }
 
 // NewProvider builds the callback dispatcher provider.
@@ -87,7 +99,7 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 			return fmt.Errorf("callback: %w", err)
 		}
 		if len(ips) > 0 {
-			client = client.WithPinnedIPs(ips)
+			client = p.pinnedClientFor(task.Targets[0], ips)
 		}
 	}
 	// Non-2xx answers come back as errors from the client itself, so
@@ -98,4 +110,37 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 		EventIDHeader:   eventID,
 	})
 	return err
+}
+
+// pinnedClientFor returns a client that dials exactly the validated IPs.
+// The same URL with the same address set reuses one transport (keep-alive
+// pool preserved); a changed DNS answer builds a fresh one because the
+// old pinned address set must not be reused.
+func (p *Provider) pinnedClientFor(rawURL string, ips []net.IP) *httpclient.Client {
+	key := rawURL
+	ipsKey := joinIPs(ips)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pinned == nil {
+		p.pinned = make(map[string]*pinnedClient)
+	}
+	if e, ok := p.pinned[key]; ok && e.ipsKey == ipsKey {
+		return e.client
+	}
+	c := p.client.WithPinnedIPs(ips)
+	p.pinned[key] = &pinnedClient{ipsKey: ipsKey, client: c}
+	return c
+}
+
+func joinIPs(ips []net.IP) string {
+	b := make([]byte, 0, len(ips)*16)
+	for _, ip := range ips {
+		if v4 := ip.To4(); v4 != nil {
+			b = append(b, v4...)
+		} else if v16 := ip.To16(); v16 != nil {
+			b = append(b, v16...)
+		}
+		b = append(b, 0)
+	}
+	return string(b)
 }

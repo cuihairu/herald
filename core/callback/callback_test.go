@@ -374,6 +374,42 @@ func TestProviderDeliverPinsValidatedHostname(t *testing.T) {
 	}
 }
 
+// TestProviderReusesPinnedClientTransport proves repeated deliveries with
+// the same validated address answer reuse one pinned client. Mutating the
+// answer replaces it, so stale addresses are never dialed.
+func TestProviderReusesPinnedClientTransport(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	srvURL, _ := url.Parse(srv.URL)
+	srvIP := net.ParseIP(srvURL.Hostname())
+
+	reg, err := apps.NewRegistry([]apps.SeedApp{{
+		Name:   "demo-app",
+		Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{srvIP}, nil
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	first := p.pinnedClientFor("http://app.example.com:"+srvURL.Port()+"/hook", []net.IP{srvIP})
+	second := p.pinnedClientFor("http://app.example.com:"+srvURL.Port()+"/hook", []net.IP{srvIP})
+	if first != second {
+		t.Fatal("same URL and IP set must reuse the pinned client")
+	}
+	changed := p.pinnedClientFor("http://app.example.com:"+srvURL.Port()+"/hook", []net.IP{net.ParseIP("192.0.2.10")})
+	if changed == first {
+		t.Fatal("changed IP set must replace the pinned client")
+	}
+}
+
 // TestProviderDeliverRefusesHostnameResolvedToDenied: a hostname that the
 // resolver maps to a denied network is refused at delivery time — the seam
 // hostname path, not just literal-IP targets.
