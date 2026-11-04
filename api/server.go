@@ -325,6 +325,7 @@ func NewServer(config *Config) *Server {
 	// §13.1 集成者接入面: app-token auth (分级权限), independent of the
 	// operator API key. The namespace rides in the path.
 	mux.HandleFunc("/api/v1/apps/{app}", s.withApp(apps.ScopeQuery, s.handleAppShow))
+	mux.HandleFunc("/api/v1/apps", s.withAuth(s.handleAppList))
 	mux.HandleFunc("/api/v1/apps/{app}/categories", s.handleAppCategories)
 	// §13.2 policy overrides: each family PUTs its own shape, the
 	// aggregate GET reads the whole set back.

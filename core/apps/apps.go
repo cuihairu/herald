@@ -252,6 +252,18 @@ func (r *Registry) notifyCallbackChange(url string, present bool) {
 	}
 }
 
+// Names returns the sorted list of registered namespace names.
+func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.apps))
+	for name := range r.apps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // Exists reports whether a namespace is registered.
 func (r *Registry) Exists(app string) bool {
 	r.mu.RLock()
