@@ -907,3 +907,70 @@ func TestClientGetWithHeadersSendsHeaders(t *testing.T) {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
 }
+
+// TestClientWithPinnedIPsRedirectChainBounded: a custom CheckRedirect
+// replaces Go's default 10-hop limit, so a same-host self-referencing 3xx
+// chain (/a→/b→/a) would loop until the client timeout. The hook must
+// preserve the default bound.
+func TestClientWithPinnedIPsRedirectChainBounded(t *testing.T) {
+	redirects := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirects++
+		if redirects > 11 {
+			http.Error(w, "too many", http.StatusInternalServerError)
+			return
+		}
+		// Alternate between two paths on the same host so the redirect
+		// never resolves to itself in one hop (which the Go client
+		// rejects as "redirected too many times" differently).
+		if r.URL.Path == "/a" {
+			http.Redirect(w, r, "/b", http.StatusTemporaryRedirect)
+		} else {
+			http.Redirect(w, r, "/a", http.StatusTemporaryRedirect)
+		}
+	}))
+	defer srv.Close()
+	srvURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+
+	c := NewClient(nil).WithPinnedIPs([]net.IP{net.ParseIP(srvURL.Hostname())})
+	_, err = c.Get(context.Background(), srvURL.String()+"/a")
+	if err == nil || !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Fatalf("redirect chain error = %v, want 10-hop bound", err)
+	}
+	// The chain must stop at the 10th hop, not loop to the client timeout.
+	if redirects > 11 {
+		t.Fatalf("requests = %d, want <= 11 (10 hops + initial)", redirects)
+	}
+}
+
+// TestClientWithPinnedIPsRefusesSchemeDowngrade: a same-host redirect that
+// drops from https to http would send the signed callback body in
+// cleartext, bypassing TLS. It must be refused even though the host is
+// unchanged.
+func TestClientWithPinnedIPsRefusesSchemeDowngrade(t *testing.T) {
+	c := NewClient(nil).WithPinnedIPs([]net.IP{net.ParseIP("93.184.216.34")})
+	if c.client.CheckRedirect == nil {
+		t.Fatal("expected a CheckRedirect hook on the pinned client")
+	}
+	target := &http.Request{URL: &url.URL{Scheme: "http", Host: "app.example.com", Path: "/hook"}}
+	via := []*http.Request{{URL: &url.URL{Scheme: "https", Host: "app.example.com", Path: "/source"}}}
+	err := c.client.CheckRedirect(target, via)
+	if err != http.ErrUseLastResponse {
+		t.Fatalf("scheme-downgrade redirect err = %v, want ErrUseLastResponse", err)
+	}
+}
+
+// TestClientWithPinnedIPsRedirectKeepsSameScheme: a same-host redirect that
+// keeps the scheme (http→http) is still followed; the scheme check must not
+// reject safe same-scheme hops.
+func TestClientWithPinnedIPsRedirectKeepsSameScheme(t *testing.T) {
+	c := NewClient(nil).WithPinnedIPs([]net.IP{net.ParseIP("93.184.216.34")})
+	target := &http.Request{URL: &url.URL{Scheme: "http", Host: "app.example.com", Path: "/hook"}}
+	via := []*http.Request{{URL: &url.URL{Scheme: "http", Host: "app.example.com", Path: "/source"}}}
+	if err := c.client.CheckRedirect(target, via); err != nil {
+		t.Fatalf("same-scheme redirect err = %v, want nil", err)
+	}
+}

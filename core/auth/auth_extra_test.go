@@ -349,3 +349,32 @@ func TestClientIP(t *testing.T) {
 		t.Errorf("empty RemoteAddr = %q, want unknown", got)
 	}
 }
+
+// TestLoginRateLimiterTrialSingleAttemptNeverRefills: a flood key in the
+// trial table gets exactly one attempt and stays denied even after enough
+// time for a rate-based bucket to refill. The trial bucket is a one-shot
+// gate, not a burst-1 token bucket at the full login rate (which would let
+// a sustained flood retry at the login rate).
+func TestLoginRateLimiterTrialSingleAttemptNeverRefills(t *testing.T) {
+	// Use a high rate (10k/s) so a rate-based bucket would refill within
+	// milliseconds; the one-shot gate must not.
+	limiter := newLoginRateLimiter(10000, 100)
+	now := time.Now()
+	for i := 0; i < loginLimiterMaxKeys; i++ {
+		key := "192.0.2.1|user-" + string(rune('a'+i%26)) + time.Duration(i).String()
+		limiter.keys[key] = nil
+		limiter.lastSeen[key] = now
+	}
+	key := "192.0.2.2|flood"
+	if !limiter.allow(key) {
+		t.Fatal("first flood attempt must be granted")
+	}
+	if limiter.allow(key) {
+		t.Fatal("second flood attempt must be denied")
+	}
+	// Allow a window long enough for a 10k/s bucket to mint a fresh token.
+	time.Sleep(5 * time.Millisecond)
+	if limiter.allow(key) {
+		t.Fatal("flood key must not regain a token after idle time under a one-shot trial gate")
+	}
+}

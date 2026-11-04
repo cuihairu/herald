@@ -117,14 +117,37 @@ func (r *Registry) SetCallback(app, rawURL, secret string) error {
 		oldURL = a.callback.URL
 	}
 	a.callback = &Callback{URL: u.String(), Secret: secret}
+	// The URL is still present if any other app references it; a
+	// shared-URL replace must not drop a transport another app uses.
+	present := r.callbackURLPresentLocked(app, oldURL)
 	r.mu.Unlock()
 	// Notify outside the lock: a delivery-side cache must drop the old
 	// URL's entry (the face moved) and can add the new one lazily on the
 	// next delivery.
 	if oldURL != "" && oldURL != u.String() {
-		r.notifyCallbackChange(oldURL, false)
+		r.notifyCallbackChange(oldURL, present)
 	}
 	return nil
+}
+
+// callbackURLPresentLocked reports whether any app other than exclude
+// still references url as its callback. Registry state is per-app but
+// the delivery cache is keyed by URL: when two apps share a URL and one
+// changes or clears it, the URL is still in use and its cached transport
+// must not be dropped. Callers hold r.mu.
+func (r *Registry) callbackURLPresentLocked(exclude string, url string) bool {
+	if url == "" {
+		return false
+	}
+	for name, a := range r.apps {
+		if name == exclude {
+			continue
+		}
+		if a.callback != nil && a.callback.URL == url {
+			return true
+		}
+	}
+	return false
 }
 
 // SetCallbackPolicy configures the destination exemptions for this
@@ -219,9 +242,10 @@ func (r *Registry) ClearCallback(app string) error {
 		oldURL = a.callback.URL
 	}
 	a.callback = nil
+	present := r.callbackURLPresentLocked(app, oldURL)
 	r.mu.Unlock()
 	if oldURL != "" {
-		r.notifyCallbackChange(oldURL, false)
+		r.notifyCallbackChange(oldURL, present)
 	}
 	return nil
 }

@@ -208,19 +208,31 @@ func (c *Client) WithPinnedIPs(ips []net.IP) *Client {
 	httpClient := *c.client
 	httpClient.Transport = transport
 	// A pinned transport may follow a redirect that stays on the same
-	// host: the dialer still connects to the originally validated
-	// addresses, and the Host/SNI are unchanged, so the target is just
-	// as authorized as the first hop. A redirect to another hostname is
-	// refused instead: the dialer would connect to the original address
-	// while sending the redirect target's Host/SNI, landing on the wrong
-	// server. Refusing it surfaces the 3xx as a non-2xx for the retry
-	// pipeline instead of misdirecting the POST.
+	// host on the same scheme: the dialer still connects to the
+	// originally validated addresses, and the Host/SNI are unchanged, so
+	// the target is just as authorized as the first hop. A redirect to
+	// another hostname, or a same-host hop that drops from https to
+	// http, is refused instead: the former would leave the pinned
+	// address set behind (the dialer connects to the original address
+	// while sending the redirect target's Host/SNI), and the latter
+	// would send the signed body in cleartext, bypassing TLS. Refusing
+	// surfaces the 3xx as a non-2xx for the retry pipeline instead of
+	// misdirecting the POST.
 	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		// A custom CheckRedirect replaces Go's default, which refuses a
+		// chain longer than 10 hops. Preserve that bound here so a
+		// same-host self-referencing 3xx (/a→/b→/a) cannot loop until
+		// the client timeout.
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
 		// via holds the requests already sent; the last one is the
 		// original hop. Redirecting to a different host (or port) would
 		// leave the pinned address set behind, so only same-host hops are
-		// safe to follow.
-		if len(via) > 0 && req.URL.Host == via[len(via)-1].URL.Host {
+		// safe to follow. A scheme downgrade (https→http) would send the
+		// signed callback body in cleartext, so it is refused too.
+		if len(via) > 0 && req.URL.Host == via[len(via)-1].URL.Host &&
+			req.URL.Scheme == via[len(via)-1].URL.Scheme {
 			return nil
 		}
 		return http.ErrUseLastResponse

@@ -30,6 +30,10 @@ type Provider struct {
 	apps   *apps.Registry
 	mu     sync.Mutex
 	pinned map[string]*pinnedClient
+	// unregisterHook is the registry change-hook handle for the current
+	// apps registry; it is detached when the registry is swapped or the
+	// provider is discarded. Holds the lock order: p.mu before registry.
+	unregisterHook func()
 }
 
 // pinnedClient remembers one URL's pinned client so repeated deliveries to
@@ -58,18 +62,33 @@ func NewProvider() *Provider {
 // stored URL immediately before posting — the Set-time check cannot see
 // DNS answers that changed between configuration and delivery.
 func (p *Provider) SetAppRegistry(reg *apps.Registry) {
-	if p.apps != nil {
-		p.apps.SetCallbackChangeHook(nil)
-	}
+	p.mu.Lock()
+	prev := p.apps
+	prevUnregister := p.unregisterHook
 	p.apps = reg
+	p.pinned = nil
+	p.unregisterHook = nil
+	p.mu.Unlock()
+	// Detach from the previous registry outside the lock: the unregister
+	// takes the registry lock, and a notify may re-enter dropPinnedURL
+	// (which takes p.mu), so holding p.mu here would invert the lock
+	// order.
+	if prev != nil && prevUnregister != nil {
+		prevUnregister()
+	}
 	if reg != nil {
-		// Drop every cached pinned transport: the registry's callback set
-		// may have changed while this provider was detached, and stale
-		// URL entries would otherwise linger forever.
-		p.pinned = nil
-		reg.SetCallbackChangeHook(func(url string, present bool) {
-			p.dropPinnedURL(url)
+		hook := reg.AddCallbackChangeHook(func(url string, present bool) {
+			// Drop the cached transport only when no app references the
+			// URL anymore. Two apps sharing one URL both deliver through
+			// the same pinned client; one app clearing its callback must
+			// not tear down a transport the other still uses.
+			if !present {
+				p.dropPinnedURL(url)
+			}
 		})
+		p.mu.Lock()
+		p.unregisterHook = hook
+		p.mu.Unlock()
 	}
 }
 
@@ -110,8 +129,11 @@ func (p *Provider) Deliver(ctx context.Context, task *core.DeliveryTask) error {
 	// DNS answer that moves after this check cannot redirect the POST to
 	// a network the policy refused.
 	client := p.client
-	if p.apps != nil {
-		ips, err := p.apps.ResolveCallbackURL(task.Targets[0])
+	p.mu.Lock()
+	reg := p.apps
+	p.mu.Unlock()
+	if reg != nil {
+		ips, err := reg.ResolveCallbackURL(task.Targets[0])
 		if err != nil {
 			// A hostname that momentarily fails to resolve is transient:
 			// the next attempt may see a healthy DNS answer. Deterministic

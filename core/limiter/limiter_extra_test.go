@@ -150,3 +150,21 @@ func TestReservationOnAvailableBucket(t *testing.T) {
 		t.Errorf("tokens after reservation = %v, want 4", tokensAfter)
 	}
 }
+
+// TestNewOnceGrantsSingleToken: a one-shot bucket grants exactly one token
+// and never refills, regardless of elapsed time — the primitive behind the
+// login trial table's single-attempt guarantee.
+func TestNewOnceGrantsSingleToken(t *testing.T) {
+	once := NewOnce()
+	if !once.Allow() {
+		t.Fatal("first allow on a once bucket must be granted")
+	}
+	if once.Allow() {
+		t.Fatal("second allow on a once bucket must be denied")
+	}
+	// Even after a long pause the bucket must not refill (rate is 0).
+	time.Sleep(5 * time.Millisecond)
+	if once.Allow() {
+		t.Fatal("once bucket must not refill after time passes")
+	}
+}

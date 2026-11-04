@@ -179,7 +179,7 @@ func (l *loginRateLimiter) trialAllowLocked(key string) bool {
 				l.evictTrialLRUBatchLocked()
 			}
 		}
-		tb = limiter.NewTokenBucket(l.rate, 1)
+		tb = limiter.NewOnce()
 		l.trial[key] = tb
 	}
 	l.trialSeen[key] = now

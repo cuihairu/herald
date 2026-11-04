@@ -138,6 +138,20 @@ func NewTokenBucket(rate float64, burst int) *TokenBucket {
 	}
 }
 
+// NewOnce returns a token bucket that grants exactly one token and never
+// refills — a one-shot gate. It is used where a key may make a single
+// attempt and must not be topped up by a rate (e.g. the login limiter's
+// trial table, where a sustained flood must not mint fresh tokens at the
+// full login rate).
+func NewOnce() *TokenBucket {
+	return &TokenBucket{
+		tokens:   1,
+		rate:     0,
+		burst:    1,
+		lastTime: time.Now(),
+	}
+}
+
 // Allow checks if a request is allowed
 func (tb *TokenBucket) Allow() bool {
 	tb.mu.Lock()
@@ -263,6 +277,9 @@ func (tb *TokenBucket) Reservation() *Reservation {
 
 // refill adds tokens based on elapsed time
 func (tb *TokenBucket) refill() {
+	if tb.rate <= 0 {
+		return
+	}
 	now := time.Now()
 	elapsed := now.Sub(tb.lastTime)
 
@@ -282,6 +299,12 @@ func (tb *TokenBucket) timeUntilToken() time.Duration {
 
 	if tb.tokens >= 1 {
 		return 0
+	}
+	if tb.rate <= 0 {
+		// A one-shot bucket never refills: no finite wait makes a token
+		// available. Report the largest representable duration rather than
+		// dividing by zero.
+		return time.Duration(1<<63 - 1)
 	}
 
 	tokensNeeded := 1 - tb.tokens

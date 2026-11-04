@@ -2,6 +2,7 @@ package apps
 
 import (
 	"errors"
+	"net"
 	"strings"
 	"testing"
 
@@ -193,5 +194,87 @@ func TestRegisterCategory(t *testing.T) {
 	}
 	if _, ok := r.Categories("ghost"); ok {
 		t.Error("unknown app listed")
+	}
+}
+
+// TestAddCallbackChangeHookDoesNotOverwrite: two subscribers on one
+// registry must both receive callback-change notifications; a second
+// registration must not silently disable the first (the single-slot
+// overwrite bug).
+func TestAddCallbackChangeHookDoesNotOverwrite(t *testing.T) {
+	reg, err := NewRegistry([]SeedApp{{
+		Name:   "demo-app",
+		Tokens: []SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}
+
+	var first, second []string
+	unreg1 := reg.AddCallbackChangeHook(func(url string, present bool) {
+		first = append(first, url)
+	})
+	unreg2 := reg.AddCallbackChangeHook(func(url string, present bool) {
+		second = append(second, url)
+	})
+	defer unreg1()
+	defer unreg2()
+
+	if err := reg.SetCallback("demo-app", "http://app.example.com/hook", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("set callback: %v", err)
+	}
+	if len(first) != 0 || len(second) != 0 {
+		t.Fatalf("unexpected notify on first set (url already present): %v %v", first, second)
+	}
+	if err := reg.SetCallback("demo-app", "http://app.example.com/hook2", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("replace callback: %v", err)
+	}
+	if len(first) != 1 || first[0] != "http://app.example.com/hook" {
+		t.Fatalf("first hook notifications = %v, want old URL", first)
+	}
+	if len(second) != 1 || second[0] != "http://app.example.com/hook" {
+		t.Fatalf("second hook notifications = %v, want old URL", second)
+	}
+}
+
+// TestAddCallbackChangeHookUnregister: an unregistered subscriber stops
+// receiving notifications, while a remaining subscriber keeps them.
+func TestAddCallbackChangeHookUnregister(t *testing.T) {
+	reg, err := NewRegistry([]SeedApp{{
+		Name:   "demo-app",
+		Tokens: []SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+	}})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}
+	var kept, dropped []string
+	unreg1 := reg.AddCallbackChangeHook(func(url string, present bool) {
+		kept = append(kept, url)
+	})
+	unreg2 := reg.AddCallbackChangeHook(func(url string, present bool) {
+		dropped = append(dropped, url)
+	})
+	unreg2()
+	defer unreg1()
+
+	if err := reg.SetCallback("demo-app", "http://app.example.com/hook", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("set callback: %v", err)
+	}
+	if err := reg.ClearCallback("demo-app"); err != nil {
+		t.Fatalf("clear callback: %v", err)
+	}
+	if len(kept) != 1 || kept[0] != "http://app.example.com/hook" {
+		t.Fatalf("kept hook notifications = %v, want the cleared URL", kept)
+	}
+	if len(dropped) != 0 {
+		t.Fatalf("dropped hook still notified: %v", dropped)
 	}
 }

@@ -163,13 +163,19 @@ type Registry struct {
 	// system resolver; tests may substitute a deterministic answer. It is
 	// copied under r.mu before use so concurrent deliveries are safe.
 	LookupIP func(string) ([]net.IP, error)
-	// onCallbackChange is invoked after a callback face is attached,
+	// callbackHooks are invoked after a callback face is attached,
 	// replaced or cleared. Delivery-side caches keyed by callback URL
 	// (e.g. pinned transports) hook here to drop entries the registry
-	// no longer references, instead of holding them forever. It runs
-	// outside r.mu so handlers may take other locks.
-	onCallbackChange func(url string, present bool)
+	// no longer references, instead of holding them forever. Multiple
+	// subscribers (several providers or components) may register, so the
+	// slot is a set rather than a single overwrite. Hooks run outside
+	// r.mu so handlers may take other locks.
+	callbackHooks map[int]func(url string, present bool)
+	nextHookID    int
 }
+
+// hookKey is the key type for callbackHooks.
+type hookKey = int
 
 // NewRegistry builds the registry from config seeds. Validation refuses
 // the whole registry on any bad seed — a half-loaded integration face
@@ -207,22 +213,38 @@ func NewRegistry(seeds []SeedApp) (*Registry, error) {
 	return r, nil
 }
 
-// SetCallbackChangeHook registers a callback-face change notifier. At
-// most one hook is supported; passing nil clears it. The hook receives
-// the URL and whether a callback is now present (false on clear), and is
-// called outside r.mu so it may safely call back into the registry.
-func (r *Registry) SetCallbackChangeHook(hook func(url string, present bool)) {
+// AddCallbackChangeHook registers a callback-face change notifier and
+// returns a handle that unregisters it. Unlike a single-slot setter, it
+// never overwrites another subscriber's hook, so a second Provider on
+// the same registry does not silently disable the first. The hook
+// receives the URL and whether a callback is now present (false on
+// clear), and is called outside r.mu so it may safely call back into
+// the registry.
+func (r *Registry) AddCallbackChangeHook(hook func(url string, present bool)) (unregister func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.onCallbackChange = hook
+	if r.callbackHooks == nil {
+		r.callbackHooks = make(map[int]func(url string, present bool))
+	}
+	r.nextHookID++
+	id := r.nextHookID
+	r.callbackHooks[id] = hook
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		delete(r.callbackHooks, id)
+	}
 }
 
 func (r *Registry) notifyCallbackChange(url string, present bool) {
 	r.mu.RLock()
-	hook := r.onCallbackChange
+	hooks := make([]func(url string, present bool), 0, len(r.callbackHooks))
+	for _, h := range r.callbackHooks {
+		hooks = append(hooks, h)
+	}
 	r.mu.RUnlock()
-	if hook != nil {
-		hook(url, present)
+	for _, h := range hooks {
+		h(url, present)
 	}
 }
 
