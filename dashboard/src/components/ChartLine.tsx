@@ -14,7 +14,17 @@ export default function ChartLine({ option }: { option: Record<string, unknown> 
   useEffect(() => {
     const chart = echarts.init(ref.current!)
     chart.setOption(option)
-    return () => chart.dispose()
+    // The sider collapse and browser zoom both change the canvas box
+    // without remounting; listen so the chart tracks its container.
+    const resize = () => chart.resize()
+    const observer = new ResizeObserver(resize)
+    if (ref.current) observer.observe(ref.current)
+    window.addEventListener('resize', resize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', resize)
+      chart.dispose()
+    }
   }, [option])
 
   return <div ref={ref} style={{ width: '100%', height: 220 }} />

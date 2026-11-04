@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import { heraldApi } from '../api'
 
+// Series requests are user-cancelable by changing the window: each call
+// gets a sequence number, and a late response from an older window is
+// discarded instead of overwriting the current selection.
+let seriesRequestSeq = 0
+
 interface HeraldState {
   status: any
   overview: any
@@ -75,17 +80,22 @@ export const useHeraldStore = create<HeraldState>((set, get) => ({
   },
 
   fetchSeries: async (window: string) => {
+    const requestSeq = ++seriesRequestSeq
     set({ seriesLoading: true, seriesWindow: window, error: null })
     try {
       const [metricsRes, sendRes] = await Promise.all([
         heraldApi.getMetricsHistory(window),
         heraldApi.getLogsTimeseries(window),
       ])
+      if (requestSeq !== seriesRequestSeq) return
       set({ metrics: metricsRes.data.samples || [], sendSeries: sendRes.data.points || [] })
     } catch (err: any) {
+      if (requestSeq !== seriesRequestSeq) return
       set({ error: err.message })
     } finally {
-      set({ seriesLoading: false })
+      if (requestSeq === seriesRequestSeq) {
+        set({ seriesLoading: false })
+      }
     }
   },
 

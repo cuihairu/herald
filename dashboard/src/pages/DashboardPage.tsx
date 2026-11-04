@@ -25,8 +25,10 @@ export function queueTone(depth: number): 'default' | 'warning' {
   return depth > 100 ? 'warning' : 'default'
 }
 
-export function rssGiB(bytes: number): string {
-  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`
+export function rssGiB(bytes: number): number {
+  // Return a numeric GiB value so ECharts' value axis can plot it; the
+  // axis formatter renders the "GiB" suffix.
+  return bytes / 1024 ** 3
 }
 
 const WINDOWS = ['1h', '6h', '24h']
@@ -50,6 +52,13 @@ export default function DashboardPage() {
     fetchOverview()
     fetchProviders()
     fetchSeries('6h')
+    // Real-time refresh: queue depth, delivery rate and the trend curves
+    // update while the page stays open. Polling is cleared on unmount.
+    const timer = setInterval(() => {
+      fetchOverview()
+      fetchSeries(useHeraldStore.getState().seriesWindow)
+    }, 15000)
+    return () => clearInterval(timer)
   }, [])
 
   const palette = chartPalette[resolved]
@@ -72,7 +81,14 @@ export default function DashboardPage() {
     grid: gridOption,
     tooltip: { trigger: 'axis', backgroundColor: palette.tooltipBg, textStyle: { color: token.colorText } },
     xAxis: { type: 'category', data: metrics.map((s: any) => timeLabel(s.time)), axisLabel: { color: palette.textSecondary } },
-    yAxis: { type: 'value', axisLabel: { color: palette.textSecondary }, splitLine: { lineStyle: { color: palette.splitLine } } },
+    yAxis: {
+      type: 'value',
+      axisLabel: {
+        color: palette.textSecondary,
+        formatter: (v: number) => `${v.toFixed(1)} GiB`,
+      },
+      splitLine: { lineStyle: { color: palette.splitLine } },
+    },
     series: [{ name: 'CPU', type: 'line', data: metrics.map((s: any) => s.cpu_percent), itemStyle: { color: palette.line } }],
   }), [metrics, palette, token.colorText])
 

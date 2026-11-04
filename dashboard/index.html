@@ -5,6 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <title>Herald Dashboard</title>
+  <!-- 首帧底色：在 React 挂载与 useLayoutEffect 生效前，深色偏好用户
+       先见正确的暗底而不是白闪。读取本地主题，失败/默认回落浅色。 -->
+  <script>
+    (function () {
+      try {
+        var mode = localStorage.getItem('herald_theme') || 'system';
+        var dark = mode === 'dark' || mode === 'midnight' ||
+          (mode === 'system' && window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.style.background = dark ? '#141414' : '#f6f7f9';
+      } catch (e) {
+        document.documentElement.style.background = '#f6f7f9';
+      }
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>

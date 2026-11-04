@@ -28,6 +28,11 @@ type Auth struct {
 	// passwordStore persists rotated password hashes; nil keeps changes
 	// process-local (they die with the process).
 	passwordStore PasswordStore
+	// passwordMu serializes old-password validation, hashing, in-memory
+	// application, and persistence. Without it two concurrent changes
+	// can persist out of order and restore the older credential on
+	// restart even though both calls returned success.
+	passwordMu sync.Mutex
 	// adminUsers are the usernames seeded from config; the persisted
 	// hash, when present, overrides their seeded password on startup.
 	adminUsers []string
@@ -112,7 +117,16 @@ func (a *Auth) SetPasswordStore(ps PasswordStore) {
 		return
 	}
 	for _, username := range a.adminUsers {
-		if hash, ok, err := ps.PasswordHash(username); err == nil && ok {
+		hash, ok, err := ps.PasswordHash(username)
+		if err != nil {
+			// A store read failure must not silently restore the
+			// bootstrap/config password: that would make an already
+			// rotated-out credential valid again. Fail closed by
+			// disabling the account until the store is readable.
+			_ = a.userManager.SetPasswordHash(username, strings.Repeat("!", 60))
+			continue
+		}
+		if ok {
 			_ = a.userManager.SetPasswordHash(username, hash)
 		}
 	}
@@ -121,19 +135,33 @@ func (a *Auth) SetPasswordStore(ps PasswordStore) {
 // ChangePassword validates the old password, stores the new bcrypt hash
 // and persists it through the password store when one is wired.
 func (a *Auth) ChangePassword(username, oldPassword, newPassword string) error {
+	a.passwordMu.Lock()
+	defer a.passwordMu.Unlock()
+
+	// Rate-limit old-password verification: this endpoint runs bcrypt
+	// like login does. A valid bearer token must not become an unlimited
+	// password-oracle / CPU burner that bypasses the login limiter.
+	if !a.loginLimits.allow("password-change|" + username) {
+		return errTooManyAttempts
+	}
+
 	if _, err := a.userManager.Authenticate(username, oldPassword); err != nil {
 		return errInvalidOldPassword
 	}
-	if err := a.userManager.ChangePassword(username, oldPassword, newPassword); err != nil {
+	newHash, err := user.HashPassword(newPassword)
+	if err != nil {
 		return err
 	}
 	if a.passwordStore == nil {
+		_ = a.userManager.SetPasswordHash(username, newHash)
 		return nil
 	}
-	hash, _ := a.userManager.StoredHash(username)
-	if err := a.passwordStore.SetPasswordHash(username, hash); err != nil {
+	if err := a.passwordStore.SetPasswordHash(username, newHash); err != nil {
 		return errPersistFailed
 	}
+	// Apply in memory only after persistence succeeded, so a failed 500
+	// leaves the old credential usable both now and after restart.
+	_ = a.userManager.SetPasswordHash(username, newHash)
 	return nil
 }
 
@@ -172,6 +200,8 @@ func (a *Auth) HandlePasswordChange(w http.ResponseWriter, r *http.Request) {
 			a.respondError(w, http.StatusBadRequest, "invalid old password")
 		case errPersistFailed:
 			a.respondError(w, http.StatusInternalServerError, "failed to persist password")
+		case errTooManyAttempts:
+			a.respondError(w, http.StatusTooManyRequests, "too many attempts")
 		default:
 			a.respondError(w, http.StatusBadRequest, "password not accepted")
 		}
@@ -378,6 +408,7 @@ type PasswordChangeRequest struct {
 var (
 	errInvalidOldPassword = errors.New("invalid old password")
 	errPersistFailed      = errors.New("failed to persist password")
+	errTooManyAttempts    = errors.New("too many attempts")
 )
 
 // User is a public user info

@@ -53,6 +53,8 @@ type Sampler struct {
 	now       func() time.Time
 	stop      chan struct{}
 	done      chan struct{}
+	started   bool
+	stopped   bool
 }
 
 // NewSampler builds a sampler; Start drives it, tests may drive
@@ -75,6 +77,14 @@ func NewSampler(interval, retention time.Duration, collector Collector, workers 
 // Start launches the sampling loop; the first sample is immediate so a
 // fresh dashboard has at least one point.
 func (s *Sampler) Start() {
+	s.mu.Lock()
+	if s.started || s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	s.started = true
+	s.mu.Unlock()
+
 	go func() {
 		defer close(s.done)
 		ticker := time.NewTicker(s.interval)
@@ -91,15 +101,21 @@ func (s *Sampler) Start() {
 	}()
 }
 
-// Stop terminates the loop; safe to call twice.
+// Stop terminates the loop; safe to call concurrently, twice, and even
+// before Start (when no loop is running it returns immediately).
 func (s *Sampler) Stop() {
-	select {
-	case <-s.stop:
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
 		return
-	default:
 	}
+	s.stopped = true
 	close(s.stop)
-	<-s.done
+	wasStarted := s.started
+	s.mu.Unlock()
+	if wasStarted {
+		<-s.done
+	}
 }
 
 // sampleOnce records one snapshot and prunes the ring. Tests call it
@@ -286,8 +302,15 @@ func parseProcStatTotal(data []byte) (uint64, error) {
 		if len(fields) < 2 {
 			return 0, fmt.Errorf("metrics: /proc/stat cpu line without fields")
 		}
+		// guest/guest_nice (fields 9/10) are already folded into
+		// user/nice by the kernel; including them inflates the total
+		// jiffies and deflates process CPU% on hosts running guests.
+		fieldLimit := len(fields)
+		if fieldLimit > 9 {
+			fieldLimit = 9
+		}
 		var total uint64
-		for _, f := range fields[1:] {
+		for _, f := range fields[1:fieldLimit] {
 			v, err := strconv.ParseUint(f, 10, 64)
 			if err != nil {
 				return 0, fmt.Errorf("metrics: bad cpu field %q: %w", f, err)

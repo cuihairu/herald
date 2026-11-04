@@ -160,3 +160,14 @@ func TestOverviewToleratesNilWorkerRegistryAndQueue(t *testing.T) {
 		t.Errorf("expected depth 0 without a queue, got %v", data["queue"])
 	}
 }
+
+func TestOverviewReportsRealCoverageWindow(t *testing.T) {
+	env := newTestEnv(t)
+	seedOverviewLogs(t, env)
+
+	delivery := subObject(t, overviewData(t, env), "delivery")
+	coverage, ok := delivery["coverage"].(string)
+	if !ok || coverage == "" {
+		t.Fatalf("expected a coverage field, got %v (%T)", delivery["coverage"], delivery["coverage"])
+	}
+}

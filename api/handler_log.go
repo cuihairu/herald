@@ -80,6 +80,12 @@ func (h *Handler) HandleLogsTimeseries(w http.ResponseWriter, r *http.Request) {
 		default:
 			bucket = time.Hour
 		}
+		// A window shorter than the default bucket (e.g. ?window=30s)
+		// would fail the bucket<=window check; shrink to the window so it
+		// collapses to a single bucket instead of a 400.
+		if bucket > window {
+			bucket = window
+		}
 	} else {
 		bucket, err = time.ParseDuration(bucketRaw)
 		if err != nil {
@@ -89,6 +95,13 @@ func (h *Handler) HandleLogsTimeseries(w http.ResponseWriter, r *http.Request) {
 	}
 	if bucket <= 0 || bucket > window {
 		h.respondError(w, http.StatusBadRequest, "bucket must be positive and within the window")
+		return
+	}
+	// A tiny bucket over a long window would allocate up to window/bucket
+	// points (a 1ms bucket over 24h is 86.4M points, ~3.9 GiB). Cap the
+	// point count; oversized requests fail fast instead of OOMing.
+	if int(window/bucket) > logstore.MaxTimeseriesPoints {
+		h.respondError(w, http.StatusBadRequest, "bucket too small for the requested window")
 		return
 	}
 

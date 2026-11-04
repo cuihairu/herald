@@ -3,6 +3,7 @@ package bark
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cuihairu/herald/core"
@@ -23,6 +24,7 @@ type Provider struct {
 	levelSound map[string]string
 	url        string
 	status     *core.ProviderStatus
+	statusMu   sync.RWMutex
 	client     *httpclient.Client
 }
 
@@ -189,8 +191,13 @@ func (p *Provider) Type() string {
 
 // Status returns the current status
 func (p *Provider) Status() *core.ProviderStatus {
+	p.statusMu.Lock()
+	defer p.statusMu.Unlock()
 	p.status.Status = "available"
-	return p.status
+	// Return a copy so concurrent readers cannot observe the write while
+	// the overview and provider interfaces iterate statuses.
+	cp := *p.status
+	return &cp
 }
 
 // Close closes the provider

@@ -114,24 +114,31 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func newKeyID() string {
-	return randomToken(12)
-}
-
-func randomToken(n int) string {
+// randomToken mints n bytes of cryptographic entropy, base64-encoded. It
+// returns an error instead of falling back to a guessable clock value:
+// a degraded entropy source must not produce an API key an attacker can
+// predict from the creation timestamp.
+func randomToken(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := randRead(b); err != nil {
-		// crypto/rand 不可读在 Go 运行时里基本不可能；退化为时间戳熵。
-		return fmt.Sprintf("%x", time.Now().UnixNano())
+		return "", fmt.Errorf("store: entropy source unavailable: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // CreateAPIKey mints a new key: the plain value is returned once, only
 // the hash and a display prefix are stored.
 func (db *DB) CreateAPIKey(name string) (*CreatedKey, error) {
-	plain := "wm_" + randomToken(24)
-	id := newKeyID()
+	plainToken, err := randomToken(24)
+	if err != nil {
+		return nil, err
+	}
+	plain := "wm_" + plainToken
+	idToken, err := randomToken(12)
+	if err != nil {
+		return nil, err
+	}
+	id := idToken
 	prefix := plain[:10]
 	createdAt := time.Now().Unix()
 

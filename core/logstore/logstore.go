@@ -243,6 +243,24 @@ func (s *LogStore) Stats() *Stats {
 	return stats
 }
 
+// OldestCreatedAt returns the oldest log entry's creation time, if any.
+// The overview uses it to report the real coverage of its bounded
+// in-memory window instead of claiming a full 24h.
+func (s *LogStore) OldestCreatedAt() (time.Time, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.logs) == 0 {
+		return time.Time{}, false
+	}
+	oldest := s.logs[0].CreatedAt
+	for _, log := range s.logs[1:] {
+		if log.CreatedAt.Before(oldest) {
+			oldest = log.CreatedAt
+		}
+	}
+	return oldest, true
+}
+
 // NewTaskLog creates a new task log from a DeliveryTask
 func NewTaskLog(task *core.DeliveryTask) *TaskLog {
 	return &TaskLog{
@@ -291,10 +309,15 @@ type TimeseriesPoint struct {
 	Failed  int       `json:"failed"`
 }
 
+// MaxTimeseriesPoints bounds the point count a single window can produce,
+// so a request with a tiny bucket cannot force a multi-GB allocation.
+const MaxTimeseriesPoints = 100000
+
 // Timeseries aggregates the send volume over the window into fixed
-// buckets of the given width, oldest first. Shadow-mode rule observations
-// are not deliveries and never enter the series; pending attempts count
-// toward Total only. Entries outside [now-window, now] are ignored.
+// buckets of the given width, oldest first. Rule-engine observations
+// (shadow, folded, inhibited, silenced, suppressed, pending-window) are
+// not deliveries and never enter the series; real attempts count toward
+// Total only. Entries outside [now-window, now] are ignored.
 func (s *LogStore) Timeseries(window, bucket time.Duration) []TimeseriesPoint {
 	return s.timeseriesAt(time.Now(), window, bucket)
 }
@@ -304,21 +327,34 @@ func (s *LogStore) timeseriesAt(now time.Time, window, bucket time.Duration) []T
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	start := now.Add(-window)
-	count := int(window / bucket)
+	// Ceil the bucket count so every bucket is exactly bucket wide: the
+	// floor count would stretch the last bucket by the remainder, making
+	// bucket volumes non-comparable. The series is anchored so the last
+	// bucket ends at now; it may cover a few extra units before the
+	// requested window, never after it.
+	count := (int(window) + int(bucket) - 1) / int(bucket)
 	if count < 1 {
 		count = 1
 	}
+	if count > MaxTimeseriesPoints {
+		count = MaxTimeseriesPoints
+	}
+	windowStart := now.Add(-window)
+	start := now.Add(-time.Duration(count) * bucket)
 	points := make([]TimeseriesPoint, count)
 	for i := range points {
 		points[i] = TimeseriesPoint{Time: start.Add(time.Duration(i) * bucket)}
 	}
 
 	for _, log := range s.logs {
-		if log.Status == "shadow" {
+		// Rule-engine observations never represent a delivery: shadow is
+		// the classic dry-run marker and every other withheld outcome
+		// (folded / inhibited / silenced / suppressed / pending-window)
+		// carries a RuleID. Real delivery rows have neither.
+		if log.Status == "shadow" || log.RuleID != "" {
 			continue
 		}
-		if log.CreatedAt.Before(start) || log.CreatedAt.After(now) {
+		if log.CreatedAt.Before(windowStart) || log.CreatedAt.After(now) {
 			continue
 		}
 		idx := int(log.CreatedAt.Sub(start) / bucket)

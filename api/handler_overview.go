@@ -40,6 +40,16 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 	if deliveryTotal > 0 {
 		rate = math.Round(float64(success)/float64(deliveryTotal)*1000) / 10
 	}
+	// The bounded in-memory ring may not reach back a full 24h after a
+	// restart or under high volume; report the window it actually covers
+	// so the dashboard never presents a truncated sample as complete.
+	coverage := overviewWindow
+	if oldest, ok := h.runtime.OldestLogCreatedAt(); ok {
+		covered := overviewNow().Sub(oldest)
+		if covered > 0 && covered < coverage {
+			coverage = covered
+		}
+	}
 
 	online, workerTotal := 0, 0
 	if h.workerRegistry != nil {
@@ -59,6 +69,7 @@ func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 			"queue":     map[string]any{"depth": depth},
 			"delivery": map[string]any{
 				"window":       "24h",
+				"coverage":     coverage.String(),
 				"success":      success,
 				"failed":       failed,
 				"total":        deliveryTotal,

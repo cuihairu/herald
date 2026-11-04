@@ -94,3 +94,28 @@ func TestLogsTimeseriesRejectsNonGET(t *testing.T) {
 		t.Fatalf("expected 405, got %d", code)
 	}
 }
+
+func TestLogsTimeseriesDefaultBucketShrinksForSmallWindow(t *testing.T) {
+	env := newTestEnv(t)
+	seedLogs(t, env)
+	code, resp := env.do(t, http.MethodGet, "/api/v1/logs/timeseries?window=30s", "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 for a window under the default bucket, got %d", code)
+	}
+	data := dataOf(t, resp)
+	if data["bucket"] != "30s" {
+		t.Errorf("expected the bucket to shrink to the window, got %v", data["bucket"])
+	}
+	points, _ := data["points"].([]any)
+	if len(points) != 1 {
+		t.Errorf("expected a single bucket, got %d", len(points))
+	}
+}
+
+func TestLogsTimeseriesRejectsTinyBucket(t *testing.T) {
+	env := newTestEnv(t)
+	code, _ := env.do(t, http.MethodGet, "/api/v1/logs/timeseries?window=24h&bucket=1ms", "", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a bucket that would allocate over the cap, got %d", code)
+	}
+}

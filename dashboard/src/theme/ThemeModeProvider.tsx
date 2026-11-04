@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
@@ -48,7 +48,8 @@ export default function ThemeModeProvider({ children }: { children: ReactNode })
   const resolved = resolveTheme(mode, systemDark)
 
   // antd 只接管组件树；body 底色由这里按主题同步，深色下不留白边。
-  useEffect(() => {
+  // useLayoutEffect 在浏览器绘制前写入样式，避免 system→dark 首帧白闪。
+  useLayoutEffect(() => {
     document.body.style.background = themeConfigs[resolved].token!.colorBgBase!
   }, [resolved])
 

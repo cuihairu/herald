@@ -241,6 +241,13 @@ func hashPassword(password string) (string, error) {
 	return string(hash), err
 }
 
+// HashPassword hashes a plaintext password with bcrypt. It is exported
+// for the auth layer, which must persist a new hash before applying it
+// in memory (so a failed persist leaves the old credential intact).
+func HashPassword(password string) (string, error) {
+	return hashPassword(password)
+}
+
 // isBcryptHash reports whether the stored hash is bcrypt format ("$2").
 // Anything else is the legacy base64(password+salt) encoding.
 func isBcryptHash(hashedPassword string) bool {

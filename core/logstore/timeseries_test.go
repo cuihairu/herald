@@ -110,3 +110,49 @@ func TestTimeseriesDelegatesToWallClock(t *testing.T) {
 		t.Fatalf("expected a single bucket from the public entry, got %d", len(points))
 	}
 }
+
+func TestTimeseriesRuleObservationsExcludedFromTotal(t *testing.T) {
+	s := New(1000)
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	s.Add(&TaskLog{ID: "d1", Provider: "p1", Status: "success", CreatedAt: now.Add(-time.Minute)})
+	// Rule-engine observations: each withheld outcome carries a RuleID.
+	for _, status := range []string{"shadow", "folded", "inhibited", "silenced", "suppressed", "pending"} {
+		s.Add(&TaskLog{ID: "r:" + status, Provider: "p1", Status: status, RuleID: "rule-x", CreatedAt: now.Add(-time.Minute)})
+	}
+
+	points := s.timeseriesAt(now, 10*time.Minute, time.Minute)
+	last := points[len(points)-1]
+	if last.Total != 1 || last.Success != 1 || last.Failed != 0 {
+		t.Fatalf("expected only the real delivery in Total, got %+v", last)
+	}
+}
+
+func TestTimeseriesCeilsBucketsToUniformWidth(t *testing.T) {
+	s := New(1000)
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	// 10m window, 3m bucket: floor=3 (last bucket 4m), ceil=4 uniform.
+	s.Add(&TaskLog{ID: "x", Provider: "p1", Status: "success", CreatedAt: now.Add(-30 * time.Second)})
+	points := s.timeseriesAt(now, 10*time.Minute, 3*time.Minute)
+	if len(points) != 4 {
+		t.Fatalf("expected 4 uniform buckets, got %d", len(points))
+	}
+	last := points[3]
+	if last.Total != 1 || last.Success != 1 {
+		t.Fatalf("expected the recent entry in the newest bucket, got %+v", last)
+	}
+	// Every bucket is exactly 3m wide.
+	for i := 1; i < len(points); i++ {
+		if got := points[i].Time.Sub(points[i-1].Time); got != 3*time.Minute {
+			t.Fatalf("bucket %d width %v, want 3m", i, got)
+		}
+	}
+}
+
+func TestTimeseriesCapsPointCount(t *testing.T) {
+	s := New(1000)
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	points := s.timeseriesAt(now, 24*time.Hour, time.Millisecond)
+	if len(points) != MaxTimeseriesPoints {
+		t.Fatalf("expected the point count capped at %d, got %d", MaxTimeseriesPoints, len(points))
+	}
+}

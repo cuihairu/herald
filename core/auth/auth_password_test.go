@@ -145,8 +145,9 @@ func TestSetPasswordStoreNilIsTolerated(t *testing.T) {
 }
 
 type stubPasswordStore struct {
-	hashes  map[string]string
-	failSet bool
+	hashes   map[string]string
+	failSet  bool
+	failRead bool
 }
 
 var errStubPersist = errors.New("stub persist failure")
@@ -160,6 +161,86 @@ func (s *stubPasswordStore) SetPasswordHash(username, hash string) error {
 }
 
 func (s *stubPasswordStore) PasswordHash(username string) (string, bool, error) {
+	if s.failRead {
+		return "", false, errors.New("stub read failure")
+	}
 	hash, ok := s.hashes[username]
 	return hash, ok, nil
+}
+
+func TestHandlePasswordChangePersistFailureKeepsOldPassword(t *testing.T) {
+	a := New(&Config{AdminUser: map[string]string{"admin": "old-pass"}})
+	a.SetPasswordStore(&stubPasswordStore{failSet: true})
+
+	token := loginToken(t, a, "admin", "old-pass")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{"old_password":"old-pass","new_password":"fresh-pass"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	a.HandlePasswordChange(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on persist failure, got %d", rec.Code)
+	}
+	loginToken(t, a, "admin", "old-pass")
+}
+
+func TestHandlePasswordChangeRateLimitsOldPasswordAttempts(t *testing.T) {
+	a := New(&Config{AdminUser: map[string]string{"admin": "correct-pass"}, LoginBurst: 1})
+	token := loginToken(t, a, "admin", "correct-pass")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{"old_password":"wrong","new_password":"fresh-pass"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	a.HandlePasswordChange(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected the first bad attempt to reach verification (400), got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{"old_password":"wrong-again","new_password":"fresh-pass"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	a.HandlePasswordChange(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected the second attempt to be rate limited (429), got %d", rec.Code)
+	}
+}
+
+func TestHandlePasswordChangeSerializesPersistence(t *testing.T) {
+	a := New(&Config{AdminUser: map[string]string{"admin": "old-pass"}})
+	store := &stubPasswordStore{hashes: map[string]string{}}
+	a.SetPasswordStore(store)
+	token := loginToken(t, a, "admin", "old-pass")
+
+	// The lock is process-wide; a second change must validate against the
+	// credential produced by the first, never persist an older hash after it.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{"old_password":"old-pass","new_password":"first-new"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	a.HandlePasswordChange(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", strings.NewReader(`{"old_password":"first-new","new_password":"second-new"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	a.HandlePasswordChange(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected chained 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	loginToken(t, a, "admin", "second-new")
+}
+
+func TestSetPasswordStoreReadFailureFailsClosed(t *testing.T) {
+	store := &stubPasswordStore{failRead: true}
+	a := New(&Config{AdminUser: map[string]string{"admin": "config-pass"}})
+	a.SetPasswordStore(store)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"username":"admin","password":"config-pass"}`))
+	req.RemoteAddr = "10.0.0.4:1"
+	rec := httptest.NewRecorder()
+	a.HandleLogin(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected the config seed to be disabled on a store read error, got %d", rec.Code)
+	}
 }

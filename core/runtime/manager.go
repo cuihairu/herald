@@ -65,6 +65,7 @@ var providerSchemas = map[string]map[string]string{
 	"apns":       {"key_id": "string", "team_id": "string", "private_key": "string", "cert_pem": "string", "topic": "string", "push_type": "string", "priority": "number", "endpoint": "string"},
 	"jpush":      {"app_key": "string", "master_secret": "string", "platform": "string", "apns_production": "bool", "time_to_live": "number", "endpoint": "string"},
 	"getui":      {"app_id": "string", "app_key": "string", "master_secret": "string", "ttl": "number", "click_type": "string", "endpoint": "string"},
+	"bark":       {"device_key": "string", "server": "string", "group": "string", "ttl": "number", "sound": "string", "url": "string", "level_sound": "object"},
 }
 
 type registeredProvider struct {
@@ -659,6 +660,12 @@ func (m *Manager) GetLogByID(id string) *logstore.TaskLog {
 // GetLogsStats returns log statistics.
 func (m *Manager) GetLogsStats() *logstore.Stats {
 	return m.logStore.Stats()
+}
+
+// OldestLogCreatedAt reports the earliest delivery-log entry, so the
+// overview can state the true coverage of its bounded in-memory window.
+func (m *Manager) OldestLogCreatedAt() (time.Time, bool) {
+	return m.logStore.OldestCreatedAt()
 }
 
 // GetLogsTimeseries aggregates the send volume over the window into

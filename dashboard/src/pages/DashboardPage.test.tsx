@@ -83,8 +83,8 @@ describe('threshold helpers', () => {
   })
 
   it('formats rss in GiB', () => {
-    expect(rssGiB(1073741824)).toBe('1.00 GiB')
-    expect(rssGiB(0)).toBe('0.00 GiB')
+    expect(rssGiB(1073741824)).toBe(1)
+    expect(rssGiB(0)).toBe(0)
   })
 })
 

@@ -275,14 +275,18 @@ func TestClosedDBReturnsErrors(t *testing.T) {
 	}
 }
 
-func TestEntropyFallbackUsesTheClock(t *testing.T) {
+func TestEntropyFailureFailsClosed(t *testing.T) {
 	restore := randRead
 	randRead = func([]byte) (int, error) { return 0, errors.New("no entropy") }
 	defer func() { randRead = restore }()
 
-	token := randomToken(8)
-	if token == "" {
-		t.Fatal("expected the clock-based fallback token")
+	if _, err := randomToken(8); err == nil {
+		t.Fatal("expected entropy failure instead of a clock-based fallback")
+	}
+
+	db, _ := openTempStore(t)
+	if _, err := db.CreateAPIKey("no-entropy"); err == nil {
+		t.Fatal("expected CreateAPIKey to fail when the entropy source is unavailable")
 	}
 }
 

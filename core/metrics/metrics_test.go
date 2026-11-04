@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -361,5 +362,64 @@ func TestHistoryReturnsACopy(t *testing.T) {
 	l2, _ := s.Latest()
 	if !l1.Time.Equal(l2.Time) {
 		t.Fatal("expected Latest to be stable")
+	}
+}
+
+func TestStopBeforeStartDoesNotDeadlock(t *testing.T) {
+	s := NewSampler(time.Hour, time.Hour, &fakeCollector{}, nil, time.Now)
+	done := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop before Start deadlocked")
+	}
+}
+
+func TestConcurrentStopIsSafe(t *testing.T) {
+	s := NewSampler(5*time.Millisecond, time.Hour, &fakeCollector{}, func() int { return 0 }, time.Now)
+	s.Start()
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.Stop()
+		}()
+	}
+	wg.Wait()
+}
+
+func TestDoubleStartRunsOneLoop(t *testing.T) {
+	s := NewSampler(5*time.Millisecond, time.Hour, &fakeCollector{}, func() int { return 0 }, time.Now)
+	s.Start()
+	s.Start()
+	defer s.Stop()
+	// The extra Start must not spawn a second goroutine that closes done
+	// again; if it did the Stop below would panic on a double close.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if len(s.History(time.Now().Add(-time.Hour))) >= 2 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("expected the ticker to record repeated samples")
+}
+
+func TestParseProcStatTotalExcludesGuestFields(t *testing.T) {
+	// user=nice=system=idle=iowait=irq=softirq=steal=10 each; guest=100,
+	// guest_nice=200. The kernel folds guest into user and guest_nice
+	// into nice, so they must NOT be added again. Total = 8*10 = 80.
+	data := []byte("cpu  10 10 10 10 10 10 10 10 100 200\n")
+	total, err := parseProcStatTotal(data)
+	if err != nil {
+		t.Fatalf("parse /proc/stat: %v", err)
+	}
+	if total != 80 {
+		t.Fatalf("expected total 80 (guest fields excluded), got %d", total)
 	}
 }
