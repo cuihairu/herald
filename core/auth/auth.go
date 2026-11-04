@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -30,12 +31,23 @@ type Auth struct {
 	// adminUsers are the usernames seeded from config; the persisted
 	// hash, when present, overrides their seeded password on startup.
 	adminUsers []string
+	// dynamicKeys supplies the active sha-256 hashes of store-minted
+	// keys; nil keeps authentication config-static-keys only.
+	dynamicKeys APIKeyHashes
 }
 
 // PasswordStore persists password hashes beyond the process lifetime.
 type PasswordStore interface {
 	SetPasswordHash(username, hash string) error
 	PasswordHash(username string) (string, bool, error)
+}
+
+// APIKeyHashes supplies the sha-256 hex hashes of dynamically managed
+// (dashboard-minted) API keys. Queried per request, so minting and
+// revocation take effect without a restart. Implementations live in
+// internal/store; the seam keeps core/auth free of the sqlite dependency.
+type APIKeyHashes interface {
+	ActiveKeyHashes() (map[string]bool, error)
 }
 
 // Config is the auth configuration
@@ -400,6 +412,13 @@ func (a *Auth) Middleware(next http.HandlerFunc) http.Handler {
 	})
 }
 
+// SetAPIKeyHashes wires the store-backed key source. The static config
+// keys stay valid; store-minted keys are accepted on top of them and
+// revocation is honoured on the next request.
+func (a *Auth) SetAPIKeyHashes(src APIKeyHashes) {
+	a.dynamicKeys = src
+}
+
 // authenticateAPIKey authenticates using API key
 func (a *Auth) authenticateAPIKey(r *http.Request) bool {
 	apiKey := a.getAPIKey(r)
@@ -412,7 +431,29 @@ func (a *Auth) authenticateAPIKey(r *http.Request) bool {
 			return true
 		}
 	}
+	// Store-minted keys: the presented key is hashed and compared
+	// against the active hash set, so plain key material is never
+	// stored and a source failure denies access (fail closed).
+	if a.dynamicKeys != nil {
+		hashes, err := a.dynamicKeys.ActiveKeyHashes()
+		if err == nil && len(hashes) > 0 {
+			presented := sha256HexOf(apiKey)
+			for hash := range hashes {
+				if constantTimeEqual(presented, hash) {
+					return true
+				}
+			}
+		}
+	}
 	return false
+}
+
+// sha256HexOf hashes a presented secret to the fixed-width form the
+// store persists, so both sides of the comparison are 64-byte hex
+// strings before constantTimeEqual hashes them again.
+func sha256HexOf(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // constantTimeEqual compares two bearer secrets without early-exiting on a
