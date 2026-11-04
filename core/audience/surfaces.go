@@ -368,6 +368,19 @@ func (s *SurfaceRegistry) FindByTarget(channel, target string) (string, bool) {
 	return "", false
 }
 
+// RSSTokens returns a copy of the minted audience -> private feed token
+// table. Readers of the dashboard feed index use it to render every
+// private feed's address; mutating the copy never touches the registry.
+func (s *SurfaceRegistry) RSSTokens() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	tokens := make(map[string]string, len(s.rss))
+	for id, tok := range s.rss {
+		tokens[id] = tok
+	}
+	return tokens
+}
+
 // RSSToken returns the audience's private RSS feed token, issuing it on
 // first use (§3.1: 随受众一份，零绑定成本). The value is stable for the
 // audience's lifetime — it IS the feed address's secret part (§9).

@@ -8,6 +8,7 @@ package feeds
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -20,12 +21,12 @@ const DefaultLimit = 500
 // An empty AudienceID marks 公开内容 (public broadcast); a named
 // audience marks personal content that only its private feed may carry.
 type Item struct {
-	ID          string // notification id; also the feed guid
-	Category    string
-	Title       string
-	Body        string
-	AudienceID  string // empty = 公开内容
-	PublishedAt time.Time
+	ID          string    `json:"id"` // notification id; also the feed guid
+	Category    string    `json:"category"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	AudienceID  string    `json:"audience_id"` // empty = 公开内容
+	PublishedAt time.Time `json:"published_at"`
 }
 
 // Store holds feed items per category (FIFO capped), answering the two
@@ -70,6 +71,28 @@ func (s *Store) Add(it Item) error {
 	}
 	s.logs[it.Category] = log
 	return nil
+}
+
+// Categories returns the sorted list of categories that have a feed
+// log (public or private items alike — the category names that have a
+// feed address).
+func (s *Store) Categories() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cats := make([]string, 0, len(s.logs))
+	for cat := range s.logs {
+		cats = append(cats, cat)
+	}
+	sort.Strings(cats)
+	return cats
+}
+
+// Count returns the number of items kept in a category's log (public
+// and personal alike). Unknown categories report 0.
+func (s *Store) Count(category string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.logs[category])
 }
 
 // Public returns the category's 公开内容, newest first: items projected
