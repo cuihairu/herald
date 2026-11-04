@@ -45,6 +45,31 @@ func TestNewProvider(t *testing.T) {
 		}
 	})
 
+	t.Run("ttl as int64 and float64", func(t *testing.T) {
+		// yaml unmarshals into int64; encoding/json into float64.
+		provider, err := NewProvider(map[string]interface{}{
+			"device_key": "test-key",
+			"ttl":        int64(3600),
+		})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if got := provider.(*Provider).ttl; got != 3600 {
+			t.Errorf("expected ttl 3600 from int64, got %d", got)
+		}
+
+		provider, err = NewProvider(map[string]interface{}{
+			"device_key": "test-key",
+			"ttl":        float64(1800),
+		})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if got := provider.(*Provider).ttl; got != 1800 {
+			t.Errorf("expected ttl 1800 from float64, got %d", got)
+		}
+	})
+
 	t.Run("missing device_key", func(t *testing.T) {
 		_, err := NewProvider(map[string]interface{}{})
 		if err == nil {
