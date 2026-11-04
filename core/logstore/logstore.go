@@ -281,3 +281,57 @@ type Stats struct {
 	ByProvider map[string]int `json:"by_provider"`
 	ByStatus   map[string]int `json:"by_status"`
 }
+
+// TimeseriesPoint is one send-volume bucket: delivery attempts that fall
+// in the bucket's time range, split by attempt outcome.
+type TimeseriesPoint struct {
+	Time    time.Time `json:"time"`
+	Total   int       `json:"total"`
+	Success int       `json:"success"`
+	Failed  int       `json:"failed"`
+}
+
+// Timeseries aggregates the send volume over the window into fixed
+// buckets of the given width, oldest first. Shadow-mode rule observations
+// are not deliveries and never enter the series; pending attempts count
+// toward Total only. Entries outside [now-window, now] are ignored.
+func (s *LogStore) Timeseries(window, bucket time.Duration) []TimeseriesPoint {
+	return s.timeseriesAt(time.Now(), window, bucket)
+}
+
+// timeseriesAt is Timeseries with the clock injected for determinism.
+func (s *LogStore) timeseriesAt(now time.Time, window, bucket time.Duration) []TimeseriesPoint {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	start := now.Add(-window)
+	count := int(window / bucket)
+	if count < 1 {
+		count = 1
+	}
+	points := make([]TimeseriesPoint, count)
+	for i := range points {
+		points[i] = TimeseriesPoint{Time: start.Add(time.Duration(i) * bucket)}
+	}
+
+	for _, log := range s.logs {
+		if log.Status == "shadow" {
+			continue
+		}
+		if log.CreatedAt.Before(start) || log.CreatedAt.After(now) {
+			continue
+		}
+		idx := int(log.CreatedAt.Sub(start) / bucket)
+		if idx >= count {
+			idx = count - 1
+		}
+		points[idx].Total++
+		switch log.Status {
+		case "success":
+			points[idx].Success++
+		case "failed":
+			points[idx].Failed++
+		}
+	}
+	return points
+}

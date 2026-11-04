@@ -273,6 +273,7 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/providers/{name}/disable", s.withAuth(s.handleProviderDisable))
 	mux.HandleFunc("/api/v1/logs", s.withAuth(s.handleLogs))
 	mux.HandleFunc("/api/v1/logs/stats", s.withAuth(s.handleLogsStats))
+	mux.HandleFunc("/api/v1/logs/timeseries", s.withAuth(s.handleLogsTimeseries))
 	mux.HandleFunc("/api/v1/logs/{id}", s.withAuth(s.handleLogByID))
 	mux.HandleFunc("/api/v1/deliveries", s.withAuth(s.handleDeliveries))
 	mux.HandleFunc("/api/v1/deliveries/stats", s.withAuth(s.handleDeliveriesStats))
@@ -481,6 +482,14 @@ func (s *Server) handleLogsStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleLogsStats(w, r)
+}
+
+func (s *Server) handleLogsTimeseries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleLogsTimeseries(w, r)
 }
 
 func (s *Server) handleLogByID(w http.ResponseWriter, r *http.Request) {

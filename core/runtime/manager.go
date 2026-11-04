@@ -661,6 +661,12 @@ func (m *Manager) GetLogsStats() *logstore.Stats {
 	return m.logStore.Stats()
 }
 
+// GetLogsTimeseries aggregates the send volume over the window into
+// fixed buckets (dashboard send-volume chart).
+func (m *Manager) GetLogsTimeseries(window, bucket time.Duration) []logstore.TimeseriesPoint {
+	return m.logStore.Timeseries(window, bucket)
+}
+
 // ClearLogs clears all logs.
 func (m *Manager) ClearLogs() {
 	m.logStore.Clear()
