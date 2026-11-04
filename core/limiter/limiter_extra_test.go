@@ -169,10 +169,11 @@ func TestNewOnceGrantsSingleToken(t *testing.T) {
 	}
 }
 
-// TestNewOnceReservationNoDivideByZero: Reservation on a one-shot bucket
-// must not divide by the zero rate (which yields an implementation-defined
-// duration). It reports a finite far-future delay instead, mirroring the
-// guard timeUntilToken already applies.
+// TestNewOnceReservationNoDivideByZero: Reservation on an exhausted
+// one-shot bucket must not divide by the zero rate (which yields an
+// implementation-defined duration). It must instead return an unusable
+// reservation (ok=false): the bucket never refills, so no finite or
+// far-future delay can ever make a token available.
 func TestNewOnceReservationNoDivideByZero(t *testing.T) {
 	once := NewOnce()
 	if !once.Allow() {
@@ -182,11 +183,35 @@ func TestNewOnceReservationNoDivideByZero(t *testing.T) {
 	if r == nil {
 		t.Fatal("Reservation() on a once bucket returned nil")
 	}
-	if !r.OK() {
-		t.Fatal("Reservation().OK() = false, want true (delayed reservation)")
+	if r.OK() {
+		t.Fatal("Reservation().OK() = true on a never-refilling bucket, want false")
 	}
-	delay := r.Delay()
-	if delay <= 0 {
-		t.Fatalf("Reservation().Delay() = %v, want a positive far-future wait", delay)
+	if d := r.Delay(); d != 0 {
+		t.Errorf("Reservation().Delay() = %v on not-ok reservation, want 0", d)
+	}
+}
+
+// TestNewOnceReservationCancelDoesNotRegrant: canceling an unusable
+// reservation on an exhausted one-shot bucket must not mint a phantom token.
+// The bug was that Reservation returned ok=true for a zero-rate bucket, so
+// Cancel() incremented tokens and re-armed the one-shot gate, letting a
+// second Allow() through — bypassing the "exactly once" guarantee.
+func TestNewOnceReservationCancelDoesNotRegrant(t *testing.T) {
+	once := NewOnce()
+	if !once.Allow() {
+		t.Fatal("first allow on a once bucket must be granted")
+	}
+	if once.Allow() {
+		t.Fatal("second allow on a once bucket must be denied")
+	}
+
+	r := once.Reservation()
+	if r == nil {
+		t.Fatal("Reservation() on a once bucket returned nil")
+	}
+	r.Cancel() // must be a no-op: the reservation was never ok
+
+	if once.Allow() {
+		t.Fatal("Allow() after Reservation().Cancel() on exhausted once bucket must still be denied")
 	}
 }

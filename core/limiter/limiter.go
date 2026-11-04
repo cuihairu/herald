@@ -268,11 +268,13 @@ func (tb *TokenBucket) Reservation() *Reservation {
 	tokensNeeded := 1 - tb.tokens
 	if tb.rate <= 0 {
 		// A one-shot bucket never refills: no finite delay makes a token
-		// available. Mirror timeUntilToken's guard rather than dividing
-		// by zero (which yields an implementation-defined duration).
+		// available. Return an unusable reservation (ok=false) rather than
+		// an ok=true far-future one: the latter would let a caller Cancel()
+		// and mint a token that was never reserved, re-arming a one-shot
+		// gate. Dividing by zero would also yield an implementation-defined
+		// duration.
 		return &Reservation{
-			ok:        true,
-			timeToAct: time.Now().Add(time.Duration(1<<63 - 1)),
+			ok:        false,
 			limiter:   tb,
 		}
 	}
