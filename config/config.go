@@ -208,6 +208,11 @@ type AuthConfig struct {
 	// bcrypt cost on the public /auth/login endpoint.
 	LoginRate  float64 `yaml:"login_rate"`
 	LoginBurst int     `yaml:"login_burst"`
+	// StorePath points at the sqlite credential store (api keys minted
+	// from the dashboard + rotated password hashes). Empty keeps both
+	// process-local: no key management API and passwords die with the
+	// process.
+	StorePath string `yaml:"store_path"`
 }
 
 // MetricsConfig is the process-metrics sampling configuration. The

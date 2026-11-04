@@ -38,6 +38,7 @@ import (
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/internal/logger"
+	"github.com/cuihairu/herald/internal/store"
 	"github.com/cuihairu/herald/protocol"
 	builtinregistry "github.com/cuihairu/herald/providers/builtin/registry"
 	"github.com/cuihairu/herald/providers/builtin/telegram"
@@ -193,6 +194,22 @@ func serveCmd(args []string) int {
 		LoginRate:  cfg.Auth.LoginRate,
 		LoginBurst: cfg.Auth.LoginBurst,
 	})
+
+	// Credential store (optional): dashboard-minted API keys and rotated
+	// password hashes persist in sqlite when auth.store_path is set. The
+	// rotated password wins over the config seed on the next start.
+	var credStore *store.DB
+	if cfg.Auth.StorePath != "" {
+		cs, err := store.Open(cfg.Auth.StorePath)
+		if err != nil {
+			logger.Error("failed to open credential store", "path", cfg.Auth.StorePath, "error", err)
+			return 1
+		}
+		defer func() { _ = cs.Close() }()
+		a.SetPasswordStore(cs)
+		a.SetAPIKeyHashes(cs)
+		credStore = cs
+	}
 
 	// Create template manager
 	templateMgr := template.NewManager()
@@ -542,6 +559,7 @@ func serveCmd(args []string) int {
 		Runtime:             manager,
 		Dedup:               d,
 		Auth:                a,
+		Keys:                credStore,
 		TemplateManager:     templateMgr,
 		WorkerRegistry:      registry,
 		Metrics:             metricsSampler,
