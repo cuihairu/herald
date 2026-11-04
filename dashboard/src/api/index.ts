@@ -58,4 +58,23 @@ export const heraldApi = {
   getIncident: (id: string) => api.get(`/incidents/${id}`) as any,
   getAlert: (id: string) => api.get(`/alerts/${id}`) as any,
   ackAlert: (id: string, data: any) => api.post(`/alerts/${id}/ack`, data) as any,
+  // API Keys 管理
+  getKeys: () => api.get('/keys') as any,
+  createKey: (data: { name: string }) => api.post('/keys', data) as any,
+  revokeKey: (id: string) => api.delete(`/keys/${id}`) as any,
+  // 设置
+  changePassword: (data: { old_password: string; new_password: string }) =>
+    api.post('/auth/password', data) as any,
+  // 受众管理
+  getAudiences: () => api.get('/audiences') as any,
+  getAudienceSurfaces: (id: string) => api.get(`/audiences/${id}/surfaces`) as any,
+  getAudienceRelations: (id: string) => api.get(`/audiences/${id}/relations`) as any,
+  // RSS feeds
+  getFeeds: () => api.get('/feeds') as any,
+  // 模板
+  getTemplates: () => api.get('/templates') as any,
+  createTemplate: (data: any) => api.post('/templates/create', data) as any,
+  deleteTemplate: (id: string) => api.delete(`/templates/${id}`) as any,
+  // Apps 集成命名空间
+  getApps: () => api.get('/apps') as any,
 }
