@@ -243,3 +243,23 @@ func TestFactoryCreate(t *testing.T) {
 		})
 	}
 }
+
+// TestOnceBucketWaitReportsMaxDelay: a one-shot bucket never refills, so
+// Wait on an exhausted Once bucket cannot compute a finite delay; it must
+// take the zero-rate guard and return immediately once the caller's context
+// is already done.
+func TestOnceBucketWaitReportsMaxDelay(t *testing.T) {
+	tb := NewOnce()
+	if !tb.Allow() {
+		t.Fatal("first request must be allowed")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if err := tb.Wait(ctx); err != context.Canceled {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Wait on exhausted one-shot bucket must not block, took %v", elapsed)
+	}
+}

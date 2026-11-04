@@ -871,3 +871,39 @@ func TestProviderSetAppRegistryNoUnhookWindow(t *testing.T) {
 		t.Fatalf("pinned entries after swap+clear = %d, want 0 (hook must be live before publish)", len(p.pinned))
 	}
 }
+
+// TestProviderSetAppRegistryNilDetachesHook: attaching a nil registry takes
+// the else arm — no hook is registered and the stale handle is cleared, so a
+// later detach never calls into a registry the provider never had.
+func TestProviderSetAppRegistryNilDetachesHook(t *testing.T) {
+	p := NewProvider()
+	p.SetAppRegistry(nil)
+	if p.apps != nil {
+		t.Fatal("apps registry must stay nil")
+	}
+	if p.unregisterHook != nil {
+		t.Fatal("unregister hook must be nil when no registry is attached")
+	}
+}
+
+// TestJoinIPsMixedAddressFamilies pins the key derivation for the address
+// sets the DNS answer can actually contain: IPv4 and IPv6 literals (To4 vs
+// To16 encodings), duplicate addresses (the sort's equal-elements arm), and
+// an invalid entry (To16 nil). The key must not depend on answer order.
+func TestJoinIPsMixedAddressFamilies(t *testing.T) {
+	v4 := net.ParseIP("127.0.0.1")
+	v6 := net.ParseIP("2001:db8::1")
+	invalid := net.IP{1, 2, 3, 4, 5} // not a 4- or 16-byte IP: To16() is nil
+
+	forward := joinIPs([]net.IP{v4, v6, v4, invalid})
+	reversed := joinIPs([]net.IP{invalid, v4, v6, v4})
+	if forward == "" {
+		t.Fatal("joinIPs produced an empty key for a mixed address set")
+	}
+	if forward != reversed {
+		t.Fatal("joinIPs key must be order-insensitive for the same address set")
+	}
+	if forward == joinIPs([]net.IP{v4}) {
+		t.Fatal("mixed set must not collide with a single-address set")
+	}
+}

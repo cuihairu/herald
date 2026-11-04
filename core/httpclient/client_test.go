@@ -992,3 +992,22 @@ func TestClientWithPinnedIPsRedirectKeepsSameScheme(t *testing.T) {
 		t.Fatalf("same-scheme redirect err = %v, want nil", err)
 	}
 }
+
+// TestPinnedDialContextRejectsUnusableRequests: the pinned dialer's two
+// guard arms — a target without a host:port split, and a hostname target
+// with an empty pinned address set — must surface as dial errors rather
+// than nil-conn panics downstream.
+func TestPinnedDialContextRejectsUnusableRequests(t *testing.T) {
+	ctx := context.Background()
+
+	dial := pinnedDialContext([]net.IP{net.ParseIP("127.0.0.1")})
+	if _, err := dial(ctx, "tcp", "missing-port"); err == nil {
+		t.Fatal("dial target without host:port must fail")
+	}
+
+	empty := pinnedDialContext(nil)
+	_, err := empty(ctx, "tcp", "app.example.com:8080")
+	if err == nil || !strings.Contains(err.Error(), "no pinned addresses") {
+		t.Fatalf("hostname dial with no pinned addresses: err = %v, want 'no pinned addresses'", err)
+	}
+}

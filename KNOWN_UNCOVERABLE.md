@@ -38,7 +38,7 @@
 
 ## core/limiter/limiter.go
 
-- `github.com/cuihairu/herald/core/limiter/limiter.go:184` — `Wait` 复用分支里 drain `select` 的 `case <-timer.C:` 接收臂。到达条件：`timer.Stop()` 返回 false 且 timer.C 仍有缓冲值。不可能——进 else 复用分支前，循环顶部的 `select` 已经消费了本 timer 的触发值（`case <-timerC:`），`Stop()` 恒返回 false（timer 已触发）时 C 恒空，接收臂走 `default:`。该臂是防御性死代码（标准 drain 惯用法），行为已由 `TestWaitReusesTimerAcrossSpins` 实测（future-lastTime 桶迫使 Wait 多次重旋，else/Stop-false/default 全命中、该接收臂恒零）。2026-11-02 登记。
+- `github.com/cuihairu/herald/core/limiter/limiter.go:198` — `Wait` 复用分支里 drain `select` 的 `case <-timer.C:` 接收臂。到达条件：`timer.Stop()` 返回 false 且 timer.C 仍有缓冲值。不可能——进 else 复用分支前，循环顶部的 `select` 已经消费了本 timer 的触发值（`case <-timerC:`），`Stop()` 恒返回 false（timer 已触发）时 C 恒空，接收臂走 `default:`。该臂是防御性死代码（标准 drain 惯用法），行为已由 `TestWaitReusesTimerAcrossSpins` 实测（future-lastTime 桶迫使 Wait 多次重旋，else/Stop-false/default 全命中、该接收臂恒零）。2026-11-02 登记；2026-11-04 行号自 :184 更正为 :198——块随 limiter.go 早前批次的注释/守卫改动整体下移 14 行，照 go1.26.6 profile 重抄。
 
 - `github.com/cuihairu/herald/providers/builtin/wechatmp/wechatmp.go:312` — `GetToken` 写锁内双检的命中分支。到达条件：并发调用方的读检查落在「缓存已过期且无人持写锁」的窗口内，且其写锁申请排在刷新胜者之后——窗口是读检查到加锁之间的微秒级间隙，能否命中完全取决于调度，确定性构造不可行（RWMutex 下读者会被持写锁者挡住，无法从外部制造该窗口）。分支**行为**已由 `TestTokenCacheConcurrentSingleFetch` 与 `TestTokenCacheDoubleCheckUnderContention` 每轮确定性断言：并发下恰好一次取 token、败者复用胜者结果；语句命中是偶发的（部分轮次的 profile 里该块非零，此时本条目自然不参与豁免）。
 
@@ -60,7 +60,7 @@
 
 ## core/websocket/server.go
 
-- `github.com/cuihairu/herald/core/websocket/server.go:454` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行自 370 更正 382，同日后随 worker-auth/停机闸门 SEC 批次（955e11b、3b0696f、55d690b、566a704）再加 59 行，更正为 441，同日随 register ack 移出 hub 锁的重构再下移 13 行，更正为 454。）
+- `github.com/cuihairu/herald/core/websocket/server.go:464` — `state.conn.SetWriteDeadline` 的失败分支。gorilla v1.5.3 的 `SetWriteDeadline` 是纯字段赋值 `c.writeDeadline = t; return nil`，**任何**输入下都不返回错误（与 `SetReadDeadline` 不同，后者才转发给 `net.Conn`）。这一行是恒 nil，不需要任何测试；真实的发送失败在紧随其后的 `WriteMessage` 里报出，那里已有实测覆盖。（行号 2026-11-02 随 `8bcb8db` 在 `handleWebSocket` 加 `SetReadLimit` 下移 12 行自 370 更正 382，同日后随 worker-auth/停机闸门 SEC 批次（955e11b、3b0696f、55d690b、566a704）再加 59 行，更正为 441，同日随 register ack 移出 hub 锁的重构再下移 13 行，更正为 454；2026-11-04 照 go1.26.6 profile 再自 :454 更正为 :464——块随后续 websocket 批次（ack 序列化 hunk 等）整体下移 10 行，登记时仅凭就地注释被计为 annotated，`--gate` 下不参与豁免才暴露。）
 
 ## apps-sdk/go/example/main.go
 

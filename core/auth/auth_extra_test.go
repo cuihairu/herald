@@ -378,3 +378,35 @@ func TestLoginRateLimiterTrialSingleAttemptNeverRefills(t *testing.T) {
 		t.Fatal("flood key must not regain a token after idle time under a one-shot trial gate")
 	}
 }
+
+// TestEvictTrialLRUBatchLockedGuards: the batch-LRU sweep's two defensive
+// guards (empty table, sub-quarter table) sit behind callers that only fire
+// at loginLimiterMaxKeys entries, so no end-to-end path reaches them. They
+// are still real behavior for future callers, so exercise them directly.
+func TestEvictTrialLRUBatchLockedGuards(t *testing.T) {
+	// Empty table: the sweep must be a no-op, not a panic.
+	l := newLoginRateLimiter(1, 100)
+	l.evictTrialLRUBatchLocked()
+	if len(l.trial) != 0 || len(l.trialSeen) != 0 {
+		t.Fatal("empty sweep must leave the trial table untouched")
+	}
+
+	// Fewer than four entries: a quarter rounds down to zero, the sweep
+	// must still evict the single least-recently-used entry.
+	now := time.Now()
+	keys := []string{"k1", "k2", "k3"}
+	for i, k := range keys {
+		l.trial[k] = limiter.NewOnce()
+		l.trialSeen[k] = now.Add(time.Duration(i) * time.Second)
+	}
+	l.evictTrialLRUBatchLocked()
+	if len(l.trial) != 2 {
+		t.Fatalf("expected 2 trial entries after sweep, got %d", len(l.trial))
+	}
+	if _, ok := l.trialSeen["k1"]; ok {
+		t.Fatal("oldest entry k1 must have been evicted")
+	}
+	if _, ok := l.trial["k2"]; !ok {
+		t.Fatal("newer entries k2/k3 must survive the sweep")
+	}
+}

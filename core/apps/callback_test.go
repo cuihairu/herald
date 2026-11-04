@@ -207,3 +207,16 @@ func TestResolveCallbackURLCanRunParallel(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveCallbackURLEdgeCases(t *testing.T) {
+	r, _ := NewRegistry([]SeedApp{{Name: "demo-app", Tokens: []SeedToken{{Secret: "s", Scopes: []string{"config"}}}}})
+
+	// ResolveCallbackURL runs the same absolute-http(s)-url gate as
+	// ValidateCallbackURL before the destination policy: a non-http scheme,
+	// a hostless URL and an unparseable URL all refuse.
+	for _, u := range []string{"ftp://example.com/hook", "https://", "not a url"} {
+		if _, err := r.ResolveCallbackURL(u); err == nil {
+			t.Errorf("ResolveCallbackURL(%q) = nil err, want refusal", u)
+		}
+	}
+}
