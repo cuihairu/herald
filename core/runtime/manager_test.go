@@ -315,23 +315,50 @@ func TestGetProviderStatus(t *testing.T) {
 
 	t.Run("statuses sorted by name", func(t *testing.T) {
 		m := NewManager(100)
-		mk := func(name string) *mockProvider {
+		type spec struct {
+			name    string
+			enabled bool
+		}
+		mk := func(name string, enabled bool) *mockProvider {
 			return &mockProvider{name: name, pType: "builtin", status: &core.ProviderStatus{
 				Name: name, Type: "builtin", Status: "available",
 			}}
 		}
-		// register in non-alphabetical order to prove the sort is real
-		for _, name := range []string{"zeta", "alpha", "midway", "beta"} {
-			_ = m.RegisterProvider(name, mk(name))
+		// register in non-alphabetical order with mixed enabled flags to prove
+		// the sort is real: enabled first, then alphabetical by name
+		for _, s := range []spec{
+			{"zeta", false},
+			{"alpha", false},
+			{"midway", true},
+			{"beta", true},
+			{"acme", false},
+		} {
+			_ = m.RegisterProvider(s.name, mk(s.name, s.enabled))
+			if s.enabled {
+				_ = m.Enable(s.name)
+			} else {
+				_ = m.Disable(s.name)
+			}
 		}
 
 		statuses := m.GetProviderStatus()
-		if len(statuses) != 4 {
-			t.Fatalf("expected 4 statuses, got %d", len(statuses))
+		if len(statuses) != 5 {
+			t.Fatalf("expected 5 statuses, got %d", len(statuses))
 		}
-		for i := 1; i < len(statuses); i++ {
-			if statuses[i-1].Name >= statuses[i].Name {
-				t.Errorf("statuses not sorted: %q before %q", statuses[i-1].Name, statuses[i].Name)
+		want := []struct {
+			name    string
+			enabled bool
+		}{
+			{"beta", true},
+			{"midway", true},
+			{"acme", false},
+			{"alpha", false},
+			{"zeta", false},
+		}
+		for i, w := range want {
+			if statuses[i].Name != w.name || statuses[i].Enabled != w.enabled {
+				t.Errorf("position %d: expected {%s enabled=%v}, got {%s enabled=%v}",
+					i, w.name, w.enabled, statuses[i].Name, statuses[i].Enabled)
 			}
 		}
 	})

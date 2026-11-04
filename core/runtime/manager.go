@@ -371,9 +371,13 @@ func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 		statuses = append(statuses, s)
 	}
 
-	// map iteration order is random; return providers in stable name order
-	// so API consumers (dashboard lists) render deterministically.
+	// map iteration order is random; return providers in stable order:
+	// enabled first, then alphabetical by name, so the dashboard renders
+	// deterministically with active providers on top.
 	sort.SliceStable(statuses, func(i, j int) bool {
+		if statuses[i].Enabled != statuses[j].Enabled {
+			return statuses[i].Enabled
+		}
 		return statuses[i].Name < statuses[j].Name
 	})
 
