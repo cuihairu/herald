@@ -57,9 +57,15 @@ describe('DashboardLayout', () => {
     expect(screen.getByText('通知规则')).toBeInTheDocument()
     expect(screen.getByText('通知群组')).toBeInTheDocument()
     expect(screen.getByText('Workers')).toBeInTheDocument()
-    // antd 会给恰好两个汉字的文本插入排版空格。
-    expect(screen.getByText(/日\s*志/)).toBeInTheDocument()
-    expect(screen.getByText('发送消息')).toBeInTheDocument()
+    expect(screen.getByText('日志')).toBeInTheDocument()
+    expect(screen.getByText('发送')).toBeInTheDocument()
+    // 功能域分组与新页面入口。
+    expect(screen.getByText('受众与订阅')).toBeInTheDocument()
+    expect(screen.getByText('受众')).toBeInTheDocument()
+    expect(screen.getByText('通知模板')).toBeInTheDocument()
+    expect(screen.getByText('RSS')).toBeInTheDocument()
+    expect(screen.getByText('API Keys')).toBeInTheDocument()
+    expect(screen.getByText('设置')).toBeInTheDocument()
     expect(screen.getByText('home-outlet')).toBeInTheDocument()
   })
 

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, configure } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+
+// 懒路由用例要等 React.lazy chunk 的首次转换 + 渲染；共用构建机被占满时
+// 3s 全局上限会被纯负载击穿（重试间失败的用例各不相同）。本文件放宽到 12s。
+configure({ asyncUtilTimeout: 12000 })
 
 vi.mock('./api', () => ({
   heraldApi: {

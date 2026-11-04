@@ -19,6 +19,12 @@ const RulesPage = lazy(() => import('./pages/RulesPage'))
 const GroupsPage = lazy(() => import('./pages/GroupsPage'))
 const RostersPage = lazy(() => import('./pages/RostersPage'))
 const IncidentsPage = lazy(() => import('./pages/IncidentsPage'))
+const AudiencesPage = lazy(() => import('./pages/AudiencesPage'))
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
+const AppsPage = lazy(() => import('./pages/AppsPage'))
+const RssPage = lazy(() => import('./pages/RssPage'))
+const ApiKeysPage = lazy(() => import('./pages/ApiKeysPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 // Exported for the direct unit test: lazy imports resolve synchronously
 // under vitest, so the fallback never renders inside route tests.
@@ -57,6 +63,12 @@ export default function App() {
           <Route path="groups" element={<GroupsPage />} />
           <Route path="rosters" element={<RostersPage />} />
           <Route path="incidents" element={<IncidentsPage />} />
+          <Route path="audiences" element={<AudiencesPage />} />
+          <Route path="templates" element={<TemplatesPage />} />
+          <Route path="apps" element={<AppsPage />} />
+          <Route path="rss" element={<RssPage />} />
+          <Route path="keys" element={<ApiKeysPage />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="workers" element={<WorkersPage />} />
           <Route path="logs" element={<LogsPage />} />
           <Route path="deliveries" element={<DeliveriesPage />} />

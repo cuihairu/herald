@@ -6,11 +6,17 @@ import {
   ApiOutlined,
   FilterOutlined,
   UsergroupAddOutlined,
+  UserOutlined,
   CalendarOutlined,
   TeamOutlined,
   AlertOutlined,
   FileTextOutlined,
+  FileDoneOutlined,
+  AppstoreOutlined,
   FieldTimeOutlined,
+  ReadOutlined,
+  KeyOutlined,
+  SettingOutlined,
   SendOutlined,
   LogoutOutlined,
 } from '@ant-design/icons'
@@ -20,17 +26,102 @@ import type { ThemeMode } from '../theme/themes'
 
 const { Header, Sider, Content } = Layout
 
+// 菜单按功能域分组（antd Menu 的 group 类型）。分组只改变视觉层级，
+// key 仍是路由路径，点击行为与扁平菜单一致。
 const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: '概览' },
-  { key: '/providers', icon: <ApiOutlined />, label: 'Providers' },
-  { key: '/rules', icon: <FilterOutlined />, label: '通知规则' },
-  { key: '/groups', icon: <UsergroupAddOutlined />, label: '通知群组' },
-  { key: '/rosters', icon: <CalendarOutlined />, label: '值班表' },
-  { key: '/incidents', icon: <AlertOutlined />, label: '事件台账' },
-  { key: '/workers', icon: <TeamOutlined />, label: 'Workers' },
-  { key: '/logs', icon: <FileTextOutlined />, label: '日志' },
-  { key: '/deliveries', icon: <FieldTimeOutlined />, label: '投递状态' },
-  { key: '/send', icon: <SendOutlined />, label: '发送消息' },
+  {
+    key: 'grp-overview',
+    type: "group" as const,
+    label: '总览',
+    children: [
+      { key: '/', icon: <DashboardOutlined />, label: '概览' },
+      { key: '/send', icon: <SendOutlined />, label: '发送' },
+    ],
+  },
+  {
+    key: 'grp-providers',
+    type: "group" as const,
+    label: 'Providers 接入',
+    children: [
+      { key: '/providers', icon: <ApiOutlined />, label: 'Providers' },
+      { key: '/workers', icon: <TeamOutlined />, label: 'Workers' },
+    ],
+  },
+  {
+    key: 'grp-audience',
+    type: "group" as const,
+    label: '受众与订阅',
+    children: [
+      { key: '/audiences', icon: <UsergroupAddOutlined />, label: '受众' },
+      { key: '/groups', icon: <UserOutlined />, label: '通知群组' },
+      { key: '/rosters', icon: <CalendarOutlined />, label: '值班表' },
+    ],
+  },
+  {
+    key: 'grp-templates',
+    type: "group" as const,
+    label: '模板',
+    children: [
+      { key: '/templates', icon: <FileTextOutlined />, label: '通知模板' },
+    ],
+  },
+  {
+    key: 'grp-rules',
+    type: "group" as const,
+    label: '规则与策略',
+    children: [
+      { key: '/rules', icon: <FilterOutlined />, label: '通知规则' },
+    ],
+  },
+  {
+    key: 'grp-apps',
+    type: "group" as const,
+    label: '集成 Apps',
+    children: [
+      { key: '/apps', icon: <AppstoreOutlined />, label: 'Apps' },
+    ],
+  },
+  {
+    key: 'grp-alerts',
+    type: "group" as const,
+    label: '告警',
+    children: [
+      { key: '/incidents', icon: <AlertOutlined />, label: '事件台账' },
+    ],
+  },
+  {
+    key: 'grp-delivery',
+    type: "group" as const,
+    label: '日志与投递',
+    children: [
+      { key: '/logs', icon: <FileDoneOutlined />, label: '日志' },
+      { key: '/deliveries', icon: <FieldTimeOutlined />, label: '投递状态' },
+    ],
+  },
+  {
+    key: 'grp-rss',
+    type: "group" as const,
+    label: 'RSS 订阅',
+    children: [
+      { key: '/rss', icon: <ReadOutlined />, label: 'RSS' },
+    ],
+  },
+  {
+    key: 'grp-keys',
+    type: "group" as const,
+    label: '密钥管理',
+    children: [
+      { key: '/keys', icon: <KeyOutlined />, label: 'API Keys' },
+    ],
+  },
+  {
+    key: 'grp-settings',
+    type: "group" as const,
+    label: '系统',
+    children: [
+      { key: '/settings', icon: <SettingOutlined />, label: '设置' },
+    ],
+  },
 ]
 
 const themeOptions: { label: string; value: ThemeMode }[] = [
