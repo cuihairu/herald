@@ -116,6 +116,14 @@ func TestProviderGetConfig(t *testing.T) {
 	if retrieved["url"] != "https://example.com" {
 		t.Errorf("expected url, got %v", retrieved["url"])
 	}
+	if _, ok := retrieved["level_sound"]; !ok {
+		t.Errorf("expected level_sound to be present in GetConfig")
+	}
+	// device_key must be masked when the config goes through the API layer
+	masked := core.MaskConfig(retrieved)
+	if masked["device_key"] != "******" {
+		t.Errorf("expected device_key to be masked, got %v", masked["device_key"])
+	}
 }
 
 func TestProviderCapability(t *testing.T) {

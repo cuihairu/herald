@@ -107,12 +107,13 @@ func intFromConfig(v interface{}) int {
 // GetConfig returns the provider configuration
 func (p *Provider) GetConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"device_key": p.deviceKey,
-		"server":     p.server,
-		"group":      p.group,
-		"ttl":        p.ttl,
-		"sound":      p.sound,
-		"url":        p.url,
+		"device_key":  p.deviceKey,
+		"server":      p.server,
+		"group":       p.group,
+		"ttl":         p.ttl,
+		"sound":       p.sound,
+		"level_sound": p.levelSound,
+		"url":         p.url,
 	}
 }
 
