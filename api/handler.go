@@ -19,6 +19,7 @@ import (
 	"github.com/cuihairu/herald/core/template"
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/core/worker"
+	"github.com/cuihairu/herald/internal/store"
 )
 
 // Handler handles HTTP requests
@@ -34,6 +35,7 @@ type Handler struct {
 	groupsManager    *groups.Manager
 	audiencesManager *audience.Manager
 	rostersManager   *roster.Manager
+	keysDB           *store.DB
 	ackStore         ack.Store
 	escalation       *escalation.Manager
 	incidents        *incident.Store

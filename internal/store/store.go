@@ -37,7 +37,7 @@ type DB struct {
 	sql *sql.DB
 }
 
-var errNotFound = errors.New("store: not found")
+var ErrNotFound = errors.New("store: not found")
 
 // sqliteDriver 是驱动名接缝：固定为 "sqlite"，测试换名以覆盖 Open 的
 // 错误分支（真实程序里驱动名是编译期常量）。
@@ -199,7 +199,7 @@ func (db *DB) RevokeAPIKey(id string) error {
 		return fmt.Errorf("store: revoke api key: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return errNotFound
+		return ErrNotFound
 	}
 	return nil
 }

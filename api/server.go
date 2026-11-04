@@ -30,6 +30,7 @@ import (
 	"github.com/cuihairu/herald/core/websocket"
 	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/internal/logger"
+	"github.com/cuihairu/herald/internal/store"
 )
 
 // Server is the herald server
@@ -80,6 +81,10 @@ type Config struct {
 	// optional, nil keeps "user:" references unresolvable and the
 	// audience CRUD endpoints off.
 	Users *audience.Manager
+	// Keys wires the sqlite credential store behind the dashboard key
+	// management endpoints (GET/POST/DELETE /api/v1/keys). nil keeps
+	// those endpoints 503 (not configured = closed).
+	Keys *store.DB
 	// Rosters supplies the silence schedule placeholder: nil keeps roster
 	// endpoints off and every roster-named silence gate open (fail open).
 	Rosters    *roster.Manager
@@ -186,6 +191,9 @@ func NewServer(config *Config) *Server {
 		notificationSvc.SetUserResolver(config.Users)
 		handler.SetAudiencesManager(config.Users)
 	}
+	if config.Keys != nil {
+		handler.SetKeyStore(config.Keys)
+	}
 	// Plain channel names that are not provider instances resolve through
 	// the router's channels block (an explicit provider always wins).
 	notificationSvc.SetChannelResolver(config.Router)
@@ -262,6 +270,8 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/auth/refresh", s.auth.HandleRefresh)
 	mux.HandleFunc("/api/v1/auth/me", s.auth.HandleMe)
 	mux.HandleFunc("/api/v1/auth/password", s.withAuth(s.auth.HandlePasswordChange))
+	mux.HandleFunc("/api/v1/keys", s.withAuth(s.handler.HandleKeys))
+	mux.HandleFunc("/api/v1/keys/{id}", s.withAuth(s.handler.HandleKeyByID))
 
 	// Protected endpoints
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
