@@ -142,6 +142,33 @@ func (m *Manager) ChangePassword(username, oldPassword, newPassword string) erro
 	return nil
 }
 
+// SetPasswordHash replaces the stored hash for an existing user. The
+// auth layer uses it to apply persisted hashes on startup and to keep
+// the in-memory table authoritative after a change.
+func (m *Manager) SetPasswordHash(username, hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user, exists := m.users[username]
+	if !exists {
+		return fmt.Errorf("user not found")
+	}
+	user.Password = hash
+	return nil
+}
+
+// StoredHash returns the current stored hash for the user.
+func (m *Manager) StoredHash(username string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	user, exists := m.users[username]
+	if !exists {
+		return "", false
+	}
+	return user.Password, true
+}
+
 // CreateUser creates a new user
 func (m *Manager) CreateUser(username, password, role string) error {
 	m.mu.Lock()

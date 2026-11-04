@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"sort"
@@ -23,6 +24,18 @@ type Auth struct {
 	apiKeys     map[string]string
 	enabled     bool
 	loginLimits *loginRateLimiter
+	// passwordStore persists rotated password hashes; nil keeps changes
+	// process-local (they die with the process).
+	passwordStore PasswordStore
+	// adminUsers are the usernames seeded from config; the persisted
+	// hash, when present, overrides their seeded password on startup.
+	adminUsers []string
+}
+
+// PasswordStore persists password hashes beyond the process lifetime.
+type PasswordStore interface {
+	SetPasswordHash(username, hash string) error
+	PasswordHash(username string) (string, bool, error)
 }
 
 // Config is the auth configuration
@@ -53,10 +66,12 @@ func New(config *Config) *Auth {
 	jm := jwt.NewManager(config.SecretKey)
 
 	// Create default admin user if configured
+	var adminUsers []string
 	if config.AdminUser != nil {
 		for username, password := range config.AdminUser {
 			if username != "" && password != "" {
 				_ = um.CreateDefaultUser(username, password)
+				adminUsers = append(adminUsers, username)
 			}
 		}
 	}
@@ -72,7 +87,87 @@ func New(config *Config) *Auth {
 		apiKeys:     apiKeys,
 		enabled:     config.Enabled,
 		loginLimits: newLoginRateLimiter(config.LoginRate, config.LoginBurst),
+		adminUsers:  adminUsers,
 	}
+}
+
+// SetPasswordStore wires the persistence face for password hashes. When a
+// store already holds a hash for a seeded admin, it overrides the config
+// password — the rotated credential wins over the bootstrap one.
+func (a *Auth) SetPasswordStore(ps PasswordStore) {
+	a.passwordStore = ps
+	if ps == nil {
+		return
+	}
+	for _, username := range a.adminUsers {
+		if hash, ok, err := ps.PasswordHash(username); err == nil && ok {
+			_ = a.userManager.SetPasswordHash(username, hash)
+		}
+	}
+}
+
+// ChangePassword validates the old password, stores the new bcrypt hash
+// and persists it through the password store when one is wired.
+func (a *Auth) ChangePassword(username, oldPassword, newPassword string) error {
+	if _, err := a.userManager.Authenticate(username, oldPassword); err != nil {
+		return errInvalidOldPassword
+	}
+	if err := a.userManager.ChangePassword(username, oldPassword, newPassword); err != nil {
+		return err
+	}
+	if a.passwordStore == nil {
+		return nil
+	}
+	hash, _ := a.userManager.StoredHash(username)
+	if err := a.passwordStore.SetPasswordHash(username, hash); err != nil {
+		return errPersistFailed
+	}
+	return nil
+}
+
+// HandlePasswordChange serves POST /api/v1/auth/password with a Bearer
+// token: {"old_password": ..., "new_password": ...}.
+func (a *Auth) HandlePasswordChange(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := a.getJWTToken(r)
+	if token == "" {
+		a.respondError(w, http.StatusUnauthorized, "missing token")
+		return
+	}
+	claims, err := a.jwtManager.Validate(token)
+	if err != nil {
+		a.respondError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	var req PasswordChangeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.NewPassword == "" {
+		a.respondError(w, http.StatusBadRequest, "new password is required")
+		return
+	}
+
+	if err := a.ChangePassword(claims.Username, req.OldPassword, req.NewPassword); err != nil {
+		switch err {
+		case errInvalidOldPassword:
+			a.respondError(w, http.StatusBadRequest, "invalid old password")
+		case errPersistFailed:
+			a.respondError(w, http.StatusInternalServerError, "failed to persist password")
+		default:
+			a.respondError(w, http.StatusBadRequest, "password not accepted")
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": 0, "message": "ok"})
 }
 
 // loginRateLimiter buckets one token per (clientIP, username) key. A burst
@@ -261,6 +356,17 @@ type LoginResponse struct {
 	Token string `json:"token"`
 	User  *User  `json:"user"`
 }
+
+// PasswordChangeRequest is a password rotation request
+type PasswordChangeRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+var (
+	errInvalidOldPassword = errors.New("invalid old password")
+	errPersistFailed      = errors.New("failed to persist password")
+)
 
 // User is a public user info
 type User struct {

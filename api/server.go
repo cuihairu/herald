@@ -261,6 +261,7 @@ func NewServer(config *Config) *Server {
 	mux.HandleFunc("/api/v1/auth/login", s.auth.HandleLogin)
 	mux.HandleFunc("/api/v1/auth/refresh", s.auth.HandleRefresh)
 	mux.HandleFunc("/api/v1/auth/me", s.auth.HandleMe)
+	mux.HandleFunc("/api/v1/auth/password", s.withAuth(s.auth.HandlePasswordChange))
 
 	// Protected endpoints
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
