@@ -149,6 +149,11 @@ routes:
   info:
     - log
 
+# 进程指标采样（dashboard 趋势图数据源）
+metrics:
+  sample_interval: 10s
+  retention: 24h
+
 # 队列配置
 queue:
   type: memory

@@ -107,6 +107,8 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		// provider claiming it collides at registration and refuses the
 		// start.
 		"callback provider name reserved": "providers:\n  app-callback:\n    type: webhook\n    config:\n      url: https://example.com/hook\n",
+		// 进程指标采样：负的采样间隔是配置错误，拒绝启动。
+		"metrics interval negative": "metrics:\n  sample_interval: -1s\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -58,6 +58,7 @@ type Config struct {
 	WebSocket WebSocketConfig           `yaml:"websocket"`
 	Worker    WorkerConfig              `yaml:"worker"`
 	Auth      AuthConfig                `yaml:"auth"`
+	Metrics   MetricsConfig             `yaml:"metrics"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
 	// Channels seeds the channel table: a named channel mapping to the
 	// provider instances that deliver for it. A plain channel reference
@@ -207,6 +208,16 @@ type AuthConfig struct {
 	// bcrypt cost on the public /auth/login endpoint.
 	LoginRate  float64 `yaml:"login_rate"`
 	LoginBurst int     `yaml:"login_burst"`
+}
+
+// MetricsConfig is the process-metrics sampling configuration. The
+// sampler feeds the dashboard trend charts; zero values fall back to the
+// built-in defaults at startup (10s interval, 24h retention).
+type MetricsConfig struct {
+	// SampleInterval is how often the sampler records a snapshot.
+	SampleInterval time.Duration `yaml:"sample_interval"`
+	// Retention is how long sampled points stay in the ring.
+	Retention time.Duration `yaml:"retention"`
 }
 
 // ProviderConfig is a provider configuration
@@ -523,6 +534,10 @@ func Default() *Config {
 		Dedup: DedupConfig{
 			Enabled: true,
 			Window:  5 * time.Minute,
+		},
+		Metrics: MetricsConfig{
+			SampleInterval: 10 * time.Second,
+			Retention:      24 * time.Hour,
 		},
 	}
 }

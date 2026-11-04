@@ -20,6 +20,7 @@ import (
 	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
+	"github.com/cuihairu/herald/core/metrics"
 	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/route"
 	"github.com/cuihairu/herald/core/rules"
@@ -72,6 +73,7 @@ type Config struct {
 	Auth            *auth.Auth
 	TemplateManager *template.Manager
 	WorkerRegistry  *worker.Registry
+	Metrics         *metrics.Sampler
 	Rules           *rules.Engine   // optional; nil keeps static routing only
 	Groups          *groups.Manager // optional; nil keeps group endpoints off
 	// Users carries the user-level audience tables (core/audience);
@@ -165,6 +167,9 @@ func NewServer(config *Config) *Server {
 	handler := NewHandler(notificationSvc, config.Runtime, config.TemplateManager)
 	handler.SetQueue(config.Queue)
 	handler.SetWorkerRegistry(config.WorkerRegistry)
+	if config.Metrics != nil {
+		handler.SetMetrics(config.Metrics)
+	}
 	if config.Rules != nil {
 		handler.SetRuleEngine(config.Rules)
 	}
@@ -259,6 +264,8 @@ func NewServer(config *Config) *Server {
 
 	// Protected endpoints
 	mux.HandleFunc("/api/v1/notify", s.withAuth(s.handleNotify))
+	mux.HandleFunc("/api/v1/overview", s.withAuth(s.handleOverview))
+	mux.HandleFunc("/api/v1/metrics/history", s.withAuth(s.handleMetricsHistory))
 	mux.HandleFunc("/api/v1/providers", s.withAuth(s.handleProviders))
 	mux.HandleFunc("/api/v1/workers", s.withAuth(s.handleWorkers))
 	mux.HandleFunc("/api/v1/queue", s.withAuth(s.handleQueue))
@@ -410,6 +417,22 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handler.HandleNotify(w, r)
+}
+
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleOverview(w, r)
+}
+
+func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.handler.HandleMetricsHistory(w, r)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

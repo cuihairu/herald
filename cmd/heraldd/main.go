@@ -27,6 +27,7 @@ import (
 	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
+	"github.com/cuihairu/herald/core/metrics"
 	"github.com/cuihairu/herald/core/queue"
 	"github.com/cuihairu/herald/core/retry"
 	"github.com/cuihairu/herald/core/roster"
@@ -520,6 +521,16 @@ func serveCmd(args []string) int {
 		}
 	}
 
+	// Process metrics sampler (dashboard trend source): samples procfs
+	// CPU/RSS, goroutines and the online worker count into a bounded
+	// ring. Zero config values fall back to the built-in defaults; a
+	// negative value is a configuration error and refuses to start.
+	metricsSampler, err := newMetricsSampler(cfg, registry)
+	if err != nil {
+		logger.Error("failed to configure metrics sampler", "error", err)
+		return 1
+	}
+
 	// Create API server
 	srv := api.NewServer(&api.Config{
 		Addr:                cfg.Server.Addr,
@@ -533,6 +544,7 @@ func serveCmd(args []string) int {
 		Auth:                a,
 		TemplateManager:     templateMgr,
 		WorkerRegistry:      registry,
+		Metrics:             metricsSampler,
 		Rules:               rulesEngine,
 		Groups:              groupsManager,
 		Users:               audienceManager,
@@ -648,6 +660,7 @@ func serveCmd(args []string) int {
 
 	// Shutdown
 	logger.Info("shutting down...")
+	metricsSampler.Stop()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.Timeout)
 	defer shutdownCancel()
 
@@ -669,6 +682,30 @@ func serveCmd(args []string) int {
 
 	logger.Info("shutdown complete")
 	return 0
+}
+
+// newMetricsSampler builds and starts the process metrics sampler with
+// the config knobs. Zero values fall back to the built-in defaults (10s
+// interval, 24h retention); a negative value is a configuration error and
+// refuses to start.
+func newMetricsSampler(cfg *config.Config, registry *worker.Registry) (*metrics.Sampler, error) {
+	interval := cfg.Metrics.SampleInterval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+	retention := cfg.Metrics.Retention
+	if retention == 0 {
+		retention = 24 * time.Hour
+	}
+	if err := metrics.Validate(interval, retention); err != nil {
+		return nil, err
+	}
+	// 注册表只持有在册（在线）worker：注册于连接建立、注销于断开，
+	// 与 HandleWorkers 的口径一致。
+	onlineWorkers := func() int { return len(registry.List()) }
+	sampler := metrics.NewSampler(interval, retention, metrics.NewHostCollector(), onlineWorkers, nil)
+	sampler.Start()
+	return sampler, nil
 }
 
 // workerCmd runs Herald in remote worker mode: connects to queue + registers via WebSocket.

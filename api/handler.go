@@ -11,6 +11,7 @@ import (
 	"github.com/cuihairu/herald/core/feeds"
 	"github.com/cuihairu/herald/core/groups"
 	"github.com/cuihairu/herald/core/incident"
+	"github.com/cuihairu/herald/core/metrics"
 	"github.com/cuihairu/herald/core/roster"
 	"github.com/cuihairu/herald/core/rules"
 	"github.com/cuihairu/herald/core/runtime"
@@ -26,6 +27,7 @@ type Handler struct {
 	runtime          *runtime.Manager
 	templateManager  *template.Manager
 	workerRegistry   *worker.Registry
+	metrics          *metrics.Sampler
 	_wsServer        *websocket.Server
 	queue            core.Queue
 	rulesEngine      *rules.Engine
@@ -71,6 +73,11 @@ func (h *Handler) SetWebSocketServer(wsServer *websocket.Server) {
 // SetWorkerRegistry sets the shared worker registry for worker status endpoints.
 func (h *Handler) SetWorkerRegistry(registry *worker.Registry) {
 	h.workerRegistry = registry
+}
+
+// SetMetrics wires the process metrics sampler for the history endpoint.
+func (h *Handler) SetMetrics(s *metrics.Sampler) {
+	h.metrics = s
 }
 
 // SetCardCallbackKey sets the Feishu card-callback encryption key. Empty
