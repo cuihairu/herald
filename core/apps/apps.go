@@ -174,9 +174,6 @@ type Registry struct {
 	nextHookID    int
 }
 
-// hookKey is the key type for callbackHooks.
-type hookKey = int
-
 // NewRegistry builds the registry from config seeds. Validation refuses
 // the whole registry on any bad seed — a half-loaded integration face
 // is worse than a refused start.
@@ -221,6 +218,13 @@ func NewRegistry(seeds []SeedApp) (*Registry, error) {
 // clear), and is called outside r.mu so it may safely call back into
 // the registry.
 func (r *Registry) AddCallbackChangeHook(hook func(url string, present bool)) (unregister func()) {
+	if hook == nil {
+		// A nil hook would panic on the first notify instead of failing
+		// here. The old single-slot setter treated nil as "clear the
+		// hook", so a caller migrating that habit must be told promptly
+		// rather than fail late at an arbitrary Set/Clear callback call.
+		panic("apps: AddCallbackChangeHook called with nil hook")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.callbackHooks == nil {

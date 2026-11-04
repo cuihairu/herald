@@ -168,3 +168,25 @@ func TestNewOnceGrantsSingleToken(t *testing.T) {
 		t.Fatal("once bucket must not refill after time passes")
 	}
 }
+
+// TestNewOnceReservationNoDivideByZero: Reservation on a one-shot bucket
+// must not divide by the zero rate (which yields an implementation-defined
+// duration). It reports a finite far-future delay instead, mirroring the
+// guard timeUntilToken already applies.
+func TestNewOnceReservationNoDivideByZero(t *testing.T) {
+	once := NewOnce()
+	if !once.Allow() {
+		t.Fatal("first allow on a once bucket must be granted")
+	}
+	r := once.Reservation()
+	if r == nil {
+		t.Fatal("Reservation() on a once bucket returned nil")
+	}
+	if !r.OK() {
+		t.Fatal("Reservation().OK() = false, want true (delayed reservation)")
+	}
+	delay := r.Delay()
+	if delay <= 0 {
+		t.Fatalf("Reservation().Delay() = %v, want a positive far-future wait", delay)
+	}
+}

@@ -963,6 +963,24 @@ func TestClientWithPinnedIPsRefusesSchemeDowngrade(t *testing.T) {
 	}
 }
 
+// TestClientWithPinnedIPsFollowsSameHostUpgrade: a same-host redirect that
+// upgrades http→https only adds TLS to the already validated address and
+// leaves SNI/Host unchanged, so it is safe to follow and must not be
+// refused. This guards the availability regression where any scheme change
+// (not just the downgrade) was rejected, permanently failing endpoints that
+// normalize a callback from http to https.
+func TestClientWithPinnedIPsFollowsSameHostUpgrade(t *testing.T) {
+	c := NewClient(nil).WithPinnedIPs([]net.IP{net.ParseIP("93.184.216.34")})
+	if c.client.CheckRedirect == nil {
+		t.Fatal("expected a CheckRedirect hook on the pinned client")
+	}
+	target := &http.Request{URL: &url.URL{Scheme: "https", Host: "app.example.com", Path: "/hook"}}
+	via := []*http.Request{{URL: &url.URL{Scheme: "http", Host: "app.example.com", Path: "/source"}}}
+	if err := c.client.CheckRedirect(target, via); err != nil {
+		t.Fatalf("same-host http→https upgrade redirect err = %v, want nil", err)
+	}
+}
+
 // TestClientWithPinnedIPsRedirectKeepsSameScheme: a same-host redirect that
 // keeps the scheme (http→http) is still followed; the scheme check must not
 // reject safe same-scheme hops.

@@ -229,10 +229,13 @@ func (c *Client) WithPinnedIPs(ips []net.IP) *Client {
 		// via holds the requests already sent; the last one is the
 		// original hop. Redirecting to a different host (or port) would
 		// leave the pinned address set behind, so only same-host hops are
-		// safe to follow. A scheme downgrade (https→http) would send the
-		// signed callback body in cleartext, so it is refused too.
+		// safe to follow. A same-host scheme downgrade (https→http) would
+		// send the signed callback body in cleartext, so it is refused; a
+		// same-host http→https upgrade only adds TLS to the already
+		// validated address and leaves SNI/Host unchanged, so it is safe
+		// to follow.
 		if len(via) > 0 && req.URL.Host == via[len(via)-1].URL.Host &&
-			req.URL.Scheme == via[len(via)-1].URL.Scheme {
+			!(via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http") {
 			return nil
 		}
 		return http.ErrUseLastResponse

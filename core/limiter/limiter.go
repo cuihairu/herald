@@ -266,6 +266,16 @@ func (tb *TokenBucket) Reservation() *Reservation {
 
 	// Calculate when token will be available
 	tokensNeeded := 1 - tb.tokens
+	if tb.rate <= 0 {
+		// A one-shot bucket never refills: no finite delay makes a token
+		// available. Mirror timeUntilToken's guard rather than dividing
+		// by zero (which yields an implementation-defined duration).
+		return &Reservation{
+			ok:        true,
+			timeToAct: time.Now().Add(time.Duration(1<<63 - 1)),
+			limiter:   tb,
+		}
+	}
 	waitDuration := time.Duration(float64(time.Second) * tokensNeeded / tb.rate)
 
 	return &Reservation{

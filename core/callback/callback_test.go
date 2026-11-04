@@ -724,6 +724,54 @@ func TestProviderSharedCallbackURLKeepsPinnedClient(t *testing.T) {
 	}
 }
 
+// TestProviderSetCallbackReplaceSharedURLKeepsPinnedClient: when one app
+// replaces a shared callback URL, the old URL is still referenced by the
+// other app, so the pinned transport for the old URL must not be dropped
+// (the SetCallback replace path, not just ClearCallback, must honour
+// presence).
+func TestProviderSetCallbackReplaceSharedURLKeepsPinnedClient(t *testing.T) {
+	reg, err := apps.NewRegistry([]apps.SeedApp{
+		{Name: "app-a", Tokens: []apps.SeedToken{{Secret: "tok-a", Scopes: []string{"config"}}}},
+		{Name: "app-b", Tokens: []apps.SeedToken{{Secret: "tok-b", Scopes: []string{"config"}}}},
+	})
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	reg.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+	reg.LookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}
+	shared := "http://app.example.com/hook"
+	if err := reg.SetCallback("app-a", shared, strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("set callback a: %v", err)
+	}
+	if err := reg.SetCallback("app-b", shared, strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("set callback b: %v", err)
+	}
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	_ = p.pinnedClientFor(shared, []net.IP{net.ParseIP("127.0.0.1")})
+	if len(p.pinned) != 1 {
+		t.Fatalf("pinned entries = %d, want 1", len(p.pinned))
+	}
+	// App-a moves off the shared URL; app-b still references it, so the
+	// transport must survive the replace.
+	if err := reg.SetCallback("app-a", "http://app.example.com/hook2", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("replace callback a: %v", err)
+	}
+	if len(p.pinned) != 1 {
+		t.Fatalf("pinned entries after replacing one sharer = %d, want 1", len(p.pinned))
+	}
+	// App-b moves off too; the last reference is gone, so the transport drops.
+	if err := reg.SetCallback("app-b", "http://app.example.com/hook2", strings.Repeat("s", 16)); err != nil {
+		t.Fatalf("replace callback b: %v", err)
+	}
+	if len(p.pinned) != 0 {
+		t.Fatalf("pinned entries after replacing last sharer = %d, want 0", len(p.pinned))
+	}
+}
+
 // TestProviderSetAppRegistryConcurrentWithPinnedAccess exercises reattaching
 // the registry while deliveries read the registry and use the pinned cache;
 // it is a regression guard for the data race where SetAppRegistry wrote
@@ -762,4 +810,64 @@ func TestProviderSetAppRegistryConcurrentWithPinnedAccess(t *testing.T) {
 		_ = p.pinnedClientFor("http://app.example.com/hook", []net.IP{net.ParseIP("127.0.0.1")})
 	}
 	<-done
+}
+
+// TestProviderSetAppRegistryNoUnhookWindow: swapping in a fresh registry
+// must register its change hook before publishing it as live, so a
+// Set/Clear on the new registry is always observed (the old code opened a
+// window where p.apps pointed at reg but no subscriber was attached, and a
+// dropped URL's pinned transport leaked until the next reattach).
+func TestProviderSetAppRegistryNoUnhookWindow(t *testing.T) {
+	reg := func() *apps.Registry {
+		r, err := apps.NewRegistry([]apps.SeedApp{{
+			Name:   "demo-app",
+			Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+		}})
+		if err != nil {
+			t.Fatalf("registry: %v", err)
+		}
+		r.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+		r.LookupIP = func(host string) ([]net.IP, error) {
+			return []net.IP{net.ParseIP("127.0.0.1")}, nil
+		}
+		if err := r.SetCallback("demo-app", "http://app.example.com/hook", strings.Repeat("s", 16)); err != nil {
+			t.Fatalf("set callback: %v", err)
+		}
+		return r
+	}()
+
+	p := NewProvider()
+	p.SetAppRegistry(reg)
+	// Attach a second registry, then build a fresh pinned transport against
+	// it. If the new registry's hook were registered only after p.apps was
+	// published, a clear on the new registry could notify nobody and the
+	// transport would leak until the next reattach.
+	reg2 := func() *apps.Registry {
+		r, err := apps.NewRegistry([]apps.SeedApp{{
+			Name:   "demo-app",
+			Tokens: []apps.SeedToken{{Secret: "tok", Scopes: []string{"config"}}},
+		}})
+		if err != nil {
+			t.Fatalf("registry2: %v", err)
+		}
+		r.SetCallbackPolicy(apps.CallbackPolicy{AllowPrivate: true})
+		r.LookupIP = func(host string) ([]net.IP, error) {
+			return []net.IP{net.ParseIP("127.0.0.1")}, nil
+		}
+		if err := r.SetCallback("demo-app", "http://app.example.com/hook", strings.Repeat("s", 16)); err != nil {
+			t.Fatalf("set callback2: %v", err)
+		}
+		return r
+	}()
+	p.SetAppRegistry(reg2)
+	_ = p.pinnedClientFor("http://app.example.com/hook", []net.IP{net.ParseIP("127.0.0.1")})
+	if len(p.pinned) != 1 {
+		t.Fatalf("pinned entries after swap = %d, want 1", len(p.pinned))
+	}
+	if err := reg2.ClearCallback("demo-app"); err != nil {
+		t.Fatalf("clear callback2: %v", err)
+	}
+	if len(p.pinned) != 0 {
+		t.Fatalf("pinned entries after swap+clear = %d, want 0 (hook must be live before publish)", len(p.pinned))
+	}
 }

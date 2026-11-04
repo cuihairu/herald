@@ -65,17 +65,13 @@ func (p *Provider) SetAppRegistry(reg *apps.Registry) {
 	p.mu.Lock()
 	prev := p.apps
 	prevUnregister := p.unregisterHook
-	p.apps = reg
-	p.pinned = nil
-	p.unregisterHook = nil
-	p.mu.Unlock()
-	// Detach from the previous registry outside the lock: the unregister
-	// takes the registry lock, and a notify may re-enter dropPinnedURL
-	// (which takes p.mu), so holding p.mu here would invert the lock
-	// order.
-	if prev != nil && prevUnregister != nil {
-		prevUnregister()
-	}
+	// Register the new registry's hook before publishing it as live so a
+	// Set/Clear on the new registry can never fire into a window where no
+	// subscriber is attached (which would leak the dropped URL's pinned
+	// transport until the next reattach). The hook only calls
+	// dropPinnedURL, which takes p.mu; it is registered before p.pinned is
+	// cleared, so a notify racing this reattach simply drops a cache the
+	// swap is about to discard anyway.
 	if reg != nil {
 		hook := reg.AddCallbackChangeHook(func(url string, present bool) {
 			// Drop the cached transport only when no app references the
@@ -86,9 +82,19 @@ func (p *Provider) SetAppRegistry(reg *apps.Registry) {
 				p.dropPinnedURL(url)
 			}
 		})
-		p.mu.Lock()
 		p.unregisterHook = hook
-		p.mu.Unlock()
+	} else {
+		p.unregisterHook = nil
+	}
+	p.apps = reg
+	p.pinned = nil
+	p.mu.Unlock()
+	// Detach from the previous registry outside the lock: the unregister
+	// takes the registry lock, and a notify may re-enter dropPinnedURL
+	// (which takes p.mu), so holding p.mu here would invert the lock
+	// order.
+	if prev != nil && prevUnregister != nil {
+		prevUnregister()
 	}
 }
 

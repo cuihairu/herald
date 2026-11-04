@@ -278,3 +278,20 @@ func TestAddCallbackChangeHookUnregister(t *testing.T) {
 		t.Fatalf("dropped hook still notified: %v", dropped)
 	}
 }
+
+// TestAddCallbackChangeHookNilFailsFast: a nil hook must panic at
+// registration, not be stored and panic later at the first notify. The old
+// single-slot setter treated nil as "clear the hook", so a caller migrating
+// that habit must fail promptly rather than at an arbitrary Set/Clear call.
+func TestAddCallbackChangeHookNilFailsFast(t *testing.T) {
+	reg, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("AddCallbackChangeHook(nil) did not panic")
+		}
+	}()
+	reg.AddCallbackChangeHook(nil)
+}
