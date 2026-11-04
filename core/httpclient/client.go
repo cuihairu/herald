@@ -235,7 +235,7 @@ func (c *Client) WithPinnedIPs(ips []net.IP) *Client {
 		// validated address and leaves SNI/Host unchanged, so it is safe
 		// to follow.
 		if len(via) > 0 && req.URL.Host == via[len(via)-1].URL.Host &&
-			!(via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme == "http") {
+			(via[len(via)-1].URL.Scheme != "https" || req.URL.Scheme != "http") {
 			return nil
 		}
 		return http.ErrUseLastResponse
