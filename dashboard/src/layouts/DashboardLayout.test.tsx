@@ -3,6 +3,8 @@ import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import DashboardLayout from './DashboardLayout'
+import ThemeModeProvider from '../theme/ThemeModeProvider'
+import { THEME_STORAGE_KEY } from '../theme/themes'
 
 vi.mock('../api', () => ({
   heraldApi: {
@@ -16,15 +18,17 @@ vi.mock('../api', () => ({
 
 function renderLayout(initial = '/') {
   return render(
-    <MemoryRouter initialEntries={[initial]}>
-      <Routes>
-        <Route path="/login" element={<div>login-page</div>} />
-        <Route path="/" element={<DashboardLayout />}>
-          <Route index element={<div>home-outlet</div>} />
-          <Route path="providers" element={<div>providers-route</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>
+    <ThemeModeProvider>
+      <MemoryRouter initialEntries={[initial]}>
+        <Routes>
+          <Route path="/login" element={<div>login-page</div>} />
+          <Route path="/" element={<DashboardLayout />}>
+            <Route index element={<div>home-outlet</div>} />
+            <Route path="providers" element={<div>providers-route</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </ThemeModeProvider>
   )
 }
 
@@ -40,10 +44,15 @@ describe('DashboardLayout', () => {
     localStorage.clear()
   })
 
-  it('shows the brand, the menu and the outlet content', () => {
+  it('shows the brand, the theme switcher, the menu and the outlet content', () => {
     renderLayout()
-    expect(screen.getByText('Herald')).toBeInTheDocument()
-    expect(screen.getByText('仪表盘')).toBeInTheDocument()
+    expect(screen.getByAltText('Herald logo')).toBeInTheDocument()
+    expect(screen.getAllByText('Herald').length).toBeGreaterThan(0)
+    expect(screen.getByText('跟随系统')).toBeInTheDocument()
+    expect(screen.getByText('亮色')).toBeInTheDocument()
+    expect(screen.getByText('暗色')).toBeInTheDocument()
+    expect(screen.getByText('午夜')).toBeInTheDocument()
+    expect(screen.getByText('概览')).toBeInTheDocument()
     expect(screen.getByText('Providers')).toBeInTheDocument()
     expect(screen.getByText('通知规则')).toBeInTheDocument()
     expect(screen.getByText('通知群组')).toBeInTheDocument()
@@ -68,12 +77,21 @@ describe('DashboardLayout', () => {
     expect(localStorage.getItem('herald_user')).toBeNull()
   })
 
-  it('collapses the sider to a single letter', async () => {
+  it('collapses the sider and keeps the header brand', async () => {
     renderLayout()
     // antd Sider 的 collapsible 触发器位于底部 trigger 条。
     const trigger = document.querySelector('.ant-layout-sider-trigger')!
     await user.click(trigger)
-    expect(await screen.findByText('H')).toBeInTheDocument()
-    expect(screen.queryByText('Herald')).not.toBeInTheDocument()
+    // 品牌区在顶栏，折叠侧栏后仍可见。
+    expect(await screen.findByAltText('Herald logo')).toBeInTheDocument()
+    expect(screen.getAllByText('Herald').length).toBeGreaterThan(0)
+  })
+
+  it('switching the theme persists the manual pick', async () => {
+    renderLayout()
+    await user.click(screen.getByText('午夜'))
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('midnight')
+    await user.click(screen.getByText('跟随系统'))
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('system')
   })
 })

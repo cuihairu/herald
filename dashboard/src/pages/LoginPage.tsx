@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Form, Input, Button, Card, Checkbox, Typography, message } from 'antd'
+import { Form, Input, Button, Card, Checkbox, Typography, message, theme } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
+import BrandLogo from '../components/BrandLogo'
 import { heraldApi } from '../api'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const { token: themeToken } = theme.useToken()
 
   async function handleLogin(values: { username: string; password: string; remember: boolean }) {
     setLoading(true)
@@ -36,7 +38,10 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Card style={{ width: 400 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Typography.Title level={2} style={{ color: '#3b82f6', marginBottom: 4 }}>Herald</Typography.Title>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <BrandLogo size={44} />
+          </div>
+          <Typography.Title level={2} style={{ color: themeToken.colorText, marginBottom: 4 }}>Herald</Typography.Title>
           <Typography.Text type="secondary">请登录以继续</Typography.Text>
         </div>
         <Form onFinish={handleLogin} initialValues={{ remember: true }}>

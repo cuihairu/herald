@@ -1,8 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { ConfigProvider, theme } from 'antd'
-import zhCN from 'antd/locale/zh_CN'
+import ThemeModeProvider from './theme/ThemeModeProvider'
 import App from './App'
 import './App.css'
 
@@ -10,16 +9,10 @@ import './App.css'
 // v5 时代的 unstableSetRender 注入接缝已移除。
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ConfigProvider
-      locale={zhCN}
-      theme={{
-        algorithm: theme.darkAlgorithm,
-        token: { colorPrimary: '#3b82f6' },
-      }}
-    >
+    <ThemeModeProvider>
       <BrowserRouter>
         <App />
       </BrowserRouter>
-    </ConfigProvider>
+    </ThemeModeProvider>
   </React.StrictMode>
 )

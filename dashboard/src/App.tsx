@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Spin } from 'antd'
+import BrandLogo from './components/BrandLogo'
 import DashboardLayout from './layouts/DashboardLayout'
 
 // Route-level code splitting: every page is its own lazy chunk, so the
@@ -23,7 +24,8 @@ const IncidentsPage = lazy(() => import('./pages/IncidentsPage'))
 // under vitest, so the fallback never renders inside route tests.
 export function PageLoading() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', justifyContent: 'center', padding: 80 }}>
+      <BrandLogo size={36} />
       <Spin />
     </div>
   )
