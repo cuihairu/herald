@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../api', () => ({
   heraldApi: {
     getStatus: vi.fn(),
+    getOverview: vi.fn(),
+    getMetricsHistory: vi.fn(),
+    getLogsTimeseries: vi.fn(),
     getProviders: vi.fn(),
     getWorkers: vi.fn(),
     getQueue: vi.fn(),
@@ -46,6 +49,37 @@ describe('herald store', () => {
       loading: false,
       error: null,
     })
+  })
+
+  it('fetchOverview stores the aggregate payload and reports errors', async () => {
+    const okOverview = { data: { providers: { enabled: 1, total: 2 }, queue: { depth: 4 } } }
+    api.getOverview.mockResolvedValue(okOverview as any)
+    await state().fetchOverview()
+    expect(state().overview).toEqual(okOverview.data)
+    expect(state().loading).toBe(false)
+
+    api.getOverview.mockRejectedValue({ message: 'overview down' })
+    await state().fetchOverview()
+    expect(state().error).toBe('overview down')
+    expect(state().loading).toBe(false)
+  })
+
+  it('fetchSeries loads metrics and send volume for the window', async () => {
+    api.getMetricsHistory.mockResolvedValue({ data: { samples: [{ cpu_percent: 5 }] } } as any)
+    api.getLogsTimeseries.mockResolvedValue({ data: { points: [{ total: 2 }] } } as any)
+    await state().fetchSeries('1h')
+    expect(api.getMetricsHistory).toHaveBeenCalledWith('1h')
+    expect(api.getLogsTimeseries).toHaveBeenCalledWith('1h')
+    expect(state().metrics).toEqual([{ cpu_percent: 5 }])
+    expect(state().sendSeries).toEqual([{ total: 2 }])
+    expect(state().seriesWindow).toBe('1h')
+    expect(state().seriesLoading).toBe(false)
+
+    api.getMetricsHistory.mockRejectedValue({ message: 'series down' })
+    await state().fetchSeries('24h')
+    expect(state().error).toBe('series down')
+    expect(state().seriesLoading).toBe(false)
+    expect(state().seriesWindow).toBe('24h')
   })
 
   it('fetchStatus stores the payload on success and reports errors', async () => {

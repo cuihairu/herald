@@ -25,6 +25,9 @@ api.interceptors.response.use(
 
 export const heraldApi = {
   getStatus: () => api.get('/status') as any,
+  getOverview: () => api.get('/overview') as any,
+  getMetricsHistory: (window: string) => api.get('/metrics/history', { params: { window } }) as any,
+  getLogsTimeseries: (window: string) => api.get('/logs/timeseries', { params: { window } }) as any,
   getProviders: () => api.get('/providers') as any,
   getWorkers: () => api.get('/workers') as any,
   getQueue: () => api.get('/queue') as any,

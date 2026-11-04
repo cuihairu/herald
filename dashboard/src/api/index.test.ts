@@ -72,6 +72,17 @@ describe('api', () => {
     expect(seen!.url).toBe('/status')
     expect(seen!.method).toBe('get')
 
+    await heraldApi.getOverview()
+    expect(seen!.url).toBe('/overview')
+
+    await heraldApi.getMetricsHistory('6h')
+    expect(seen!.url).toBe('/metrics/history')
+    expect(seen!.params).toEqual({ window: '6h' })
+
+    await heraldApi.getLogsTimeseries('1h')
+    expect(seen!.url).toBe('/logs/timeseries')
+    expect(seen!.params).toEqual({ window: '1h' })
+
     await heraldApi.getProviders()
     expect(seen!.url).toBe('/providers')
 

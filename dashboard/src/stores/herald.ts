@@ -3,10 +3,15 @@ import { heraldApi } from '../api'
 
 interface HeraldState {
   status: any
+  overview: any
   providers: any[]
   workers: any[]
   queue: { size: number }
   logStats: any
+  metrics: any[]
+  sendSeries: any[]
+  seriesWindow: string
+  seriesLoading: boolean
   rules: any[]
   groups: any[]
   rosters: any[]
@@ -14,6 +19,8 @@ interface HeraldState {
   error: string | null
 
   fetchStatus: () => Promise<void>
+  fetchOverview: () => Promise<void>
+  fetchSeries: (window: string) => Promise<void>
   fetchProviders: () => Promise<void>
   fetchWorkers: () => Promise<void>
   fetchQueue: () => Promise<void>
@@ -28,10 +35,15 @@ interface HeraldState {
 
 export const useHeraldStore = create<HeraldState>((set, get) => ({
   status: null,
+  overview: null,
   providers: [],
   workers: [],
   queue: { size: 0 },
   logStats: null,
+  metrics: [],
+  sendSeries: [],
+  seriesWindow: '6h',
+  seriesLoading: false,
   rules: [],
   groups: [],
   rosters: [],
@@ -47,6 +59,33 @@ export const useHeraldStore = create<HeraldState>((set, get) => ({
       set({ error: err.message })
     } finally {
       set({ loading: false })
+    }
+  },
+
+  fetchOverview: async () => {
+    set({ loading: true, error: null })
+    try {
+      const res = await heraldApi.getOverview()
+      set({ overview: res.data })
+    } catch (err: any) {
+      set({ error: err.message })
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  fetchSeries: async (window: string) => {
+    set({ seriesLoading: true, seriesWindow: window, error: null })
+    try {
+      const [metricsRes, sendRes] = await Promise.all([
+        heraldApi.getMetricsHistory(window),
+        heraldApi.getLogsTimeseries(window),
+      ])
+      set({ metrics: metricsRes.data.samples || [], sendSeries: sendRes.data.points || [] })
+    } catch (err: any) {
+      set({ error: err.message })
+    } finally {
+      set({ seriesLoading: false })
     }
   },
 

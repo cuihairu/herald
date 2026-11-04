@@ -13,6 +13,11 @@ vi.mock('./api', () => ({
     disableProvider: vi.fn(),
     getLogs: vi.fn(),
     getLogsStats: vi.fn().mockResolvedValue({ data: { total: 0 } }),
+    getOverview: vi.fn().mockResolvedValue({
+      data: { providers: { enabled: 0, total: 0 }, queue: { depth: 0 }, delivery: { total: 0, success_rate: 0 }, workers: { online: 0, total: 0 } },
+    }),
+    getMetricsHistory: vi.fn().mockResolvedValue({ data: { samples: [] } }),
+    getLogsTimeseries: vi.fn().mockResolvedValue({ data: { points: [] } }),
     login: vi.fn(),
     getRules: vi.fn().mockResolvedValue({ data: { rules: [] } }),
     getGroups: vi.fn().mockResolvedValue({ data: { groups: [] } }),
@@ -20,6 +25,10 @@ vi.mock('./api', () => ({
     getIncidents: vi.fn().mockResolvedValue({ data: { incidents: [] } }),
   },
 }))
+
+// jsdom 无 canvas，echarts 初始化必失败；且 echarts 模块图拖慢懒加载，
+// 路由用例里换成轻量替身（真实渲染路径由 ChartLine 自己的用例覆盖）。
+vi.mock('./components/ChartLine', () => ({ default: () => <div data-testid="chart" /> }))
 
 import App, { PageLoading } from './App'
 
@@ -49,8 +58,8 @@ describe('App routing', () => {
   it('renders the dashboard for logged-in users at /', async () => {
     localStorage.setItem('herald_token', 't')
     renderAt('/')
-    // 菜单项与页面标题都叫「仪表盘」，findAllByText 返回数组
-    expect((await screen.findAllByText('仪表盘')).length).toBeGreaterThan(0)
+    // 菜单项与页面标题都叫「概览」，findAllByText 返回数组
+    expect((await screen.findAllByText('概览')).length).toBeGreaterThan(0)
   })
 
   it('mounts every protected child route', async () => {
