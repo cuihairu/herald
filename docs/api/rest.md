@@ -598,7 +598,15 @@ console's "Details" drawer renders):
       "last_24h": 9,
       "last_7d": 30,
       "samples": [
-        { "at": "2026-10-03T08:00:00Z", "type": "deploy", "level": "error", "title": "Deployment complete", "channels": ["feishu-oncall"] }
+        {
+          "at": "2026-10-03T08:00:00Z",
+          "type": "deploy",
+          "level": "error",
+          "title": "Deployment complete",
+          "channels": [
+            "feishu-oncall"
+          ]
+        }
       ]
     }
   }

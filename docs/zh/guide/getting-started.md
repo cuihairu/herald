@@ -141,7 +141,19 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
 API 立即返回受理结果：
 
 ```json
-{"code":0,"message":"ok","data":{"accepted":["log"],"notification_id":"a2c000ea-77b2-45d8-ac50-52f83d8dd0ae","task_ids":["73e15ce1-6434-4f87-9520-9d5e990f15c9"]}}
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "accepted": [
+      "log"
+    ],
+    "notification_id": "a2c000ea-77b2-45d8-ac50-52f83d8dd0ae",
+    "task_ids": [
+      "73e15ce1-6434-4f87-9520-9d5e990f15c9"
+    ]
+  }
+}
 ```
 
 服务端日志随后出现**送达行**，消息到了：
@@ -187,7 +199,15 @@ export TELEGRAM_CHAT_ID=你的数字ID
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{"type":"demo","level":"error","title":"Herald 第一条推送","body":"from curl","channels":["telegram"]}'
+  -d '{
+          "type": "demo",
+          "level": "error",
+          "title": "Herald 第一条推送",
+          "body": "from curl",
+          "channels": [
+            "telegram"
+          ]
+        }'
 ```
 
 手机上的 Telegram 会立刻收到 `🔴 Herald 第一条推送`。详见 [Telegram Provider](/providers/telegram)。

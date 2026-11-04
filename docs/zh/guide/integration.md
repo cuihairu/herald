@@ -46,7 +46,19 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
 受理结果（`code:0` 只代表受理，送达与否看 `logs`）：
 
 ```json
-{"code":0,"message":"ok","data":{"accepted":["log"],"notification_id":"8e1ea3c3-...","task_ids":["21a2a819-..."]}}
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "accepted": [
+      "log"
+    ],
+    "notification_id": "8e1ea3c3-...",
+    "task_ids": [
+      "21a2a819-..."
+    ]
+  }
+}
 ```
 
 不点名 `channels` 时按 `type`+`level` 查路由表（`routes`/`level_routes`），都没命中报 422 `no route: no route found for type=...`。字段全表见 [REST API 的 notify 一节](/api/rest#notify-request)。
@@ -177,7 +189,16 @@ curl -X POST http://127.0.0.1:8080/api/v1/apps/demo-app/dispatch \
 curl -X POST http://127.0.0.1:8080/api/v1/apps/demo-app/events \
   -H "X-API-Key: demo-trigger-token-0123456789abcdef" \
   -H "Content-Type: application/json" \
-  -d '{"id": 42, "kind": "alerts", "severity": "critical", "title": "db down", "target": "user:5", "meta": {"host": "db-1"}}'
+  -d '{
+          "id": 42,
+          "kind": "alerts",
+          "severity": "critical",
+          "title": "db down",
+          "target": "user:5",
+          "meta": {
+            "host": "db-1"
+          }
+        }'
 ```
 
 响应与 dispatch 完全相同（`DispatchOutcome`）。`meta` 必须是 JSON object，映射为模板参数。Go 整合方直接走 SDK 的 `c.Events(ctx, sdk.EventsRequest{...})`，字段一一对应，不必手拼这条请求。
@@ -197,7 +218,13 @@ curl -H "X-API-Key: demo-query-token-0123456789abcdef" \
 `deliveries` 支持按 `status`/`category`/`audience` 过滤（默认 50 条，上限 500）。被去重折叠的通知不会出现在 deliveries 里，答案在 audit 流的 `delivery.deduped` 事件上：
 
 ```json
-{"kind":"delivery.deduped","category":"alerts","source":"app:demo-app","detail":"throttled: node-17-down (×1)","at":"2026-10-10T12:57:58+08:00"}
+{
+  "kind": "delivery.deduped",
+  "category": "alerts",
+  "source": "app:demo-app",
+  "detail": "throttled: node-17-down (×1)",
+  "at": "2026-10-10T12:57:58+08:00"
+}
 ```
 
 ### 8. 回调：投递结果与退订回流 {#callback}

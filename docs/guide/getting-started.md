@@ -141,7 +141,19 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
 The API immediately returns the acceptance result:
 
 ```json
-{"code":0,"message":"ok","data":{"accepted":["log"],"notification_id":"a2c000ea-77b2-45d8-ac50-52f83d8dd0ae","task_ids":["73e15ce1-6434-4f87-9520-9d5e990f15c9"]}}
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "accepted": [
+      "log"
+    ],
+    "notification_id": "a2c000ea-77b2-45d8-ac50-52f83d8dd0ae",
+    "task_ids": [
+      "73e15ce1-6434-4f87-9520-9d5e990f15c9"
+    ]
+  }
+}
 ```
 
 A **delivery line** then appears in the server log — the message arrived:
@@ -187,7 +199,15 @@ export TELEGRAM_CHAT_ID=your-numeric-id
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{"type":"demo","level":"error","title":"Herald first push","body":"from curl","channels":["telegram"]}'
+  -d '{
+          "type": "demo",
+          "level": "error",
+          "title": "Herald first push",
+          "body": "from curl",
+          "channels": [
+            "telegram"
+          ]
+        }'
 ```
 
 Telegram on your phone receives `🔴 Herald first push` immediately. See [Telegram Provider](/providers/telegram) for details.

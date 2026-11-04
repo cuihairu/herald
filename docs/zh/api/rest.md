@@ -517,7 +517,15 @@ Worker 的部署返回空列表（`count` 0）。
       "last_24h": 9,
       "last_7d": 30,
       "samples": [
-        { "at": "2026-10-03T08:00:00Z", "type": "deploy", "level": "error", "title": "上线完成", "channels": ["feishu-oncall"] }
+        {
+          "at": "2026-10-03T08:00:00Z",
+          "type": "deploy",
+          "level": "error",
+          "title": "上线完成",
+          "channels": [
+            "feishu-oncall"
+          ]
+        }
       ]
     }
   }

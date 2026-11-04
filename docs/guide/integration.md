@@ -46,7 +46,19 @@ curl -X POST http://127.0.0.1:8080/api/v1/notify \
 Acceptance result (`code:0` only means accepted; whether it was delivered is in `logs`):
 
 ```json
-{"code":0,"message":"ok","data":{"accepted":["log"],"notification_id":"8e1ea3c3-...","task_ids":["21a2a819-..."]}}
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "accepted": [
+      "log"
+    ],
+    "notification_id": "8e1ea3c3-...",
+    "task_ids": [
+      "21a2a819-..."
+    ]
+  }
+}
 ```
 
 When you don't name `channels`, it looks up the routing table (`routes`/`level_routes`) by `type`+`level`; if neither matches it returns 422 `no route: no route found for type=...`. For the full field table see [the notify section of the REST API](/api/rest).
@@ -177,7 +189,16 @@ Integrators whose event semantics live in their own vocabulary (alert sources: k
 curl -X POST http://127.0.0.1:8080/api/v1/apps/demo-app/events \
   -H "X-API-Key: demo-trigger-token-0123456789abcdef" \
   -H "Content-Type: application/json" \
-  -d '{"id": 42, "kind": "alerts", "severity": "critical", "title": "db down", "target": "user:5", "meta": {"host": "db-1"}}'
+  -d '{
+          "id": 42,
+          "kind": "alerts",
+          "severity": "critical",
+          "title": "db down",
+          "target": "user:5",
+          "meta": {
+            "host": "db-1"
+          }
+        }'
 ```
 
 The response is exactly the same as dispatch (`DispatchOutcome`). `meta` must be a JSON object and is mapped to template parameters. Go integrators can go straight through the SDK's `c.Events(ctx, sdk.EventsRequest{...})`, with fields mapping one-to-one, so there's no need to hand-assemble this request.
@@ -197,7 +218,13 @@ curl -H "X-API-Key: demo-query-token-0123456789abcdef" \
 `deliveries` supports filtering by `status`/`category`/`audience` (50 by default, up to 500). Notifications folded by dedup do not appear in deliveries; the answer is on the `delivery.deduped` event in the audit stream:
 
 ```json
-{"kind":"delivery.deduped","category":"alerts","source":"app:demo-app","detail":"throttled: node-17-down (×1)","at":"2026-10-10T12:57:58+08:00"}
+{
+  "kind": "delivery.deduped",
+  "category": "alerts",
+  "source": "app:demo-app",
+  "detail": "throttled: node-17-down (×1)",
+  "at": "2026-10-10T12:57:58+08:00"
+}
 ```
 
 ### 8. Callbacks: delivery results and unsubscribe feedback {#callback}

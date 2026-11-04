@@ -33,7 +33,12 @@ level_routes:
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{"type":"cpu.high","level":"error","title":"CPU usage 95%","body":"order-01 cpu 95%, lasting 5min"}'
+  -d '{
+          "type": "cpu.high",
+          "level": "error",
+          "title": "CPU usage 95%",
+          "body": "order-01 cpu 95%, lasting 5min"
+        }'
 ```
 
 Without `channels`, `level_routes` decides the destination; writing explicit `channels` overrides the routing table.

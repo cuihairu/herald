@@ -151,13 +151,29 @@ rules:
 # send
 curl -X POST http://127.0.0.1:8080/api/v1/notify \
   -H "Content-Type: application/json" \
-  -d '{"type":"demo","level":"error","title":"Node Offline","body":"node-17 is offline","channels":["log"]}'
+  -d '{
+          "type": "demo",
+          "level": "error",
+          "title": "Node Offline",
+          "body": "node-17 is offline",
+          "channels": [
+            "log"
+          ]
+        }'
 ```
 
 The server's stdout immediately shows two lines — the structured log plus the human-readable delivery line:
 
 ```
-{"time":"...","level":"INFO","msg":"delivering task","provider":"log","task_id":"...","title":"Node Offline","body":"node-17 is offline","level":"error"}
+{
+  "time": "...",
+  "level": "error",
+  "msg": "delivering task",
+  "provider": "log",
+  "task_id": "...",
+  "title": "Node Offline",
+  "body": "node-17 is offline"
+}
 [error] Node Offline: node-17 is offline
 ```
 
