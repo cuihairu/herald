@@ -59,7 +59,7 @@ app.Dispatch(ctx, &core.Notification{
 - **Queue as Backbone** - Queue 是唯一的任务分发通道，支持 memory/redis
 - **Unified Worker** - 统一 Worker 模型，local/remote 只区分部署方式
 - **Template System** - 与渠道无关的模板系统，一次定义多渠道复用
-- **Multi-channel** - 统一接口对接 18 个内置通知渠道
+- **Multi-channel** - 统一接口对接 19 个内置通知渠道
 - **Dashboard** - Web 管理界面
 - **Config First** - 通过配置文件加载 Provider、路由和模板
 
@@ -86,6 +86,7 @@ app.Dispatch(ctx, &core.Notification{
 | WeChat Push          | Builtin  | ✅   |
 | WeChat Official (MP) | Builtin  | ✅   |
 | Worker (remote)      | Builtin  | ✅   |
+| Bark (iOS push)      | Builtin  | ✅   |
 
 The `worker` type is the local placeholder for a remote worker node: its local
 `Deliver` is a no-op and the scheduler routes the task to the node named by

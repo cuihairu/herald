@@ -4,7 +4,7 @@ The Builtin Runtime runs directly inside the Core and suits simple HTTP API styl
 
 ## Suitable Scenarios
 
-Telegram Bot API, Discord Webhook, Feishu/WeCom bots, Email SMTP, generic Webhook, SMS (Aliyun, Tencent Cloud, NetEase Yunxin) — any channel that can go out with a single HTTP call fits.
+Telegram Bot API, Discord Webhook, Feishu/WeCom bots, Email SMTP, generic Webhook, SMS (Aliyun, Tencent Cloud, NetEase Yunxin), Bark push — any channel that can go out with a single HTTP call fits.
 
 ## Key Features
 
@@ -290,6 +290,51 @@ providers:
     config:
       send_key: "$WECHAT_SERVERCHAN_SEND_KEY"
 ```
+
+### Bark Provider
+
+Sends push notifications to the Bark app on iOS via a bark-server.
+
+**Configuration:**
+
+```yaml
+providers:
+  bark:
+    type: bark
+    enabled: false
+    config:
+      device_key: "$BARK_DEVICE_KEY"       # Required
+      server: "https://api.day.app"        # Optional, default https://api.day.app; supports self-hosted bark-server
+      group: "herald"                      # Optional, notification group
+      ttl: 600                             # Optional, message lifetime in seconds
+      sound: "minuet"                      # Optional, default notification sound
+      level_sound:                         # Optional, per-level sound override
+        error: "alarm"
+        warning: "bell"
+        info: "minuet"
+      url: "https://example.com"           # Optional, URL opened when the notification is tapped
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `device_key` | Yes | Bark device key (send via `$BARK_DEVICE_KEY`) |
+| `server` | No | Bark server base URL, default `https://api.day.app` |
+| `group` | No | Notification group shown in Bark |
+| `ttl` | No | Message lifetime in seconds |
+| `sound` | No | Default notification sound |
+| `level_sound` | No | Map of message level (`error` / `warning` / `info`) to sound name; overrides `sound` |
+| `url` | No | URL opened when the notification is tapped |
+
+**Getting the device key:**
+
+1. Install Bark from the App Store on your iPhone.
+2. Open the Bark app and copy the example push URL it shows.
+3. The URL looks like `https://api.day.app/<key>/...` — the `<key>` part is your `device_key`.
+4. If you self-host a bark-server, set it as `server` and take the key from that server's page instead.
+
+**Environment variables:**
+
+- `BARK_DEVICE_KEY` - Bark device key
 
 ### Other Builtin Providers
 

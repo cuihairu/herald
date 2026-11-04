@@ -4,6 +4,7 @@ import (
 	"github.com/cuihairu/herald/core/runtime"
 	"github.com/cuihairu/herald/providers/builtin/aliyunsms"
 	"github.com/cuihairu/herald/providers/builtin/apns"
+	"github.com/cuihairu/herald/providers/builtin/bark"
 	"github.com/cuihairu/herald/providers/builtin/dingtalk"
 	"github.com/cuihairu/herald/providers/builtin/discord"
 	"github.com/cuihairu/herald/providers/builtin/email"
@@ -26,6 +27,7 @@ import (
 // RegisterBuiltinProviders registers all builtin provider factories
 func RegisterBuiltinProviders(manager *runtime.Manager) {
 	manager.RegisterFactory(&log.Factory{})
+	manager.RegisterFactory(&bark.Factory{})
 	manager.RegisterFactory(&telegram.Factory{})
 	manager.RegisterFactory(&feishu.Factory{})
 	manager.RegisterFactory(&wecom.Factory{})

@@ -59,7 +59,7 @@ The full exported surface and embedding guide are in [docs/library-usage.md](doc
 - **Queue as Backbone** - the queue is the only task dispatch channel; memory and redis backends are supported
 - **Unified Worker** - one worker model; local and remote differ only in how they are deployed
 - **Template System** - channel-agnostic templates, defined once and reused across channels
-- **Multi-channel** - one unified interface for 18 built-in channels
+- **Multi-channel** - one unified interface for 19 built-in channels
 - **Dashboard** - web management UI
 - **Config First** - providers, routes, and templates load from the configuration file
 
@@ -86,6 +86,7 @@ The full exported surface and embedding guide are in [docs/library-usage.md](doc
 | WeChat Push          | Builtin  | ✅   |
 | WeChat Official (MP) | Builtin  | ✅   |
 | Worker (remote)      | Builtin  | ✅   |
+| Bark (iOS push)      | Builtin  | ✅   |
 
 The `worker` type is the local placeholder for a remote worker node: its local
 `Deliver` is a no-op and the scheduler routes the task to the node named by

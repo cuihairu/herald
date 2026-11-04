@@ -9,12 +9,12 @@
 | SMTP | Email protocol | Email |
 | SMS | SMS service | Aliyun / Tencent Cloud / NetEase Yunxin |
 | Mobile push | APNs / FCM, etc. | FCM / APNs / JPush / Getui |
-| Third-party push | Third-party push | ServerChan / PushPlus / WxPusher |
+| Third-party push | Third-party push | ServerChan / PushPlus / WxPusher / Bark |
 | Worker Proxy | Worker proxy | Forwarding channel with `type: worker` |
 
 ## Builtin Providers
 
-All 19 factories are registered in `providers/builtin/registry/registry.go`:
+All 20 factories are registered in `providers/builtin/registry/registry.go`:
 
 | Provider | Type | Description |
 |----------|------|------|
@@ -37,6 +37,7 @@ All 19 factories are registered in `providers/builtin/registry/registry.go`:
 | JPush | Mobile push | JPush (Aurora Push) |
 | Getui | Mobile push | Getui |
 | Worker | Proxy | Forwards to a remote Worker process for execution |
+| Bark | Mobile push | Bark (iOS) push via bark-server |
 
 ## Worker Provider
 
