@@ -313,6 +313,29 @@ func TestGetProviderStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("statuses sorted by name", func(t *testing.T) {
+		m := NewManager(100)
+		mk := func(name string) *mockProvider {
+			return &mockProvider{name: name, pType: "builtin", status: &core.ProviderStatus{
+				Name: name, Type: "builtin", Status: "available",
+			}}
+		}
+		// register in non-alphabetical order to prove the sort is real
+		for _, name := range []string{"zeta", "alpha", "midway", "beta"} {
+			_ = m.RegisterProvider(name, mk(name))
+		}
+
+		statuses := m.GetProviderStatus()
+		if len(statuses) != 4 {
+			t.Fatalf("expected 4 statuses, got %d", len(statuses))
+		}
+		for i := 1; i < len(statuses); i++ {
+			if statuses[i-1].Name >= statuses[i].Name {
+				t.Errorf("statuses not sorted: %q before %q", statuses[i-1].Name, statuses[i].Name)
+			}
+		}
+	})
+
 	t.Run("empty manager returns empty statuses", func(t *testing.T) {
 		m := NewManager(100)
 		statuses := m.GetProviderStatus()

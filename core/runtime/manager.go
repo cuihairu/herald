@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -369,6 +370,12 @@ func (m *Manager) GetProviderStatus() []*core.ProviderStatus {
 		s.Enabled = entry.enabled
 		statuses = append(statuses, s)
 	}
+
+	// map iteration order is random; return providers in stable name order
+	// so API consumers (dashboard lists) render deterministically.
+	sort.SliceStable(statuses, func(i, j int) bool {
+		return statuses[i].Name < statuses[j].Name
+	})
 
 	return statuses
 }
