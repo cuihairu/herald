@@ -111,6 +111,12 @@ func TestServeCmdStartupFailures(t *testing.T) {
 		"metrics interval negative": "metrics:\n  sample_interval: -1s\n",
 		// 凭据存储：指向目录的 sqlite 路径打不开，拒绝启动。
 		"credential store is a dir": fmt.Sprintf("auth:\n  store_path: %s\n", dir),
+		// §13.1: an app seeded without any token cannot authenticate
+		// anyone — the registry refuses it at startup.
+		"app without tokens": "apps:\n  demo-app:\n    tokens: []\n",
+		// 来源适配器 (§8): a wechatmp probe without credentials fails to
+		// build — the sweep must not half-start.
+		"source reconcile probe wechatmp invalid": "sources:\n  enabled: true\n  reconcile:\n    enabled: true\nproviders:\n  mp:\n    type: wechatmp\n    config: {}\n",
 	}
 	for name, cfgYAML := range cases {
 		t.Run(name, func(t *testing.T) {

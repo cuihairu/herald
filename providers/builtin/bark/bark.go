@@ -108,13 +108,20 @@ func intFromConfig(v interface{}) int {
 
 // GetConfig returns the provider configuration
 func (p *Provider) GetConfig() map[string]interface{} {
+	// Return a copy of the levelSound map: the handler merge path treats
+	// the returned config as deeply owned, so handing out the internal map
+	// by reference would let a caller mutate the provider's state.
+	levelSound := make(map[string]string, len(p.levelSound))
+	for level, name := range p.levelSound {
+		levelSound[level] = name
+	}
 	return map[string]interface{}{
 		"device_key":  p.deviceKey,
 		"server":      p.server,
 		"group":       p.group,
 		"ttl":         p.ttl,
 		"sound":       p.sound,
-		"level_sound": p.levelSound,
+		"level_sound": levelSound,
 		"url":         p.url,
 	}
 }

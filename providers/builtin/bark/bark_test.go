@@ -151,6 +151,34 @@ func TestProviderGetConfig(t *testing.T) {
 	}
 }
 
+// TestGetConfigLevelSoundIsACopy pins the defensive-copy contract: mutating
+// the level_sound map handed back by GetConfig must not change the
+// provider's internal state (the handler merge path treats it as owned).
+func TestGetConfigLevelSoundIsACopy(t *testing.T) {
+	provider, err := NewProvider(map[string]interface{}{
+		"device_key": "test-key",
+		"level_sound": map[string]interface{}{
+			"error": "alarm",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := provider.(*Provider)
+
+	retrieved := p.GetConfig()
+	ls := retrieved["level_sound"].(map[string]string)
+	ls["error"] = "polluted"
+	ls["info"] = "injected"
+
+	if p.levelSound["error"] != "alarm" {
+		t.Errorf("provider level_sound was mutated: error=%q, want alarm", p.levelSound["error"])
+	}
+	if _, ok := p.levelSound["info"]; ok {
+		t.Error("provider level_sound gained an entry through the returned map")
+	}
+}
+
 func TestProviderCapability(t *testing.T) {
 	provider, _ := NewProvider(map[string]interface{}{
 		"device_key": "test-key",

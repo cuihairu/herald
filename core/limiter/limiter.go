@@ -274,8 +274,8 @@ func (tb *TokenBucket) Reservation() *Reservation {
 		// gate. Dividing by zero would also yield an implementation-defined
 		// duration.
 		return &Reservation{
-			ok:        false,
-			limiter:   tb,
+			ok:      false,
+			limiter: tb,
 		}
 	}
 	waitDuration := time.Duration(float64(time.Second) * tokensNeeded / tb.rate)

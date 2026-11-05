@@ -290,6 +290,53 @@ func TestEntropyFailureFailsClosed(t *testing.T) {
 	}
 }
 
+// TestActiveHashesCachedAndInvalidated pins the hot-path cache: after the
+// first read the set is served without re-querying, and any create or
+// revoke drops the cache so minting/revocation apply on the next request.
+func TestActiveHashesCachedAndInvalidated(t *testing.T) {
+	db, _ := openTempStore(t)
+
+	// First read populates the cache and returns a defensive copy: mutating
+	// the returned map must not poison the cached set.
+	first, err := db.ActiveKeyHashes()
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	first["poison"] = true
+	second, err := db.ActiveKeyHashes()
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+	if second["poison"] {
+		t.Fatal("mutating the returned set must not pollute the cache")
+	}
+
+	// A create invalidates: the new key shows up without a fresh open.
+	created, err := db.CreateAPIKey("cached")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	after, err := db.ActiveKeyHashes()
+	if err != nil {
+		t.Fatalf("read after create: %v", err)
+	}
+	if !after[sha256Hex(created.Plain)] {
+		t.Fatal("expected the created key to be active immediately")
+	}
+
+	// A revoke invalidates: the revoked key disappears on the next read.
+	if err := db.RevokeAPIKey(created.Info.ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	afterRevoke, err := db.ActiveKeyHashes()
+	if err != nil {
+		t.Fatalf("read after revoke: %v", err)
+	}
+	if afterRevoke[sha256Hex(created.Plain)] {
+		t.Fatal("expected the revoked key to be inactive immediately")
+	}
+}
+
 func TestCreateManyKeysKeepDistinctIDs(t *testing.T) {
 	db, _ := openTempStore(t)
 	seen := map[string]bool{}

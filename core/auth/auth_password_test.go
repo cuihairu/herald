@@ -1,12 +1,16 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/cuihairu/herald/internal/logger"
 )
 
 func loginToken(t *testing.T, a *Auth, username, password string) string {
@@ -242,5 +246,30 @@ func TestSetPasswordStoreReadFailureFailsClosed(t *testing.T) {
 	a.HandleLogin(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected the config seed to be disabled on a store read error, got %d", rec.Code)
+	}
+}
+
+// TestSetPasswordStoreReadFailureLogs pins the operator-visible signal: a
+// store read failure must be logged, not silently swallowed, so an operator
+// can distinguish "account disabled by store outage" from "wrong password".
+func TestSetPasswordStoreReadFailureLogs(t *testing.T) {
+	original := logger.Default()
+	defer logger.SetDefault(original)
+
+	var buf bytes.Buffer
+	logger.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	a := New(&Config{AdminUser: map[string]string{"admin": "config-pass"}})
+	a.SetPasswordStore(&stubPasswordStore{failRead: true})
+
+	out := buf.String()
+	if !strings.Contains(out, "password store read failed") {
+		t.Fatalf("expected a log line about the read failure, got %q", out)
+	}
+	if !strings.Contains(out, "user=admin") {
+		t.Fatalf("expected the username in the log line, got %q", out)
+	}
+	if !strings.Contains(out, "stub read failure") {
+		t.Fatalf("expected the underlying error in the log line, got %q", out)
 	}
 }

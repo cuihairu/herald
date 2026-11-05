@@ -34,6 +34,8 @@ auth:
   admin_user:
     walk: throughpw
   store_path: %s
+  api_keys:
+    cfg-static: cfg-pass
 `, httpPort, storePath)
 	path := writeTestConfig(t, cfgYAML)
 

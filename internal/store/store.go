@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -35,6 +36,16 @@ type CreatedKey struct {
 // DB wraps the sqlite handle.
 type DB struct {
 	sql *sql.DB
+
+	// mu guards the active-hash cache. Authentication sits on the hot
+	// path: a per-request full-table SELECT over a single-connection pool
+	// would serialize every auth call on the DB and grow with the key
+	// table. The cache is populated lazily and invalidated by any write
+	// (CreateAPIKey/RevokeAPIKey), so minting and revocation still take
+	// effect on the next request.
+	mu           sync.Mutex
+	activeHashes map[string]bool
+	hashesValid  bool
 }
 
 var ErrNotFound = errors.New("store: not found")
@@ -149,6 +160,7 @@ func (db *DB) CreateAPIKey(name string) (*CreatedKey, error) {
 	); err != nil {
 		return nil, fmt.Errorf("store: insert api key: %w", err)
 	}
+	db.invalidateActiveHashes()
 	return &CreatedKey{
 		Info: APIKey{
 			ID:        id,
@@ -208,17 +220,47 @@ func (db *DB) RevokeAPIKey(id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	db.invalidateActiveHashes()
 	return nil
 }
 
 // ActiveKeyHashes returns the sha-256 hex hashes of all non-revoked keys.
 func (db *DB) ActiveKeyHashes() (map[string]bool, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.hashesValid {
+		return copyActiveHashes(db.activeHashes), nil
+	}
 	rows, err := db.sql.Query(`SELECT hash FROM api_keys WHERE revoked = 0`)
 	if err != nil {
 		return nil, fmt.Errorf("store: active hashes: %w", err)
 	}
 	defer rows.Close()
-	return scanActiveHashes(rows)
+	hashes, err := scanActiveHashes(rows)
+	if err != nil {
+		return nil, err
+	}
+	db.activeHashes = hashes
+	db.hashesValid = true
+	return copyActiveHashes(hashes), nil
+}
+
+// copyActiveHashes returns a defensive copy so callers can never mutate
+// the cached set and poison later reads.
+func copyActiveHashes(src map[string]bool) map[string]bool {
+	cp := make(map[string]bool, len(src))
+	for h := range src {
+		cp[h] = true
+	}
+	return cp
+}
+
+// invalidateActiveHashes drops the cache after any write to api_keys.
+func (db *DB) invalidateActiveHashes() {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.activeHashes = nil
+	db.hashesValid = false
 }
 
 func scanActiveHashes(rows rowScanner) (map[string]bool, error) {

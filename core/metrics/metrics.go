@@ -206,9 +206,9 @@ func setProcPaths(selfStat, stat, status string) {
 // between consecutive calls: the first call establishes the baseline and
 // returns 0.
 type HostCollector struct {
-	mu         sync.Mutex
-	prevProc   uint64
-	prevTotal  uint64
+	mu          sync.Mutex
+	prevProc    uint64
+	prevTotal   uint64
 	hasBaseline bool
 }
 

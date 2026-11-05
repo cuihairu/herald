@@ -16,6 +16,7 @@ import (
 	"github.com/cuihairu/herald/core/jwt"
 	"github.com/cuihairu/herald/core/limiter"
 	"github.com/cuihairu/herald/core/user"
+	"github.com/cuihairu/herald/internal/logger"
 )
 
 // Auth handles authentication
@@ -123,6 +124,8 @@ func (a *Auth) SetPasswordStore(ps PasswordStore) {
 			// bootstrap/config password: that would make an already
 			// rotated-out credential valid again. Fail closed by
 			// disabling the account until the store is readable.
+			logger.Error("password store read failed; disabling account",
+				"user", username, "error", err)
 			_ = a.userManager.SetPasswordHash(username, strings.Repeat("!", 60))
 			continue
 		}
