@@ -248,7 +248,7 @@ func TestActiveKeyHashesReportsRowErrors(t *testing.T) {
 type failingRowsConnector struct{ err error }
 
 func (c failingRowsConnector) Connect(context.Context) (driver.Conn, error) {
-	return failingRowsConn{c.err}, nil
+	return failingRowsConn(c), nil
 }
 
 func (c failingRowsConnector) Driver() driver.Driver { return failingRowsDriver{} }
@@ -260,7 +260,7 @@ func (failingRowsDriver) Open(string) (driver.Conn, error) { return nil, errors.
 type failingRowsConn struct{ err error }
 
 func (c failingRowsConn) Prepare(query string) (driver.Stmt, error) {
-	return failingRowsStmt{c.err}, nil
+	return failingRowsStmt(c), nil
 }
 func (c failingRowsConn) Close() error              { return nil }
 func (c failingRowsConn) Begin() (driver.Tx, error) { return nil, errors.New("not implemented") }
@@ -273,7 +273,7 @@ func (s failingRowsStmt) Exec([]driver.Value) (driver.Result, error) {
 	return nil, errors.New("not implemented")
 }
 func (s failingRowsStmt) Query([]driver.Value) (driver.Rows, error) {
-	return failingRows{err: s.err}, nil
+	return failingRows(s), nil
 }
 
 type failingRows struct{ err error }
