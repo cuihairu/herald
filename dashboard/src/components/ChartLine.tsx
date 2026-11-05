@@ -18,7 +18,9 @@ export default function ChartLine({ option }: { option: Record<string, unknown> 
     // without remounting; listen so the chart tracks its container.
     const resize = () => chart.resize()
     const observer = new ResizeObserver(resize)
-    if (ref.current) observer.observe(ref.current)
+    // 与上一行 init(ref.current!) 同一契约：effect 在 commit 之后运行，
+    // ref 恒已挂载；这里的 if 守卫的空臂在真实渲染时序下不可达。
+    observer.observe(ref.current!)
     window.addEventListener('resize', resize)
     return () => {
       observer.disconnect()

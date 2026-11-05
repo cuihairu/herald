@@ -3,7 +3,8 @@ import { render, cleanup } from '@testing-library/react'
 
 const setOption = vi.fn()
 const dispose = vi.fn()
-const init = vi.fn((_el: HTMLElement) => ({ setOption, dispose }))
+const resize = vi.fn()
+const init = vi.fn((_el: HTMLElement) => ({ setOption, dispose, resize }))
 
 vi.mock('echarts/core', () => ({
   use: vi.fn(),
@@ -42,6 +43,14 @@ describe('ChartLine', () => {
     const { rerender, unmount } = render(<ChartLine option={first} />)
     rerender(<ChartLine option={second} />)
     expect(setOption).toHaveBeenLastCalledWith(second)
+    unmount()
+    cleanup()
+  })
+
+  it('resizes the chart when the window resizes', () => {
+    const { unmount } = render(<ChartLine option={{ series: [] }} />)
+    window.dispatchEvent(new Event('resize'))
+    expect(resize).toHaveBeenCalled()
     unmount()
     cleanup()
   })

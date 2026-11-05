@@ -25,6 +25,9 @@ const feeds = {
   public: [{
     name: 'alerts', url: '/feeds/alerts.xml', total: 2,
     recent: [{ id: 'p1', title: '公开告警' }, { id: 'p2', title: '第二条' }],
+  }, {
+    // 无 recent 字段的 feed：`recent || []` 兜底臂，行渲染不挂标签。
+    name: 'quiet', url: '/feeds/quiet.xml', total: 0,
   }],
   private: [{
     audience: 'alice', url: '/feeds/private/tok123.xml', total: 1,
@@ -52,6 +55,8 @@ describe('RssPage', () => {
     expect(screen.getByText('公开告警')).toBeInTheDocument()
     expect(screen.getByText('私人账单')).toBeInTheDocument()
     expect(screen.getAllByText(window.location.origin + '/feeds/alerts.xml')).toHaveLength(1)
+    // 无 recent 字段的行：`recent || []` 兜底为空数组，行渲染不挂条目标签。
+    expect(screen.getByText('quiet')).toBeInTheDocument()
   })
 
   it('copies a feed address', async () => {

@@ -89,8 +89,6 @@ export default function AudiencesPage() {
         title={detail ? `受众 ${detail.id}` : ''}
         open={detail !== null}
         onCancel={() => setDetail(null)}
-        onOk={() => setDetail(null)}
-        okText="关闭"
         footer={null}
         destroyOnHidden
       >

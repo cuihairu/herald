@@ -38,4 +38,13 @@ describe('AppsPage', () => {
     render(<AppsPage />)
     expect(await screen.findByText('registry closed')).toBeInTheDocument()
   })
+
+  it('renders an empty table when the registry omits the apps field', async () => {
+    // `apps || []` 兜底臂：响应缺字段而不是空数组。
+    apiMocks.getApps.mockResolvedValue({ data: {} })
+    render(<AppsPage />)
+    await screen.findByText('Apps 集成命名空间')
+    expect((await screen.findAllByText('No data')).length).toBeGreaterThan(0)
+    expect(apiMocks.getApps).toHaveBeenCalledTimes(1)
+  })
 })

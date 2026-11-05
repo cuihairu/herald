@@ -190,5 +190,48 @@ describe('api', () => {
     expect(seen!.url).toBe('/alerts/a-1/ack')
     expect(seen!.method).toBe('post')
     expect(seen!.data).toBe(JSON.stringify({ acked_by: 'ops' }))
+
+    await heraldApi.getKeys()
+    expect(seen!.url).toBe('/keys')
+
+    await heraldApi.createKey({ name: 'CI 发布机' })
+    expect(seen!.url).toBe('/keys')
+    expect(seen!.method).toBe('post')
+    expect(seen!.data).toBe(JSON.stringify({ name: 'CI 发布机' }))
+
+    await heraldApi.revokeKey('k1')
+    expect(seen!.url).toBe('/keys/k1')
+    expect(seen!.method).toBe('delete')
+
+    await heraldApi.changePassword({ old_password: 'o', new_password: 'n' })
+    expect(seen!.url).toBe('/auth/password')
+    expect(seen!.method).toBe('post')
+    expect(seen!.data).toBe(JSON.stringify({ old_password: 'o', new_password: 'n' }))
+
+    await heraldApi.getAudiences()
+    expect(seen!.url).toBe('/audiences')
+
+    await heraldApi.getAudienceSurfaces('ops')
+    expect(seen!.url).toBe('/audiences/ops/surfaces')
+
+    await heraldApi.getAudienceRelations('ops')
+    expect(seen!.url).toBe('/audiences/ops/relations')
+
+    await heraldApi.getFeeds()
+    expect(seen!.url).toBe('/feeds')
+
+    await heraldApi.getTemplates()
+    expect(seen!.url).toBe('/templates')
+
+    await heraldApi.createTemplate({ id: 't' })
+    expect(seen!.url).toBe('/templates/create')
+    expect(seen!.method).toBe('post')
+
+    await heraldApi.deleteTemplate('t')
+    expect(seen!.url).toBe('/templates/t')
+    expect(seen!.method).toBe('delete')
+
+    await heraldApi.getApps()
+    expect(seen!.url).toBe('/apps')
   })
 })

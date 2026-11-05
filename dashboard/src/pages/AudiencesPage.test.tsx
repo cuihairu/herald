@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../api', () => ({
@@ -27,6 +27,7 @@ function stubClipboard(write: () => Promise<void>) {
 const audiences = [
   { id: 'ops', recipients: ['alice', 'bob'] },
   { id: 'empty', recipients: [] },
+  { id: 'ghost' },
 ]
 
 async function openDetail(id: string) {
@@ -52,7 +53,8 @@ describe('AudiencesPage', () => {
     render(<AudiencesPage />)
     expect(await screen.findByText('ops')).toBeInTheDocument()
     expect(screen.getByText('alice, bob')).toBeInTheDocument()
-    expect(screen.getByText('—')).toBeInTheDocument()
+    // 空 recipients 与缺失 recipients 都展示 —。
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
 
   it('reports a load failure', async () => {
@@ -91,5 +93,38 @@ describe('AudiencesPage', () => {
     // surfaces/relations 读失败：没有任何数据行与 token 行。
     expect((await screen.findAllByText('No data')).length).toBeGreaterThan(0)
     expect(screen.queryByText('私密 RSS feed token：')).not.toBeInTheDocument()
+  })
+
+  it('defaults missing surfaces, rss token and relations to empty', async () => {
+    // openDetail 里 surfaces.data.surfaces / rss_token / relations 各自的
+    // `|| []` / `|| ''` 兜底臂：成功响应缺字段而不是空数组。
+    apiMocks.getAudienceSurfaces.mockResolvedValue({ data: {} })
+    apiMocks.getAudienceRelations.mockResolvedValue({ data: {} })
+    render(<AudiencesPage />)
+    await openDetail('ops')
+    await user.click(await screen.findByRole('tab', { name: /联\s*系\s*面/ }))
+    expect((await screen.findAllByText('No data')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('私密 RSS feed token：')).not.toBeInTheDocument()
+  })
+
+  it('renders an empty list when the response omits the audiences field', async () => {
+    // `audiences || []` 兜底臂。
+    apiMocks.getAudiences.mockResolvedValue({ data: {} })
+    render(<AudiencesPage />)
+    await screen.findByText('受众与订阅')
+    expect((await screen.findAllByText('No data')).length).toBeGreaterThan(0)
+  })
+
+  it('closes the detail modal from the header close button', async () => {
+    render(<AudiencesPage />)
+    await openDetail('ops')
+    expect(await screen.findByText('alerts')).toBeInTheDocument()
+
+    // footer={null}：右上角 X（aria-label=Close）是唯一关闭入口。
+    await user.click(screen.getByRole('button', { name: /close/i }))
+    const dialog = screen.getByRole('dialog') as HTMLElement
+    await waitFor(() => {
+      expect(dialog.className).toMatch(/-leave/)
+    })
   })
 })

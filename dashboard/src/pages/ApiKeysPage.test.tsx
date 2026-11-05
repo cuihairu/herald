@@ -134,4 +134,45 @@ describe('ApiKeysPage', () => {
     await user.click(await screen.findByRole('button', { name: /确\s*认\s*吊\s*销/ }))
     expect(await screen.findByText('network down')).toBeInTheDocument()
   })
+
+  it('renders an empty list when the response omits the keys field', async () => {
+    // `keys || []` 兜底臂：响应缺字段而不是空数组。
+    apiMocks.getKeys.mockResolvedValue({ data: {} })
+    render(<ApiKeysPage />)
+    await screen.findByText('API Keys')
+    expect((await screen.findAllByText('No data')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('CI 发布机')).not.toBeInTheDocument()
+  })
+
+  it('closes the create modal on cancel and falls back to manual copy', async () => {
+    render(<ApiKeysPage />)
+
+    // 创建弹窗点取消：不调 api，直接退场。
+    await openCreate()
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /取\s*消/ }))
+    const createDialog = screen.getByRole('dialog') as HTMLElement
+    await waitFor(() => {
+      expect(createDialog.className).toMatch(/-leave/)
+    })
+    expect(apiMocks.createKey).not.toHaveBeenCalled()
+
+    // 明文弹窗里剪贴板写入失败：提示手动复制，取消仍可关闭。
+    stubClipboard(() => Promise.reject(new Error('denied')))
+    apiMocks.createKey.mockResolvedValue({
+      data: { key: 'wm_copyfail1', info: { id: 'k3', name: '复制失败机', prefix: 'wm_copyfail', revoked: false } },
+    })
+    await openCreate()
+    await user.type(screen.getByPlaceholderText('CI 发布机'), '复制失败机')
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /生\s*成/ }))
+    await screen.findByDisplayValue('wm_copyfail1')
+    await user.click(screen.getByRole('button', { name: /复\s*制/ }))
+    expect(await screen.findByText('复制失败，请手动选择复制')).toBeInTheDocument()
+
+    const keyDialog = screen.getByDisplayValue('wm_copyfail1').closest('[role="dialog"]') as HTMLElement
+    // 明文弹窗没给 cancelText，footer 取消键走默认 locale（"Cancel"）。
+    await user.click(within(keyDialog).getByRole('button', { name: /cancel/i }))
+    await waitFor(() => {
+      expect(keyDialog.className).toMatch(/-leave/)
+    })
+  })
 })

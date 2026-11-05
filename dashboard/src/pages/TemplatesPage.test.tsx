@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../api', () => ({
@@ -19,6 +19,8 @@ const user = userEvent.setup()
 const templates = [
   { id: 'deploy-notice', name: '部署通知', title: '部署完成', level: 'info', fields: ['app', 'env'] },
   { id: 'bare', level: '', fields: [] },
+  { id: 'ghost' },
+  { id: 'object-fields', fields: [{ name: 'cluster' }] },
 ]
 
 describe('toTemplatePayload', () => {
@@ -46,9 +48,19 @@ describe('TemplatesPage', () => {
     render(<TemplatesPage />)
     expect(await screen.findByText('deploy-notice')).toBeInTheDocument()
     expect(screen.getByText('app')).toBeInTheDocument()
-    // 空 level 兜底为 default 标签；空字段/空名称展示 —。
-    expect(screen.getByText('default')).toBeInTheDocument()
+    // 空 level 兜底为 default 标签（含 level 缺失的行）；空字段/空名称展示 —。
+    expect(screen.getAllByText('default').length).toBeGreaterThan(0)
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+    // fields 缺字段兜底为空、对象项取 name。
+    expect(screen.getByText('cluster')).toBeInTheDocument()
+  })
+
+  it('renders an empty list when the response omits the templates field', async () => {
+    // `templates || []` 兜底臂。
+    apiMocks.getTemplates.mockResolvedValue({ data: {} })
+    render(<TemplatesPage />)
+    await screen.findByText('通知模板')
+    expect((await screen.findAllByText('No data')).length).toBeGreaterThan(0)
   })
 
   it('reports a load failure', async () => {
@@ -90,6 +102,17 @@ describe('TemplatesPage', () => {
     const popover = await screen.findByText(/删除模板/).then((el) => el.closest('.ant-popover') as HTMLElement)
     await user.click(within(popover).getByRole('button', { name: /删\s*除/ }))
   }
+
+  it('closes the create modal on cancel without calling the api', async () => {
+    render(<TemplatesPage />)
+    await openCreate()
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /取\s*消/ }))
+    const dialog = screen.getByRole('dialog') as HTMLElement
+    await waitFor(() => {
+      expect(dialog.className).toMatch(/-leave/)
+    })
+    expect(apiMocks.createTemplate).not.toHaveBeenCalled()
+  })
 
   it('deletes a template after confirm and reports failures', async () => {
     apiMocks.deleteTemplate.mockResolvedValueOnce({ data: { code: 0 } })

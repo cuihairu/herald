@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
@@ -44,11 +44,21 @@ vi.mock('../api', () => ({
 }))
 
 // jsdom 没有 canvas，echarts 初始化必然失败：图表组件在页面用例里替身，
-// 真实渲染路径由 ChartLine 自己的用例覆盖。
+// 真实渲染路径由 ChartLine 自己的用例覆盖。替身把 yAxis 轴标签 formatter
+// 真实执行一次并把结果投到 DOM 上——echarts 内部才会调用的 formatter
+// 在页面用例里只有经此才能验证（data-ylabel 断言）。
 vi.mock('../components/ChartLine', () => ({
-  default: ({ option }: { option: Record<string, unknown> }) => (
-    <div data-testid="chart" data-series={JSON.stringify((option as any).series?.length ?? 0)} />
-  ),
+  default: ({ option }: { option: Record<string, unknown> }) => {
+    const o = option as any
+    const fmt = o?.yAxis?.axisLabel?.formatter
+    return (
+      <div
+        data-testid="chart"
+        data-series={JSON.stringify(o?.series?.length ?? 0)}
+        data-ylabel={typeof fmt === 'function' ? fmt(12.5) : ''}
+      />
+    )
+  },
 }))
 
 import DashboardPage, { rateTone, queueTone, rssGiB } from './DashboardPage'
@@ -112,8 +122,9 @@ describe('DashboardPage', () => {
     // provider 表：启用在前、状态标签可扫。
     expect(await screen.findByText('飞书')).toBeInTheDocument()
     expect(screen.getByText('已启用')).toBeInTheDocument()
-    // 三张曲线图都已挂载。
+    // 三张曲线图都已挂载；CPU 图的 yAxis formatter 真实产出 GiB 标签。
     expect(screen.getAllByTestId('chart')).toHaveLength(3)
+    expect(screen.getAllByTestId('chart')[1]).toHaveAttribute('data-ylabel', '12.5 GiB')
   })
 
   it('renders the no-data placeholder when the window has no deliveries', async () => {
@@ -153,11 +164,54 @@ describe('DashboardPage', () => {
     expect(useHeraldStore.getState().seriesWindow).toBe('1h')
   })
 
+  it('colors warning states and falls back for unknown providers', async () => {
+    api.getOverview.mockResolvedValueOnce({
+      data: {
+        providers: { enabled: 1, total: 2 },
+        queue: { depth: 150 },
+        delivery: { window: '24h', success: 88, failed: 12, total: 100, success_rate: 88 },
+        workers: { online: 0, total: 1 },
+      },
+    } as any)
+    api.getProviders.mockResolvedValueOnce({
+      data: { providers: [{ name: 'slackwall', type: 'builtin', enabled: false, status: 'down' }] },
+    } as any)
+    renderPage()
+    // 成功率落在警示带：卡片数值走 colorWarning；队列深度 >100 同样警示色。
+    expect(await screen.findByText('88%')).toBeInTheDocument()
+    expect(screen.getByText('88%')).toHaveStyle({ color: '#faad14' })
+    expect(screen.getByText('150')).toHaveStyle({ color: '#faad14' })
+    // 未知名称走 `|| p.name` 兜底；禁用、不可用与缺失 since 各走兜底臂。
+    expect(screen.getByText('slackwall')).toBeInTheDocument()
+    expect(screen.getByText('已禁用')).toBeInTheDocument()
+    expect(screen.getByText('异常')).toBeInTheDocument()
+    expect(screen.getByText('-')).toBeInTheDocument()
+  })
+
   it('navigates to the provider config page', async () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByText('飞书')
     await user.click(screen.getByRole('button', { name: /配\s*置/ }))
     expect(await screen.findByText('config-page')).toBeInTheDocument()
+  })
+
+  it('polls the overview and current series while mounted', async () => {
+    // 伪时钟必须在挂载前接管：setInterval 是 effect 里注册的真实定时器，
+    // 挂载后再换时钟就追不到它了。shouldAdvanceTime 让渲染侧的真实
+    // 微任务照常冲刷，只有 15s 的轮询间隔由这里手动推进。
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderPage()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000)
+      })
+      // 轮询按当前窗口口径重取：新一次 overview + series。
+      expect(api.getOverview.mock.calls.length).toBe(2)
+      expect(api.getMetricsHistory.mock.calls.length).toBe(2)
+      expect(api.getMetricsHistory).toHaveBeenLastCalledWith('6h')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

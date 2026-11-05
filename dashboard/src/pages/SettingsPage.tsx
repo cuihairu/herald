@@ -12,6 +12,9 @@ export default function SettingsPage() {
     try {
       values = await form.validateFields()
     } catch {
+      /* v8 ignore next — Form onFinish 只在整表校验通过后才触发，这个拒绝臂
+         在 Form 提交的真实接线下不可达；保留是兜底未来按钮脱离 onFinish 接线
+         的变化，不硬凑测试。 */
       return
     }
     setSaving(true)

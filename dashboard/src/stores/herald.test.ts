@@ -82,6 +82,66 @@ describe('herald store', () => {
     expect(state().seriesWindow).toBe('24h')
   })
 
+  it('drops a stale series response once a newer request wins', async () => {
+    let resolveSlowMetrics!: (v: any) => void
+    let resolveSlowSend!: (v: any) => void
+    api.getMetricsHistory.mockImplementation(((w: string) =>
+      w === '1h'
+        ? new Promise((res) => { resolveSlowMetrics = res })
+        : Promise.resolve({ data: { samples: [{ cpu_percent: 1 }] } })) as any)
+    api.getLogsTimeseries.mockImplementation(((w: string) =>
+      w === '1h'
+        ? new Promise((res) => { resolveSlowSend = res })
+        : Promise.resolve({ data: { points: [{ total: 1 }] } })) as any)
+
+    const slow = state().fetchSeries('1h')
+    await state().fetchSeries('6h')
+    expect(state().metrics).toEqual([{ cpu_percent: 1 }])
+    expect(state().sendSeries).toEqual([{ total: 1 }])
+
+    // 慢请求迟到：序列号过期，成功臂早退，不得覆盖 6h 的数据。
+    resolveSlowMetrics({ data: { samples: [{ cpu_percent: 99 }] } })
+    resolveSlowSend({ data: { points: [{ total: 9 }] } })
+    await slow
+    expect(state().metrics).toEqual([{ cpu_percent: 1 }])
+    expect(state().sendSeries).toEqual([{ total: 1 }])
+    expect(state().seriesLoading).toBe(false)
+  })
+
+  it('drops a stale series error once a newer request wins', async () => {
+    let rejectSlowMetrics!: (v: any) => void
+    let rejectSlowSend!: (v: any) => void
+    api.getMetricsHistory.mockImplementation(((w: string) =>
+      w === '1h'
+        ? new Promise((_res, rej) => { rejectSlowMetrics = rej })
+        : Promise.resolve({ data: { samples: [] } })) as any)
+    api.getLogsTimeseries.mockImplementation(((w: string) =>
+      w === '1h'
+        ? new Promise((_res, rej) => { rejectSlowSend = rej })
+        : Promise.resolve({ data: { points: [] } })) as any)
+
+    const slow = state().fetchSeries('1h')
+    await state().fetchSeries('6h')
+    expect(state().error).toBeNull()
+
+    // 迟到的失败同样过期：错误臂早退，错误状态不被旧请求写入。
+    rejectSlowMetrics({ message: 'late failure' })
+    rejectSlowSend({ message: 'late failure' })
+    await slow
+    expect(state().error).toBeNull()
+    expect(state().seriesLoading).toBe(false)
+  })
+
+  it('defaults missing samples and points to empty arrays', async () => {
+    // `samples || []` / `points || []` 兜底臂：成功响应缺字段而不是空数组。
+    api.getMetricsHistory.mockResolvedValue({ data: {} } as any)
+    api.getLogsTimeseries.mockResolvedValue({ data: {} } as any)
+    await state().fetchSeries('1h')
+    expect(state().metrics).toEqual([])
+    expect(state().sendSeries).toEqual([])
+    expect(state().error).toBeNull()
+  })
+
   it('fetchStatus stores the payload on success and reports errors', async () => {
     api.getStatus.mockResolvedValue(okStatus as any)
     await state().fetchStatus()
