@@ -186,7 +186,7 @@ func (db *DB) ListAPIKeys() ([]*APIKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: list api keys: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanAPIKeys(rows)
 }
 
@@ -235,7 +235,7 @@ func (db *DB) ActiveKeyHashes() (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: active hashes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	hashes, err := scanActiveHashes(rows)
 	if err != nil {
 		return nil, err

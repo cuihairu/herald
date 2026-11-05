@@ -149,7 +149,7 @@ func TestPersistenceAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 
 	keys, _ := reopened.ListAPIKeys()
 	if len(keys) != 1 || keys[0].Name != "persistent" || keys[0].ID != created.Info.ID {

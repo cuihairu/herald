@@ -12,7 +12,6 @@ import (
 type fakeCollector struct {
 	cpu float64
 	rss uint64
-	err error
 }
 
 func (f *fakeCollector) CPUPercent() float64 { return f.cpu }
