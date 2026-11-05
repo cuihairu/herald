@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"os"
 	"path/filepath"
@@ -235,6 +237,62 @@ func TestActiveKeyHashesReportsRowErrors(t *testing.T) {
 	hashes, err := scanActiveHashes(scanFailRows{err: errors.New("bad row")})
 	if err == nil || !strings.Contains(err.Error(), "scan hash") || hashes != nil {
 		t.Fatalf("expected a scan error, got hashes=%v err=%v", hashes, err)
+	}
+}
+
+// failingRowsConnector is a database/sql driver seam: Query succeeds and
+// hands back rows whose Next immediately errors. Real sqlite connections
+// cannot deterministically produce row-level failures, but the seam drives
+// ActiveKeyHashes' post-scan error arm through the real Query path instead
+// of calling the scan helper directly.
+type failingRowsConnector struct{ err error }
+
+func (c failingRowsConnector) Connect(context.Context) (driver.Conn, error) {
+	return failingRowsConn{c.err}, nil
+}
+
+func (c failingRowsConnector) Driver() driver.Driver { return failingRowsDriver{} }
+
+type failingRowsDriver struct{}
+
+func (failingRowsDriver) Open(string) (driver.Conn, error) { return nil, errors.New("use Connect") }
+
+type failingRowsConn struct{ err error }
+
+func (c failingRowsConn) Prepare(query string) (driver.Stmt, error) {
+	return failingRowsStmt{c.err}, nil
+}
+func (c failingRowsConn) Close() error              { return nil }
+func (c failingRowsConn) Begin() (driver.Tx, error) { return nil, errors.New("not implemented") }
+
+type failingRowsStmt struct{ err error }
+
+func (s failingRowsStmt) Close() error  { return nil }
+func (s failingRowsStmt) NumInput() int { return -1 }
+func (s failingRowsStmt) Exec([]driver.Value) (driver.Result, error) {
+	return nil, errors.New("not implemented")
+}
+func (s failingRowsStmt) Query([]driver.Value) (driver.Rows, error) {
+	return failingRows{err: s.err}, nil
+}
+
+type failingRows struct{ err error }
+
+func (r failingRows) Columns() []string         { return []string{"hash"} }
+func (r failingRows) Close() error              { return nil }
+func (r failingRows) Next([]driver.Value) error { return r.err }
+
+func TestActiveKeyHashesPropagatesRowErrorAndKeepsCacheInvalid(t *testing.T) {
+	handle := sql.OpenDB(failingRowsConnector{err: errors.New("row stream broke")})
+	defer func() { _ = handle.Close() }()
+	db := &DB{sql: handle}
+
+	hashes, err := db.ActiveKeyHashes()
+	if err == nil || hashes != nil {
+		t.Fatalf("expected the row error to propagate with no hashes, got hashes=%v err=%v", hashes, err)
+	}
+	if db.hashesValid || db.activeHashes != nil {
+		t.Fatal("expected the cache to stay invalid after a failed read")
 	}
 }
 

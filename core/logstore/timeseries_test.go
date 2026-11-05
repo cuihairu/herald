@@ -87,6 +87,16 @@ func TestTimeseriesEdgeGuards(t *testing.T) {
 	if last.Total != 2 || last.Success != 1 {
 		t.Errorf("expected the boundary entry clamped into the last bucket, got %+v", last)
 	}
+
+	// 窗口为零或为负：ceil 得 0，防御臂收敛为单桶而不是空序列。
+	points = s.timeseriesAt(now, 0, time.Minute)
+	if len(points) != 1 {
+		t.Fatalf("expected a zero window to clamp to a single bucket, got %d", len(points))
+	}
+	points = s.timeseriesAt(now, -time.Minute, time.Minute)
+	if len(points) != 1 {
+		t.Fatalf("expected a negative window to clamp to a single bucket, got %d", len(points))
+	}
 }
 
 func TestTimeseriesOnEmptyStoreIsAllZeroes(t *testing.T) {

@@ -604,6 +604,28 @@ func idsOf(logs []*TaskLog) []string {
 	return out
 }
 
+// TestOldestCreatedAtTracksOutOfOrderInserts exercises the scan's fallback
+// arm: the store keeps insertion order, so a late-inserted entry whose
+// CreatedAt predates the current head must pull the reported oldest back.
+func TestOldestCreatedAtTracksOutOfOrderInserts(t *testing.T) {
+	s := New(100)
+	base := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	s.Add(&TaskLog{ID: "later-1", Provider: "p1", Status: "success", CreatedAt: base.Add(time.Hour)})
+	s.Add(&TaskLog{ID: "later-2", Provider: "p1", Status: "success", CreatedAt: base.Add(2 * time.Hour)})
+
+	oldest, ok := s.OldestCreatedAt()
+	if !ok || !oldest.Equal(base.Add(time.Hour)) {
+		t.Fatalf("expected the first inserted entry as oldest, got ok=%v %v", ok, oldest)
+	}
+
+	// 乱序补一条更早的记录：它排在切片尾部，但必须赢下 oldest。
+	s.Add(&TaskLog{ID: "earlier", Provider: "p1", Status: "failed", CreatedAt: base.Add(-time.Minute)})
+	oldest, ok = s.OldestCreatedAt()
+	if !ok || !oldest.Equal(base.Add(-time.Minute)) {
+		t.Fatalf("expected the out-of-order earlier entry as oldest, got ok=%v %v", ok, oldest)
+	}
+}
+
 // TestFilterQueryDimensions covers the §13.4 query dimensions: the app
 // query face scopes by source and narrows by audience and category.
 func TestFilterQueryDimensions(t *testing.T) {
