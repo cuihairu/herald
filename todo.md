@@ -142,3 +142,36 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 - [x] 审核发现：本轮 diff 未见问题（06fe87b9..HEAD）— 属实：已复核该范围唯一提交 `3a37c3a`（docs: verify no-issue audit range in todo），仅改 todo.md 增 1 行；检查方式 `git log --oneline 06fe87b9..HEAD` 列清单、`git show --stat` 确认无代码/配置改动。
 - [x] 审核发现：本轮 diff 未见问题（3a37c3a6..HEAD）— 属实：已复核该范围唯一提交 `a0bf30f`（todo: tick clean audit for 06fe87b9..HEAD），仅改 todo.md 增 1 行；检查方式 `git log --oneline 3a37c3a6..HEAD` 列清单、`git show --stat` 确认无代码/配置改动；`go test -count=1 ./...` 退出码 0 全绿。
 - [x] 审核发现：本轮 diff 未见问题（a0bf30f1..HEAD）— 属实：已复核该范围唯一提交 `17efe82`（todo: verify no-issue audit range 3a37c3a6..HEAD），仅改 todo.md 增 1 行；检查方式 `git log --oneline a0bf30f1..HEAD` 列清单、`git diff --stat a0bf30f1..HEAD`/`git show --stat 17efe82` 确认无代码/配置改动；核实方式 git diff --stat + git show，当日 HEAD `17efe82dcf2ca97beddd8c7d54b1ed338b65b091`。
+
+## 源码分层分析 2026-11-07
+
+### 抽象层清单
+
+- **入口/组装层**：职责=进程组装与生命周期（serve/worker/嵌入 App）；代表模块 `cmd/heraldd/main.go:100`、`herald.go:34`。
+- **HTTP/API 层**：职责=REST 面与鉴权中间件；代表模块 `api/server.go:141`、`api/handler.go:31`。
+- **投递流水线层**：职责=规则→路由→渲染→去重→聚合/投影→入队；代表模块 `core/service/notification.go:233`、`core/service/planner.go`。
+- **路由/规则层**：职责=静态路由表与 expr 规则引擎；代表模块 `core/route/router.go:14`、`core/rules/engine.go:291`。
+- **去重/折叠层**：职责=事件幂等/状态机/频控三档与折叠台账；代表模块 `core/dedup/gate.go:46`。
+- **模板层**：职责=语义模板注册与渲染；代表模块 `core/template/manager.go:14`、`core/template/engine.go:12`。
+- **队列/工作线程层**：职责=任务传输与消费；代表模块 `core/queue/memory.go`、`core/queue/redis.go`、`core/worker/pool.go:17`。
+- **运行时/Provider 层**：职责=Provider 注册/分发/重试结算；代表模块 `core/runtime/manager.go:27`、`providers/builtin/registry/registry.go:14`。
+- **状态/持久化层**：职责=SQLite 凭据、JSON 文件、Redis 流/锁/规则态与内存表；代表模块 `internal/store/store.go:10`、`core/rules/file.go:19`、`core/rules/state_redis.go:22`。
+- **受众/关系层**：职责=联系面、订阅关系、受众/群组/值班表、来源适配与对账；代表模块 `core/audience/surfaces.go:33`、`core/audience/relations.go:40`、`core/audience/sources.go`、`core/audience/reconcile.go:30`。
+- **应用/回调层**：职责=集成者命名空间与签名回调回流；代表模块 `core/apps/apps.go:13`、`core/callback/provider.go:15`。
+- **鉴权/运维层**：职责=API 密钥/JWT/bcrypt 登录；代表模块 `core/auth/auth.go:27`、`core/jwt/jwt.go`、`internal/store/store.go`。
+- **可观测层**：职责=进程采样、投递日志/生命周期、审计流水；代表模块 `core/metrics/metrics.go:27`、`core/logstore/logstore.go:17`、`core/deliverystore/deliverystore.go:13`、`core/audit/audit.go:16`。
+- **Worker 控制面/SDK 层**：职责=远端 Worker 注册与心跳；代表模块 `core/websocket/server.go:55`、`worker-sdk/go/client.go:21`、`protocol/message.go:19`。
+- **前端层**：职责=运维 React SPA；代表模块 `dashboard/src/stores/herald.ts`、`dashboard/src/pages/DashboardPage.tsx`。
+- **文档层**：职责=英文 docs 站与中文镜像；代表模块 `docs/.vitepress/config.mts:1`、`docs/zh/`。
+
+### 超大文件候选
+
+- [ ] LAY-001 [P1] 拆分 `cmd/heraldd/main.go`（1087 行）——serveCmd 单函数同时承担配置装配、store 构建、服务接线与关停编排，启动与关停逻辑混于一 600+ 行函数；建议按「装配子步骤」与「关停子步骤」抽到同包独立文件（cmd/heraldd/main.go:100-720）。
+- [ ] LAY-002 [P1] 拆分 `core/service/notification.go`（1017 行）——Process/enqueue/deliverTargets/expandRefs/enqueueOne 同处一文件，且 `Process` 内嵌规则-去重-聚合三分支，建议把「引用展开（expandRefs/expandRef/resolveChannel）」与「入队（enqueue/enqueueOne/deliverTargets/projectFeed）」分别抽出（core/service/notification.go:233-800）。
+- [ ] LAY-003 [P2] 拆分 `core/rules/engine.go`（866 行）——Evaluate 单方法含 silence/inhibit/for/group/shadow 五段决策，建议按语义段拆为 evaluateStep 子文件（core/rules/engine.go:589-796）。
+
+### 目录/分类不合理处
+
+- [ ] LAY-004 [P2] `providers/builtin/worker/worker.go` 与 `core/worker` 分处两目录但同属 worker 运行时；且 `providers/builtin/registry` 是唯一「注册表」却混在 builtin 下，建议把 worker provider 归入 `core/worker` 或新建 `runtime/worker`（providers/builtin/worker/worker.go:1、core/worker/pool.go:1、providers/builtin/registry/registry.go:1）。
+- [ ] LAY-005 [P3] `config/config.go`（751 行）同时承载 Config 结构与 20 个 Provider 类型 schema 的解析与默认值，而 Provider schema 表实际定义在 `core/runtime/manager.go:64-84`，配置与运行时 schema 两处分离（config/config.go:56、core/runtime/manager.go:64）。
+- [ ] LAY-006 [P3] `apps-sdk/go/` 与 `worker-sdk/go/` 为两个平级 SDK 目录，但 apps-sdk 走 HTTP、worker-sdk 走 WebSocket+队列，建议按传输分目录或统一 `sdk/`（apps-sdk/go/faces.go:10、worker-sdk/go/client.go:21）。

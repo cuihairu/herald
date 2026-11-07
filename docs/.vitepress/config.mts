@@ -67,6 +67,7 @@ export default defineConfig({
             { text: 'Protocol Design', link: '/architecture/protocols' },
             { text: 'Template System', link: '/architecture/templates' },
             { text: 'Directory Structure', link: '/architecture/directory' },
+            { text: 'Source Layer Analysis', link: '/architecture/layers' },
             { text: 'Test Coverage Standards', link: '/architecture/coverage' },
             { text: 'Coverage Completion Report', link: '/coverage-final-report-2026-09' },
             { text: 'Coverage Initiative Summary (2026-09)', link: '/coverage-initiative-2026-09' },
