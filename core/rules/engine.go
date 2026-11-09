@@ -586,6 +586,10 @@ func compileRule(r Rule) (*compiledRule, error) {
 // window has not elapsed yet yields ForPending for active rules (the event
 // is suppressed) and no shadow record for shadow rules; a match miss resets
 // the window, because the duration counts CONTINUOUS holding.
+// Evaluate walks the compiled rule table for one event. The five
+// decision segments (immediate action, silence, inhibit, for-window,
+// group fold) live on evalWalk in evaluate.go — this loop only
+// orchestrates them in order and applies the default policy tail.
 func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	e.mu.RLock()
 	rules := make([]*compiledRule, len(e.rules))
@@ -594,187 +598,45 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	rosterSource := e.rosterSource
 	e.mu.RUnlock()
 
-	var decision *Decision
-	var evalErrs []EvalError
+	w := &evalWalk{engine: e, ctx: ctx, env: env, rosterSource: rosterSource}
+	steps := []func(*compiledRule) (*Decision, bool){
+		w.stepImmediate,
+		w.stepSilence,
+		w.stepInhibit,
+		w.stepForWindow,
+		w.stepGroupFold,
+		w.stepDeliver,
+	}
 	for _, cr := range rules {
 		if cr.rule.Mode == ModeOff {
 			continue
 		}
 		matched, err := e.runProgram(ctx, cr.match, env)
 		if err != nil {
-			evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
+			w.evalErrs = append(w.evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
 			continue
 		}
 		if !matched {
-			// Condition stopped holding: drop the in-progress window so the
-			// next hit starts the duration from scratch. Reset failures are
-			// ignored — the state TTL is the backstop, and a miss must not
-			// turn into an evaluation error.
-			if cr.forDur > 0 {
-				groupKey, _ := RuleGroupKey(cr.groupBy, env)
-				if state, err := e.forState.Take(ctx, cr.rule.ID, groupKey); err == nil && state != nil && state.Fired {
-					// The alert this rule delivered has recovered.
-					e.mu.RLock()
-					fn := e.onResolved
-					e.mu.RUnlock()
-					if fn != nil {
-						fn(ResolvedEvent{RuleID: cr.rule.ID, GroupKey: groupKey, State: state})
-					}
-				}
-			}
+			w.resetOnMiss(cr)
 			continue
 		}
 
 		// for and group aggregation share the group key: with group_by the
 		// identity is the field values, without it the content hash.
-		groupKey, groupLabel := RuleGroupKey(cr.groupBy, env)
+		w.groupKey, w.groupLabel = RuleGroupKey(cr.groupBy, env)
+		w.summary = nil
 
-		// Non-route actions are immediate decisions on match: allow keeps
-		// the caller's course (explicit channels, else static routing) and
-		// stops the table; suppress withholds. The route-gated machinery
-		// below (silence/inhibit/for/group) is route semantics — validation
-		// forbids combining it with allow/suppress — and shadow rules only
-		// observe, which the tail switch below handles.
-		if cr.rule.Mode == ModeActive && cr.action != ActionRoute {
-			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Action: cr.action}
-			if decision != nil {
-				governing.Shadow = decision.Shadow
-			}
-			governing.EvalErrors = evalErrs
-			return governing, joinEvalErrors(evalErrs)
-		}
-
-		// Step -1: the silence schedule — daily window or duty roster.
-		// Schedule-driven and stateless: inside the schedule (and, when the
-		// silence match is set, for matching events only) the rule is
-		// frozen — the event is withheld and no for/group state advances.
-		// Only active rules check: shadow observation is about condition hits.
-		if cr.silence != nil && cr.rule.Mode == ModeActive && silenceQuiet(rosterSource, cr.silence, e.now()) {
-			if cr.silence.match == nil {
-				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Silenced: true}
-				governing.EvalErrors = evalErrs
-				return governing, joinEvalErrors(evalErrs)
-			}
-			inSchedule, err := e.runProgram(ctx, cr.silence.match, env)
-			if err != nil {
-				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
+		for _, step := range steps {
+			gov, done := step(cr)
+			if !done {
 				continue
 			}
-			if inSchedule {
-				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Silenced: true}
-				governing.EvalErrors = evalErrs
-				return governing, joinEvalErrors(evalErrs)
+			if gov != nil {
+				return gov, joinEvalErrors(w.evalErrs)
 			}
-		}
-
-		// Step 0: inhibition. While the root-cause rule (inhibit.source)
-		// is delivering for the same equal-field values, this rule's
-		// events are withheld — before any for/group state is touched, a
-		// suppressed event must not open windows or rounds. Only active
-		// rules check: shadow observation is about condition hits.
-		if cr.inhibit != nil && cr.rule.Mode == ModeActive {
-			hash := EqualFieldsHash(cr.inhibit.Equal, env)
-			present, err := e.inhibitState.Present(ctx, cr.rule.ID, hash)
-			if err != nil {
-				// State failure fails open: the rule is skipped like any
-				// other evaluation error and routing survives.
-				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
-				continue
-			}
-			if present {
-				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Inhibited: true}
-				governing.EvalErrors = evalErrs
-				return governing, joinEvalErrors(evalErrs)
-			}
-		}
-
-		// Step 1: the "for" window gates everything else. While it runs
-		// the event is suppressed; after it fired once, further hits stay
-		// silent — and for rules with group_by they fall through to the
-		// aggregation below so folded events are still counted.
-		if cr.forDur > 0 {
-			outcome, err := e.forState.Observe(ctx, cr.rule.ID, groupKey, cr.forDur)
-			if err != nil {
-				// State failure fails open: the rule is skipped like any
-				// other evaluation error and routing survives.
-				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
-				continue
-			}
-			suppress := outcome == ForPending ||
-				(outcome == ForSilent && len(cr.groupBy) == 0)
-			if suppress {
-				switch cr.rule.Mode {
-				case ModeActive:
-					// The rule owns this group: suppress the event, skip
-					// the remaining table (a later rule must not route
-					// what this rule holds).
-					governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, ForPending: true}
-					governing.EvalErrors = evalErrs
-					return governing, joinEvalErrors(evalErrs)
-				default: // ModeShadow
-					// A shadow rule only records what WOULD fire; a
-					// pending or already-silent window would not.
-					continue
-				}
-			}
-		}
-
-		// Step 2: group aggregation. Only active rules simulate folding —
-		// shadow observation is about condition hits, and its records stay
-		// unsuppressed (the delivery behavior is not what's being previewed).
-		var summary *GroupSummary
-		if len(cr.groupBy) > 0 && cr.rule.Mode == ModeActive {
-			folded, gs, err := e.groupState.Observe(ctx, cr.rule.ID, groupKey, groupLabel, cr.groupInterval)
-			if err != nil {
-				evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
-				continue
-			}
-			if folded {
-				governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Folded: true}
-				governing.EvalErrors = evalErrs
-				return governing, joinEvalErrors(evalErrs)
-			}
-			summary = gs
-		}
-		channels, err := e.resolveSteps(ctx, cr, env)
-		if err != nil {
-			evalErrs = append(evalErrs, EvalError{RuleID: cr.rule.ID, Err: err})
-			continue
-		}
-		switch cr.rule.Mode {
-		case ModeActive:
-			if len(channels) == 0 {
-				// The rule matched but no route step did; keep looking.
-				continue
-			}
-			// First matching active rule governs; shadow observations ride along.
-			governing := &Decision{RuleID: cr.rule.ID, Mode: ModeActive, Action: ActionRoute, Channels: channels, Summary: summary, Escalation: cr.escalation, GroupKey: groupKey}
-			if decision != nil {
-				governing.Shadow = decision.Shadow
-			}
-			// The delivery is happening: mark presence for every rule that
-			// inhibits on this one, so their equal-matching events are
-			// withheld while the root cause keeps firing. A write failure
-			// must not block the delivery (fail open toward delivery);
-			// it surfaces as an eval error for visibility.
-			e.mu.RLock()
-			targets := e.inhibitIndex[cr.rule.ID]
-			targetsCopy := make([]*compiledRule, len(targets))
-			copy(targetsCopy, targets)
-			e.mu.RUnlock()
-			for _, target := range targetsCopy {
-				hash := EqualFieldsHash(target.inhibit.Equal, env)
-				if err := e.inhibitState.Record(ctx, target.rule.ID, hash, target.inhibitTTL); err != nil {
-					evalErrs = append(evalErrs, EvalError{RuleID: target.rule.ID, Err: err})
-				}
-			}
-			governing.EvalErrors = evalErrs
-			return governing, joinEvalErrors(evalErrs)
-		case ModeShadow:
-			if decision == nil {
-				decision = &Decision{RuleID: cr.rule.ID, Mode: ModeShadow}
-			}
-			decision.Shadow = append(decision.Shadow, ShadowHit{RuleID: cr.rule.ID, Action: cr.action, Channels: channels})
+			// Rule handled without a decision: skip the remaining steps
+			// and move on to the next rule.
+			break
 		}
 	}
 	// The default policy applies when no active rule governed: deny turns
@@ -782,17 +644,17 @@ func (e *Engine) Evaluate(ctx context.Context, env Env) (*Decision, error) {
 	// configuration decided, not a rule) — shadow observations still ride
 	// along so tightening the table does not blind observation.
 	if defaultPolicy == PolicyDeny {
-		if decision == nil {
-			decision = &Decision{Action: ActionSuppress, Defaulted: true}
+		if w.decision == nil {
+			w.decision = &Decision{Action: ActionSuppress, Defaulted: true}
 		} else {
-			decision.Action = ActionSuppress
-			decision.Defaulted = true
+			w.decision.Action = ActionSuppress
+			w.decision.Defaulted = true
 		}
 	}
-	if decision != nil {
-		decision.EvalErrors = evalErrs
+	if w.decision != nil {
+		w.decision.EvalErrors = w.evalErrs
 	}
-	return decision, joinEvalErrors(evalErrs)
+	return w.decision, joinEvalErrors(w.evalErrs)
 }
 
 func joinEvalErrors(evalErrs []EvalError) error {
