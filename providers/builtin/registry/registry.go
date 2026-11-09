@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"github.com/cuihairu/herald/core/runtime"
+	"github.com/cuihairu/herald/core/worker"
 	"github.com/cuihairu/herald/providers/builtin/aliyunsms"
 	"github.com/cuihairu/herald/providers/builtin/apns"
 	"github.com/cuihairu/herald/providers/builtin/bark"
@@ -21,7 +22,6 @@ import (
 	"github.com/cuihairu/herald/providers/builtin/wechat"
 	"github.com/cuihairu/herald/providers/builtin/wechatmp"
 	"github.com/cuihairu/herald/providers/builtin/wecom"
-	"github.com/cuihairu/herald/providers/builtin/worker"
 )
 
 // RegisterBuiltinProviders registers all builtin provider factories
