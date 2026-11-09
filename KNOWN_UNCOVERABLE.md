@@ -28,13 +28,15 @@
 
 ## cmd/heraldd/main.go
 
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:62` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。行号 2026-10-08 随文档一致性审计批次核对（原 49，main() 定义随批次 10-11 的 import 与注释增长整体下移到 :59，块起始行 60），2026-11-05 随凭据存储启动接线批（faa2891 的 import 与构造块）再下移 2 行（现 62）。
-
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:460` — §13.1 集成者命名空间注册表构建失败分支（`apps.NewRegistry` 报错即拒起）。到达条件：某个 apps 种子通过了 `config.Validate` 却在 `NewRegistry` 失败——不可能：Validate 内部调用的就是同一个构造器（config.go 的校验循环把同一批种子原样喂给 `apps.NewRegistry`），种子在 Validate 阶段就会被同一条校验拒掉（`main_cover_test.go` 错误表 `app scope invalid` 已实测拒起点在 Load）；到达本分支需要同一构造器对同一输入先过后拒。两次喂入仅顺序不同（Validate 按 map 迭代、main 按 sort 后列表），而构造器的全部约束都是逐 app 或全局集合性的，与顺序无关。行号 2026-10-07 随批次 11 增量六的审计流水常开 hunk 下移 1 行（原 400），同日增量七的回调 dispatcher 注册 hunk 再下移 10 行（411），2026-10-10 验收走查批的 auth 接线 hunk（AdminUser/SecretKey 透传）再下移 5 行（416），2026-10-14 audiences 运行时 API 批的 store 接线块（main.go:284-311）再下移 23 行（439），2026-11-02 随 SEC 批次（955e11b worker auth、9aec8dd 回调目的地复验、aa5c8bb Feishu 收尾）再下移 3 行（442），2026-11-05 随凭据存储启动接线批（faa2891 的 store 构建与迁移块）再下移 18 行（现 460）。
-
-- `github.com/cuihairu/herald/cmd/heraldd/main.go:513` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）。行号 2026-10-07 随批次 10 配置透传 hunk 下移 4 行（原 418），同日批次 9 的投递策略构建块再下移 12 行（434），批次 11 的 app 注册表构建块与 sort import 再下移 11 行（445），同日增量六的审计流水常开 hunk 再下移 1 行（446），增量七的回调 dispatcher 注册与 emitter 接线 hunk 再下移 17 行（463），2026-10-10 验收走查批的 auth 接线 hunk 再下移 5 行（468），2026-10-14 audiences 运行时 API 批的 store 接线块（main.go:284-311）再下移 23 行（491），2026-11-02 随 SEC 批次（955e11b worker auth、9aec8dd 回调目的地复验、aa5c8bb Feishu 收尾）再下移 4 行（495），2026-11-05 随凭据存储启动接线批（faa2891 的 store 构建与迁移块）再下移 18 行（现 513，合计自 418）
+- `github.com/cuihairu/herald/cmd/heraldd/main.go:41` — `if code := run(os.Args); code != 0` 的失败分支块（`os.Exit(code)`）。`os.Exit` 跳过 GOCOVERDIR 转储，任何以 exit 结尾的路径都无法留下覆盖数据。错误退出码语义已由 `run()`/`serveCmd` 返回码的单测覆盖（main 只是转发该返回码）。行号 2026-10-08 随文档一致性审计批次核对（原 49，main() 定义随批次 10-11 的 import 与注释增长整体下移到 :59，块起始行 60），2026-11-05 随凭据存储启动接线批（faa2891 的 import 与构造块）再下移 2 行（现 62），2026-11-09 随 LAY-001 拆分（serveCmd 装配子步骤抽入 serve.go + import 剪枝）main() 整体上移，自 main.go:62 迁至 :41；块起始行照 go1.26.6 profile 重抄（41.37,43.3）。
 
 > 本文件曾登记 `serveCmd`/`workerCmd` 两个注册循环里的 `manager.RegisterProvider` 重复名守卫（原 `main.go:130`、`main.go:381`）——按结构不可达（factories 与 providers 分属两个 map、`cfg.Providers` 键唯一）。2026-10-01 按 `writeControl` 先例提为包级 seam `registerProvider`，由 `TestDuplicateNameGuardAbortsRegistration` 注入失败实测两处 return 1 分支（均在绑端口/起 worker 前退出），已移出台账。
+
+## cmd/heraldd/serve.go
+
+- `github.com/cuihairu/herald/cmd/heraldd/serve.go:443` — §13.1 集成者命名空间注册表构建失败分支（`apps.NewRegistry` 报错即拒起）。到达条件：某个 apps 种子通过了 `config.Validate` 却在 `NewRegistry` 失败——不可能：Validate 内部调用的就是同一个构造器（config.go 的校验循环把同一批种子原样喂给 `apps.NewRegistry`），种子在 Validate 阶段就会被同一条校验拒掉（`main_cover_test.go` 错误表 `app scope invalid` 已实测拒起点在 Load）；到达本分支需要同一构造器对同一输入先过后拒。两次喂入仅顺序不同（Validate 按 map 迭代、装配按 sort 后列表），而构造器的全部约束都是逐 app 或全局集合性的，与顺序无关。行号 2026-11-09 随 LAY-001 拆分（serveCmd 装配子步骤抽入 serve.go）自 main.go:460 迁入本文件；块起始行照 go1.26.6 profile 重抄（443.16,446.3）。
+
+- `github.com/cuihairu/herald/cmd/heraldd/serve.go:496` — 来源对账探测件构建失败分支（§8，`NewProbe` 报错即拒起）。到达条件：某个 telegram/wechatmp provider 通过了工厂创建、其探测件却构建失败——不可能：探测件对 provider config 的要求是工厂要求的严格子集（telegram 探测件要 `token` ⊂ 工厂的 `token`+`chat_id`；wechatmp 探测件要 `app_id`+`app_secret` ⊂ 工厂的 `app_id`+`app_secret`+`template_id`），而扫描循环只在工厂全部成功之后运行。探测件配置残缺的拒起在 provider 创建阶段先行发生（`main_cover_test.go` 错误表已实测）。行号 2026-11-09 随 LAY-001 拆分（serveCmd 装配子步骤抽入 serve.go）自 main.go:513 迁入本文件；块起始行照 go1.26.6 profile 重抄（496.18,499.5）。
 
 ## core/limiter/limiter.go
 
