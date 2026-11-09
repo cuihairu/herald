@@ -632,10 +632,12 @@ func TestHandleRegisterNoCallbackOnAckFailure(t *testing.T) {
 	// failure so the register path returns before any callback runs.
 	registerFlowWorker(t, conn, "w-noack")
 	// The first register's callback is the success proof; drain it so the
-	// failure assertion below only sees the second (failed) attempt.
+	// failure assertion below only sees the second (failed) attempt. The
+	// callback runs after the ack hits the wire, so the client's read does
+	// not order it — wait instead of assuming it already ran.
 	select {
 	case <-h.registerRan:
-	default:
+	case <-time.After(2 * time.Second):
 		t.Fatal("first register did not run its callback")
 	}
 	server.mu.Lock()
