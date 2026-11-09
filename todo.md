@@ -179,3 +179,4 @@ Phase 0-9 与受众层三阶段全部收官。事实底稿、差异与留批拍�
 ## 审核发现
 
 - [x] 审核发现：本轮 diff 未见问题（0fae45dc31..HEAD）。— 核实属实：范围含 6 commit（0fae45dc 测试修复、4782016/ec7cf7c LAY-001+勾账、8245d40/c3a7f5b LAY-002+勾账、6b76791/bac5f44 LAY-003+勾账），diff 9 文件均为纯代码搬移（cmd/heraldd serve 拆分、core/service refs/enqueue 拆分、core/rules evaluate 拆分）+ 台账迁移 + todo 勾账，无语义改动；证据：全量 `go test -p 1 -timeout 30m -race -count=1` 三轮（r13/r14/r15）REAL_EXIT=0/FAILCOUNT=0，zero_check `--gate 100` 三轮 GREEN（16/16 豁免），golangci-lint 0 issues，CI 全绿。
+- [x] 审核发现：本轮 diff 未见问题（bac5f44b..HEAD）。— 核实属实：范围 3 commit（f7ae5cc 审核范围核实+LAY 备注、4db9510 LAY-004 worker provider 移动、6a54c70 勾账），diff 6 文件：worker.go/worker_test.go 为 R100 纯重命名（内容零变化）、registry.go 仅 import 换路 2 行、两份文档一致性审计仅路径引用 4 处、todo.md 勾账，无语义改动；证据：全量 `go test -p 1 -timeout 30m -race -count=1`（r16）REAL_EXIT=0/FAILCOUNT=0，zero_check `--gate 100` GREEN（6644 块、16/16 豁免），golangci-lint 0 issues。
