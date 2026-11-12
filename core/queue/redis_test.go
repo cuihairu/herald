@@ -3,6 +3,7 @@ package queue
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -65,6 +66,11 @@ type fakeRedis struct {
 	// xreadArrived is closed once an XREADGROUP command has been parsed.
 	xreadArrived chan struct{}
 	arriveOnce   sync.Once
+
+	// claimEntries, when non-empty, is the XAUTOCLAIM answer the next
+	// XAUTOCLAIM command returns (a crashed consumer's recoverable delivery);
+	// it is drained after one reply, mirroring the sweep-on-idle-Pop flow.
+	claimEntries []fakeEntry
 }
 
 func newFakeRedis(t *testing.T) *fakeRedis {
@@ -238,6 +244,8 @@ func (f *fakeRedis) handle(w *bufio.Writer, args []string) error {
 		return f.handleXReadGroup(w, args)
 	case "xack":
 		return f.handleXAck(w, args)
+	case "xautoclaim":
+		return f.handleXAutoClaim(w, args)
 	case "xrange":
 		return f.handleXRange(w, args)
 	case "xinfo":
@@ -389,6 +397,26 @@ func (f *fakeRedis) handleXAck(w *bufio.Writer, args []string) error {
 		return nil
 	}
 	writeInt(w, 1)
+	return nil
+}
+
+// handleXAutoClaim answers XAUTOCLAIM the way Redis does after a crash
+// sweep: when a test armed claimEntries, that delivery is handed to the
+// claiming consumer and drained; otherwise the sweep is empty. Redis's real
+// reply is [next-cursor, [messages...], [deleted...]].
+func (f *fakeRedis) handleXAutoClaim(w *bufio.Writer, args []string) error {
+	f.mu.Lock()
+	claimed := f.claimEntries
+	f.claimEntries = nil
+	f.mu.Unlock()
+
+	writeArrayLen(w, 3)
+	writeBulk(w, "0-0")
+	writeArrayLen(w, len(claimed))
+	for _, e := range claimed {
+		writeEntry(w, e)
+	}
+	writeArrayLen(w, 0)
 	return nil
 }
 
@@ -1203,4 +1231,96 @@ func TestRedisQueueDecodeWithServer(t *testing.T) {
 			t.Errorf("expected unmarshal error, got %v", err)
 		}
 	})
+}
+
+// TestRedisQueuePopClaimsOrphanedWithServer pins the at-least-once recovery
+// path: when the read finds no new message, Pop sweeps the consumer-group
+// pending list (XAUTOCLAIM) and returns a delivery another consumer claimed
+// and then abandoned (its worker crashed mid-delivery).
+func TestRedisQueuePopClaimsOrphanedWithServer(t *testing.T) {
+	t.Run("claim recovers a crashed consumer's delivery", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		task := &core.DeliveryTask{ID: "task-claim", Provider: "email"}
+		data, err := json.Marshal(task)
+		if err != nil {
+			t.Fatalf("marshal task: %v", err)
+		}
+		// The dead consumer's pending delivery, idle past the claim window.
+		fr.claimEntries = []fakeEntry{{
+			id:     "5-1",
+			values: []string{"task_id", task.ID, "data", string(data)},
+		}}
+
+		popped, err := q.Pop(ctx)
+		if err != nil {
+			t.Fatalf("expected no error claiming orphan, got %v", err)
+		}
+		if popped == nil || popped.ID != task.ID {
+			t.Fatalf("expected claimed task %s, got %+v", task.ID, popped)
+		}
+		rq := q.(*redisQueue)
+		if _, ok := rq.pending[task.ID]; !ok {
+			t.Error("claimed task must be tracked for Ack/Nack")
+		}
+	})
+
+	t.Run("idle pop without orphan reports idle", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+
+		_, err := q.Pop(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "no messages available") {
+			t.Fatalf("expected idle error, got %v", err)
+		}
+	})
+}
+
+// TestRedisQueuePopReleasesLockDuringBlock pins the lock-granularity fix:
+// the blocked XREADGROUP runs outside q.mu, so a Push or a second worker's
+// Pop is never serialized behind the 2s read window.
+func TestRedisQueuePopReleasesLockDuringBlock(t *testing.T) {
+	fr := newFakeRedis(t)
+	q := newTestRedisQueue(t, fr)
+	rq := q.(*redisQueue)
+
+	// Park the fake's XREADGROUP reply so the read is verifiably in flight.
+	hold := make(chan struct{})
+	fr.mu.Lock()
+	fr.xreadArrived = make(chan struct{})
+	fr.holdXRead = hold
+	fr.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := q.Pop(context.Background())
+		done <- err
+	}()
+
+	select {
+	case <-fr.xreadArrived:
+		// The XREADGROUP reached the fake and is parked: Pop has already
+		// released q.mu (only the closed check and pending map are locked).
+	case <-time.After(5 * time.Second):
+		t.Fatal("XREADGROUP did not reach the fake")
+	}
+
+	if !rq.mu.TryLock() {
+		t.Fatal("Pop holds the queue mutex while blocked in XREADGROUP")
+	}
+	rq.mu.Unlock()
+
+	close(hold)
+	select {
+	case err := <-done:
+		// The parked read is released and the idle sweep finds nothing:
+		// Pop reports the queue idle, which is exactly the expected reply.
+		if err == nil {
+			t.Error("expected idle error from released Pop, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Pop did not return after the read was released")
+	}
 }

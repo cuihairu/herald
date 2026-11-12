@@ -180,11 +180,25 @@ func (q *redisQueue) moveDueScheduled(ctx context.Context) error {
 	return nil
 }
 
+// redisClaimMinIdle is how long a delivery must sit unacknowledged in the
+// consumer-group pending list before another worker may reclaim it. It must
+// exceed the longest single delivery (the httpclient default request timeout
+// is 30s) so a slow-but-alive delivery is never double-delivered; a package
+// variable so tests can shorten it.
+var redisClaimMinIdle = 60 * time.Second
+
+// Pop takes the next task off the stream. It first reads new messages; a
+// blocked XREADGROUP (2s window) does not hold q.mu — only the closed check
+// and the pending-map update are locked, so a Push or another worker's Pop is
+// never serialized behind the read (an empty read otherwise costs every
+// concurrent Pop up to 2s of lock contention). When the read finds nothing
+// it sweeps for orphaned deliveries (claimOrphaned) before reporting idle.
 func (q *redisQueue) Pop(ctx context.Context) (*core.DeliveryTask, error) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
+	closed := q.closed
+	q.mu.Unlock()
 
-	if q.closed {
+	if closed {
 		return nil, ErrQueueClosed
 	}
 
@@ -203,28 +217,49 @@ func (q *redisQueue) Pop(ctx context.Context) (*core.DeliveryTask, error) {
 	}).Result()
 
 	if err != nil {
-		if err == redis.Nil {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-				return nil, fmt.Errorf("no messages available")
-			}
+		if err != redis.Nil {
+			return nil, err
 		}
+	} else if len(streams) > 0 && len(streams[0].Messages) > 0 {
+		return q.decodeAndTrack(streams[0].Messages[0])
+	}
+
+	// No new message in the window: recover any delivery another consumer
+	// claimed and then vanished (crashed worker). A claim error is not
+	// fatal — the sweep retries on the next idle Pop — and an empty sweep
+	// means the queue is genuinely idle.
+	if claimed, claimErr := q.claimOrphaned(ctx); claimErr == nil && claimed != nil {
+		return claimed, nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return nil, fmt.Errorf("no messages available")
+	}
+}
+
+// claimOrphaned reclaims a delivery another consumer left pending past
+// redisClaimMinIdle — its worker crashed mid-delivery. XAUTOCLAIM hands the
+// message to this queue's consumer, restoring at-least-once delivery; it
+// never touches a delivery still inside its window, so a live worker is not
+// double-delivered. nil, nil means no orphan is ready yet.
+func (q *redisQueue) claimOrphaned(ctx context.Context) (*core.DeliveryTask, error) {
+	msgs, _, err := q.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+		Stream:   q.stream,
+		Group:    q.group,
+		Consumer: q.consumer,
+		MinIdle:  redisClaimMinIdle,
+		Start:    "0",
+	}).Result()
+	if err != nil {
 		return nil, err
 	}
-
-	if len(streams) == 0 || len(streams[0].Messages) == 0 {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			return nil, fmt.Errorf("no messages available")
-		}
+	if len(msgs) == 0 {
+		return nil, nil
 	}
-
-	msg := streams[0].Messages[0]
-	return q.decodeAndTrack(msg)
+	return q.decodeAndTrack(msgs[0])
 }
 
 func (q *redisQueue) Ack(ctx context.Context, taskID string) error {
@@ -355,8 +390,12 @@ func (q *redisQueue) decodeAndTrack(msg redis.XMessage) (*core.DeliveryTask, err
 		return nil, fmt.Errorf("failed to unmarshal task: %w", err)
 	}
 
-	// Map task ID → stream entry ID for Ack/Nack
+	// Map task ID → stream entry ID for Ack/Nack. The read path no longer
+	// holds q.mu through its blocking XREADGROUP, so the map write is locked
+	// here on its own.
+	q.mu.Lock()
 	q.pending[task.ID] = msg.ID
+	q.mu.Unlock()
 
 	return &task, nil
 }

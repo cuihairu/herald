@@ -11,6 +11,7 @@ import (
 
 	"github.com/cuihairu/herald/core"
 	"github.com/cuihairu/herald/core/retry"
+	"github.com/redis/go-redis/v9"
 )
 
 // These tests require a running Redis server.
@@ -304,6 +305,51 @@ func TestRedisQueueIntegration(t *testing.T) {
 		_, err = q.Pop(ctx)
 		if err == nil {
 			t.Error("expected error when popping from empty queue with timeout")
+		}
+	})
+
+	t.Run("claim recovers orphaned delivery across consumers", func(t *testing.T) {
+		// A delivery read by one consumer and never acked (its worker
+		// crashed) must be reclaimable by another consumer's idle Pop —
+		// the at-least-once recovery a bare ">" read cannot do on its own.
+		q, err := NewRedisQueue(freshConfig())
+		if err != nil {
+			t.Fatalf("failed to create redis queue: %v", err)
+		}
+		defer q.Close()
+		rq := q.(*redisQueue)
+
+		ctx := context.Background()
+		task := &core.DeliveryTask{ID: "task-orphan", Provider: "email"}
+		if err := q.Push(ctx, task); err != nil {
+			t.Fatalf("push: %v", err)
+		}
+
+		// Simulate the crashed worker: read the message under a consumer
+		// that will never ack it, leaving it pending in the group.
+		if _, err := rq.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+			Group:    rq.group,
+			Consumer: "dead-worker",
+			Streams:  []string{rq.stream, ">"},
+			Count:    1,
+		}).Result(); err != nil {
+			t.Fatalf("seed orphan: %v", err)
+		}
+
+		// Arm the claim window and let this queue's Pop sweep the orphan.
+		prev := redisClaimMinIdle
+		redisClaimMinIdle = 0
+		defer func() { redisClaimMinIdle = prev }()
+
+		popped, err := q.Pop(ctx)
+		if err != nil {
+			t.Fatalf("expected no error claiming orphan, got %v", err)
+		}
+		if popped == nil || popped.ID != task.ID {
+			t.Fatalf("expected claimed task %s, got %+v", task.ID, popped)
+		}
+		if _, ok := rq.pending[task.ID]; !ok {
+			t.Error("claimed task must be tracked for Ack/Nack")
 		}
 	})
 }
