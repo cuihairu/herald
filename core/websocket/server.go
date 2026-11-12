@@ -377,21 +377,21 @@ func (s *Server) handleMessage(state *ConnectionState, data []byte) error {
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return fmt.Errorf("failed to parse heartbeat message: %w", err)
 		}
-		return s.handleHeartbeat(&msg)
+		return s.handleHeartbeat(state, &msg)
 
 	case protocol.MessageTypeAck:
 		var msg protocol.AckMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return fmt.Errorf("failed to parse ack message: %w", err)
 		}
-		return s.handleAck(&msg)
+		return s.handleAck(state, &msg)
 
 	case protocol.MessageTypeEvent:
 		var msg protocol.EventMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return fmt.Errorf("failed to parse event message: %w", err)
 		}
-		return s.handleEvent(&msg)
+		return s.handleEvent(state, &msg)
 
 	default:
 		logger.Warn("unknown message type", "type", raw.Type)
@@ -493,17 +493,28 @@ func constantTimeEqual(want, got string) bool {
 }
 
 // handleHeartbeat handles a heartbeat message
-func (s *Server) handleHeartbeat(msg *protocol.HeartbeatMessage) error {
+func (s *Server) handleHeartbeat(state *ConnectionState, msg *protocol.HeartbeatMessage) error {
+	// A heartbeat must name the worker this connection registered as:
+	// accepting another worker's identity would let any registered client
+	// keep a dead worker's entry alive and defeat the stale-prune sweep.
+	// The connection's own identity is already authenticated (registration
+	// requires the token when one is configured), so matching against it
+	// closes the forgery without a second credential.
+	if msg.WorkerID != state.WorkerID {
+		return fmt.Errorf("heartbeat worker mismatch: message names %q, connection registered as %q",
+			msg.WorkerID, state.WorkerID)
+	}
+
 	s.mu.Lock()
-	state, ok := s.workers[msg.WorkerID]
+	ws, ok := s.workers[msg.WorkerID]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("worker not found: %s", msg.WorkerID)
 	}
 
-	state.LastHeartbeat = time.Now()
+	ws.LastHeartbeat = time.Now()
 	if msg.Status != nil {
-		state.Status = msg.Status
+		ws.Status = msg.Status
 	}
 	s.mu.Unlock()
 
@@ -517,7 +528,14 @@ func (s *Server) handleHeartbeat(msg *protocol.HeartbeatMessage) error {
 }
 
 // handleAck handles a task acknowledgment
-func (s *Server) handleAck(msg *protocol.AckMessage) error {
+func (s *Server) handleAck(state *ConnectionState, msg *protocol.AckMessage) error {
+	// An ack carries no worker identity of its own, so the connection must
+	// have completed registration — otherwise any anonymous client could
+	// confirm or deny arbitrary tasks the hub believes it dispatched.
+	if state.WorkerID == "" {
+		return fmt.Errorf("ack refused: connection is not registered")
+	}
+
 	logger.Info("task acknowledged",
 		"task_id", msg.TaskID,
 		"success", msg.Success,
@@ -534,7 +552,13 @@ func (s *Server) handleAck(msg *protocol.AckMessage) error {
 }
 
 // handleEvent handles a worker event
-func (s *Server) handleEvent(msg *protocol.EventMessage) error {
+func (s *Server) handleEvent(state *ConnectionState, msg *protocol.EventMessage) error {
+	// Like heartbeat: the event must name this connection's own worker.
+	if msg.WorkerID != state.WorkerID {
+		return fmt.Errorf("event worker mismatch: message names %q, connection registered as %q",
+			msg.WorkerID, state.WorkerID)
+	}
+
 	logger.Info("worker event",
 		"worker_id", msg.WorkerID,
 		"event_type", msg.EventType,

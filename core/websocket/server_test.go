@@ -1006,7 +1006,7 @@ func TestHandleHeartbeat(t *testing.T) {
 		}
 
 		// Test handleHeartbeat
-		err := server.handleHeartbeat(msg)
+		err := server.handleHeartbeat(state, msg)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -1027,18 +1027,53 @@ func TestHandleHeartbeat(t *testing.T) {
 	t.Run("heartbeat worker not found", func(t *testing.T) {
 		server := NewServer(nil, &mockHandler{})
 
+		// The connection claims this identity but no such worker is
+		// registered: the identity matches, so the miss is the registry.
+		state := &ConnectionState{WorkerID: "non-existent-worker"}
 		msg := &protocol.HeartbeatMessage{
 			WorkerID: "non-existent-worker",
 		}
 
-		err := server.handleHeartbeat(msg)
+		err := server.handleHeartbeat(state, msg)
 		if err == nil {
 			t.Error("expected error for non-existent worker")
+		}
+	})
+
+	t.Run("heartbeat rejects foreign worker identity", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		// A registered worker ("w-a") and an unrelated registered worker
+		// ("w-b"). The w-a connection must not be able to refresh w-b's
+		// heartbeat: that forgery would keep a dead worker alive and
+		// defeat the stale-prune sweep.
+		stateA := &ConnectionState{WorkerID: "w-a", LastHeartbeat: time.Now(), Status: make(map[string]interface{})}
+		stateB := &ConnectionState{WorkerID: "w-b", LastHeartbeat: time.Now().Add(-5 * time.Minute), Status: make(map[string]interface{})}
+		server.mu.Lock()
+		server.workers["w-a"] = stateA
+		server.workers["w-b"] = stateB
+		server.mu.Unlock()
+
+		err := server.handleHeartbeat(stateA, &protocol.HeartbeatMessage{WorkerID: "w-b"})
+		if err == nil {
+			t.Fatal("expected error for foreign worker heartbeat")
+		}
+
+		server.mu.RLock()
+		got := server.workers["w-b"].LastHeartbeat
+		server.mu.RUnlock()
+		if !got.Before(time.Now().Add(-4 * time.Minute)) {
+			t.Error("foreign heartbeat must not refresh the target worker")
 		}
 	})
 }
 
 func TestHandleAck(t *testing.T) {
+	// An ack carries no worker identity of its own, so every accepted ack
+	// must come from a connection that completed registration.
+	registered := &ConnectionState{WorkerID: "test-worker"}
+
 	t.Run("ack success", func(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(nil, handler)
@@ -1049,7 +1084,7 @@ func TestHandleAck(t *testing.T) {
 			Error:   "",
 		}
 
-		err := server.handleAck(msg)
+		err := server.handleAck(registered, msg)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -1076,7 +1111,7 @@ func TestHandleAck(t *testing.T) {
 			Error:   "delivery failed",
 		}
 
-		err := server.handleAck(msg)
+		err := server.handleAck(registered, msg)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -1097,14 +1132,29 @@ func TestHandleAck(t *testing.T) {
 			Success: true,
 		}
 
-		err := server.handleAck(msg)
+		err := server.handleAck(registered, msg)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("ack refused for unregistered connection", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		err := server.handleAck(&ConnectionState{}, &protocol.AckMessage{TaskID: "task-1", Success: true})
+		if err == nil {
+			t.Error("expected an unregistered connection's ack to be refused")
+		}
+		if handler.ackCount() != 0 {
+			t.Errorf("refused ack must not reach the handler, got %d calls", handler.ackCount())
 		}
 	})
 }
 
 func TestHandleEvent(t *testing.T) {
+	state := &ConnectionState{WorkerID: "test-worker"}
+
 	t.Run("event with handler", func(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(nil, handler)
@@ -1119,7 +1169,7 @@ func TestHandleEvent(t *testing.T) {
 			Timestamp: time.Now().Unix(),
 		}
 
-		err := server.handleEvent(msg)
+		err := server.handleEvent(state, msg)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -1142,9 +1192,22 @@ func TestHandleEvent(t *testing.T) {
 			EventType: "test.event",
 		}
 
-		err := server.handleEvent(msg)
+		err := server.handleEvent(state, msg)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("event rejects foreign worker identity", func(t *testing.T) {
+		handler := &mockHandler{}
+		server := NewServer(nil, handler)
+
+		err := server.handleEvent(state, &protocol.EventMessage{WorkerID: "other-worker", EventType: "online"})
+		if err == nil {
+			t.Error("expected a foreign-worker event to be refused")
+		}
+		if handler.eventCount() != 0 {
+			t.Errorf("refused event must not reach the handler, got %d calls", handler.eventCount())
 		}
 	})
 }
@@ -1231,7 +1294,10 @@ func TestHandleMessage(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(nil, handler)
 
-		state := &ConnectionState{Status: make(map[string]interface{})}
+		state := &ConnectionState{
+			WorkerID: "worker-1",
+			Status:   make(map[string]interface{}),
+		}
 
 		data := `{"type":"ack","task_id":"task-1","success":true,"error":""}`
 
@@ -1249,7 +1315,10 @@ func TestHandleMessage(t *testing.T) {
 		handler := &mockHandler{}
 		server := NewServer(nil, handler)
 
-		state := &ConnectionState{Status: make(map[string]interface{})}
+		state := &ConnectionState{
+			WorkerID: "worker-1",
+			Status:   make(map[string]interface{}),
+		}
 
 		data := `{"type":"event","worker_id":"worker-1","event_type":"test.event","data":{"key":"value"},"timestamp":1234567890}`
 
