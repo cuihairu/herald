@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/errclass"
+	"github.com/cuihairu/herald/core/httpclient"
+	"github.com/cuihairu/herald/core/retry"
 )
 
 type fakeEntry struct {
@@ -860,7 +863,7 @@ func TestRedisQueueAckWithServer(t *testing.T) {
 }
 
 func TestRedisQueueNackWithServer(t *testing.T) {
-	t.Run("nack requeues message", func(t *testing.T) {
+	t.Run("nack requeues retryable failure", func(t *testing.T) {
 		fr := newFakeRedis(t)
 		q := newTestRedisQueue(t, fr)
 		ctx := context.Background()
@@ -871,7 +874,7 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 			t.Fatalf("expected no error popping, got %v", err)
 		}
 
-		if err := q.Nack(ctx, popped.ID, fmt.Errorf("delivery failed")); err != nil {
+		if err := q.Nack(ctx, popped.ID, retry.NewRetryableError(fmt.Errorf("delivery failed"))); err != nil {
 			t.Fatalf("expected no error nacking, got %v", err)
 		}
 
@@ -881,6 +884,113 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		}
 		if again.ID != popped.ID {
 			t.Errorf("expected requeued ID %s, got %s", popped.ID, again.ID)
+		}
+	})
+
+	t.Run("terminal nack settles without requeue", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		// A plain unclassified error is a terminal failure: the task must
+		// settle, not loop through the stream forever.
+		if err := q.Nack(ctx, popped.ID, fmt.Errorf("provider disabled")); err != nil {
+			t.Fatalf("expected no error nacking, got %v", err)
+		}
+
+		if _, err := q.Pop(ctx); err == nil {
+			t.Fatal("expected pop to find no redelivered task, got one")
+		}
+		if got := q.Size(); got != 1 {
+			t.Errorf("expected stream size 1 after settle, got %d", got)
+		}
+	})
+
+	t.Run("dead task nack settles without requeue", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		// ErrMaxRetries wraps a retryable error: retryability is not the
+		// question anymore, the budget is spent — settling must win over
+		// the wrapped error's retryability.
+		dead := fmt.Errorf("%w: %w", retry.ErrMaxRetries, retry.NewRetryableError(fmt.Errorf("still failing")))
+		if err := q.Nack(ctx, popped.ID, dead); err != nil {
+			t.Fatalf("expected no error nacking, got %v", err)
+		}
+
+		if _, err := q.Pop(ctx); err == nil {
+			t.Fatal("expected pop to find no redelivered task, got one")
+		}
+		if got := q.Size(); got != 1 {
+			t.Errorf("expected stream size 1 after settle, got %d", got)
+		}
+	})
+
+	t.Run("classified permanent error settles without requeue", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		if err := q.Nack(ctx, popped.ID, errclass.New(errclass.Permanent, fmt.Errorf("bad payload"))); err != nil {
+			t.Fatalf("expected no error nacking, got %v", err)
+		}
+
+		if _, err := q.Pop(ctx); err == nil {
+			t.Fatal("expected pop to find no redelivered task, got one")
+		}
+		if got := q.Size(); got != 1 {
+			t.Errorf("expected stream size 1 after settle, got %d", got)
+		}
+	})
+
+	t.Run("context canceled nack requeues", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		// Shutdown interrupted the attempt mid-flight: at-least-once —
+		// the task must come back (after restart, in production).
+		if err := q.Nack(ctx, popped.ID, context.Canceled); err != nil {
+			t.Fatalf("expected no error nacking, got %v", err)
+		}
+
+		again, err := q.Pop(ctx)
+		if err != nil {
+			t.Fatalf("expected no error popping requeued task, got %v", err)
+		}
+		if again.ID != popped.ID {
+			t.Errorf("expected requeued ID %s, got %s", popped.ID, again.ID)
+		}
+	})
+
+	t.Run("terminal nack returns error when settle ack fails", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		fr.setFailFlags(false, false, true, false)
+		err := q.Nack(ctx, popped.ID, fmt.Errorf("provider disabled"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to ack settled message") {
+			t.Errorf("expected settle ack error, got %v", err)
 		}
 	})
 
@@ -902,7 +1012,7 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		popped, _ := q.Pop(ctx)
 
 		fr.stop()
-		err := q.Nack(ctx, popped.ID, fmt.Errorf("failed"))
+		err := q.Nack(ctx, popped.ID, retry.NewRetryableError(fmt.Errorf("failed")))
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -925,7 +1035,7 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		fr.entries = nil
 		fr.mu.Unlock()
 
-		err := q.Nack(ctx, popped.ID, fmt.Errorf("failed"))
+		err := q.Nack(ctx, popped.ID, retry.NewRetryableError(fmt.Errorf("failed")))
 		if !errors.Is(err, ErrMessageGone) {
 			t.Fatalf("expected ErrMessageGone, got %v", err)
 		}
@@ -943,7 +1053,7 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		popped, _ := q.Pop(ctx)
 
 		fr.setFailFlags(false, true, false, false)
-		err := q.Nack(ctx, popped.ID, fmt.Errorf("failed"))
+		err := q.Nack(ctx, popped.ID, retry.NewRetryableError(fmt.Errorf("failed")))
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -961,7 +1071,7 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		popped, _ := q.Pop(ctx)
 
 		fr.setFailFlags(false, false, true, false)
-		err := q.Nack(ctx, popped.ID, fmt.Errorf("failed"))
+		err := q.Nack(ctx, popped.ID, retry.NewRetryableError(fmt.Errorf("failed")))
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -969,6 +1079,42 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 			t.Errorf("expected ack error, got %v", err)
 		}
 	})
+}
+
+// TestRequeueWorthy pins the Nack classification table: which delivery
+// outcomes earn a task another round on the stream, and which settle for
+// good. The dead case is the sharp edge — ErrMaxRetries wraps a retryable
+// error, and the spent budget must win over the wrapped error's
+// retryability.
+func TestRequeueWorthy(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason error
+		want   bool
+	}{
+		{"nil keeps historical requeue", nil, true},
+		{"shutdown cancel requeues", context.Canceled, true},
+		{"wrapped cancel requeues", fmt.Errorf("rate limit wait aborted: %w", context.Canceled), true},
+		{"deadline exceeded requeues", context.DeadlineExceeded, true},
+		{"dead settles", fmt.Errorf("%w: %w", retry.ErrMaxRetries, retry.NewRetryableError(errors.New("boom"))), false},
+		{"plain unclassified error settles", errors.New("provider disabled"), false},
+		{"classified permanent settles", errclass.New(errclass.Permanent, errors.New("bad payload")), false},
+		{"classified authentication settles", errclass.New(errclass.Authentication, errors.New("bad token")), false},
+		{"classified invalid request settles", errclass.New(errclass.InvalidRequest, errors.New("bad payload")), false},
+		{"classified temporary requeues", errclass.New(errclass.Temporary, errors.New("flaky")), true},
+		{"classified timeout requeues", errclass.New(errclass.Timeout, errors.New("slow")), true},
+		{"classified rate limited requeues", errclass.New(errclass.RateLimited, errors.New("429")), true},
+		{"retryable marker requeues", retry.NewRetryableError(errors.New("transient")), true},
+		{"http retryable marker requeues", &httpclient.RetryableError{Err: errors.New("transient")}, true},
+		{"deferred schedule fallback requeues", &retry.Deferred{Err: retry.NewRetryableError(errors.New("transient"))}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := requeueWorthy(tc.reason); got != tc.want {
+				t.Errorf("requeueWorthy(%v) = %v, want %v", tc.reason, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestRedisQueueSizeWithServer(t *testing.T) {

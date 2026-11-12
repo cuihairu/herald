@@ -120,6 +120,10 @@ func (p *Pool) workerLoop(ctx context.Context, workerID string) {
 				}
 				continue
 			}
+			// Terminal failure (provider disabled or missing, dead after
+			// ErrMaxRetries, non-retryable error): Nack settles the queue
+			// entry for good — a requeueing queue (redis) would otherwise
+			// redeliver the task forever.
 			logger.Error("task failed", "task_id", task.ID, "worker", workerID, "error", err)
 			if nackErr := p.queue.Nack(ctx, task.ID, err); nackErr != nil {
 				logger.Error("nack failed", "task_id", task.ID, "error", nackErr)

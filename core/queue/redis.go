@@ -3,12 +3,14 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/retry"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -240,7 +242,34 @@ func (q *redisQueue) Ack(ctx context.Context, taskID string) error {
 	return q.client.XAck(ctx, q.stream, q.group, streamID).Err()
 }
 
-func (q *redisQueue) Nack(ctx context.Context, taskID string, _ error) error {
+// requeueWorthy reports whether a nacked task deserves another delivery
+// attempt. The reason reaching Nack is the delivery outcome the runtime
+// already settled: a retryable failure (the pool's schedule-fallback nack,
+// or an SDK handler with no retryer of its own — requeue is that path's
+// only retry) gets another round; a dead one (ErrMaxRetries wrapping a
+// retryable error: budget owed but spent) and a non-retryable one (provider
+// disabled or missing, permanent class) do not. A context error is shutdown
+// interrupting the attempt mid-flight, not the delivery failing on merit:
+// the task requeues so a restart delivers it (at-least-once). A nil reason
+// states nothing and keeps the historical requeue.
+func requeueWorthy(reason error) bool {
+	if reason == nil {
+		return true
+	}
+	if errors.Is(reason, context.Canceled) || errors.Is(reason, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(reason, retry.ErrMaxRetries) {
+		return false
+	}
+	return retry.IsRetryable(reason)
+}
+
+// Nack settles a popped task whose delivery failed. The reason decides the
+// task's fate (requeueWorthy): terminal failures settle the pending entry
+// with XAck alone, retryable and shutdown-interrupted ones requeue by
+// re-pushing the original message.
+func (q *redisQueue) Nack(ctx context.Context, taskID string, reason error) error {
 	q.mu.Lock()
 	streamID, ok := q.pending[taskID]
 	if ok {
@@ -252,12 +281,22 @@ func (q *redisQueue) Nack(ctx context.Context, taskID string, _ error) error {
 		return nil
 	}
 
-	// Claim the message back so another worker can pick it up
-	// XPENDING + XCLAIM is the standard pattern for retry
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	// Read original message before acking so a failed requeue does not lose payload.
+	// A terminal failure settles with XAck alone — re-injecting a task that
+	// can never succeed would loop it through the stream forever, hammering
+	// the dead provider and the queue.
+	if !requeueWorthy(reason) {
+		if err := q.client.XAck(ctx, q.stream, q.group, streamID).Err(); err != nil {
+			return fmt.Errorf("failed to ack settled message: %w", err)
+		}
+		return nil
+	}
+
+	// Claim the message back so another worker can pick it up: read the
+	// original message before acking so a failed requeue does not lose
+	// payload.
 	msgs, err := q.client.XRange(ctx, q.stream, streamID, streamID).Result()
 	if err != nil {
 		return fmt.Errorf("failed to load message for retry: %w", err)

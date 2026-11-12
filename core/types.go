@@ -170,6 +170,11 @@ type Queue interface {
 	Push(ctx context.Context, task *DeliveryTask) error
 	Pop(ctx context.Context) (*DeliveryTask, error)
 	Ack(ctx context.Context, taskID string) error
+	// Nack reports a failed delivery for taskID. The reason decides the
+	// task's fate: a retryable failure (or a shutdown-interrupting context
+	// error) is redelivered; a terminal one — non-retryable, or dead after
+	// retry.ErrMaxRetries — is settled for good. Queues that cannot
+	// redeliver (memory) ignore the reason.
 	Nack(ctx context.Context, taskID string, reason error) error
 	Size() int
 	Close() error

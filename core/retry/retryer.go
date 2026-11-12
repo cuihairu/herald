@@ -46,6 +46,14 @@ func isRetryable(err error) bool {
 	return errors.As(err, &httpErr)
 }
 
+// IsRetryable is the exported form of the retryer's own retryability probe:
+// whether err is worth a later attempt. Queue implementations consult it when
+// a nacked task carries its delivery error — a retryable reason earns the
+// task another round, a terminal one settles it for good.
+func IsRetryable(err error) bool {
+	return isRetryable(err)
+}
+
 // Policy is the retry policy
 type Policy interface {
 	ShouldRetry(err error, retryCount int) bool

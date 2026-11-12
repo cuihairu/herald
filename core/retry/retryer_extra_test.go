@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/errclass"
 )
 
 func TestRetryableErrorErrorMessage(t *testing.T) {
@@ -14,6 +15,24 @@ func TestRetryableErrorErrorMessage(t *testing.T) {
 	err := NewRetryableError(inner)
 	if got := err.Error(); got != "boom" {
 		t.Errorf("Error() = %q, want %q", got, "boom")
+	}
+}
+
+// TestIsRetryableExported pins the exported probe the queue layer consults
+// when a nacked task carries its delivery error: classified errors speak for
+// their class, marker-wrapped ones retry, anything else is terminal.
+func TestIsRetryableExported(t *testing.T) {
+	if !IsRetryable(NewRetryableError(errors.New("transient"))) {
+		t.Error("IsRetryable(marker-wrapped) = false, want true")
+	}
+	if !IsRetryable(errclass.New(errclass.Temporary, errors.New("flaky"))) {
+		t.Error("IsRetryable(classified temporary) = false, want true")
+	}
+	if IsRetryable(errclass.New(errclass.Permanent, errors.New("bad payload"))) {
+		t.Error("IsRetryable(classified permanent) = true, want false")
+	}
+	if IsRetryable(errors.New("provider disabled")) {
+		t.Error("IsRetryable(plain error) = true, want false")
 	}
 }
 

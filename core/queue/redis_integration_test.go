@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cuihairu/herald/core"
+	"github.com/cuihairu/herald/core/retry"
 )
 
 // These tests require a running Redis server.
@@ -182,7 +183,7 @@ func TestRedisQueueIntegration(t *testing.T) {
 		_ = q.Push(ctx, task)
 		popped, _ := q.Pop(ctx)
 
-		err = q.Nack(ctx, popped.ID, fmt.Errorf("delivery failed"))
+		err = q.Nack(ctx, popped.ID, retry.NewRetryableError(fmt.Errorf("delivery failed")))
 		if err != nil {
 			t.Errorf("expected no error on nack, got %v", err)
 		}
