@@ -55,21 +55,27 @@ func TestFeishuCallbackChallenge(t *testing.T) {
 	}
 }
 
-func TestFeishuCallbackPlaintextAck(t *testing.T) {
+// TestFeishuCallbackEncryptedAckLandsOnLedger drives the full ack chain —
+// ack record, incident ledger — through an encrypted envelope.
+func TestFeishuCallbackEncryptedAckLandsOnLedger(t *testing.T) {
 	ledger := incident.New(0)
 	ledger.Open(incident.Opening{RuleID: "r-up", GroupKey: "g1", AlertID: "inc-7", Title: "one"})
 	store := ack.NewMemoryStore()
-	env := newTestEnv(t, withAckStore(store), withIncidentStore(ledger))
+	env := newTestEnv(t, withAckStore(store), withIncidentStore(ledger),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
 
-	body := `{
+	inner := map[string]any{
 		"schema": "2.0",
-		"header": {"event_type": "card.action.trigger"},
-		"event": {
-			"operator": {"open_id": "ou_alice"},
-			"action": {"tag": "button", "value": {"alert_id": "inc-7"}}
-		}
-	}`
-	if code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusOK {
+		"event": map[string]any{
+			"operator": map[string]any{"open_id": "ou_alice"},
+			"action":   map[string]any{"value": map[string]any{"alert_id": "inc-7"}},
+		},
+	}
+	body, err := json.Marshal(map[string]any{"encrypt": feishuSeal(t, testEncryptKey, inner)})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil); code != http.StatusOK {
 		t.Fatalf("callback failed: %d (%v)", code, resp)
 	}
 
@@ -86,11 +92,48 @@ func TestFeishuCallbackPlaintextAck(t *testing.T) {
 	}
 }
 
-func TestFeishuCallbackPlaintextCancelsUpgrade(t *testing.T) {
+// TestFeishuCallbackPlaintextRefusedWithoutKey pins the fail-closed
+// behavior: the encryption key is the endpoint's only credential, and a
+// plaintext action carries none — with no key configured it must not be
+// processable, or anyone could ack any alert and cancel its escalation.
+func TestFeishuCallbackPlaintextRefusedWithoutKey(t *testing.T) {
+	ledger := incident.New(0)
+	ledger.Open(incident.Opening{RuleID: "r-up", GroupKey: "g1", AlertID: "inc-7", Title: "one"})
+	store := ack.NewMemoryStore()
+	env := newTestEnv(t, withAckStore(store), withIncidentStore(ledger))
+
+	// V2 action, V1 action, and one without an alert_id: every plaintext
+	// body carries no credential, all are refused.
+	bodies := []struct {
+		name string
+		body string
+	}{
+		{"v2 action", `{"schema":"2.0","event":{"operator":{"open_id":"ou_alice"},"action":{"value":{"alert_id":"inc-7"}}}}`},
+		{"v1 action", `{"action":{"value":{"alert_id":"inc-7"}},"open_id":"ou_old"}`},
+		{"no alert_id", `{"schema":"2.0","event":{"operator":{"open_id":"ou_x"},"action":{"value":{"other":"v"}}}}`},
+	}
+	for _, tc := range bodies {
+		if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", tc.body, nil); code != http.StatusUnauthorized {
+			t.Fatalf("%s: plaintext card action without a key must be refused 401, got %d", tc.name, code)
+		}
+	}
+	if rec, err := store.Get(t.Context(), "inc-7"); err != nil || rec != nil {
+		t.Fatalf("a refused plaintext action must not ack, got %v / %v", rec, err)
+	}
+	inc := ledger.List(&incident.Filter{AlertID: "inc-7"})[0]
+	if inc.Status() != incident.StatusOpen {
+		t.Fatalf("a refused plaintext action must leave the incident open, got %v", inc.Status())
+	}
+}
+
+func TestFeishuCallbackCancelsUpgrade(t *testing.T) {
 	path := t.TempDir() + "/pendings.json"
 	store := ack.NewMemoryStore()
 	esc := escalation.NewManager(store, nil, path)
-	env := newTestEnv(t, withAckStore(store), func(c *Config) { c.Escalation = esc })
+	env := newTestEnv(t, withAckStore(store), func(c *Config) {
+		c.Escalation = esc
+		c.CardCallbackEncryptKey = testEncryptKey
+	})
 
 	if err := esc.Schedule(t.Context(), escalation.Pending{
 		RuleID: "r-up", AlertID: "inc-9", To: []string{"phone"},
@@ -98,8 +141,18 @@ func TestFeishuCallbackPlaintextCancelsUpgrade(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Schedule: %v", err)
 	}
-	body := `{"schema":"2.0","event":{"operator":{"open_id":"ou_b"},"action":{"value":{"alert_id":"inc-9"}}}}`
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusOK {
+	inner := map[string]any{
+		"schema": "2.0",
+		"event": map[string]any{
+			"operator": map[string]any{"open_id": "ou_b"},
+			"action":   map[string]any{"value": map[string]any{"alert_id": "inc-9"}},
+		},
+	}
+	body, err := json.Marshal(map[string]any{"encrypt": feishuSeal(t, testEncryptKey, inner)})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil); code != http.StatusOK {
 		t.Fatalf("callback failed: %d", code)
 	}
 	// The ack cancelled the pending upgrade: the persisted table is empty.
@@ -161,10 +214,16 @@ func TestFeishuCallbackRejectsPlaintextWhenKeyConfigured(t *testing.T) {
 	env := newTestEnv(t, withAckStore(store), func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
 
 	// A valid-looking plaintext action must not be processable without the
-	// encryption key once one is configured.
+	// encryption key once one is configured. The refusal must answer the
+	// same message as the no-key refusal, so it does not reveal whether the
+	// credential is armed.
 	body := `{"schema":"2.0","event":{"operator":{"open_id":"ou_plain"},"action":{"value":{"alert_id":"inc-plain"}}}}`
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusUnauthorized {
+	code, resp := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil)
+	if code != http.StatusUnauthorized {
 		t.Fatalf("plaintext callback with a key configured must be 401, got %d", code)
+	}
+	if msg, _ := resp["message"].(string); msg != "plaintext card actions are not accepted; card callbacks must be encrypted" {
+		t.Fatalf("plaintext refusal message = %q, want the uniform 401", msg)
 	}
 	if rec, err := store.Get(t.Context(), "inc-plain"); err != nil || rec != nil {
 		t.Fatalf("a rejected plaintext action must not ack, got %v / %v", rec, err)
@@ -189,26 +248,24 @@ func TestFeishuCallbackChallengeWithKeyConfigured(t *testing.T) {
 
 func TestFeishuCallbackV1Fallback(t *testing.T) {
 	store := ack.NewMemoryStore()
-	env := newTestEnv(t, withAckStore(store))
+	env := newTestEnv(t, withAckStore(store),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
 
 	// Legacy payloads carry the action and operator on the top level.
-	body := `{"action":{"value":{"alert_id":"inc-v1"}},"open_id":"ou_old"}`
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusOK {
+	inner := map[string]any{
+		"action": map[string]any{"value": map[string]any{"alert_id": "inc-v1"}},
+		"open_id": "ou_old",
+	}
+	body, err := json.Marshal(map[string]any{"encrypt": feishuSeal(t, testEncryptKey, inner)})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil); code != http.StatusOK {
 		t.Fatalf("v1 callback failed: %d", code)
 	}
 	rec, _ := store.Get(t.Context(), "inc-v1")
 	if rec == nil || rec.AckedBy != "ou_old" {
 		t.Fatalf("v1 action must ack the alert, got %+v", rec)
-	}
-}
-
-func TestFeishuCallbackNoAlertID(t *testing.T) {
-	store := ack.NewMemoryStore()
-	env := newTestEnv(t, withAckStore(store))
-
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu",
-		`{"schema":"2.0","event":{"operator":{"open_id":"ou_x"},"action":{"value":{"other":"v"}}}}`, nil); code != http.StatusBadRequest {
-		t.Fatalf("action without alert_id must be 400, got %d", code)
 	}
 }
 
@@ -381,21 +438,40 @@ func (failingAckStore) Delete(context.Context, string) error { return nil }
 func (failingAckStore) Close() error                         { return nil }
 
 func TestFeishuCallbackAckStoreFailure(t *testing.T) {
-	env := newTestEnv(t, withAckStore(failingAckStore{}))
+	env := newTestEnv(t, withAckStore(failingAckStore{}),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
 
-	body := `{"schema":"2.0","event":{"operator":{"open_id":"ou_a"},"action":{"value":{"alert_id":"inc-x"}}}}`
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusInternalServerError {
+	inner := map[string]any{
+		"schema": "2.0",
+		"event": map[string]any{
+			"operator": map[string]any{"open_id": "ou_a"},
+			"action":   map[string]any{"value": map[string]any{"alert_id": "inc-x"}},
+		},
+	}
+	body, err := json.Marshal(map[string]any{"encrypt": feishuSeal(t, testEncryptKey, inner)})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil); code != http.StatusInternalServerError {
 		t.Fatalf("a failing store must be 500, got %d", code)
 	}
 }
 
 func TestFeishuCallbackAnonymizesMissingOperator(t *testing.T) {
 	store := ack.NewMemoryStore()
-	env := newTestEnv(t, withAckStore(store))
+	env := newTestEnv(t, withAckStore(store),
+		func(c *Config) { c.CardCallbackEncryptKey = testEncryptKey })
 
 	// V2 action without an operator block: still ack, with a placeholder.
-	body := `{"schema":"2.0","event":{"action":{"value":{"alert_id":"inc-anon"}}}}`
-	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", body, nil); code != http.StatusOK {
+	inner := map[string]any{
+		"schema": "2.0",
+		"event":  map[string]any{"action": map[string]any{"value": map[string]any{"alert_id": "inc-anon"}}},
+	}
+	body, err := json.Marshal(map[string]any{"encrypt": feishuSeal(t, testEncryptKey, inner)})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if code, _ := env.do(t, http.MethodPost, "/api/v1/callbacks/feishu", string(body), nil); code != http.StatusOK {
 		t.Fatalf("callback failed: %d", code)
 	}
 	rec, _ := store.Get(t.Context(), "inc-anon")

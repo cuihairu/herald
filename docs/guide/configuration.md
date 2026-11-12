@@ -272,8 +272,9 @@ rules:
 # The interactive card's "Acknowledge Alert" button calls back to POST /api/v1/callbacks/feishu,
 # using the same identity and storage as the ack API (ack records, escalation cancellation, incident ledger).
 # encrypt_key is the "Encrypt Key" generated when configuring the callback on the Feishu open platform:
-# encrypted callbacks are decrypted with it and plaintext card actions are rejected while it is set;
-# when unset, encrypted callbacks are rejected and plaintext actions are accepted. URL verification challenges are always answered.
+# encrypted callbacks are decrypted with it, and card actions only land once it is set — plaintext card
+# actions are rejected with 401 whether or not it is configured (the key is the endpoint's only credential).
+# URL verification challenges are always answered.
 # card_callback:
 #   encrypt_key: "$FEISHU_ENCRYPT_KEY"
 
@@ -589,7 +590,7 @@ Once the Feishu provider is configured with `interactive_cards: true`, **deliver
 
 - The callback endpoint is **not behind API-token authentication** (the caller is Feishu's servers and the credential is the callback encryption key); when no ack store is configured it returns 503
 - The URL verification challenge (`url_verification`) from the first time you configure the callback URL on the Feishu open platform is answered automatically
-- The callback body supports an encrypted mode (the `encrypt` field, decrypted with AES-256-CBC using the SHA-256 of `card_callback.encrypt_key`) and a plaintext mode; an encrypted callback folds to the uniform 400 when no key is configured, and a plaintext card action returns 401 while a key is configured (the URL verification challenge is always answered)
+- The callback body only carries actions encrypted (the `encrypt` field, decrypted with AES-256-CBC using the SHA-256 of `card_callback.encrypt_key`); an encrypted callback folds to the uniform 400 when no key is configured, and a plaintext card action returns 401 whether or not a key is configured — the key is this endpoint's only credential, so with no key configured there is no authenticated path at all (the URL verification challenge is always answered)
 - Button acknowledgments go through exactly the same path as the ack API: the same ack record (idempotent, first ack wins), cancellation of pending escalations, marking of the incident ledger; `acked_by` records the clicker's open_id, with the source marked `feishu_card`
 - Deliveries without an alert_id (or with the interactive switch off) stay plain text messages — cards exist solely for the acknowledge button
 

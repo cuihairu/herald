@@ -909,8 +909,10 @@ by `card_callback.encrypt_key`: answer Feishu's `url_verification` challenge;
 encrypted callbacks (the `encrypt` field, AES-256-CBC) are decrypted and
 processed when an encryption key is configured, and fold to the uniform 400
 when it is not (so a missing key is indistinguishable from a bad ciphertext).
-Plaintext card actions are accepted only while no key is configured; once a key
-is set they return 401 (the URL verification challenge is still answered). The
+Plaintext card actions are refused with 401 whether or not a key is configured
+— the encryption key is this endpoint's only credential, so with no key
+configured there is no authenticated path at all (the URL verification
+challenge is still answered). The
 acknowledge action goes through the same store as `POST /alerts/{id}/ack`: the
 first acknowledgment takes effect,
 pending escalations are canceled, and the event ledger records it. Returns 503

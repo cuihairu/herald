@@ -268,8 +268,8 @@ rules:
 # 交互卡片的「确认告警」按钮回调到 POST /api/v1/callbacks/feishu，
 # 走与 ack API 相同的身份与存储（ack 记录、升级取消、事故台账）。
 # encrypt_key 是飞书开放平台配置回调时生成的「Encrypt Key」：
-# 加密回调用它解密，配置后明文卡片动作一律拒绝；不配置时加密回调被拒、明文动作可用。
-# URL 验证挑战始终应答。
+# 加密回调用它解密，卡片动作只有配置后才落账——明文卡片动作无论是否配置一律 401
+# （该密钥是端点唯一的凭据）。URL 验证挑战始终应答。
 # card_callback:
 #   encrypt_key: "$FEISHU_ENCRYPT_KEY"
 
@@ -585,7 +585,7 @@ curl http://localhost:8080/api/v1/alerts/incident-123
 
 - 回调端点**不在 API token 鉴权之后**（调用方是飞书服务器，凭据是回调加密密钥）；未配置 ack store 时返回 503
 - 首次在飞书开放平台配置回调地址时的 URL 验证挑战（`url_verification`）自动应答
-- 回调体支持加密模式（`encrypt` 字段，用 `card_callback.encrypt_key` 的 SHA-256 做 AES-256-CBC 解密）与明文模式；加密回调在未配置密钥时折叠为统一 400，配置密钥后明文卡片动作返回 401（URL 验证挑战始终应答）
+- 回调体只以加密模式携带动作（`encrypt` 字段，用 `card_callback.encrypt_key` 的 SHA-256 做 AES-256-CBC 解密）；加密回调在未配置密钥时折叠为统一 400，明文卡片动作无论是否配置密钥一律 401——该密钥是本端点唯一的凭据，未配置时不存在任何经认证的路径（URL 验证挑战始终应答）
 - 按钮确认与 ack API 走完全相同的链路：同一条 ack 记录（幂等，首认获胜）、取消待决升级、标记事故台账；`acked_by` 记录点击人的 open_id，来源标记 `feishu_card`
 - 没有 alert_id 的投递（或交互开关关闭）保持纯文本消息不变，卡片只为确认按钮而生
 

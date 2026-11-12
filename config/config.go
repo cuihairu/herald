@@ -142,8 +142,10 @@ type Config struct {
 // CardCallbackConfig holds the provider-side secrets of card button
 // callbacks. EncryptKey is the Feishu console's "Encrypt Key": callbacks
 // that arrive encrypted are decrypted with it, and plaintext card actions
-// are rejected while it is set (the URL verification challenge still works).
-// Empty keeps encrypted callbacks rejected and accepts plaintext actions.
+// are rejected with 401 whether or not it is set (the URL verification
+// challenge still works). Empty — i.e. leaving card actions
+// unauthenticated — also keeps encrypted callbacks rejected, so no card
+// action lands until the key is configured.
 type CardCallbackConfig struct {
 	EncryptKey string `yaml:"encrypt_key"`
 }

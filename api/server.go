@@ -93,7 +93,9 @@ type Config struct {
 	Incidents  *incident.Store     // optional; nil keeps incident endpoints off
 	// CardCallbackEncryptKey verifies Feishu interactive-card callbacks
 	// (POST /api/v1/callbacks/feishu). Empty keeps encrypted callbacks
-	// rejected; the endpoint itself needs an AckStore to be useful.
+	// rejected and the endpoint refuses plaintext card actions, so no card
+	// action lands until the key is set; the endpoint itself needs an
+	// AckStore to be useful.
 	CardCallbackEncryptKey string
 	// Digest wires the §10 aggregator: folding preferences collect events
 	// into windows instead of delivering them. nil keeps every event

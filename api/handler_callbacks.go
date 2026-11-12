@@ -22,10 +22,14 @@ const ackSourceCard = "feishu_card"
 // it is called by Feishu's servers, which authenticate with the callback
 // encryption key instead.
 //
-// It answers Feishu's URL verification challenge. When card_callback.encrypt_key
-// is configured it accepts only encrypted bodies (encrypt field, AES-256-CBC
-// under SHA-256 of the key) — plaintext actions would bypass the credential.
-// Without a key, plaintext bodies are accepted and encrypted ones are rejected.
+// It answers Feishu's URL verification challenge. Card actions are only
+// accepted encrypted (the encrypt field, AES-256-CBC under SHA-256 of the
+// key): the encryption key is the endpoint's sole credential, and a
+// plaintext action carries none — with a key configured it would bypass
+// that credential, and without one it would let anyone ack any alert and
+// cancel its escalation. Plaintext actions are refused with 401 either
+// way, uniformly, so the response does not reveal whether a key is armed;
+// encrypted ones fold to the uniform 400 when no key is configured.
 func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 	if h.ackStore == nil {
 		h.respondError(w, http.StatusServiceUnavailable, "ack store is not configured")
@@ -66,8 +70,7 @@ func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	encrypted := payload.Encrypt != ""
-	if encrypted {
+	if payload.Encrypt != "" {
 		if h.cardEncryptKey == "" {
 			// Uniform fold: an encrypted callback with no key configured is
 			// indistinguishable from a decryption failure. Answering a
@@ -90,25 +93,28 @@ func (h *Handler) HandleFeishuCallback(w http.ResponseWriter, r *http.Request) {
 			h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
 			return
 		}
-	} else if h.cardEncryptKey != "" {
-		// The encryption key is the endpoint's credential. Accepting a
-		// plaintext action while it is configured would let anyone ack an
-		// alert without knowing the key.
-		h.respondError(w, http.StatusUnauthorized, "plaintext callbacks are not accepted while callback encryption is configured")
+	} else {
+		// The encryption key is the endpoint's sole credential, and a
+		// plaintext card action carries none. With a key configured,
+		// accepting it would let anyone ack an alert without knowing the
+		// key; without one, it would let anyone ack any alert and cancel
+		// its escalation — this handler is registered outside the API
+		// token middleware, so the key is the only gate. Refuse plaintext
+		// actions uniformly either way: the same 401 whether or not a key
+		// is armed, so the response does not reveal the endpoint's
+		// configuration.
+		h.respondError(w, http.StatusUnauthorized, "plaintext card actions are not accepted; card callbacks must be encrypted")
 		return
 	}
 
 	alertID, ackedBy := extractFeishuCardAck(payload.Schema, payload.Event, payload.Action, payload.OpenID)
 	if alertID == "" {
-		if encrypted {
-			// Fold the no-alert_id outcome into the uniform decryption
-			// message too: a valid-padding payload that lacks an alert_id
-			// must not be distinguishable from a decryption failure, or the
-			// response itself becomes a padding oracle.
-			h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
-			return
-		}
-		h.respondError(w, http.StatusBadRequest, "card action carries no alert_id")
+		// Fold the no-alert_id outcome into the uniform decryption message
+		// too: a valid-padding payload that lacks an alert_id must not be
+		// distinguishable from a decryption failure, or the response itself
+		// becomes a padding oracle. Every action reaching here arrived
+		// encrypted — plaintext is refused above.
+		h.respondError(w, http.StatusBadRequest, "invalid encrypted callback")
 		return
 	}
 
