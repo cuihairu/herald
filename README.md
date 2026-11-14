@@ -109,9 +109,10 @@ docker-compose up -d herald
 
 ### OpenWrt / iStoreOS (opkg)
 
-The rolling nightly release ships three `.ipk` packages per architecture
-(x86_64 and aarch64): `herald-nightly-openwrt-<arch>.ipk` (static heraldd
-binary, procd init script, UCI config and the default full config),
+The rolling nightly release ships a three-part `.ipk` set across two
+architectures (x86_64 and aarch64): the per-architecture
+`herald-nightly-openwrt-<arch>.ipk` (static heraldd binary, procd init
+script, UCI config and the default full config) plus the arch-independent
 `herald-nightly-openwrt-luci-app.ipk` (LuCI settings + status pages) and
 `herald-nightly-openwrt-app-meta.ipk` (iStore metadata; installing it pulls
 the other two via dependencies):

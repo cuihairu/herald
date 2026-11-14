@@ -109,11 +109,12 @@ docker-compose up -d herald
 
 ### OpenWrt / iStoreOS (opkg)
 
-滚动 nightly 构建为每种架构（x86_64 / aarch64）提供三个 `.ipk` 包：
-`herald-nightly-openwrt-<arch>.ipk`（静态 heraldd 二进制、procd init、UCI
-配置与默认完整配置）、`herald-nightly-openwrt-luci-app.ipk`（LuCI 设置 +
-状态页）与 `herald-nightly-openwrt-app-meta.ipk`（iStore 元数据；安装它经
-依赖拉起前两个）：
+滚动 nightly 构建面向两种架构（x86_64 / aarch64）提供一套三个 `.ipk` 包：
+按架构区分的 `herald-nightly-openwrt-<arch>.ipk`（静态 heraldd 二进制、
+procd init、UCI 配置与默认完整配置），加上不分架构的
+`herald-nightly-openwrt-luci-app.ipk`（LuCI 设置 + 状态页）与
+`herald-nightly-openwrt-app-meta.ipk`（iStore 元数据；安装它经依赖拉起前
+两个）：
 
 ```bash
 opkg install herald-nightly-openwrt-<arch>.ipk
