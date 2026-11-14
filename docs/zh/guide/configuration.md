@@ -878,6 +878,7 @@ apps:
 | `neteasesms` | 网易云信短信 | `type: neteasesms` |
 | `fcm` | Firebase 推送（Android/Web） | `type: fcm` |
 | `apns` | Apple 推送（iOS/macOS） | `type: apns` |
+| `bark` | Bark 推送到自己的 iPhone（经 bark-server） | `type: bark` |
 | `jpush` | 极光推送（Android/iOS/鸿蒙） | `type: jpush` |
 | `getui` | 个推（Android/iOS/鸿蒙） | `type: getui` |
 | `wechat` | 微信个人推送 | `type: wechat` |

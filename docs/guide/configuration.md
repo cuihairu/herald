@@ -883,6 +883,7 @@ apps:
 | `neteasesms` | NetEase Yunxin SMS | `type: neteasesms` |
 | `fcm` | Firebase push (Android/Web) | `type: fcm` |
 | `apns` | Apple push (iOS/macOS) | `type: apns` |
+| `bark` | Bark push to your own iPhone (via bark-server) | `type: bark` |
 | `jpush` | JPush (Android/iOS/HarmonyOS) | `type: jpush` |
 | `getui` | Getui (Android/iOS/HarmonyOS) | `type: getui` |
 | `wechat` | WeChat personal push | `type: wechat` |
