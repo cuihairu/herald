@@ -164,20 +164,22 @@ jobs:
           mkdir -p dist/linux-smoke
           tar xzf "dist/herald-nightly-linux-${{ matrix.arch }}.tar.gz" -C dist/linux-smoke
           cd dist/linux-smoke
-          # Usage surface: no args prints usage and exits 1 (expected).
-          out=$(./heraldd 2>&1 || true)
-          case "$out" in
-            *"Usage: heraldd"*) ;;
-            *) echo "$out"; exit 1 ;;
-          esac
-          # Live serve smoke on a cold port pair. arm64 runs under
-          # qemu-user (the binary is fully static, pure Go).
+          # qemu first: on arm64 even the usage surface must run under
+          # emulation (aarch64 binary on an x86_64 runner).
           qemu=""
           if [ "${{ matrix.goarch }}" = "arm64" ]; then
             sudo apt-get update -qq
             sudo apt-get install -y -qq qemu-user-static >/dev/null
             qemu="qemu-aarch64-static"
           fi
+          # Usage surface: no args prints usage and exits 1 (expected).
+          out=$($qemu ./heraldd 2>&1 || true)
+          case "$out" in
+            *"Usage: heraldd"*) ;;
+            *) echo "$out"; exit 1 ;;
+          esac
+          # Live serve smoke on a cold port pair. arm64 runs under
+          # qemu-user (the binary is fully static, pure Go).
           cat > smoke-config.yaml <<'YAML'
           server:
             addr: "127.0.0.1:18793"
@@ -313,6 +315,10 @@ jobs:
             exit 1
           }
           Write-Host 'serve smoke ok (windows x86_64)'
+          # The runner appends `exit $LASTEXITCODE` to pwsh steps; the
+          # usage-surface check above leaves $LASTEXITCODE at 1 (expected
+          # heraldd behavior), so close the success path explicitly.
+          exit 0
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: nightly-windows-x86_64
