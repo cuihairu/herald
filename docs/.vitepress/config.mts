@@ -133,6 +133,7 @@ export default defineConfig({
           items: [
             { text: 'FCM', link: '/providers/fcm' },
             { text: 'APNs', link: '/providers/apns' },
+            { text: 'Bark', link: '/providers/bark' },
             { text: 'JPush', link: '/providers/jpush' },
             { text: 'Getui', link: '/providers/getui' },
           ],
@@ -228,6 +229,7 @@ export default defineConfig({
                 { text: '协议设计', link: '/zh/architecture/protocols' },
                 { text: '模板系统', link: '/zh/architecture/templates' },
                 { text: '目录结构', link: '/zh/architecture/directory' },
+                { text: '源码分层分析', link: '/zh/architecture/layers' },
                 { text: '测试覆盖标准', link: '/zh/architecture/coverage' },
                 { text: '覆盖率完成报告（2026-09）', link: '/zh/coverage-final-report-2026-09' },
                 { text: '覆盖度专项总结（2026-09）', link: '/zh/coverage-initiative-2026-09' },
@@ -293,6 +295,7 @@ export default defineConfig({
               items: [
                 { text: 'FCM', link: '/zh/providers/fcm' },
                 { text: 'APNs', link: '/zh/providers/apns' },
+                { text: 'Bark', link: '/zh/providers/bark' },
                 { text: 'JPush', link: '/zh/providers/jpush' },
                 { text: '个推', link: '/zh/providers/getui' },
               ],

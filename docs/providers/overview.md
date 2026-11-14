@@ -16,6 +16,7 @@ Herald supports a variety of notification channels, including instant messaging,
 | App push (Android/Web) | [`fcm`](./fcm.md) | needs a Firebase project; generate a service account in the console and you're set |
 | App push (iOS/macOS) | [`apns`](./apns.md) | needs an Apple Developer account; generate a .p8 on the Keys page |
 | App push (China, Android/iOS/HarmonyOS) | [`jpush`](./jpush.md) / [`getui`](./getui.md) | needs a JPush/Getui account; create an app in the console to get the AppKey/Master Secret |
+| Push to your own iPhone (no developer account) | [`bark`](./bark.md) | install the Bark app, copy the device key from it and you're done — zero approval |
 
 Every channel page contains: **get credentials → configure → send your first message (commands you can follow along) → common errors**.
 
@@ -54,6 +55,7 @@ Every channel page contains: **get credentials → configure → send your first
 |----------|------|------|
 | [`fcm`](./fcm.md) | Firebase Cloud Messaging (Android/Web) | ✅ |
 | [`apns`](./apns.md) | Apple Push Notification service (iOS/macOS) | ✅ |
+| [`bark`](./bark.md) | Bark (iOS push via bark-server) | ✅ |
 | [`jpush`](./jpush.md) | JPush (Android/iOS/HarmonyOS) | ✅ |
 | [`getui`](./getui.md) | Getui (Android/iOS/HarmonyOS) | ✅ |
 

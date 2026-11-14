@@ -122,7 +122,8 @@ opkg install herald-nightly-openwrt-luci-app.ipk
 opkg install herald-nightly-openwrt-app-meta.ipk   # 可选；依赖自动拉齐
 ```
 
-安装后服务默认不启用。在 LuCI「服务 → Herald 通知编排」打开（或
+安装后服务默认不启用。在 LuCI「服务 → Herald 通知」打开（设置页本身的
+标题是「Herald 通知编排」；或
 `uci set herald.general.enabled='1' && uci commit herald &&
 /etc/init.d/herald start`）。两种配置模式：
 
@@ -170,6 +171,7 @@ set +a
 ./bin/heraldd serve --config config.yaml
 
 # 启动远程 Worker（分布式部署时）
+# worker.yaml 是你自己的文件——示例见 docs/guide/deployment.md
 ./bin/heraldd worker --config worker.yaml
 
 # 启动 Dashboard（另一个终端）
@@ -178,7 +180,8 @@ make dashboard-dev
 
 Dashboard 登录使用 `config.yaml` 的 `auth.admin_user`——出厂配置把 `admin` 映射到
 `$HERALD_ADMIN_PASSWORD`，请在 `.env` 中导出真实口令（见 `.env.example`），否则
-`/auth/login` 无账号可鉴、Dashboard 无法登录。
+`/auth/login` 无账号可鉴、Dashboard 无法登录（真实路径
+`/api/v1/auth/login`）。
 
 ### 访问 Dashboard
 
@@ -186,7 +189,7 @@ Dashboard 登录使用 `config.yaml` 的 `auth.admin_user`——出厂配置把 
 http://localhost:3000
 ```
 
-登录后侧边栏可用的页面：仪表盘、Providers、通知规则、通知群组、on-call 值班表、事件账本、Workers、日志、投递记录、发送消息。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
+登录后侧边栏可用的页面：概览、发送、Providers、Workers、受众、通知群组、值班表、通知模板、通知规则、Apps、事件台账、日志、投递状态、RSS、API Keys、设置。其中「通知规则」与「通知群组」对应规则引擎与命名受众的完整 CRUD，也是配置路由与改道的主入口——Dashboard 保存规则时**同时编译表达式**，非法表达式当场被拒，不会等到派发时才发现。
 
 ## 使用
 
@@ -229,7 +232,9 @@ curl http://localhost:8080/api/v1/status
 ### 查看 Providers
 
 ```bash
-curl http://localhost:8080/api/v1/providers
+# /api/v1/providers 挂在鉴权后（与匿名的 /api/v1/status 不同）：带上 key
+curl http://localhost:8080/api/v1/providers \
+  -H "Authorization: Bearer $HERALD_API_KEY"
 ```
 
 ## 架构
@@ -403,7 +408,7 @@ auth:
 - [事件与告警模型](./docs/guide/events.md)（level 词汇表、去重与幂等、至少一次投递保证）
 - [应用接入 API](./docs/api/apps.md)（`/apps/{app}/**` 命名空间逐端点参考）· [OpenAPI 规范](./docs/api/openapi.yaml)（喂给代码生成器）
 - [配置指南](./docs/guide/configuration.md)（规则引擎、通知群组、受众与联系面、Digest、队列、Provider 全量配置项）
-- [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / 微信公众号 / 阿里云短信 / 腾讯云短信 / 网易云信短信 / Email / FCM / APNs / 极光推送 / 个推 / Webhook / Log，附 [短信对比](./docs/providers/sms.md)）
+- [Provider 文档](./docs/providers/overview.md)（各渠道单页：Telegram / 飞书 / 企业微信 / 钉钉 / Slack / Discord / 微信 / 微信公众号 / 阿里云短信 / 腾讯云短信 / 网易云信短信 / Email / FCM / APNs / Bark / 极光推送 / 个推 / Webhook / Log，附 [短信对比](./docs/providers/sms.md)）
 - [受众领域模型（总纲）](./docs/design-audience-model.md) · [受众订阅与投递中枢（关系详设）](./docs/design-audience-relations.md) · [概念边界与分层审计](./docs/design-audience-boundaries.md)
 - [规则引擎决策层设计](./docs/design-rule-engine.md) · [通知群组设计](./docs/design-notification-groups.md)
 
@@ -436,7 +441,7 @@ Herald 基于开源组件构建，核心外部依赖见 [go.mod](./go.mod)：
 - [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - 配置文件解析
 - Dashboard 基于 React + Ant Design（Vite 构建），文档站基于 VitePress
 
-路由、规则引擎、队列抽象、模板与 18 个渠道 Provider 的业务代码在仓库内实现。
+路由、规则引擎、队列抽象、模板与 19 个渠道 Provider 的业务代码在仓库内实现。
 
 ## 许可证
 

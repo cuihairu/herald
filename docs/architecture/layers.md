@@ -10,59 +10,59 @@
 
 | Term | English | Definition | File:line |
 |------|---------|------------|-----------|
-| Event | Inbound notification intent | A caller's "what happened" description: type/level/channels/params, plus optional audience, event identity and state machine dimension. | core/types.go:26 |
-| Notification | Normalized notification | The pipeline's canonical in-flight record that rules, dedup and routing all read. | core/types.go:26 |
-| Delivery Task | One channel delivery unit | A single provider-bound attempt: task id, provider, rendered payload, recipients, retry budget. | core/types.go:64 |
+| Event | Gate-bound candidate | The §11 candidate the dedup gate decides on: event identity, dedup key, state-machine dimension, category and fold-ledger fingerprint. | core/dedup/gate.go:37 |
+| Notification | Normalized notification | The pipeline's canonical in-flight record that rules, dedup and routing all read. | core/types.go:18 |
+| Delivery Task | One channel delivery unit | A single provider-bound attempt: task id, provider, rendered payload, recipients, retry budget. | core/types.go:81 |
 | Queue | Task transport | Reliable consumption queue (in-memory channel or Redis Streams) that holds tasks between planning and worker consumption. | core/types.go:169 |
-| Scheduler | Delayed re-enqueue capability | Optional queue capability: holds a task aside until a future time (async retry waits live in the queue, not in the worker). | core/types.go:184 |
+| Scheduler | Delayed re-enqueue capability | Optional queue capability: holds a task aside until a future time (async retry waits live in the queue, not in the worker). | core/types.go:189 |
 | Worker | Delivery consumer | A pool goroutine (local) or a separate process (remote) that pops tasks and drives provider delivery. | core/worker/pool.go:17 |
 | Provider | Channel adapter | The one interface every delivery channel implements: `Deliver` plus name/type/status. | core/provider.go:8 |
 | Provider Factory | Provider constructor | Maps a provider type string + config map to a concrete Provider instance. | core/provider.go:43 |
-| Runtime Manager | Provider registry | Owns registered provider instances, factories, per-provider rate limiters and the delivery/retry settle state. | core/runtime/manager.go:27 |
-| Router | Static routing table | Resolves a notification type/level to a channel list, then to provider lists through the channels block. | core/route/router.go:14 |
-| Rule Engine | Declarative policy table | expr-compiled match/route/allow/suppress rules plus for/group/inhibit/silence semantics evaluated before routing. | core/rules/engine.go:291 |
-| Rule Store | Rule persistence | Ordered list of rules (memory or JSON file); order is evaluation priority. | core/rules/store.go:13 |
-| Rule State Store | Stateful rule state | Durable for-window / group / inhibit presence state (memory or Redis). | core/rules/state.go:20 |
-| Dedup Gate | §11 four-stage gate | Event idempotency → state machine → frequency tier → delivery, plus the fold ledger. | core/dedup/gate.go:46 |
-| Template Manager | Template registry | Holds channel-agnostic templates and renders them to a semantic RenderedData. | core/template/manager.go:14 |
-| Template Engine | Text rendering | `text/template` substitution over title/fields, cached by content hash. | core/template/engine.go:12 |
+| Runtime Manager | Provider registry | Owns registered provider instances, factories, per-provider rate limiters and the delivery/retry settle state. | core/runtime/manager.go:20 |
+| Router | Static routing table | Resolves a notification type/level to a channel list, then to provider lists through the channels block. | core/route/router.go:8 |
+| Rule Engine | Declarative policy table | expr-compiled match/route/allow/suppress rules plus for/group/inhibit/silence semantics evaluated before routing. | core/rules/engine.go:241 |
+| Rule Store | Rule persistence | Ordered list of rules (memory or JSON file); order is evaluation priority. | core/rules/store.go:14 |
+| Rule State Store | Stateful rule state | Durable for-window / group / inhibit presence state (memory or Redis). | core/rules/state.go:26 |
+| Dedup Gate | §11 four-stage gate | Event idempotency → state machine → frequency tier → delivery, plus the fold ledger. | core/dedup/gate.go:87 |
+| Template Manager | Template registry | Holds channel-agnostic templates and renders them to a semantic RenderedData. | core/template/manager.go:10 |
+| Template Engine | Text rendering | `text/template` substitution over title/fields, cached by content hash. | core/template/engine.go:13 |
 | Delivery Planner | Channel→task planning | Expands refs (plain/group/user/channel) and renders per-provider payloads into tasks. | core/service/planner.go |
-| Notification Service | Pipeline orchestrator | Rules → routing → template render → dedup → digest/feed projection → enqueue; the one Process() path. | core/service/notification.go:233 |
-| Delivery Store | Lifecycle state machine | Accepted/queued/delivering/retrying/delivered/failed/dead per task, with retry progression. | core/deliverystore/deliverystore.go:13 |
-| Log Store | Factual event log | One row per task's send/result/duration/error; status is the event outcome, not the lifecycle. | core/logstore/logstore.go:17 |
-| Retryer | Retry policy | Exponential/fixed backoff over classified errors; async Defer re-enqueues with a stamped NextRetryAt. | core/retry/retryer.go:112 |
-| Limiter | Per-provider rate limit | Token-bucket limiter attached to a provider instance, waited on before every Deliver. | core/limiter/limiter.go:15 |
-| Error Class | Provider error vocabulary | Temporary/permanent/rate_limited/authentication/invalid_request/timeout; retry decides from it alone. | core/errclass/errclass.go:14 |
-| Ack Store | Acknowledgement records | Alert-id keyed acknowledgements consulted by escalation before it fires. | core/ack/ack.go:17 |
-| Escalation Manager | Ack-gated upgrade | Arms a timeout on rule delivery; ack cancels, timeout fires on the plan's "to" channels; pending records persist to JSON. | core/escalation/escalation.go:46 |
-| Incident Ledger | Alert episode record | Open/acked/resolved lifecycle per alert episode, keyed by both engine group key and caller alert id. | core/incident/incident.go:49 |
+| Notification Service | Pipeline orchestrator | Rules → routing → template render → dedup → digest/feed projection → enqueue; the one Process() path. | core/service/notification.go:98 |
+| Delivery Store | Lifecycle state machine | Accepted/queued/delivering/retrying/delivered/failed/dead per task, with retry progression. | core/deliverystore/deliverystore.go:16 |
+| Log Store | Factual event log | One row per task's send/result/duration/error; status is the event outcome, not the lifecycle. | core/logstore/logstore.go:24 |
+| Retryer | Retry policy | Exponential/fixed backoff over classified errors; async Defer re-enqueues with a stamped NextRetryAt. | core/retry/retryer.go:101 |
+| Limiter | Per-provider rate limit | Token-bucket limiter attached to a provider instance, waited on before every Deliver. | core/limiter/limiter.go:10 |
+| Error Class | Provider error vocabulary | Temporary/permanent/rate_limited/authentication/invalid_request/timeout; retry decides from it alone. | core/errclass/errclass.go:13 |
+| Ack Store | Acknowledgement records | Alert-id keyed acknowledgements consulted by escalation before it fires. | core/ack/ack.go:27 |
+| Escalation Manager | Ack-gated upgrade | Arms a timeout on rule delivery; ack cancels, timeout fires on the plan's "to" channels; pending records persist to JSON. | core/escalation/escalation.go:55 |
+| Incident Ledger | Alert episode record | Open/acked/resolved lifecycle per alert episode, keyed by both engine group key and caller alert id. | core/incident/incident.go:26 |
 | Digest Aggregator | Window fold | Collects low-frequency events per audience×category×mode into daily/weekly windows; flips emit one summary. | core/digest/digest.go:128 |
-| Leader Lock | Multi-instance lease | Redis SET NX PX lease that makes digest flip and reconcile sweeps run once per fleet round. | core/digest/lock.go:14 |
+| Leader Lock | Multi-instance lease | Redis SET NX PX lease that makes digest flip and reconcile sweeps run once per fleet round. | core/digest/lock.go:19 |
 | Feeds Store | RSS pull projection | Stores rss-classified deliveries as feed items; public and token-private feeds render them. | core/feeds/store.go |
-| Surface Registry | Contact-surface table | Audience×channel handles with pending/active/invalid lifecycle and one-time binding tokens. | core/audience/surfaces.go:33 |
-| Relation Registry | Subscription table | Audience×category×channel entitlements (subscription vs enrollment) with policy rights and audit. | core/audience/relations.go:40 |
-| Audience Manager | user: resolution | Named audiences/recipients; "user:" refs expand to provider endpoints. | core/audience/audience.go:44 |
-| Group Manager | group: resolution | Named delivery audiences; "group:" refs expand to members (single-level). | core/groups/groups.go:13 |
+| Surface Registry | Contact-surface table | Audience×channel handles with pending/active/invalid lifecycle and one-time binding tokens. | core/audience/surfaces.go:114 |
+| Relation Registry | Subscription table | Audience×category×channel entitlements (subscription vs enrollment) with policy rights and audit. | core/audience/relations.go:88 |
+| Audience Manager | user: resolution | Named audiences/recipients; "user:" refs expand to provider endpoints. | core/audience/audience.go:77 |
+| Group Manager | group: resolution | Named delivery audiences; "group:" refs expand to members (single-level). | core/groups/groups.go:45 |
 | Roster Manager | Duty roster | Externally pushed absolute time periods that a rule's silence can name as its schedule. | core/roster/roster.go |
 | Source Adapter | Platform entry points | Bot/公众号 callbacks and in-app actions that converge follow/unfollow onto the registries. | core/audience/sources.go |
-| Reconciler | External-state sweep | Periodically probes active surfaces; dead handles go invalid and their subscriptions terminate. | core/audience/reconcile.go:30 |
+| Reconciler | External-state sweep | Periodically probes active surfaces; dead handles go invalid and their subscriptions terminate. | core/audience/reconcile.go:46 |
 | Delivery Policy | Intensity×urgency×mode | L0–L5 channel intensity, category urgency and fixed/escalation/parallel mode planning. | core/audience/intensity.go |
 | Preference Registry | §7 frequency table | Per-audience×category×channel realtime/daily/weekly/none choice with the silence floor. | core/audience/preferences.go |
-| Delivery Filter | §14 intersection | Target ∩ relation permission ∩ active contact surface, checked per audience/channel/category. | core/audience/filter.go:13 |
-| Audit Trail | §12 event stream | Relation/surface changes and dedup folds in one store, filtered apart at read time. | core/audit/audit.go:16 |
-| Apps Registry | §13.1 integration namespaces | App-token auth with config/trigger/query scopes; namespace-scoped categories, policies, templates. | core/apps/apps.go:13 |
-| Callback Provider | §13.5 webhook callback | Posts signed delivery-result/unsubscribe events through the same queue→worker pipeline. | core/callback/provider.go:15 |
-| WebSocket Server | Management channel | Remote worker register/heartbeat/ack/event over WebSocket, with origin and token checks. | core/websocket/server.go:55 |
-| Worker SDK | Remote worker client | Client that registers via WebSocket and consumes queue tasks; embedded mode skips the control plane. | worker-sdk/go/client.go:21 |
-| Apps SDK | Integrator client | Typed Go client for the §13 faces (categories/policies/templates/dispatch/events/query). | apps-sdk/go/faces.go:10 |
-| Auth | Operator authentication | API key + JWT session + bcrypt admin login, with per-client login rate limiting. | core/auth/auth.go:27 |
-| Credential Store | SQLite credential persistence | Dashboard-minted API keys (hash + masked prefix) and rotated password hashes. | internal/store/store.go:10 |
-| Metrics Sampler | Process sampling | CPU/RSS/goroutines/online workers into a bounded ring for dashboard trend charts. | core/metrics/metrics.go:27 |
-| HTTP Client | Shared transport | Timeout/connection-pool HTTP client plus pinned-IP dialing and retry classification helpers. | core/httpclient/client.go:30 |
+| Delivery Filter | §14 intersection | Target ∩ relation permission ∩ active contact surface, checked per audience/channel/category. | core/audience/filter.go:8 |
+| Audit Trail | §12 event stream | Relation/surface changes and dedup folds in one store, filtered apart at read time. | core/audit/audit.go:52 |
+| Apps Registry | §13.1 integration namespaces | App-token auth with config/trigger/query scopes; namespace-scoped categories, policies, templates. | core/apps/apps.go:158 |
+| Callback Provider | §13.5 webhook callback | Posts signed delivery-result/unsubscribe events through the same queue→worker pipeline. | core/callback/provider.go:27 |
+| WebSocket Server | Management channel | Remote worker register/heartbeat/ack/event over WebSocket, with origin and token checks. | core/websocket/server.go:93 |
+| Worker SDK | Remote worker client | Client that registers via WebSocket and consumes queue tasks; embedded mode skips the control plane. | worker-sdk/go/client.go:30 |
+| Apps SDK | Integrator client | Typed Go client for the §13 faces (categories/policies/templates/dispatch/events/query). | apps-sdk/go/client.go:19 |
+| Auth | Operator authentication | API key + JWT session + bcrypt admin login, with per-client login rate limiting. | core/auth/auth.go:23 |
+| Credential Store | SQLite credential persistence | Dashboard-minted API keys (hash + masked prefix) and rotated password hashes. | internal/store/store.go:37 |
+| Metrics Sampler | Process sampling | CPU/RSS/goroutines/online workers into a bounded ring for dashboard trend charts. | core/metrics/metrics.go:46 |
+| HTTP Client | Shared transport | Timeout/connection-pool HTTP client plus pinned-IP dialing and retry classification helpers. | core/httpclient/client.go:56 |
 | Config Schema | Startup configuration | YAML config struct, env expansion, defaults and validation; provider schema map. | config/config.go:56 |
-| Protocol | Wire messages | Worker↔core register/heartbeat/dispatch/ack/event messages with typed envelope. | protocol/message.go:19 |
-| CLI Entry | Process composition | `heraldd serve`/`worker` builds queue, router, runtime, stores, API and WebSocket, then runs to signal. | cmd/heralld/main.go:100 |
-| Library Facade | Embedded App | Zero-config embeddable dispatcher composing the same components for in-process use. | herald.go:34 |
+| Protocol | Wire messages | Worker↔core register/heartbeat/dispatch/ack/event messages with typed envelope. | protocol/message.go:20 |
+| CLI Entry | Process composition | `heraldd serve`/`worker` builds queue, router, runtime, stores, API and WebSocket, then runs to signal. | cmd/heraldd/main.go:79 |
+| Library Facade | Embedded App | Zero-config embeddable dispatcher composing the same components for in-process use. | herald.go:49 |
 | Dashboard | Operator UI | React SPA (Vite + TS) talking to the REST API; state in a single store module. | dashboard/src/stores/herald.ts |
 | Docs Site | VitePress documentation | English docs at docs/, Chinese mirror at docs/zh/; sidebar per section. | docs/.vitepress/config.mts:1 |
 
@@ -71,18 +71,18 @@
 ### 2.1 Composition / Entry Layer
 
 - **Implementation:** `cmd/heraldd/main.go` (serve + worker commands), `herald.go` (embedded `App` facade).
-- **Config schema:** `config/config.go` (`Config` at :56; sub-schemas `ServerConfig` :164, `WebSocketConfig` :172, `AuthConfig` :201, `ProviderConfig` :229, `QueueConfig` :245, `DedupConfig` :287, `DigestConfig` :303, `FeedsConfig` :330, `SourcesConfig` :350, `DeliveryConfig` :28, `RulesStateConfig` :154).
+- **Config schema:** `config/config.go` (`Config` at :56; sub-schemas `ServerConfig` :166, `WebSocketConfig` :174, `AuthConfig` :203, `ProviderConfig` :231, `QueueConfig` :247, `DedupConfig` :289, `DigestConfig` :305, `FeedsConfig` :332, `SourcesConfig` :352, `DeliveryConfig` :28, `RulesStateConfig` :156).
 - **Protocol files:** `protocol/message.go` (worker↔core wire types), shared by `worker-sdk` and `core/websocket`.
 - **Copy:** docs site `docs/` (English) + `docs/zh/` (Chinese mirror); `docs/guide/configuration.md` documents the YAML schema.
-- **Lifecycle:** `serveCmd` (cmd/heraldd/main.go:100) loads+validates config, builds queue/router/runtime/stores/rules/groups/audiences/rosters/registry/pool, wires the API and WebSocket servers, starts all goroutines, blocks on SIGINT/SIGTERM, then shuts down in reverse order (:665-720). `workerCmd` (:731) starts a remote worker: shared queue only, then `runRemoteWorkerControlPlane` (:829).
+- **Lifecycle:** `serveCmd` (cmd/heraldd/main.go:79) loads+validates config, then `assembleServe` (cmd/heraldd/serve.go:89) builds queue/router/runtime/stores/rules/groups/audiences/rosters/registry/pool and wires the API and WebSocket servers; `serveDeps.start` (serve.go:617) starts all goroutines. `serveCmd` blocks on SIGINT/SIGTERM, then `serveDeps.shutdown` (serve.go:667) stops them in reverse order. `workerCmd` (main.go:140) starts a remote worker: shared queue only, then `runRemoteWorkerControlPlane` (main.go:238).
 
 ### 2.2 HTTP / API Layer
 
-- **Implementation:** `api/server.go` (`NewServer` :141, route table :268-363), `api/handler.go` and `api/handler_*.go` per resource (notify, logs, deliveries, providers, templates, rules, groups, audiences, rosters, incidents, feeds, apps, sources, callbacks, workers, keys, overview, metrics).
-- **Config schema:** `api.Config` (api/server.go:47) — all wiring dependencies are injected, not loaded.
+- **Implementation:** `api/server.go` (`NewServer` :143, route table :270-365), `api/handler.go` and `api/handler_*.go` per resource (notify, logs, deliveries, providers, templates, rules, groups, audiences, rosters, incidents, feeds, apps, sources, callbacks, workers, keys, overview, metrics).
+- **Config schema:** `api.Config` (api/server.go:64) — all wiring dependencies are injected, not loaded.
 - **Protocol files:** `docs/api/openapi.yaml` (OpenAPI 3 spec); `docs/api/rest.md` + `docs/api/apps.md` document endpoints.
 - **Copy:** `docs/api/` (English); the Chinese mirror lives at `docs/zh/api/`.
-- **Lifecycle:** HTTP server bound in `NewServer`; `Start` (api/server.go:407) runs `ListenAndServe`; `Shutdown` (:423) drains it. Auth middleware (`withAuth`/`withApp`) guards the protected endpoints.
+- **Lifecycle:** HTTP server bound in `NewServer`; `Start` (api/server.go:409) runs `ListenAndServe`; `Shutdown` (:425) drains it. Auth middleware (`withAuth`/`withApp`) guards the protected endpoints.
 
 ### 2.3 Delivery Pipeline Layer
 
@@ -98,7 +98,7 @@
 - **Config schema:** `routes`, `level_routes`, `channels` in `config.Config`; `rules: []rules.Rule`; `rules_store`, `rules_default_policy`, `rules_state`.
 - **Protocol files:** none.
 - **Copy:** `docs/design-rule-engine.md`, `docs/architecture/core-design.md`.
-- **Lifecycle:** engine holds compiled rules in list order; store (memory/file) reloads on `Reload`; state store (memory/redis) persists for-window/group/inhibit across restarts.
+- **Lifecycle:** engine holds compiled rules with the live table kept ordered by `Rule.Priority` (`sortRulesLocked`, core/rules/engine.go:341 — higher first, ties keep insertion order); store (memory/file) reloads on `Reload`; state store (memory/redis) persists for-window/group/inhibit across restarts.
 
 ### 2.5 Dedup / Fold Layer
 
@@ -114,7 +114,7 @@
 - **Config schema:** `templates: map[string]template.TemplateConfig`.
 - **Protocol files:** none.
 - **Copy:** `docs/guide/templates.md`, `docs/architecture/templates.md`.
-- **Lifecycle:** in-memory registry; templates parsed lazily and cached by content hash (engine.go:24-40).
+- **Lifecycle:** in-memory registry; templates parsed lazily and cached by content hash (engine.go:45-60).
 
 ### 2.7 Queue / Worker Layer
 
@@ -127,7 +127,7 @@
 ### 2.8 Runtime / Provider Layer
 
 - **Implementation:** `core/runtime/manager.go` (registry+delivery), `core/provider.go` (Provider/Factory interfaces), `providers/builtin/registry/registry.go` (20 builtin factories), `providers/builtin/*` (concrete channels).
-- **Config schema:** `providers: map[string]ProviderConfig` (type, config, enabled, rate_limit); the type→field schema map lives at `core/runtime/manager.go:64-84`.
+- **Config schema:** `providers: map[string]ProviderConfig` (type, config, enabled, rate_limit); the type→field schema map lives at `core/runtime/manager.go:50-69`.
 - **Protocol files:** none (providers are HTTP/SDK adapters); worker runtime uses `protocol/message.go`.
 - **Copy:** `docs/runtime/builtin.md`, `docs/providers/overview.md`, `docs/providers/*.md`.
 - **Lifecycle:** `RegisterFactory`/`RegisterProvider` at startup; `Deliver`/`DeliverOnce` (sync vs async re-enqueue); `settle` (:558) maps outcome to delivery store + log store; `Close` (:632) closes all providers.
@@ -170,7 +170,7 @@
 - **Config schema:** `metrics` block (sample interval, retention).
 - **Protocol files:** none; API exposes `/api/v1/logs`, `/deliveries`, `/metrics/history`, `/audit`.
 - **Copy:** `docs/architecture/coverage.md`, `docs/runtime/overview.md`.
-- **Lifecycle:** sampler goroutine started by `newMetricsSampler` (cmd/heraldd/main.go:706), stopped on shutdown; log/delivery/audit stores are bounded in-memory rings.
+- **Lifecycle:** sampler goroutine started by `newMetricsSampler` (cmd/heraldd/main.go:118), stopped on shutdown; log/delivery/audit stores are bounded in-memory rings.
 
 ### 2.14 Worker Control-Plane / SDK Layer
 
@@ -198,23 +198,23 @@
 
 ## 3. Why These Layers Exist (Evidence)
 
-1. **One canonical pipeline path.** `NotificationService.Process` (core/service/notification.go:233) is the only place rules→routing→render→dedup→digest/feed→enqueue runs, so every entry (HTTP notify, app dispatch, digest flush, escalation, recovery) inherits identical semantics; splitting routing from delivery is explicit (core/service/planner.go, `expandRefs` at notification.go:644).
-2. **Delivery state is separate from factual logging.** `deliverystore` owns the accepted/queued/delivering/retrying/delivered/failed/dead lifecycle (core/deliverystore/deliverystore.go:13), while `logstore` records only the event outcome (core/logstore/logstore.go:17); `runtime.settle` writes them independently (core/runtime/manager.go:558) so "dead vs failed" never leaks into the log vocabulary.
-3. **Retry is policy, not provider logic.** `core/errclass` defines six classes (core/errclass/errclass.go:14) and `core/retry` decides purely from that vocabulary (core/retry/retryer.go:29 `isRetryable`), so no provider ever owns backoff; `Retry-After` advice is honoured with a cap (retryer.go:203).
-4. **Queue is an interface with two backends.** `core.Queue` (core/types.go:169) plus optional `Scheduler` (core/types.go:184) let memory (core/queue/memory.go) and Redis Streams (core/queue/redis.go) swap without touching the worker; the pool selects async re-enqueue by capability (core/worker/pool.go:31).
-5. **Runtime registry decouples provider identity from config.** `Manager` holds factories and instances separately (core/runtime/manager.go:27), so a config provider name never collides with a builtin factory and `ReplaceProvider` can hot-swap an instance (manager.go:710).
-6. **Rules are compiled once, evaluated cheaply.** `compileExpr` is the only expression→program path (core/rules/engine.go:79), with AST guard, node cap and a 2s timeout (engine.go:46-66); the engine holds compiled rules in list order (engine.go:291) so priority is structural, not a sort at eval time.
-7. **Stateful rule semantics have a swappable store.** `StateStore` (core/rules/state.go:20) is memory by default and Redis for multi-instance (`NewRedisStateStore`, core/rules/state_redis.go:22), so for-window/group/inhibit judgements survive restarts; rule definitions themselves persist via `Store` (core/rules/store.go:13) as memory or atomic JSON file (core/rules/file.go:19).
-8. **Dedup is a four-stage ladder under one lock.** `Gate.Decide` (core/dedup/gate.go:146) runs idempotency → state machine → frequency tier → delivery and keeps a fold ledger, all FIFO-capped (gate.go:46), so the audit row can expand "this ×N" without unbounded memory.
-9. **Audience identity is two registries, not one.** Contact surfaces (core/audience/surfaces.go:33) and relations (core/audience/relations.go:40) are separate because a handle can exist without an entitlement and vice-versa; `Filter` (core/audience/filter.go:13) intersects them at send time in §14 order.
-10. **Pull channels are not providers.** `rss` classifies as L0 intensity (core/audience/intensity.go:13) and the service projects rss-classified deliveries into `feeds.Store` instead of enqueueing a provider task (core/service/notification.go:612), so readers pull on their own cadence.
-11. **Digest and reconcile share one leader lease.** `digest.LeaderLock` (core/digest/lock.go:14) is a Redis SET NX PX lease that the flip loop (cmd/heraldd/main.go:641) and reconcile loop (cmd/heraldd/main.go:683) both use, so a fleet flips/sweeps exactly once per round without per-feature lock code.
-12. **Escalation is time-driven, not event-driven.** Pending upgrades persist to JSON and are restored on restart (core/escalation/escalation.go:46), because the whole point is to act when nobody acks; the ack store is a separate interface (core/ack/ack.go:17) so escalation consults it before firing.
+1. **One canonical pipeline path.** `NotificationService.Process` (core/service/notification.go:233) is the only place rules→routing→render→dedup→digest/feed→enqueue runs, so every entry (HTTP notify, app dispatch, digest flush, escalation, recovery) inherits identical semantics; splitting routing from delivery is explicit (core/service/planner.go, `expandRefs` at core/service/refs.go:26).
+2. **Delivery state is separate from factual logging.** `deliverystore` owns the accepted/queued/delivering/retrying/delivered/failed/dead lifecycle (core/deliverystore/deliverystore.go:16), while `logstore` records only the event outcome (core/logstore/logstore.go:24); `runtime.settle` writes them independently (core/runtime/manager.go:558) so "dead vs failed" never leaks into the log vocabulary.
+3. **Retry is policy, not provider logic.** `core/errclass` defines six classes (core/errclass/errclass.go:13) and `core/retry` decides purely from that vocabulary (core/retry/retryer.go:37 `isRetryable`), so no provider ever owns backoff; `Retry-After` advice is honoured with a cap (retryer.go:196).
+4. **Queue is an interface with two backends.** `core.Queue` (core/types.go:169) plus optional `Scheduler` (core/types.go:189) let memory (core/queue/memory.go) and Redis Streams (core/queue/redis.go) swap without touching the worker; the pool selects async re-enqueue by capability (core/worker/pool.go:31).
+5. **Runtime registry decouples provider identity from config.** `Manager` holds factories and instances separately (core/runtime/manager.go:20), so a config provider name never collides with a builtin factory and `ReplaceProvider` can hot-swap an instance (manager.go:710).
+6. **Rules are compiled once, evaluated cheaply.** `compileExpr` is the only expression→program path (core/rules/engine.go:79), with AST guard, node cap and a 2s timeout (engine.go:45-66). Priority comes from `Rule.Priority` (core/rules/rule.go:113), not from list position: `sortRulesLocked` (core/rules/engine.go:341) re-sorts the live table by priority — higher first, ties keeping insertion order — on every write (Put/Delete paths, engine.go:399/:405/:464), so evaluation walks an already-ordered table and never sorts.
+7. **Stateful rule semantics have a swappable store.** `StateStore` (core/rules/state.go:26) is memory by default and Redis for multi-instance (`NewRedisStateStore`, core/rules/state_redis.go:21), so for-window/group/inhibit judgements survive restarts; rule definitions themselves persist via `Store` (core/rules/store.go:14) as memory or atomic JSON file (core/rules/file.go:25).
+8. **Dedup is a four-stage ladder under one lock.** `Gate.Decide` (core/dedup/gate.go:173) runs idempotency → state machine → frequency tier → delivery and keeps a fold ledger, all FIFO-capped (gate.go:87), so the audit row can expand "this ×N" without unbounded memory.
+9. **Audience identity is two registries, not one.** Contact surfaces (core/audience/surfaces.go:114) and relations (core/audience/relations.go:88) are separate because a handle can exist without an entitlement and vice-versa; `Filter` (core/audience/filter.go:8) intersects them at send time in §14 order.
+10. **Pull channels are not providers.** `rss` classifies as L0 intensity (core/audience/intensity.go:13) and the service projects rss-classified deliveries into `feeds.Store` instead of enqueueing a provider task (core/service/enqueue.go:29), so readers pull on their own cadence.
+11. **Digest and reconcile share one leader lease.** `digest.LeaderLock` (core/digest/lock.go:19) is a Redis SET NX PX lease that the flip loop (cmd/heraldd/serve.go:643) and reconcile loop (cmd/heraldd/main.go:450, started at serve.go:658) both use, so a fleet flips/sweeps exactly once per round without per-feature lock code.
+12. **Escalation is time-driven, not event-driven.** Pending upgrades persist to JSON and are restored on restart (core/escalation/escalation.go:55), because the whole point is to act when nobody acks; the ack store is a separate interface (core/ack/ack.go:27) so escalation consults it before firing.
 13. **Provider errors are classified once at the edge.** `httpclient` wraps HTTP 408/429/5xx as retryable (core/httpclient/client.go) and provider code uses `errclass.New`, so the retry layer never inspects provider internals.
-14. **Webhook callbacks ride the delivery pipeline.** `callback.Emitter` (core/callback/emitter.go:22) turns settled deliveries and unsubscribes into signed events enqueued as normal tasks (core/callback/provider.go:15), giving callbacks the same retry budget and at-least-once semantics as any delivery.
-15. **The worker control plane is one protocol.** `protocol/message.go` (protocol/message.go:19) is the only wire contract between core and remote workers; the server (core/websocket/server.go:55) and SDK (worker-sdk/go/client.go:21) both import it, so a message change is a compile-time break on both sides.
-16. **Credential persistence is behind an interface.** `core/auth` depends on `PasswordStore`/`APIKeyHashes` (core/auth/auth.go:48-59) and `internal/store` implements them over SQLite (internal/store/store.go:10), keeping the auth package free of the sqlite dependency.
-17. **Config is validated at startup, never clamped.** `config.Validate` (config/config.go:630) refuses unparseable tiers/windows and bad bindings; `expandRefs` and `Gate.tierFor` degrade only for callers that skipped validation (core/dedup/gate.go:104), so a bad config fails loudly instead of silently re-grading.
-18. **The embedded facade reuses the same composition.** `herald.App` (herald.go:34) builds queue/router/runtime/service/pool exactly like `serveCmd` (cmd/heraldd/main.go:100), so library and CLI behavior cannot drift.
+14. **Webhook callbacks ride the delivery pipeline.** `callback.Emitter` (core/callback/emitter.go:34) turns settled deliveries and unsubscribes into signed events enqueued as normal tasks (core/callback/provider.go:27), giving callbacks the same retry budget and at-least-once semantics as any delivery.
+15. **The worker control plane is one protocol.** `protocol/message.go` (protocol/message.go:20) is the only wire contract between core and remote workers; the server (core/websocket/server.go:93) and SDK (worker-sdk/go/client.go:30) both import it, so a message change is a compile-time break on both sides.
+16. **Credential persistence is behind an interface.** `core/auth` depends on `PasswordStore`/`APIKeyHashes` (core/auth/auth.go:46-59) and `internal/store` implements them over SQLite (internal/store/store.go:37), keeping the auth package free of the sqlite dependency.
+17. **Config is validated at startup, never clamped.** `config.Validate` (config/config.go:632) refuses unparseable tiers/windows and bad bindings; `expandRefs` and `Gate.tierFor` degrade only for callers that skipped validation (core/dedup/gate.go:140), so a bad config fails loudly instead of silently re-grading.
+18. **The embedded facade reuses the same composition.** `herald.App` (herald.go:49) builds queue/router/runtime/service/pool exactly like `serveCmd` (cmd/heraldd/main.go:79), so library and CLI behavior cannot drift.
 19. **The dashboard is a pure API client.** `dashboard/src/stores/herald.ts` holds all state and `dashboard/src/api/index.ts` the HTTP calls; pages never touch transport details, so the frontend can be replaced without changing the REST contract.
 20. **Docs are split by language and section.** English lives at `docs/` and the Chinese mirror at `docs/zh/` (docs/.vitepress/config.mts:1), so each audience gets a stable path; architecture/runtime/api/guide/providers each have their own sidebar section.

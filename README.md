@@ -124,7 +124,8 @@ opkg install herald-nightly-openwrt-app-meta.ipk   # optional; pulls the rest
 ```
 
 The service installs disabled. Turn it on in LuCI under Services → Herald
-通知编排 (or `uci set herald.general.enabled='1' && uci commit herald &&
+通知 (the settings page itself is titled 通知编排; or
+`uci set herald.general.enabled='1' && uci commit herald &&
 /etc/init.d/herald start`). Two configuration modes:
 
 - **Simple** (default): UCI renders the config on every start — HTTP
@@ -173,6 +174,7 @@ set +a
 ./bin/heraldd serve --config config.yaml
 
 # Start a remote worker (for distributed deployments)
+# worker.yaml is your own file — sample in docs/guide/deployment.md
 ./bin/heraldd worker --config worker.yaml
 
 # Start the Dashboard (in another terminal)
@@ -182,7 +184,8 @@ make dashboard-dev
 The Dashboard login uses `auth.admin_user` from `config.yaml` — the sample
 config maps `admin` to `$HERALD_ADMIN_PASSWORD`, so export a real password in
 `.env` (see `.env.example`) before starting. Without it, `/auth/login` has no
-account to authenticate against and the Dashboard cannot sign in.
+account to authenticate against and the Dashboard cannot sign in
+(`/api/v1/auth/login`).
 
 ### Open the Dashboard
 
@@ -190,7 +193,7 @@ account to authenticate against and the Dashboard cannot sign in.
 http://localhost:3000
 ```
 
-After signing in, the sidebar exposes these pages: Dashboard, Providers, notification rules, notification groups, on-call rosters, the incident ledger, Workers, logs, delivery records, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
+After signing in, the sidebar exposes these pages: Dashboard, Providers, Audiences, notification templates, notification rules, notification groups, integration apps, RSS feeds, on-call rosters, the incident ledger, Workers, logs, delivery records, API keys, settings, and send message. Notification rules and notification groups back the full CRUD for the rule engine and named audiences, and they are the main entry point for configuring routes and rerouting. The Dashboard **compiles the expression on save** — an invalid expression is rejected on the spot instead of surfacing at dispatch time.
 
 ## Usage
 
@@ -233,7 +236,9 @@ curl http://localhost:8080/api/v1/status
 ### Check Providers
 
 ```bash
-curl http://localhost:8080/api/v1/providers
+# /api/v1/providers sits behind auth (unlike /api/v1/status): send the key
+curl http://localhost:8080/api/v1/providers \
+  -H "Authorization: Bearer $HERALD_API_KEY"
 ```
 
 ## Architecture
@@ -412,7 +417,7 @@ Full documentation is at [docs/](./docs/)
 - [Events and alert model](./docs/guide/events.md) (level vocabularies, dedup and idempotency, at-least-once delivery guarantees)
 - [App integration API](./docs/api/apps.md) (per-endpoint reference for the `/apps/{app}/**` namespace) · [OpenAPI spec](./docs/api/openapi.yaml) (SDK code generation)
 - [Configuration guide](./docs/guide/configuration.md) (rule engine, notification groups, audiences and contact surfaces, Digest, queues, and the full provider configuration reference)
-- [Provider docs](./docs/providers/overview.md) (one page per channel: Telegram / Feishu / WeChat Work / DingTalk / Slack / Discord / WeChat Push / WeChat Official / Aliyun SMS / Tencent SMS / NetEase SMS / Email / FCM / APNs / JPush / Getui / Webhook / Log, plus the [SMS comparison](./docs/providers/sms.md))
+- [Provider docs](./docs/providers/overview.md) (one page per channel: Telegram / Feishu / WeChat Work / DingTalk / Slack / Discord / WeChat Push / WeChat Official / Aliyun SMS / Tencent SMS / NetEase SMS / Email / FCM / APNs / Bark / JPush / Getui / Webhook / Log, plus the [SMS comparison](./docs/providers/sms.md))
 - [Audience domain model (overview)](./docs/design-audience-model.md) · [Audience subscription & delivery hub (detailed design)](./docs/design-audience-relations.md) · [Concept boundaries and layered audit](./docs/design-audience-boundaries.md)
 - [Rule engine decision-layer design](./docs/design-rule-engine.md) · [Notification groups design](./docs/design-notification-groups.md)
 
@@ -445,7 +450,7 @@ Herald is built on open-source components; the core external dependencies are li
 - [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) - configuration file parsing
 - The Dashboard is built on React + Ant Design (bundled with Vite); the docs site is based on VitePress
 
-The routing, rule engine, queue abstraction, templates, and the business code of the 18 channel providers are implemented in this repository.
+The routing, rule engine, queue abstraction, templates, and the business code of the 19 channel providers are implemented in this repository.
 
 ## License
 
