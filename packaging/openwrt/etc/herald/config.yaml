@@ -1,0 +1,63 @@
+# Herald full configuration (herald package, /etc/herald/config.yaml).
+#
+# This file is the advanced-mode config: set herald.general.mode=advanced
+# (LuCI 设置页或 uci set) and heraldd runs directly on it. Package upgrades
+# never overwrite it (conffile); the LuCI settings page has an editor for
+# it that only writes when you save.
+#
+# It ships runnable-but-inert: loopback bind, auth off, log provider only.
+# Fill credentials yourself (LuCI or SSH) — nothing is embedded in the
+# package. The full field reference lives in the docs
+# (https://cuihairu.github.io/herald, guide/configuration).
+
+server:
+  addr: "127.0.0.1:8080"
+
+auth:
+  enabled: false
+  # For a LAN/public bind turn auth on and set a real key (herald refuses
+  # to start auth-disabled on a non-loopback address):
+  # enabled: true
+  # api_keys:
+  #   "your-api-key": "operator"
+  store_path: "/etc/herald/store.db"
+
+providers:
+  log:
+    type: log
+    enabled: true
+    config:
+      name: "herald"
+  telegram:
+    type: telegram
+    enabled: false
+    config:
+      token: ""
+      chat_id: ""
+
+routes:
+  error:
+    - log
+  warning:
+    - log
+  info:
+    - log
+
+queue:
+  type: memory
+  size: 10000
+  timeout: 5s
+
+retry:
+  max: 3
+  backoff: exponential
+  initial_delay: 1s
+  max_delay: 1m
+
+dedup:
+  enabled: true
+  window: 5m
+
+websocket:
+  # Worker channel; keep loopback unless you also set auth_token.
+  addr: "127.0.0.1:8081"

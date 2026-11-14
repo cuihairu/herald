@@ -1,0 +1,38 @@
+# Herald UCI configuration (herald package, /etc/config/herald).
+#
+# Simple mode (mode=simple) renders /var/etc/herald-config.yaml from these
+# sections on every start; UCI is the single source of truth, the same model
+# as OpenWrt-native services. The rendered config covers the operational
+# surface (HTTP bind, credential store, Telegram channel) and routes every
+# level through the log provider plus Telegram when enabled — anything
+# beyond that (providers, rules, templates, feeds, ...) belongs in the full
+# config.yaml via the escape hatch:
+#
+# Advanced mode (mode=advanced) starts heraldd directly on the full config
+# file /etc/herald/config.yaml (a conffile: package upgrades never clobber
+# it). The LuCI settings page carries a round-trip editor for that file.
+#
+# Both modes default to disabled — flip general.enabled to start.
+
+config general 'general'
+	option enabled '0'
+	# simple = render config from UCI, advanced = run on config_path as-is.
+	option mode 'simple'
+	# HTTP bind (dashboard + API). Loopback keeps auth optional; a
+	# non-loopback bind requires an api_key (herald refuses to start
+	# auth-disabled on a public address — the init pre-checks the same rule).
+	option http_addr '127.0.0.1'
+	option http_port '8080'
+	# SQLite credential store (dashboard-minted api keys survive restarts).
+	option db_path '/etc/herald/store.db'
+	# Dashboard/admin API key (needed exactly when http_addr is non-loopback).
+	option api_key ''
+	# Name the log provider stamps notifications with.
+	option log_name 'herald'
+	# Full config file used by advanced mode (conffile).
+	option config_path '/etc/herald/config.yaml'
+
+config telegram 'telegram'
+	option enabled '0'
+	option token ''
+	option chat_id ''

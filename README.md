@@ -107,6 +107,38 @@ vim .env
 docker-compose up -d herald
 ```
 
+### OpenWrt / iStoreOS (opkg)
+
+The rolling nightly release ships three `.ipk` packages per architecture
+(x86_64 and aarch64): `herald-nightly-openwrt-<arch>.ipk` (static heraldd
+binary, procd init script, UCI config and the default full config),
+`herald-nightly-openwrt-luci-app.ipk` (LuCI settings + status pages) and
+`herald-nightly-openwrt-app-meta.ipk` (iStore metadata; installing it pulls
+the other two via dependencies):
+
+```bash
+opkg install herald-nightly-openwrt-<arch>.ipk
+opkg install herald-nightly-openwrt-luci-app.ipk
+opkg install herald-nightly-openwrt-app-meta.ipk   # optional; pulls the rest
+```
+
+The service installs disabled. Turn it on in LuCI under Services → Herald
+通知编排 (or `uci set herald.general.enabled='1' && uci commit herald &&
+/etc/init.d/herald start`). Two configuration modes:
+
+- **Simple** (default): UCI renders the config on every start — HTTP
+  bind/port, SQLite credential store, API key, and a minimal Telegram
+  channel (token + chat id). All levels route to the log provider plus
+  Telegram when enabled.
+- **Advanced**: heraldd runs directly on `/etc/herald/config.yaml` (a
+  conffile: package upgrades never overwrite it). The LuCI settings page
+  carries a round-trip editor for the full config surface — providers,
+  rules, templates, feeds and everything else.
+
+Credentials are never embedded in the package: all fields ship empty. A
+non-loopback HTTP bind requires an API key (the service refuses to start
+otherwise — the same fail-closed rule heraldd enforces from config.yaml).
+
 ### Run Locally
 
 ```bash

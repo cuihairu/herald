@@ -107,6 +107,35 @@ vim .env
 docker-compose up -d herald
 ```
 
+### OpenWrt / iStoreOS (opkg)
+
+滚动 nightly 构建为每种架构（x86_64 / aarch64）提供三个 `.ipk` 包：
+`herald-nightly-openwrt-<arch>.ipk`（静态 heraldd 二进制、procd init、UCI
+配置与默认完整配置）、`herald-nightly-openwrt-luci-app.ipk`（LuCI 设置 +
+状态页）与 `herald-nightly-openwrt-app-meta.ipk`（iStore 元数据；安装它经
+依赖拉起前两个）：
+
+```bash
+opkg install herald-nightly-openwrt-<arch>.ipk
+opkg install herald-nightly-openwrt-luci-app.ipk
+opkg install herald-nightly-openwrt-app-meta.ipk   # 可选；依赖自动拉齐
+```
+
+安装后服务默认不启用。在 LuCI「服务 → Herald 通知编排」打开（或
+`uci set herald.general.enabled='1' && uci commit herald &&
+/etc/init.d/herald start`）。两种配置模式：
+
+- **简单**（默认）：每次启动由 UCI 渲染配置——HTTP 绑定/端口、SQLite 凭据
+  库、API key、Telegram 通道最小字段（token + chat id）。启用 Telegram 后
+  各级别路由 log + telegram。
+- **高级**：heraldd 直接跑 `/etc/herald/config.yaml`（conffile：升级包绝不
+  覆盖）。LuCI 设置页内置 round-trip 编辑器，承载完整配置面——provider、
+  规则、模板、RSS 等全部字段。
+
+包内不内嵌任何凭据：所有字段出厂为空。HTTP 绑定非回环地址必须配置 API
+key（否则拒绝启动——与 heraldd 在 config.yaml 上强制的 fail-closed 规则
+一致）。
+
 ### 本地运行
 
 ```bash

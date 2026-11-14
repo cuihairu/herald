@@ -1,0 +1,18 @@
+#!/bin/sh
+# Idempotent post-install: state dir + service enablement. The service
+# stays disabled in UCI until the user turns it on, so enabling the init
+# link only wires boot start; nothing runs until herald.general.enabled=1.
+# The LuCI leaf dirs are pre-created here because opkg's unpacker does not
+# create missing parent directories (learned on the acceptance router:
+# view/<app>/ was absent, so status.htm failed to unpack).
+mkdir -p /etc/herald
+mkdir -p /var/lib/herald
+mkdir -p /usr/lib/lua/luci/controller
+mkdir -p /usr/lib/lua/luci/model/cbi
+mkdir -p /usr/lib/lua/luci/view/herald
+chmod 0755 /etc/herald
+[ -x /etc/init.d/herald ] && /etc/init.d/herald enable
+# Bring the service back up after an upgrade (opkg runs prerm/stop before
+# unpack). No-op while disabled in UCI.
+[ "$(uci -q get herald.general.enabled)" = "1" ] && /etc/init.d/herald start >/dev/null 2>&1
+exit 0

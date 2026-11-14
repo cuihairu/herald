@@ -1,0 +1,138 @@
+<%+header%>
+<h2><a id="content" name="content"><%:Herald 运行状态%></a></h2>
+
+<div id="herald-error" class="alert-message warning" style="display:none"></div>
+
+<div class="cbi-map">
+	<fieldset class="cbi-section">
+		<legend><%:服务状态%></legend>
+		<table class="table">
+			<tr><td><%:服务 (heraldd)%></td><td><code id="herald-state">…</code></td></tr>
+			<tr><td><%:配置模式%></td><td><code id="herald-mode">…</code></td></tr>
+			<tr><td><%:HTTP 监听%></td><td><code id="herald-addr">…</code></td></tr>
+			<tr><td><%:实时探活 (/api/v1/status)%></td><td><code id="herald-live">…</code></td></tr>
+		</table>
+	</fieldset>
+
+	<fieldset class="cbi-section">
+		<legend><%:Provider 状态%></legend>
+		<table class="table" id="herald-providers">
+			<tr><th><%:Provider%></th><th><%:类型%></th><th><%:状态%></th></tr>
+		</table>
+	</fieldset>
+
+	<fieldset class="cbi-section">
+		<legend><%:最近日志 (logread -e herald)%></legend>
+		<table class="table" id="herald-logs">
+			<tr><th><%:日志行%></th></tr>
+		</table>
+	</fieldset>
+</div>
+
+<p><%:每 10 秒自动刷新%></p>
+
+<script type="text/javascript">
+(function() {
+	var inflight = false;
+
+	function set_text(id, text) {
+		var el = document.getElementById(id);
+		if (el) el.textContent = text;
+	}
+
+	function clear_rows(id) {
+		var table = document.getElementById(id);
+		while (table.rows.length > 1) table.deleteRow(-1);
+		return table;
+	}
+
+	function add_row(id, cells) {
+		var table = document.getElementById(id);
+		var row = table.insertRow(-1);
+		for (var i = 0; i < cells.length; i++) {
+			var td = row.insertCell(-1);
+			td.textContent = cells[i];
+		}
+		return row;
+	}
+
+	function empty_row(id, message) {
+		var row = add_row(id, [message]);
+		var td = row.cells[0];
+		td.colSpan = document.getElementById(id).rows[0].cells.length;
+		td.style.color = '#888';
+	}
+
+	function state_color(state) {
+		var el = document.createElement('span');
+		el.textContent = state;
+		el.style.fontWeight = '600';
+		el.style.color = state === 'running' ? '#080' : '#c00';
+		return el;
+	}
+
+	function load() {
+		if (inflight) return;
+		inflight = true;
+		fetch('/cgi-bin/luci/admin/services/herald/api/status')
+			.then(function(r) { return r.json(); })
+			.then(function(j) {
+				var err = document.getElementById('herald-error');
+				if (j.error) {
+					err.textContent = j.error;
+					err.style.display = '';
+				} else {
+					err.style.display = 'none';
+				}
+
+				var st = document.getElementById('herald-state');
+				st.textContent = '';
+				st.appendChild(state_color(j.service && j.service.status || 'stopped'));
+				set_text('herald-mode', (j.service && j.service.mode) || '-');
+				set_text('herald-addr', (j.service && j.service.addr) || '-');
+
+				var live = document.getElementById('herald-live');
+				live.textContent = '';
+				if (j.live && j.live.status) {
+					live.appendChild(state_color(j.live.status));
+				} else {
+					var down = document.createElement('span');
+					down.textContent = 'unreachable';
+					down.style.color = '#c00';
+					live.appendChild(down);
+				}
+
+				clear_rows('herald-providers');
+				var provs = j.live && j.live.providers || [];
+				if (!provs.length) {
+					empty_row('herald-providers', '暂无 provider 数据（服务未运行或探活失败）');
+				} else {
+					provs.forEach(function(p) {
+						add_row('herald-providers', [
+							p.name || '-',
+							p.type || '-',
+							(p.enabled ? '' : '[禁用] ') + (p.status || '-')
+						]);
+					});
+				}
+
+				clear_rows('herald-logs');
+				if (!j.logs || !j.logs.length) {
+					empty_row('herald-logs', '暂无 herald 日志');
+				} else {
+					j.logs.forEach(function(line) { add_row('herald-logs', [line]); });
+				}
+			})
+			.catch(function() {
+				var err = document.getElementById('herald-error');
+				err.textContent = '无法获取状态（接口请求失败）';
+				err.style.display = '';
+			})
+			.finally(function() { inflight = false; });
+	}
+
+	load();
+	setInterval(load, 10000);
+})();
+</script>
+<%+footer%>

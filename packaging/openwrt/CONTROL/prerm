@@ -1,0 +1,4 @@
+#!/bin/sh
+# Idempotent pre-remove: stop the service (no-op when disabled/not running).
+[ -x /etc/init.d/herald ] && /etc/init.d/herald stop 2>/dev/null
+exit 0

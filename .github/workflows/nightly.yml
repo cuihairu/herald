@@ -1,0 +1,194 @@
+# Rolling nightly builds. This is NOT a formal release channel: no version
+# tag is created, and assets publish to the single rolling `nightly`
+# prerelease ONLY after the repo's own gate (full test suite + coverage gate)
+# passes. Scheduled runs skip entirely when main has no commit in the last
+# 48 hours; workflow_dispatch always builds. No versioned release is issued
+# here — versions are cut manually by the maintainer only. Asset names carry
+# no version (rolling, newest-wins); the version inside each .ipk tracks
+# `git describe --tags --always`.
+name: Nightly build
+on:
+  schedule:
+    # 04:23 Asia/Shanghai; use an off-minute to reduce scheduler contention.
+    - cron: '23 20 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+jobs:
+  # Test gate, CI-同口径 (same steps as the ci.yml test job), plus the 48h
+  # freshness gate (fleet pattern): a scheduled wake with no new commit on
+  # origin/main skips everything downstream; manual dispatch always builds.
+  # The packaging scripts get syntax/lint gates here too so a broken shell
+  # or Lua file fails the run before any binary is built.
+  gate:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    outputs:
+      fresh: ${{ steps.fresh.outputs.fresh }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: 48h freshness gate (scheduled runs only)
+        id: fresh
+        run: |
+          fresh=true
+          if [ "${{ github.event_name }}" = "schedule" ] &&
+             [ -z "$(git log -1 --since='48 hours ago' --format=%H origin/main)" ]; then
+            fresh=false
+          fi
+          echo "fresh=$fresh" >> "$GITHUB_OUTPUT"
+          echo "fresh: $fresh"
+      - name: Set up Go
+        if: steps.fresh.outputs.fresh == 'true'
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Packaging script gates
+        if: steps.fresh.outputs.fresh == 'true'
+        run: |
+          if ! command -v luac5.1 >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y lua5.1
+          fi
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y shellcheck
+          fi
+          sh -n packaging/openwrt/build-ipk.sh
+          sh -n packaging/openwrt/etc/init.d/herald
+          sh -n packaging/openwrt/CONTROL/postinst
+          sh -n packaging/openwrt/CONTROL/prerm
+          shellcheck -s sh packaging/openwrt/build-ipk.sh
+          luac5.1 -p packaging/openwrt/usr/lib/lua/luci/controller/herald.lua \
+            packaging/openwrt/usr/lib/lua/luci/model/cbi/herald.lua
+      - name: Download dependencies
+        if: steps.fresh.outputs.fresh == 'true'
+        run: go mod download
+      # Same command surface as ci.yml: -coverpkg counts every package's
+      # statements; HERALD_MAIN_COVERDIR persists each main() guard test's
+      # subprocess dump for the merge step.
+      - name: Run tests
+        if: steps.fresh.outputs.fresh == 'true'
+        run: go test -v -race -coverpkg=./... -coverprofile=coverage.out ./...
+        env:
+          HERALD_MAIN_COVERDIR: ${{ github.workspace }}/build/maincover
+      - name: Merge main() subprocess coverage
+        if: steps.fresh.outputs.fresh == 'true'
+        run: |
+          ls build/maincover/
+          python3 tools/covermerge.py coverage.out build/maincover/*.cov \
+            --expect github.com/cuihairu/herald/cmd/heraldd/main.go \
+            --expect github.com/cuihairu/herald/examples/quickstart/main.go \
+            --expect github.com/cuihairu/herald/apps-sdk/go/example/main.go \
+            --expect github.com/cuihairu/herald/worker-sdk/go/example/main.go \
+            -o coverage.merged.out
+      - name: Enforce coverage gate
+        if: steps.fresh.outputs.fresh == 'true'
+        run: python3 tools/zero_check.py coverage.merged.out --gate 100
+  # Cross-compiled static heraldd per architecture (CGO_ENABLED=0: the
+  # sqlite dependency is modernc.org/sqlite, pure Go) wrapped into the
+  # three-part .ipk set. luci-app and app-meta are arch=all, so both matrix
+  # legs build them; the publish job uploads with --clobber, so the
+  # duplicate is harmless.
+  build:
+    needs: gate
+    if: needs.gate.outputs.fresh == 'true'
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+            goarch: amd64
+            arch: x86_64
+          - runner: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+            goarch: arm64
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+        with:
+          # Full history so `git describe --tags` resolves the nearest tag
+          # for the package version.
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Download dependencies
+        run: go mod download
+      - name: Cross-compile heraldd
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} \
+            go build -trimpath -ldflags "-s -w" \
+            -o "bin/heraldd-${{ matrix.arch }}" ./cmd/heraldd
+          file "bin/heraldd-${{ matrix.arch }}"
+      - name: Build OpenWrt ipk packages
+        run: |
+          mkdir -p bin/ipk-${{ matrix.arch }} dist
+          mv "bin/heraldd-${{ matrix.arch }}" "bin/ipk-${{ matrix.arch }}/heraldd"
+          version=$(git describe --tags --always)
+          packaging/openwrt/build-ipk.sh "bin/ipk-${{ matrix.arch }}" dist \
+            --arch ${{ matrix.arch }} --version "$version"
+          # Rolling asset names: no version in the filename, newest-wins.
+          mv "dist/herald_${version}-1_${{ matrix.arch }}.ipk" \
+            "dist/herald-nightly-openwrt-${{ matrix.arch }}.ipk"
+          mv "dist/luci-app-herald_${version}-1_all.ipk" \
+            "dist/herald-nightly-openwrt-luci-app.ipk"
+          mv "dist/app-meta-herald_${version}-1_all.ipk" \
+            "dist/herald-nightly-openwrt-app-meta.ipk"
+          ls -l dist/
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nightly-openwrt-${{ matrix.arch }}
+          path: dist/*
+  publish:
+    if: github.ref == 'refs/heads/main' && needs.gate.outputs.fresh == 'true'
+    needs: [gate, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          # A single glob: download-artifact does not split a multi-line
+          # pattern, so match every nightly artifact prefix with one pattern.
+          pattern: nightly-*
+          merge-multiple: true
+          path: dist/
+      - name: Publish rolling nightly release (single release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum herald-nightly-openwrt-*.ipk > SHA256SUMS
+          cat > notes.md <<NOTES
+          Automated nightly prerelease from commit ${GITHUB_SHA}.
+          Contents: OpenWrt .ipk packages for routers/iStoreOS
+          (herald-nightly-openwrt-<arch>.ipk with the luci-app and iStore
+          metadata companions; x86_64 / aarch64, static binaries). The
+          herald package ships with all credentials empty — configure via
+          LuCI or /etc/herald/config.yaml. SHA256SUMS verifies the
+          downloaded assets. Every asset was built only after the full
+          test suite and the coverage gate passed.
+          This is NOT a stable release: nightly is a rolling build-artifact
+          channel. Versioned releases are issued manually by the maintainer
+          only. The nightly tag tracks the most recent successful build.
+          NOTES
+          if gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true
+            gh release upload nightly herald-nightly-openwrt-*.ipk SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit nightly --repo "$GITHUB_REPOSITORY" --prerelease --title 'Nightly' --notes-file notes.md
+          else
+            gh release create nightly herald-nightly-openwrt-*.ipk SHA256SUMS --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Nightly' --notes-file notes.md
+          fi
