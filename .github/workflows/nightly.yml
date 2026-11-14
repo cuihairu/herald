@@ -137,12 +137,15 @@ jobs:
           packaging/openwrt/build-ipk.sh "bin/ipk-${{ matrix.arch }}" dist \
             --arch ${{ matrix.arch }} --version "$version"
           # Rolling asset names: no version in the filename, newest-wins.
-          mv "dist/herald_${version}-1_${{ matrix.arch }}.ipk" \
-            "dist/herald-nightly-openwrt-${{ matrix.arch }}.ipk"
-          mv "dist/luci-app-herald_${version}-1_all.ipk" \
-            "dist/herald-nightly-openwrt-luci-app.ipk"
-          mv "dist/app-meta-herald_${version}-1_all.ipk" \
-            "dist/herald-nightly-openwrt-app-meta.ipk"
+          # Glob instead of exact names: build-ipk.sh sanitizes the version
+          # string (strips a leading "v"), so the shell variable and the
+          # output filename would disagree.
+          mv dist/herald_*_${{ matrix.arch }}.ipk \
+            dist/herald-nightly-openwrt-${{ matrix.arch }}.ipk
+          mv dist/luci-app-herald_*_all.ipk \
+            dist/herald-nightly-openwrt-luci-app.ipk
+          mv dist/app-meta-herald_*_all.ipk \
+            dist/herald-nightly-openwrt-app-meta.ipk
           ls -l dist/
       - uses: actions/upload-artifact@v7.0.2
         with:
