@@ -1,13 +1,11 @@
-# Herald full configuration (herald package, /etc/herald/config.yaml).
+# Herald default configuration.
 #
-# This file is the advanced-mode config: set herald.general.mode=advanced
-# (LuCI 设置页或 uci set) and heraldd runs directly on it. Package upgrades
-# never overwrite it (conffile); the LuCI settings page has an editor for
-# it that only writes when you save.
-#
-# It ships runnable-but-inert: loopback bind, auth off, log provider only.
-# Fill credentials yourself (LuCI or SSH) — nothing is embedded in the
-# package. The full field reference lives in the docs
+# Ships runnable-but-inert: loopback bind, auth off, log provider only.
+# Fill credentials yourself — nothing is embedded. On OpenWrt this file is
+# /etc/herald/config.yaml (the advanced-mode config: set
+# herald.general.mode=advanced to run heraldd on it directly; it is a
+# conffile, so package upgrades never overwrite it, and the LuCI settings
+# page has an editor for it). The full field reference lives in the docs
 # (https://cuihairu.github.io/herald, guide/configuration).
 
 server:
@@ -28,12 +26,16 @@ providers:
     enabled: true
     config:
       name: "herald"
-  telegram:
-    type: telegram
-    enabled: false
-    config:
-      token: ""
-      chat_id: ""
+  # Do NOT add a disabled provider stanza here: herald still constructs
+  # disabled providers through their factory, so an empty-token telegram
+  # block would crash startup (procd respawn loop). To enable a channel,
+  # add its block with enabled: true AND real credentials, e.g.
+  # telegram:
+  #   type: telegram
+  #   enabled: true
+  #   config:
+  #     token: "123456:ABC..."
+  #     chat_id: "123456789"
 
 routes:
   error:
