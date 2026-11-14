@@ -43,10 +43,15 @@ http://your-host:8080/api/v1
 | POST | /providers/{name}/disable | 禁用 Provider |
 | GET  | /config/{name} | 查询 Provider 配置（敏感值脱敏） |
 | PUT  | /config/{name} | 更新 Provider 配置 |
+| GET / POST | /keys | API key 列表 / 创建（仪表盘密钥管理；需 Bearer） |
+| DELETE | /keys/{id} | 吊销 API key |
+| GET  | /overview | 仪表盘总览快照（provider 启用/总数、队列深度、24h 投递成功/失败/成功率与覆盖窗、worker 在线/总数） |
+| GET  | /metrics/history | 进程指标历史（`?window=<时长>`；cpu/rss/goroutines/workers 采样） |
 | GET  | /workers | 查询已连接的 Workers |
 | GET  | /queue | 查询队列深度 |
 | GET  | /logs | 查询投递日志（事实事件：结果/耗时/错误码） |
 | GET  | /logs/stats | 投递日志统计 |
+| GET  | /logs/timeseries | 发送量时间序列（`?window=&bucket=`；bucket 按窗口大小取默认） |
 | GET  | /logs/{id} | 查询单条投递日志 |
 | GET  | /deliveries | 查询投递状态机（生命周期/重试演进） |
 | GET  | /deliveries/stats | 投递状态统计 |
@@ -90,6 +95,7 @@ http://your-host:8080/api/v1
 
 | 方法 | 路径 | 权限 | 描述 |
 | --- | --- | --- | --- |
+| GET | /apps | operator | 已配置集成命名空间的排序列表（走管理 token，不走 app token 门；未配置时 503） |
 | GET | /apps/{app} | query | 自检：回显 token 权限集 |
 | GET / POST | /apps/{app}/categories | query / config | 品类列表 / 注册品类（含默认紧急度） |
 | GET | /apps/{app}/policies | query | 读策略覆盖（未设置读回空对象） |
@@ -111,6 +117,7 @@ http://your-host:8080/api/v1
 | --- | --- | --- |
 | GET | /feeds/{name} | 公共 feed（每品类一个，只含无受众引用的公开内容） |
 | GET | /feeds/private/{name} | 私密 feed（按受众 rss_token 寻址，token 重置即失效；token 读取路径见 [surfaces 读口](/api/rest#audience-surfaces)） |
+| GET | /api/v1/feeds | 仪表盘 RSS 页的 feed 索引（公共 + 私密条目含最近预览；需 Bearer） |
 
 规则、群组、值班表、告警与事件端点依赖对应组件已配置（如 `rules:`、`groups_store`、
 `rosters_store`），未配置时这些端点返回 503。

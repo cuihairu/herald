@@ -53,10 +53,15 @@ When authentication is not enabled, domain 1 is entirely anonymously usable
 | POST | /providers/{name}/disable | Disable a Provider |
 | GET  | /config/{name} | Query Provider configuration (sensitive values masked) |
 | PUT  | /config/{name} | Update Provider configuration |
+| GET / POST | /keys | API key list / create (dashboard key management; Bearer required) |
+| DELETE | /keys/{id} | Revoke an API key |
+| GET  | /overview | Dashboard overview snapshot (providers enabled/total, queue depth, 24h delivery success/failed/success-rate with coverage window, workers online/total) |
+| GET  | /metrics/history | Process metrics history (`?window=<duration>`; cpu/rss/goroutines/workers samples) |
 | GET  | /workers | Query connected Workers |
 | GET  | /queue | Query queue depth |
 | GET  | /logs | Query delivery logs (fact events: result/duration/error code) |
 | GET  | /logs/stats | Delivery log statistics |
+| GET  | /logs/timeseries | Send-volume time series (`?window=&bucket=`; bucket defaults by window size) |
 | GET  | /logs/{id} | Query a single delivery log |
 | GET  | /deliveries | Query the delivery state machine (lifecycle/retry evolution) |
 | GET  | /deliveries/stats | Delivery state statistics |
@@ -101,6 +106,7 @@ namespace isolated; an unseeded app name uniformly returns 401):
 
 | Method | Path | Permission | Description |
 | --- | --- | --- | --- |
+| GET | /apps | operator | Sorted list of configured integration namespaces (behind the operator token, not the app-token gate; 503 when no apps are configured) |
 | GET | /apps/{app} | query | Self-check: echoes the token's permission set |
 | GET / POST | /apps/{app}/categories | query / config | Category list / register a category (with default Urgency) |
 | GET | /apps/{app}/policies | query | Read policy overrides (reads back an empty object when unset) |
@@ -123,6 +129,7 @@ surface):
 | --- | --- | --- |
 | GET | /feeds/{name} | Public feed (one per category; contains only public content with no audience references) |
 | GET | /feeds/private/{name} | Private feed (addressed by the audience's rss_token; invalidated on token reset; the token read path is in the [surfaces read surface](/api/rest#audience-surfaces)) |
+| GET | /api/v1/feeds | Feed index for the dashboard RSS page (public + private entries with recent previews; Bearer required) |
 
 The rules, groups, rosters, alerts, and incidents endpoints depend on their
 corresponding components being configured (e.g. `rules:`, `groups_store`,
