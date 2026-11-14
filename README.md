@@ -139,6 +139,24 @@ Credentials are never embedded in the package: all fields ship empty. A
 non-loopback HTTP bind requires an API key (the service refuses to start
 otherwise — the same fail-closed rule heraldd enforces from config.yaml).
 
+### Native binaries (Linux / Windows / macOS)
+
+The rolling nightly release also ships plain heraldd binaries for generic
+hosts: `herald-nightly-linux-<arch>.tar.gz` (x86_64 / aarch64),
+`herald-nightly-windows-x86_64.zip` and `herald-nightly-macos-<arch>.tar.gz`
+(arm64 / x86_64). Each archive carries `heraldd`, a runnable-but-inert
+`config.yaml` (loopback bind, auth off, log provider only), the LICENSE and
+this README:
+
+```bash
+tar xzf herald-nightly-linux-x86_64.tar.gz   # or unzip the Windows zip
+heraldd serve --config config.yaml
+```
+
+Liveness: `curl http://127.0.0.1:8080/api/v1/status`. A non-loopback bind
+still requires `auth.enabled: true` plus a real API key (fail-closed).
+Verify downloads against `SHA256SUMS` on the release page.
+
 ### Run Locally
 
 ```bash

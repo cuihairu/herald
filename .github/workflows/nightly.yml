@@ -147,13 +147,275 @@ jobs:
           mv dist/app-meta-herald_*_all.ipk \
             dist/herald-nightly-openwrt-app-meta.ipk
           ls -l dist/
+      # Generic Linux tarball alongside the ipk set: flat layout
+      # (heraldd config.yaml LICENSE README.md), rolling asset name.
+      - name: Package Linux binary tarball
+        run: |
+          mkdir -p dist/linux
+          cp "bin/ipk-${{ matrix.arch }}/heraldd" dist/linux/heraldd
+          # Shared default config: the OpenWrt advanced-mode file is the
+          # same runnable-but-inert config (loopback, auth off, log only).
+          cp packaging/openwrt/etc/herald/config.yaml dist/linux/config.yaml
+          cp LICENSE README.md dist/linux/
+          tar czf "dist/herald-nightly-linux-${{ matrix.arch }}.tar.gz" \
+            -C dist/linux heraldd config.yaml LICENSE README.md
+      - name: Smoke test Linux binary
+        run: |
+          mkdir -p dist/linux-smoke
+          tar xzf "dist/herald-nightly-linux-${{ matrix.arch }}.tar.gz" -C dist/linux-smoke
+          cd dist/linux-smoke
+          # Usage surface: no args prints usage and exits 1 (expected).
+          out=$(./heraldd 2>&1 || true)
+          case "$out" in
+            *"Usage: heraldd"*) ;;
+            *) echo "$out"; exit 1 ;;
+          esac
+          # Live serve smoke on a cold port pair. arm64 runs under
+          # qemu-user (the binary is fully static, pure Go).
+          qemu=""
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq qemu-user-static >/dev/null
+            qemu="qemu-aarch64-static"
+          fi
+          cat > smoke-config.yaml <<'YAML'
+          server:
+            addr: "127.0.0.1:18793"
+          store_path: "./smoke-store.db"
+          auth:
+            enabled: false
+          providers:
+            log:
+              type: log
+              enabled: true
+              config:
+                name: "herald"
+          routes:
+            error:
+              - log
+            warning:
+              - log
+            info:
+              - log
+          queue:
+            type: memory
+          websocket:
+            addr: "127.0.0.1:18794"
+          YAML
+          $qemu ./heraldd serve -c smoke-config.yaml > serve.log 2>&1 &
+          pid=$!
+          ok=""
+          for _ in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:18793/api/v1/status | grep -q '"status":"running"'; then
+              ok=1
+              break
+            fi
+            sleep 0.5
+          done
+          kill $pid 2>/dev/null || true
+          if [ -z "$ok" ]; then
+            echo "liveness smoke failed (${{ matrix.arch }})"
+            cat serve.log
+            exit 1
+          fi
+          echo "serve smoke ok (${{ matrix.arch }})"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: nightly-openwrt-${{ matrix.arch }}
           path: dist/*
+  # Windows native build on a Windows runner: smoke tests run the real exe
+  # (usage surface, then live serve + liveness endpoint), not just a PE
+  # header check.
+  build-windows:
+    needs: gate
+    if: needs.gate.outputs.fresh == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Download dependencies
+        run: go mod download
+      - name: Build heraldd.exe
+        run: |
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags "-s -w" -o bin/heraldd.exe ./cmd/heraldd
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item bin/heraldd.exe dist/
+          Copy-Item packaging/openwrt/etc/herald/config.yaml dist/config.yaml
+          Copy-Item LICENSE dist/
+          Copy-Item README.md dist/
+          Compress-Archive -Path dist/heraldd.exe, dist/config.yaml, dist/LICENSE, dist/README.md `
+            -DestinationPath dist/herald-nightly-windows-x86_64.zip -Force
+          Remove-Item dist/heraldd.exe, dist/config.yaml, dist/LICENSE, dist/README.md
+      - name: Smoke test heraldd.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive dist/herald-nightly-windows-x86_64.zip -DestinationPath smoke
+          Set-Location smoke
+          $out = (& .\heraldd.exe 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 1 -or -not $out.Contains('Usage: heraldd')) {
+            Write-Host $out
+            exit 1
+          }
+          $cfg = @'
+          server:
+            addr: "127.0.0.1:18793"
+          store_path: "./smoke-store.db"
+          auth:
+            enabled: false
+          providers:
+            log:
+              type: log
+              enabled: true
+              config:
+                name: "herald"
+          routes:
+            error:
+              - log
+            warning:
+              - log
+            info:
+              - log
+          queue:
+            type: memory
+          websocket:
+            addr: "127.0.0.1:18794"
+          '@
+          Set-Content -Path smoke-config.yaml -Value $cfg -Encoding utf8NoBOM
+          $p = Start-Process -FilePath .\heraldd.exe `
+            -ArgumentList 'serve','-c','smoke-config.yaml' `
+            -PassThru -NoNewWindow `
+            -RedirectStandardOutput serve.log -RedirectStandardError serve-err.log
+          $ok = $false
+          foreach ($i in 1..40) {
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -Uri http://127.0.0.1:18793/api/v1/status -TimeoutSec 2
+              if ($r.Content -like '*"status":"running"*') { $ok = $true; break }
+            } catch {
+              Start-Sleep -Milliseconds 500
+            }
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) {
+            Get-Content serve.log
+            Get-Content serve-err.log
+            exit 1
+          }
+          Write-Host 'serve smoke ok (windows x86_64)'
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nightly-windows-x86_64
+          path: dist/*
+  # macOS build on an arm64 runner; x86_64 is cross-compiled and smoked
+  # under Rosetta 2 (installed first — not part of the runner image).
+  build-macos:
+    needs: gate
+    if: needs.gate.outputs.fresh == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Download dependencies
+        run: go mod download
+      - name: Build and package macOS tarballs
+        run: |
+          mkdir -p dist
+          # Asset names use the Apple arch terms (arm64 / x86_64); the Go
+          # GOARCH name for x86_64 is amd64.
+          for arch in arm64 x86_64; do
+            goarch=$([ "$arch" = arm64 ] && echo arm64 || echo amd64)
+            mkdir -p "pkg-$arch"
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$goarch \
+              go build -trimpath -ldflags "-s -w" -o "pkg-$arch/heraldd" ./cmd/heraldd
+            file "pkg-$arch/heraldd"
+            cp packaging/openwrt/etc/herald/config.yaml "pkg-$arch/config.yaml"
+            cp LICENSE README.md "pkg-$arch/"
+            tar czf "dist/herald-nightly-macos-$arch.tar.gz" \
+              -C "pkg-$arch" heraldd config.yaml LICENSE README.md
+          done
+          ls -l dist/
+      - name: Smoke test macOS binaries
+        run: |
+          softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+          for arch in arm64 x86_64; do
+            mkdir -p "smoke-$arch"
+            tar xzf "dist/herald-nightly-macos-$arch.tar.gz" -C "smoke-$arch"
+            cd "smoke-$arch"
+            out=$(./heraldd 2>&1 || true)
+            case "$out" in
+              *"Usage: heraldd"*) ;;
+              *) echo "$out"; exit 1 ;;
+            esac
+            # printf instead of a heredoc: inside the for loop every line
+            # carries indentation, and a heredoc terminator must be
+            # flush-left, which a YAML block scalar cannot provide.
+            printf '%s\n' \
+              'server:' \
+              '  addr: "127.0.0.1:18793"' \
+              'store_path: "./smoke-store.db"' \
+              'auth:' \
+              '  enabled: false' \
+              'providers:' \
+              '  log:' \
+              '    type: log' \
+              '    enabled: true' \
+              '    config:' \
+              '      name: "herald"' \
+              'routes:' \
+              '  error:' \
+              '    - log' \
+              '  warning:' \
+              '    - log' \
+              '  info:' \
+              '    - log' \
+              'queue:' \
+              '  type: memory' \
+              'websocket:' \
+              '  addr: "127.0.0.1:18794"' \
+              > smoke-config.yaml
+            ./heraldd serve -c smoke-config.yaml > serve.log 2>&1 &
+            pid=$!
+            ok=""
+            for _ in $(seq 1 40); do
+              if curl -sf http://127.0.0.1:18793/api/v1/status | grep -q '"status":"running"'; then
+                ok=1
+                break
+              fi
+              sleep 0.5
+            done
+            kill $pid 2>/dev/null || true
+            if [ -z "$ok" ]; then
+              echo "liveness smoke failed (macos $arch)"
+              cat serve.log
+              exit 1
+            fi
+            echo "serve smoke ok (macos $arch)"
+            cd ..
+          done
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nightly-macos
+          path: dist/*
   publish:
     if: github.ref == 'refs/heads/main' && needs.gate.outputs.fresh == 'true'
-    needs: [gate, build]
+    needs: [gate, build, build-windows, build-macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -174,24 +436,35 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum herald-nightly-openwrt-*.ipk > SHA256SUMS
+          ls -l
+          sha256sum herald-nightly-* > SHA256SUMS
           cat > notes.md <<NOTES
           Automated nightly prerelease from commit ${GITHUB_SHA}.
           Contents: OpenWrt .ipk packages for routers/iStoreOS
           (herald-nightly-openwrt-<arch>.ipk with the luci-app and iStore
-          metadata companions; x86_64 / aarch64, static binaries). The
-          herald package ships with all credentials empty — configure via
-          LuCI or /etc/herald/config.yaml. SHA256SUMS verifies the
-          downloaded assets. Every asset was built only after the full
-          test suite and the coverage gate passed.
+          metadata companions; x86_64 / aarch64, static binaries) plus
+          native heraldd binaries for generic hosts: herald-nightly-linux-
+          <arch>.tar.gz (x86_64 / aarch64), herald-nightly-windows-x86_64
+          .zip and herald-nightly-macos-<arch>.tar.gz (arm64 / x86_64).
+          Each archive carries heraldd plus a runnable-but-inert
+          config.yaml (loopback bind, auth off, log provider only — fill
+          credentials yourself), the LICENSE and the README. Usage:
+          unpack, then run heraldd serve --config config.yaml. Binaries
+          were smoke-tested on their target platform (usage surface plus a
+          live serve and liveness endpoint; linux arm64 under qemu-user,
+          macOS x86_64 under Rosetta 2). The herald package ships with all
+          credentials empty — configure via LuCI, /etc/herald/config.yaml
+          or the bundled config.yaml. SHA256SUMS verifies the downloaded
+          assets. Every asset was built only after the full test suite and
+          the coverage gate passed.
           This is NOT a stable release: nightly is a rolling build-artifact
           channel. Versioned releases are issued manually by the maintainer
           only. The nightly tag tracks the most recent successful build.
           NOTES
           if gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true
-            gh release upload nightly herald-nightly-openwrt-*.ipk SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload nightly herald-nightly-* SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit nightly --repo "$GITHUB_REPOSITORY" --prerelease --title 'Nightly' --notes-file notes.md
           else
-            gh release create nightly herald-nightly-openwrt-*.ipk SHA256SUMS --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Nightly' --notes-file notes.md
+            gh release create nightly herald-nightly-* SHA256SUMS --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Nightly' --notes-file notes.md
           fi

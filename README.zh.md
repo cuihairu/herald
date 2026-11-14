@@ -136,6 +136,24 @@ opkg install herald-nightly-openwrt-app-meta.ipk   # 可选；依赖自动拉齐
 key（否则拒绝启动——与 heraldd 在 config.yaml 上强制的 fail-closed 规则
 一致）。
 
+### 通用二进制（Linux / Windows / macOS）
+
+滚动 nightly 构建同时提供通用主机的 heraldd 裸二进制：
+`herald-nightly-linux-<arch>.tar.gz`（x86_64 / aarch64）、
+`herald-nightly-windows-x86_64.zip` 与 `herald-nightly-macos-<arch>.tar.gz`
+（arm64 / x86_64）。每个包内含 `heraldd`、一份开箱可跑但休眠的
+`config.yaml`（回环绑定、关闭鉴权、仅 log provider）、LICENSE 与本
+README：
+
+```bash
+tar xzf herald-nightly-linux-x86_64.tar.gz   # Windows 用 Expand-Archive 解压
+heraldd serve --config config.yaml
+```
+
+探活：`curl http://127.0.0.1:8080/api/v1/status`。非回环绑定仍必须开启
+`auth.enabled: true` 并配置真实 API key（fail-closed）。下载后请对照
+release 页的 `SHA256SUMS` 校验。
+
 ### 本地运行
 
 ```bash
