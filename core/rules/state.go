@@ -103,8 +103,9 @@ func (m *MemoryStateStore) Delete(_ context.Context, key string) error {
 }
 
 // DeleteRule removes every entry whose key belongs to ruleID. The prefix
-// covers both state families — for windows (rule:{id}:state:*) and group
-// rounds (rule:{id}:group:*) — so a rule change drops them together.
+// covers every state family — for windows (rule:{id}:state:*), group rounds
+// (rule:{id}:group:*) and inhibit marks (rule:{id}:inhibit:*) — so a rule
+// change drops them together.
 func (m *MemoryStateStore) DeleteRule(_ context.Context, ruleID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

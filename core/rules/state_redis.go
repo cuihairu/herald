@@ -73,10 +73,15 @@ func (s *RedisStateStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// DeleteRule removes every entry belonging to ruleID via a SCAN sweep.
-// Rule changes are rare operator actions, so the sweep cost is irrelevant.
+// DeleteRule removes every entry belonging to ruleID via a SCAN sweep. The
+// pattern covers every state family of the rule — for windows
+// (rule:{id}:state:*), group rounds (rule:{id}:group:*) and inhibit marks
+// (rule:{id}:inhibit:*) — mirroring MemoryStateStore.DeleteRule, so a rule
+// change drops them together and no stale group window or inhibit verdict
+// survives the replacement. Rule changes are rare operator actions, so the
+// sweep cost is irrelevant.
 func (s *RedisStateStore) DeleteRule(ctx context.Context, ruleID string) error {
-	pattern := stateKey(ruleID, "*")
+	pattern := "rule:" + ruleID + ":*"
 	var keys []string
 	var cursor uint64
 	for {

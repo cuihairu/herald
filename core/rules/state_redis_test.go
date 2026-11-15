@@ -88,6 +88,46 @@ func TestRedisStateStoreDeleteRuleSweepsTheRule(t *testing.T) {
 	}
 }
 
+// DeleteRule must sweep every state family of the rule — for windows,
+// group rounds and inhibit marks — not just the for-window prefix, or a
+// rule change leaves stale group windows and inhibit verdicts alive in
+// Redis while the in-memory store drops them.
+func TestRedisStateStoreDeleteRuleSweepsGroupAndInhibitKeys(t *testing.T) {
+	s, _ := newTestRedisStore(t)
+	ctx := context.Background()
+	state := &RuleState{FirstSeen: time.Now(), LastSeen: time.Now()}
+
+	for _, key := range []string{
+		stateGroupKey("r2", "ga"),
+		inhibitKey("r2", "h1"),
+		stateGroupKey("r3", "ga"),
+		inhibitKey("r3", "h1"),
+		stateGroupKey("r20", "ga"),
+	} {
+		if err := s.Put(ctx, key, state, 0); err != nil {
+			t.Fatalf("Put %s: %v", key, err)
+		}
+	}
+	if err := s.DeleteRule(ctx, "r2"); err != nil {
+		t.Fatalf("DeleteRule: %v", err)
+	}
+	for _, key := range []string{stateGroupKey("r2", "ga"), inhibitKey("r2", "h1")} {
+		if got, _ := s.Get(ctx, key); got != nil {
+			t.Fatalf("%s must be swept by DeleteRule", key)
+		}
+	}
+	for _, key := range []string{stateGroupKey("r3", "ga"), inhibitKey("r3", "h1")} {
+		if got, _ := s.Get(ctx, key); got == nil {
+			t.Fatalf("%s must survive another rule's sweep", key)
+		}
+	}
+	// The sweep pattern ends at the rule id's own colon: a longer rule id
+	// that merely shares the prefix must not be caught.
+	if got, _ := s.Get(ctx, stateGroupKey("r20", "ga")); got == nil {
+		t.Fatal("a longer rule id sharing the prefix must survive the sweep")
+	}
+}
+
 func TestRedisStateStorePutRejectsNilState(t *testing.T) {
 	s, _ := newTestRedisStore(t)
 	if err := s.Put(context.Background(), "k", nil, 0); err == nil {
