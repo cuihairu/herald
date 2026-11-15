@@ -56,6 +56,27 @@ func freshConfig() *QueueConfig {
 	}
 }
 
+// xackFailHook fails only XACK, reproducing a transient Redis blip on the
+// ack alone. The failure must be real Redis traffic for the tombstone test
+// to mean anything: the settle path writes its marker through the same
+// connection that then fails to ack.
+type xackFailHook struct{ redis.Hook }
+
+func (xackFailHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if cmd.Name() == "xack" {
+			return fmt.Errorf("xack disabled for test")
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (xackFailHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (xackFailHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
 func TestRedisQueueIntegration(t *testing.T) {
 	skipWithoutRedis(t)
 
@@ -352,6 +373,77 @@ func TestRedisQueueIntegration(t *testing.T) {
 			t.Error("claimed task must be tracked for Ack/Nack")
 		}
 	})
+}
+
+// TestRedisQueueIntegrationSettledNackSurvivesFailedAck drives the whole
+// tombstone path through real Redis traffic: a terminal Nack whose XAck is
+// refused still has to stay a settled verdict, so neither this consumer nor
+// another one's crash sweep may deliver the task a second time.
+func TestRedisQueueIntegrationSettledNackSurvivesFailedAck(t *testing.T) {
+	skipWithoutRedis(t)
+
+	config := freshConfig()
+	ctx := context.Background()
+
+	qa, err := NewRedisQueue(config)
+	if err != nil {
+		t.Fatalf("failed to create queue A: %v", err)
+	}
+	defer qa.Close()
+	rqa := qa.(*redisQueue)
+
+	// The task leaves the stream behind one consumer's own verdict.
+	task := &core.DeliveryTask{ID: "task-settled", Provider: "email"}
+	if err := qa.Push(ctx, task); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	popped, err := qa.Pop(ctx)
+	if err != nil || popped == nil {
+		t.Fatalf("pop: %+v / %v", popped, err)
+	}
+
+	// Redis refuses exactly the ack: the terminal verdict must survive as a
+	// tombstone rather than being silently retried.
+	rqa.client.AddHook(xackFailHook{})
+	if err := qa.Nack(ctx, popped.ID, fmt.Errorf("provider disabled")); err == nil {
+		t.Fatal("expected the failed settle ack to surface")
+	}
+	// The hook stays armed: it poisons only consumer A's connection, and
+	// consumer B below opens a separate client.
+	marker := rqa.settledKey(task.ID)
+	if got, err := rqa.client.Exists(ctx, marker).Result(); err != nil {
+		t.Fatalf("exists marker: %v", err)
+	} else if got == 0 {
+		t.Fatal("expected the settled tombstone to survive the failed ack")
+	}
+
+	// A second consumer on the same group sweeps the still-pending entry.
+	// With the tombstone it must settle the entry, never redeliver.
+	qb, err := NewRedisQueue(config)
+	if err != nil {
+		t.Fatalf("failed to create queue B: %v", err)
+	}
+	defer qb.Close()
+
+	prev := redisClaimMinIdle
+	redisClaimMinIdle = 0
+	defer func() { redisClaimMinIdle = prev }()
+
+	if got, err := qb.Pop(ctx); err == nil {
+		t.Fatalf("expected the settled task to be dropped, got %+v", got)
+	}
+	if _, err := qb.(*redisQueue).client.Get(ctx, marker).Result(); err != redis.Nil {
+		t.Errorf("expected the tombstone to be consumed by the claim, got %v", err)
+	}
+
+	// The claim path must not have poisoned the stream for real work.
+	if err := qb.Push(ctx, &core.DeliveryTask{ID: "task-followup", Provider: "email"}); err != nil {
+		t.Fatalf("push follow-up: %v", err)
+	}
+	got, err := qb.Pop(ctx)
+	if err != nil || got == nil || got.ID != "task-followup" {
+		t.Errorf("expected the follow-up task, got %+v / %v", got, err)
+	}
 }
 
 func TestRedisQueueDefaultConfig(t *testing.T) {

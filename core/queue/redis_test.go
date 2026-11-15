@@ -41,6 +41,7 @@ type fakeRedis struct {
 	seq     int
 	groups  map[string]int
 	zsets   map[string][]fakeZEntry
+	strings map[string]string // SET/GET/DEL key space (the tombstone marker)
 
 	failXGroup bool
 	failXAdd   bool
@@ -58,6 +59,11 @@ type fakeRedis struct {
 	// failXRead makes XREADGROUP error (not the redis.Nil empty reply —
 	// a hard failure on the read itself).
 	failXRead bool
+	// failSet makes SET error (the tombstone write itself).
+	failSet bool
+	// failGet makes GET report a hard error rather than redis.Nil — a
+	// flaky connection on the marker read.
+	failGet bool
 
 	// holdXRead, when non-nil, makes the fake delay its XREADGROUP reply
 	// until the channel is closed, so a test can cancel the caller's context
@@ -79,11 +85,12 @@ func newFakeRedis(t *testing.T) *fakeRedis {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	f := &fakeRedis{
-		t:      t,
-		ln:     ln,
-		conns:  make(map[net.Conn]struct{}),
-		groups: make(map[string]int),
-		zsets:  make(map[string][]fakeZEntry),
+		t:       t,
+		ln:      ln,
+		conns:   make(map[net.Conn]struct{}),
+		groups:  make(map[string]int),
+		zsets:   make(map[string][]fakeZEntry),
+		strings: make(map[string]string),
 	}
 	t.Cleanup(f.stop)
 	go f.acceptLoop()
@@ -256,6 +263,12 @@ func (f *fakeRedis) handle(w *bufio.Writer, args []string) error {
 		return f.handleZRange(w, args)
 	case "zrem":
 		return f.handleZRem(w, args)
+	case "set":
+		return f.handleSet(w, args)
+	case "get":
+		return f.handleGet(w, args)
+	case "del":
+		return f.handleDel(w, args)
 	default:
 		writeError(w, "ERR unknown command '"+args[0]+"'")
 	}
@@ -574,6 +587,74 @@ func (f *fakeRedis) handleZRem(w *bufio.Writer, args []string) error {
 	}
 	writeInt(w, 0)
 	return nil
+}
+
+func (f *fakeRedis) handleSet(w *bufio.Writer, args []string) error {
+	// SET key value [EX seconds]
+	if len(args) != 3 && len(args) != 5 {
+		writeError(w, "ERR bad SET")
+		return nil
+	}
+	f.mu.Lock()
+	fail := f.failSet
+	f.mu.Unlock()
+	if fail {
+		writeError(w, "ERR SET failed")
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.strings[args[1]] = args[2]
+	writeSimple(w, "OK")
+	return nil
+}
+
+func (f *fakeRedis) handleGet(w *bufio.Writer, args []string) error {
+	// GET key
+	if len(args) != 2 {
+		writeError(w, "ERR bad GET")
+		return nil
+	}
+	f.mu.Lock()
+	fail := f.failGet
+	v, ok := f.strings[args[1]]
+	f.mu.Unlock()
+	if fail {
+		writeError(w, "ERR GET failed")
+		return nil
+	}
+	if !ok {
+		// Nil bulk string: the key is absent (go-redis surfaces redis.Nil).
+		_, _ = w.WriteString("$-1\r\n")
+		return nil
+	}
+	writeBulk(w, v)
+	return nil
+}
+
+func (f *fakeRedis) handleDel(w *bufio.Writer, args []string) error {
+	// DEL key [key...]
+	if len(args) < 2 {
+		writeError(w, "ERR bad DEL")
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	removed := 0
+	for _, k := range args[1:] {
+		if _, ok := f.strings[k]; ok {
+			delete(f.strings, k)
+			removed++
+		}
+	}
+	writeInt(w, removed)
+	return nil
+}
+
+func (f *fakeRedis) getString(key string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.strings[key]
 }
 
 func (f *fakeRedis) addRaw(values ...string) {
@@ -935,6 +1016,11 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		if got := q.Size(); got != 1 {
 			t.Errorf("expected stream size 1 after settle, got %d", got)
 		}
+		// A healthy settle cleans its tombstone up: nothing must be left
+		// for a later claim to trip over.
+		if got := q.(*redisQueue).settledKey("task-1"); fr.getString(got) != "" {
+			t.Errorf("expected no tombstone after a clean settle, got %q", fr.getString(got))
+		}
 	})
 
 	t.Run("dead task nack settles without requeue", func(t *testing.T) {
@@ -1019,6 +1105,111 @@ func TestRedisQueueNackWithServer(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "failed to ack settled message") {
 			t.Errorf("expected settle ack error, got %v", err)
+		}
+	})
+
+	t.Run("terminal nack survives transient ack failure", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		rq := q.(*redisQueue)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		// The settle ack blips: the marker is already on disk, so the
+		// verdict stays durable even though Nack reports the failure.
+		fr.setFailFlags(false, false, true, false)
+		if err := q.Nack(ctx, popped.ID, fmt.Errorf("provider disabled")); err == nil {
+			t.Fatal("expected settle ack error, got nil")
+		}
+		marker := rq.settledKey("task-1")
+		if got := fr.getString(marker); got == "" {
+			t.Fatal("expected the settled tombstone to survive the failed ack")
+		}
+
+		// Another consumer's crash sweep re-claims the still-pending entry
+		// while the ack is still broken: the tombstone must make this a
+		// settle, not a second delivery, and the marker must stay put so a
+		// later sweep (after Redis recovers) can clear the entry.
+		data, err := json.Marshal(&core.DeliveryTask{ID: "task-1", Provider: "email"})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		fr.claimEntries = []fakeEntry{{id: "1-1", values: []string{"task_id", "task-1", "data", string(data)}}}
+
+		if _, err := q.Pop(ctx); err == nil {
+			t.Fatal("expected pop to drop the settled task, got a redelivery")
+		}
+		if got := fr.getString(marker); got == "" {
+			t.Error("expected the tombstone to survive while the claim ack is broken")
+		}
+
+		// Once Redis recovers the next claim settles the entry and cleans
+		// the marker.
+		fr.setFailFlags(false, false, false, false)
+		fr.claimEntries = []fakeEntry{{id: "1-1", values: []string{"task_id", "task-1", "data", string(data)}}}
+		if _, err := q.Pop(ctx); err == nil {
+			t.Fatal("expected pop to drop the settled task, got a redelivery")
+		}
+		if got := fr.getString(marker); got != "" {
+			t.Errorf("expected the tombstone to be consumed by the claim, got %q", got)
+		}
+
+		// With no tombstone at all the sweep delivers as usual: an absent
+		// marker must never turn an orphan into a silent drop.
+		fr.claimEntries = []fakeEntry{{id: "1-1", values: []string{"task_id", "task-1", "data", string(data)}}}
+		got, err := q.Pop(ctx)
+		if err != nil || got == nil || got.ID != "task-1" {
+			t.Fatalf("expected the unmarked delivery to be claimed, got %+v / %v", got, err)
+		}
+	})
+
+	// The tombstone write is the whole guarantee: when it cannot happen the
+	// settle must fail loudly rather than ack a verdict nobody recorded.
+	t.Run("terminal nack reports a failed tombstone write", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		rq := q.(*redisQueue)
+		ctx := context.Background()
+
+		_ = q.Push(ctx, &core.DeliveryTask{ID: "task-1", Provider: "email"})
+		popped, _ := q.Pop(ctx)
+
+		fr.failSet = true
+		err := q.Nack(ctx, popped.ID, fmt.Errorf("provider disabled"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to mark settled message") {
+			t.Errorf("expected tombstone write error, got %v", err)
+		}
+		if got := fr.getString(rq.settledKey("task-1")); got != "" {
+			t.Errorf("expected no tombstone after a failed write, got %q", got)
+		}
+	})
+
+	// A failed marker read is fail-closed: the sweep must not deliver
+	// through a flaky connection, and must not track the task either.
+	t.Run("claim retries when the tombstone read fails", func(t *testing.T) {
+		fr := newFakeRedis(t)
+		q := newTestRedisQueue(t, fr)
+		rq := q.(*redisQueue)
+		ctx := context.Background()
+
+		task := &core.DeliveryTask{ID: "task-claim", Provider: "email"}
+		data, err := json.Marshal(task)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		fr.claimEntries = []fakeEntry{{id: "1-1", values: []string{"task_id", task.ID, "data", string(data)}}}
+		fr.failGet = true
+
+		if got, err := q.Pop(ctx); err == nil {
+			t.Fatalf("expected the failed marker read to withhold delivery, got %+v", got)
+		}
+		if _, tracked := rq.pending[task.ID]; tracked {
+			t.Error("expected the unclaimed delivery to stay untracked")
 		}
 	})
 

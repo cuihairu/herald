@@ -2,6 +2,8 @@ package queue
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -187,6 +189,20 @@ func (q *redisQueue) moveDueScheduled(ctx context.Context) error {
 // variable so tests can shorten it.
 var redisClaimMinIdle = 60 * time.Second
 
+// settledTTL bounds how long a terminal-nack tombstone survives in Redis. It
+// only has to outlive the transient ack failure it guards against (the claim
+// sweep retries on every idle Pop), a day is far beyond that, and it keeps
+// an abandoned marker finite rather than permanent.
+var settledTTL = 24 * time.Hour
+
+// settledKey is the tombstone key marking a task whose terminal Nack could
+// not ack its pending entry. The task id is hashed so arbitrary caller
+// task-id shapes stay safe as key suffixes.
+func (q *redisQueue) settledKey(taskID string) string {
+	sum := sha1.Sum([]byte(taskID))
+	return q.stream + ":settled:" + hex.EncodeToString(sum[:])
+}
+
 // Pop takes the next task off the stream. It first reads new messages; a
 // blocked XREADGROUP (2s window) does not hold q.mu — only the closed check
 // and the pending-map update are locked, so a Push or another worker's Pop is
@@ -259,7 +275,33 @@ func (q *redisQueue) claimOrphaned(ctx context.Context) (*core.DeliveryTask, err
 	if len(msgs) == 0 {
 		return nil, nil
 	}
-	return q.decodeAndTrack(msgs[0])
+	return q.claimOrDrop(ctx, msgs[0])
+}
+
+// claimOrDrop delivers a re-claimed message, unless it carries a settled
+// tombstone: then the previous consumer's terminal verdict was durable but
+// its ack failed, and this consumer acks the pending entry instead of
+// delivering the task a second time. A failed marker read reports the
+// error, so the sweep retries on the next idle Pop rather than risking a
+// duplicate delivery through a flaky connection.
+func (q *redisQueue) claimOrDrop(ctx context.Context, msg redis.XMessage) (*core.DeliveryTask, error) {
+	if data, ok := msg.Values["data"].(string); ok {
+		var probe core.DeliveryTask
+		if err := json.Unmarshal([]byte(data), &probe); err == nil {
+			marker := q.settledKey(probe.ID)
+			_, err := q.client.Get(ctx, marker).Result()
+			if err == nil {
+				if ackErr := q.client.XAck(ctx, q.stream, q.group, msg.ID).Err(); ackErr == nil {
+					_ = q.client.Del(ctx, marker).Err()
+				}
+				return nil, nil
+			}
+			if err != redis.Nil {
+				return nil, err
+			}
+		}
+	}
+	return q.decodeAndTrack(msg)
 }
 
 func (q *redisQueue) Ack(ctx context.Context, taskID string) error {
@@ -323,8 +365,8 @@ func (q *redisQueue) Nack(ctx context.Context, taskID string, reason error) erro
 	// can never succeed would loop it through the stream forever, hammering
 	// the dead provider and the queue.
 	if !requeueWorthy(reason) {
-		if err := q.client.XAck(ctx, q.stream, q.group, streamID).Err(); err != nil {
-			return fmt.Errorf("failed to ack settled message: %w", err)
+		if err := q.settleTerminal(ctx, taskID, streamID); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -354,6 +396,26 @@ func (q *redisQueue) Nack(ctx context.Context, taskID string, reason error) erro
 		return fmt.Errorf("failed to ack nacked message: %w", err)
 	}
 
+	return nil
+}
+
+// settleTerminal makes a terminal nack idempotent. The tombstone is written
+// before the ack: if the XAck then fails (a transient Redis error), the
+// entry survives in the consumer group's pending list, and any later
+// re-claim — this or another consumer's claimOrphaned XAUTOCLAIM — finds
+// the marker, acks the entry, and drops it. A settled verdict must not turn
+// into a second delivery just because one ack call blipped.
+func (q *redisQueue) settleTerminal(ctx context.Context, taskID, streamID string) error {
+	marker := q.settledKey(taskID)
+	if err := q.client.Set(ctx, marker, streamID, settledTTL).Err(); err != nil {
+		return fmt.Errorf("failed to mark settled message: %w", err)
+	}
+	if err := q.client.XAck(ctx, q.stream, q.group, streamID).Err(); err != nil {
+		return fmt.Errorf("failed to ack settled message: %w", err)
+	}
+	// The entry is gone from the pending list, so the marker has no reader
+	// left; a failed cleanup only costs the TTL-bounded key.
+	_ = q.client.Del(ctx, marker).Err()
 	return nil
 }
 
