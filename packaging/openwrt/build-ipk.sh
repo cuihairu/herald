@@ -72,6 +72,10 @@ case "$VERSION" in
 	[0-9]*) ;;
 	*) VERSION=$(printf '%s' "$VERSION" | sed 's/^v//' | sed 's/^[^0-9]*//') ;;
 esac
+# A bare lightweight tag (e.g. the rolling `nightly` tag sitting on HEAD)
+# sanitizes to the empty string; fall back to the short commit sha so the
+# package version always resolves.
+[ -n "$VERSION" ] || VERSION=$(git rev-parse --short HEAD 2>/dev/null)
 [ -n "$VERSION" ] || die "cannot derive a package version"
 REL="${VERSION}-1"
 [ -n "$REL_OVERRIDE" ] && REL="${VERSION}-${REL_OVERRIDE}"
